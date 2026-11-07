@@ -60,8 +60,11 @@ check: fmt-check lint generate-check mod-check race vuln web-check desktop-check
 fmt-check:
 	$(MISE) golangci-lint fmt --diff
 
+# CI runs on Linux, so go vet with GOOS=darwin also compiles the macOS-only
+# code, such as the menu-bar icon.
 lint:
 	$(MISE) golangci-lint run ./...
+	CGO_ENABLED=0 GOOS=darwin $(MISE) go vet ./...
 
 generate-check:
 	$(MISE) sqlc diff

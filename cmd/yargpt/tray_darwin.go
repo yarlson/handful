@@ -23,8 +23,9 @@ var trayIcon []byte
 func init() { runtime.LockOSThread() }
 
 const (
-	accessoryActivationPolicy = 1    // NSApplicationActivationPolicyAccessory: no Dock icon
-	variableStatusItemLength  = -1.0 // NSVariableStatusItemLength
+	accessoryActivationPolicy = 1                       // NSApplicationActivationPolicyAccessory: no Dock icon
+	variableStatusItemLength  = -1.0                    // NSVariableStatusItemLength
+	userInitiatedActivity     = 0x00FFFFFF &^ (1 << 20) // NSActivityUserInitiatedAllowingIdleSystemSleep
 )
 
 // runWithTray shows the menu-bar icon and runs serve. AppKit's run loop keeps
@@ -52,6 +53,11 @@ func addTrayIcon(onExit func()) (objc.ID, error) {
 
 	app := class("NSApplication").Send(sel("sharedApplication"))
 	app.Send(sel("setActivationPolicy:"), accessoryActivationPolicy)
+	// macOS can give App Nap to an app without windows, which slows its timers
+	// and lowers its priority. The server must run bots at full speed.
+	class("NSProcessInfo").Send(sel("processInfo")).
+		Send(sel("beginActivityWithOptions:reason:"), userInitiatedActivity, nsString("YarGPT runs bots")).
+		Send(sel("retain"))
 
 	target, err := objc.RegisterClass("YarGPTTrayTarget", objc.GetClass("NSObject"), nil, nil, []objc.MethodDef{{
 		Cmd: sel("exitServer:"),

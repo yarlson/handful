@@ -39,6 +39,7 @@ type options struct {
 	settings
 	loginEnv   bool
 	logFile    string
+	tray       bool
 	set        map[string]bool // flags given on the command line
 	claudePath string
 }
@@ -50,7 +51,11 @@ func run(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return serve(ctx, o, log)
+	serveUntil := func(ctx context.Context) error { return serve(ctx, o, log) }
+	if o.tray {
+		return runWithTray(ctx, serveUntil)
+	}
+	return serveUntil(ctx)
 }
 
 // setUp parses the flags and prepares the process: the log file, the
@@ -107,6 +112,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.Model, "model", "", "model alias for every bot (default: Claude Code's default)")
 	fs.IntVar(&o.MaxParallel, "max-parallel", 3, "turns that may run at once across all bots")
 	fs.BoolVar(&o.loginEnv, "login-env", false, "take the environment, such as PATH, from the user's login shell (launchd starts the server with a minimal PATH)")
+	fs.BoolVar(&o.tray, "tray", false, "show a menu-bar icon whose Exit server item stops the server (macOS)")
 	fs.StringVar(&o.logFile, "log", "", "append the log and all other error output to this file; ~/ is the home directory")
 	// ExitOnError: Parse exits on -h or a bad flag, as flag.Parse does.
 	_ = fs.Parse(args)

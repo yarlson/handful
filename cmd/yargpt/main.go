@@ -22,7 +22,7 @@ import (
 	"yargpt/internal/db"
 	"yargpt/internal/httpapi"
 	"yargpt/internal/shellenv"
-	"yargpt/web"
+	"yargpt/ui"
 )
 
 func main() {
@@ -177,14 +177,14 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 
 	base := "http://" + ln.Addr().String()
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", Model: o.Model, MaxParallel: o.MaxParallel}, log)
-	ui, err := web.Assets()
+	assets, err := ui.Assets()
 	if err != nil {
 		log.Warn("web UI not available", "err", err)
-		ui = nil
+		assets = nil
 	}
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           httpapi.New(svc, runner, ui, log),
+		Handler:           httpapi.New(svc, runner, assets, log),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Requests end with the server: event streams and pending approvals stop on shutdown.
 		BaseContext: func(net.Listener) context.Context { return ctx },

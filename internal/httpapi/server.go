@@ -116,7 +116,7 @@ func isLoopbackHost(hostport string) bool {
 func spa(ui fs.FS) http.Handler {
 	if ui == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "the web UI is not built; run make web", http.StatusNotFound)
+			http.Error(w, "the web UI is not built; run make ui", http.StatusNotFound)
 		})
 	}
 	files := http.FileServerFS(ui)

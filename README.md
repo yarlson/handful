@@ -249,11 +249,15 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 ### Build and work on the UI
 
-`make build` builds the UI into `web/dist` and embeds it in `bin/yargpt`. To work on the UI, start `./bin/yargpt`, then run `cd web && npm run dev`. Vite sends `/api` requests to port 7777.
+`make build` builds the UI into `ui/dist` and embeds it in `bin/yargpt`. To work on the UI, start `./bin/yargpt`, then run `cd ui && npm run dev`. Vite sends `/api` requests to port 7777.
 
 `desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it for this Mac, and `make app-universal` builds the zip for Apple silicon and Intel Macs. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
 
 `mise.toml` pins Go, Node.js and every check tool, and the Makefile runs them through `mise exec`. `make app-universal` and `make icons` also use macOS tools that mise does not install: `lipo`, `sips` and `iconutil`, and `rsvg-convert` from Homebrew `librsvg`. Coding agents get their working rules from `AGENTS.md`.
+
+### Website
+
+`web/` holds the yargpt.com website, an Astro site. To work on it, run `cd web && npm ci && npm run dev`, then open <http://localhost:4321>. `npm run build` runs `astro check` and writes the site to `web/dist`.
 
 ### Releases
 
@@ -279,7 +283,8 @@ The agent tests replace Claude Code with a fake CLI script and run a real MCP cl
 | `mod-check` | `go.mod` or `go.sum` is not tidy, or a module does not match `go.sum` |
 | `race` | A Go test fails, or the race detector finds a data race |
 | `vuln` | govulncheck finds a known vulnerability in code that YarGPT calls |
-| `web-check` | The UI is not formatted with oxfmt, oxlint reports an error, the type check or a vitest test fails, or the build fails. oxlint warnings do not fail it. |
+| `ui-check` | The UI is not formatted with oxfmt, oxlint reports an error, the type check or a vitest test fails, or the build fails. oxlint warnings do not fail it. |
+| `web-check` | `astro check` finds an error in the website, or its build fails |
 | `desktop-check` | A unit test of the macOS app fails |
 | `workflow-check` | actionlint finds a problem in a GitHub Actions workflow |
 
@@ -290,7 +295,7 @@ Slower analyses have their own targets. They write their reports to `target/`.
 | `mutation-diff` | Mutation-tests, with gremlins, the Go lines changed since `BASE` (default `origin/main`). It fails when a mutant on a changed line survives the tests, or when no test runs that line. Git must track new files, for example with `git add -N`. CI runs it on each pull request. |
 | `mutation` | Mutation-tests all Go code, in about 8 minutes on 10 cores. It fails below 81 % efficacy or 85 % mutant coverage. CI does not run it. `cmd/yargpt` is not mutation-tested: gremlins 0.6.0 cannot map its coverage. |
 | `crap` | Prints the CRAP score of each hand-written Go function: its complexity combined with its test coverage. Higher means riskier to change. |
-| `web-mutation` | Mutation-tests `web/src/lib` with Stryker and prints the score. |
+| `ui-mutation` | Mutation-tests `ui/src/lib` with Stryker and prints the score. |
 
 ### How it works
 
@@ -319,8 +324,9 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 | `internal/agent` | Claude Code runner, stream-json parsing, system prompt and MCP tools |
 | `internal/httpapi` | REST API, event stream, origin guard and UI hosting |
 | `internal/shellenv` | The environment of the user's login shell, for a server that launchd starts |
-| `web` | React 19, TypeScript 7, Tailwind v4 and shadcn/ui app, embedded through `web/embed.go` |
+| `ui` | React 19, TypeScript 7, Tailwind v4 and shadcn/ui app, embedded through `ui/embed.go` |
 | `desktop` | The macOS app: Electron window, launch agent and icons |
+| `web` | The yargpt.com website: Astro 4 and Tailwind 3 |
 
 ## License
 

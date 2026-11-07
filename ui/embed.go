@@ -1,5 +1,5 @@
-// Package web embeds the built web UI (web/dist) into the YarGPT binary.
-package web
+// Package ui embeds the built web UI (ui/dist) into the YarGPT binary.
+package ui
 
 import (
 	"embed"

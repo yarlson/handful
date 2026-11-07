@@ -1,9 +1,12 @@
 /bin/
-/web/node_modules/
-/web/dist/*
-!/web/dist/.keep
+/ui/node_modules/
+/ui/dist/*
+!/ui/dist/.keep
 /docs/
 /target/
-/web/.stryker-tmp/
+/ui/.stryker-tmp/
 /desktop/node_modules/
 /desktop/dist/
+/web/node_modules/
+/web/dist/
+/web/.astro/

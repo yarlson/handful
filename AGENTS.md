@@ -12,10 +12,10 @@
 - Run `make mutation` when you change `.gremlins.yaml`, the mutation targets or existing Go tests. CI runs only `make mutation-diff`, which tests changed production lines, so nothing else notices a weaker test. It takes about 8 minutes on a 10-core machine.
 - Keep the tests in `internal/agent` parallel: each mutant runs the whole package, so their wall time multiplies the mutation run. A test must not depend on the environment or on a fixed port to run in parallel.
 
-## Web changes
+## UI changes
 
-- For a change in `web/src/lib`, run `make web-mutation` and kill the surviving mutants in the code that you changed.
-- oxlint warnings in `web/` are known follow-ups. Do not add new ones.
+- For a change in `ui/src/lib`, run `make ui-mutation` and kill the surviving mutants in the code that you changed.
+- oxlint warnings in `ui/` are known follow-ups. Do not add new ones.
 
 ## macOS app changes
 

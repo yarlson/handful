@@ -1,5 +1,6 @@
 {
   "name": "yargpt-desktop",
+  "productName": "YarGPT",
   "version": "0.1.0",
   "private": true,
   "description": "YarGPT for macOS",
@@ -16,7 +17,6 @@
   },
   "build": {
     "appId": "dev.yarlson.yargpt",
-    "productName": "YarGPT",
     "files": ["main.js", "app.js"],
     "extraResources": [{ "from": "../bin/yargpt", "to": "yargpt" }],
     "extraFiles": [

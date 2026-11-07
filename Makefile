@@ -3,7 +3,10 @@ export BASE ?= origin/main
 
 .PHONY: build web generate test run app app-universal icons fmt check fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check crap mutation mutation-diff web-mutation
 
+# app-universal leaves a universal binary in bin/yargpt, which go build does
+# not overwrite.
 build: web
+	rm -f bin/yargpt
 	CGO_ENABLED=0 $(MISE) go build -o bin/yargpt ./cmd/yargpt
 
 web:

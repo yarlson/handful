@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// fakeShell writes an executable script that ignores its arguments.
+// fakeShell writes an executable sh script with the given body.
 func fakeShell(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "shell")
@@ -65,5 +65,18 @@ func TestLoadStopsAHangingShellAtTheDeadline(t *testing.T) {
 	}
 	if took := time.Since(start); took > 5*time.Second {
 		t.Fatalf("Load took %v after a 200 ms deadline; want it to stop within 5 s", took)
+	}
+}
+
+func TestLoadKeepsTheEnvironmentWhenAStartupFileLeavesAProcess(t *testing.T) {
+	// The background sleep keeps stdout open after the shell exits.
+	shell := fakeShell(t, `sleep 2 &
+printf '%s\0PATH=/opt/tools/bin\0' `+marker)
+	got, err := Load(t.Context(), shell)
+	if err != nil {
+		t.Fatalf("Load = %v; want the environment that the shell printed", err)
+	}
+	if got["PATH"] != "/opt/tools/bin" {
+		t.Fatalf("PATH = %q; want /opt/tools/bin", got["PATH"])
 	}
 }

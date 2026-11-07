@@ -20,10 +20,12 @@ const marker = "__YARGPT_ENV__"
 func Load(ctx context.Context, shell string) (map[string]string, error) {
 	cmd := exec.CommandContext(ctx, shell, "-ilc", "printf '%s\\0' "+marker+"; env -0")
 	// A startup file can leave a process that keeps stdout open after the
-	// shell is killed; stop waiting for it.
+	// shell exits or is killed; stop waiting for it.
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
-	if err != nil {
+	// ErrWaitDelay means that the shell exited successfully, so out holds the
+	// whole environment.
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return nil, fmt.Errorf("run login shell %s: %w", shell, err)
 	}
 	return parse(out)

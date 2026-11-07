@@ -42,6 +42,7 @@ make app
 - The server writes its log to `~/Library/Logs/YarGPT/server.log`.
 - The app has an ad-hoc signature, which is valid only on the Mac that built it. Build it on the Mac where you use it.
 - After you build the app again, choose **Exit server**, then open the new app. The server that runs keeps its old version until it stops.
+- To remove the app, turn off YarGPT in System Settings › General › Login Items & Extensions, then delete `YarGPT.app`.
 
 ## Use YarGPT
 
@@ -196,6 +197,7 @@ For example, Slack's MCP server works with Slack's public client for Claude Code
 | `-model` | Claude Code's default | Model alias for every bot, for example `sonnet` |
 | `-max-parallel` | `3` | Turns that can run at the same time, across all bots |
 | `-login-env` | off | Take the environment, such as `PATH`, from your login shell. The macOS app uses it, because launchd starts the server with a minimal `PATH`. |
+| `-tray` | off | Show an icon in the macOS menu bar with one item, **Exit server**, which stops the server. The macOS app uses it. |
 | `-log` | none | Append the log and all other error output to this file. `~/` is your home folder. Without it, they go to stderr. |
 
 To set these without flags, put `claude`, `model` or `maxParallel` in `~/.yargpt/config.json`, for example `{"model": "sonnet", "maxParallel": 4}`.
@@ -246,7 +248,7 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 `make build` builds the UI into `web/dist` and embeds it in `bin/yargpt`. To work on the UI, start `./bin/yargpt`, then run `cd web && npm run dev`. Vite sends `/api` requests to port 7777.
 
-`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
+`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
 
 `mise.toml` pins Go, Node.js and every check tool, and the Makefile runs each tool through `mise exec`. Coding agents get their working rules from `AGENTS.md`.
 

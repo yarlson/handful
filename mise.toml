@@ -1,0 +1,10 @@
+[tools]
+go = "1.27.3"
+node = "26.13.0"
+golangci-lint = "2.15.0"
+sqlc = "1.31.1"
+jq = "1.8.2"
+"aqua:rhysd/actionlint" = "1.7.12"
+"go:github.com/go-gremlins/gremlins/cmd/gremlins" = "0.6.0"
+"go:github.com/unclebob/crap4go/cmd/crap4go" = "0.0.0-20260521190544-bee16dbdadb4"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"

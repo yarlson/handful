@@ -1,0 +1,12 @@
+unleash:
+  # Do not set test-cpu: gremlins 0.6.0 passes "-cpu N" to go test as one
+  # argument, so every test run fails and every mutant counts as killed.
+  # Thresholds are not set here: the Makefile checks the JSON report.
+  exclude-files:
+    - '^internal/db/(db|models|query\.sql)\.go$'
+    - '^internal/oauthtest/'
+    # gremlins 0.6.0 removes every "yargpt/" from coverage paths, so it never
+    # finds the coverage of cmd/yargpt and cannot test its mutants.
+    - '^cmd/yargpt/'
+  output: target/mutation-results.json
+  output-statuses: lct

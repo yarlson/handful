@@ -1,0 +1,241 @@
+package agent
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// builtinTools is the Claude Code tool set a bot can use. Anything outside
+// readOnlyTools goes through the approval tool before it runs; the approval
+// tool allows the tools that the user always allows. TaskStop only stops the
+// bot's own background tasks.
+var (
+	builtinTools  = []string{"Task", "Bash", "Monitor", "TaskStop", "Read", "Edit", "Write", "Glob", "Grep", "WebSearch", "Skill"}
+	readOnlyTools = []string{"Task", "TaskStop", "Read", "Glob", "Grep", "WebSearch", "Skill"}
+)
+
+const (
+	mcpServerName = "yargpt"
+	approveTool   = "mcp__yargpt__approve"
+)
+
+func yargptTool(name string) string { return "mcp__" + mcpServerName + "__" + name }
+
+type claudeRun struct {
+	Prompt       string
+	SystemPrompt string
+	SessionID    string
+	Resume       bool
+	MCPConfig    string // path of the file that writeMCPConfig wrote
+	BotName      string
+	Model        string
+}
+
+// args builds the claude CLI arguments; the prompt goes to stdin as a
+// userMessage. --setting-sources project keeps the
+// user's personal settings and hooks out of the bot (startSession keeps
+// CLAUDE.md files out with an environment variable), and
+// --strict-mcp-config keeps out every MCP server that is not in the
+// MCPConfig file.
+func (r claudeRun) args() ([]string, error) {
+	agents, err := json.Marshal(executorAgents(r.BotName))
+	if err != nil {
+		return nil, fmt.Errorf("encode agents: %w", err)
+	}
+	allowed := append([]string{}, readOnlyTools...)
+	for _, t := range []string{"send_to_user", "send_to_agent", "read_room", "recall_memory", "update_memory", "update_routine", "update_skill", "update_profile"} {
+		allowed = append(allowed, yargptTool(t))
+	}
+
+	args := []string{
+		"-p",
+		"--input-format", "stream-json",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--setting-sources", "project",
+		"--strict-mcp-config",
+		"--mcp-config", r.MCPConfig,
+		"--settings", `{"autoMemoryEnabled":false}`,
+		"--system-prompt-snapshot", "off",
+		"--append-system-prompt", r.SystemPrompt,
+		"--agents", string(agents),
+		"--tools", strings.Join(builtinTools, ","),
+		"--allowedTools", strings.Join(allowed, ","),
+		"--permission-prompt-tool", approveTool,
+	}
+	if r.Model != "" {
+		args = append(args, "--model", r.Model)
+	}
+	if r.Resume {
+		args = append(args, "--resume", r.SessionID)
+	} else {
+		args = append(args, "--session-id", r.SessionID)
+	}
+	return args, nil
+}
+
+// userMessage encodes a prompt as a stream-json input line. Claude Code
+// reports the message's progress in command_lifecycle events with this id.
+func userMessage(id, text string) ([]byte, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	err := enc.Encode(map[string]any{
+		"type":               "user",
+		"uuid":               id,
+		"session_id":         "",
+		"parent_tool_use_id": nil,
+		"message":            map[string]string{"role": "user", "content": text},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode prompt: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
+// compactArgs starts claude on a stored session to run Claude Code's /compact,
+// which goes to stdin. The isolation flags match a normal turn; no tools or
+// MCP servers are needed.
+func compactArgs(sessionID, model string) []string {
+	args := []string{
+		"-p",
+		"--input-format", "stream-json",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--setting-sources", "project",
+		"--strict-mcp-config",
+		"--settings", `{"autoMemoryEnabled":false}`,
+		"--resume", sessionID,
+	}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	return args
+}
+
+type compactMetadata struct {
+	PreTokens  int64 `json:"pre_tokens"`
+	PostTokens int64 `json:"post_tokens"`
+}
+
+// streamEvent is the subset of Claude Code's stream-json output that YarGPT reads.
+type streamEvent struct {
+	CompactMetadata *compactMetadata `json:"compact_metadata"`
+	Type            string           `json:"type"`
+	Subtype         string           `json:"subtype"`
+	CommandUUID     string           `json:"command_uuid"` // command_lifecycle: the message's uuid
+	State           string           `json:"state"`        // command_lifecycle: queued, started, completed or cancelled
+	Tasks           []streamTask     `json:"tasks"`        // background_tasks_changed: all running tasks
+	TaskID          string           `json:"task_id"`      // task_notification
+	ToolUseID       string           `json:"tool_use_id"`  // task_notification: the call that started the task
+	Summary         string           `json:"summary"`      // task_notification
+	Status          string           `json:"status"`       // task_notification: completed, failed or stopped
+	SessionID       string           `json:"session_id"`
+	ParentToolUseID *string          `json:"parent_tool_use_id"`
+	Message         *streamMessage   `json:"message"`
+	Result          string           `json:"result"`
+	IsError         bool             `json:"is_error"`
+	Errors          json.RawMessage  `json:"errors"`
+	APIError        string           `json:"api_error"`        // assistant, result: kind of an API error, such as usage_limit_reached
+	APIErrorParams  *apiErrorParams  `json:"api_error_params"` // assistant
+}
+
+type apiErrorParams struct {
+	RateLimitInfo *struct {
+		ResetsAt int64 `json:"resetsAt"` // Unix seconds
+	} `json:"rate_limit_info"`
+}
+
+type streamTask struct {
+	TaskID      string `json:"task_id"`
+	Description string `json:"description"`
+}
+
+type streamMessage struct {
+	Content []contentBlock `json:"content"`
+}
+
+type contentBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
+	IsError   bool            `json:"is_error"`
+}
+
+// UnmarshalJSON accepts message content as a string or as a list of blocks.
+func (m *streamMessage) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw.Content) == 0 || raw.Content[0] == '"' {
+		return nil
+	}
+	return json.Unmarshal(raw.Content, &m.Content)
+}
+
+// toolResultText flattens a tool_result content value to text.
+func toolResultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var blocks []contentBlock
+	if json.Unmarshal(raw, &blocks) == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Type == "text" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return string(raw)
+}
+
+func truncate(s string, n int) string {
+	s = strings.TrimSpace(s)
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// summarizeToolUse gives a one-line description of a tool call for the activity row.
+func summarizeToolUse(name string, input json.RawMessage) string {
+	var in map[string]any
+	_ = json.Unmarshal(input, &in)
+	str := func(k string) string { v, _ := in[k].(string); return v }
+	switch name {
+	case "Bash":
+		if d := str("description"); d != "" {
+			return truncate(d+": "+str("command"), 200)
+		}
+		return truncate(str("command"), 200)
+	case "Read", "Write", "Edit":
+		return str("file_path")
+	case "Glob", "Grep":
+		return truncate(str("pattern"), 200)
+	case "WebSearch":
+		return truncate(str("query"), 200)
+	case "WebFetch":
+		return truncate(str("url"), 200)
+	case "Task", "Agent":
+		return truncate(strings.TrimSpace(str("subagent_type")+": "+str("description")), 200)
+	case "Skill":
+		return str("skill")
+	}
+	return truncate(string(input), 200)
+}

@@ -1,0 +1,55 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - durationcheck
+    - errcheck
+    - errorlint
+    - govet
+    - ineffassign
+    - makezero
+    - misspell
+    - modernize
+    - nilerr
+    - nilnesserr
+    - noctx
+    - nolintlint
+    - reassign
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - usetesting
+    - wastedassign
+  settings:
+    errcheck:
+      exclude-functions:
+        # A deferred Rollback after Commit returns sql.ErrTxDone by design.
+        - (*database/sql.Tx).Rollback
+  exclusions:
+    generated: strict
+    warn-unused: true
+    presets:
+      - std-error-handling
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: yargpt
+    goimports:
+      local-prefixes:
+        - yargpt
+  exclusions:
+    generated: strict
+    warn-unused: true

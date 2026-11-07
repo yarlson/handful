@@ -1,0 +1,160 @@
+export type Member = { id: string; name: string }
+
+export type Bot = {
+  id: string
+  kind: "agent" | "room"
+  members?: Member[]
+  attention?: "approval" | "question"
+  name: string
+  instructions: string
+  createdAt: number
+  updatedAt: number
+  running: boolean
+  tasks: BackgroundTask[]
+}
+
+// A background shell, monitor or subagent that a bot runs between turns.
+export type BackgroundTask = { id: string; description: string; bot?: string }
+
+export type UserBody = { text: string; media?: string[] }
+export type BotBody = {
+  text: string
+  media?: string[]
+  fallback: boolean
+  needsReply?: boolean
+  speakerId?: string
+  speakerName?: string
+}
+export type AgentBody = {
+  direction: "in" | "out"
+  peerId: string
+  peerName: string
+  text: string
+  priority: boolean
+  held?: boolean
+}
+export type EventBody = { type: string; text?: string; from?: string; to?: string }
+export type ActivityBody = {
+  bot?: string
+  tool: string
+  summary: string
+  status: "running" | "done" | "error"
+  subagent: boolean
+  output?: string
+}
+export type ApprovalBody = {
+  bot?: string
+  tool: string
+  input: unknown
+  status: "pending" | "allowed" | "denied" | "expired"
+  decision?: Decision
+}
+export type Decision = "once" | "always" | "deny"
+
+type EntryBase = { id: string; botId: string; seq: number; rev: number; turnId: string; createdAt: number }
+export type Entry =
+  | (EntryBase & { kind: "user"; body: UserBody })
+  | (EntryBase & { kind: "bot"; body: BotBody })
+  | (EntryBase & { kind: "event"; body: EventBody })
+  | (EntryBase & { kind: "activity"; body: ActivityBody })
+  | (EntryBase & { kind: "approval"; body: ApprovalBody })
+  | (EntryBase & { kind: "agent"; body: AgentBody })
+
+export type Memory = {
+  id: string
+  scope: "agent" | "user"
+  tier: "profile" | "log" | "note"
+  fact: string
+  learnedBy: string
+  createdAt: number
+}
+
+export type Routine = {
+  id: string
+  botId: string
+  name: string
+  prompt: string
+  schedule: string
+  enabled: boolean
+  nextRunAt: number | null
+  lastRunAt: number | null
+  lastRunBy: string
+  createdAt: number
+}
+
+export type Skill = { id: string; name: string; description: string; body?: string }
+
+// Connector is an external MCP server. The API never returns its tokens or headers.
+export type Connector = {
+  name: string
+  url: string
+  bots: string[]
+  status: "static" | "connected" | "needs-sign-in" | "expired"
+}
+
+export type ServerEvent =
+  | { type: "entry"; botId: string; entry: Entry }
+  | { type: "state"; botId: string; running: boolean }
+  | { type: "tasks"; botId: string; tasks: BackgroundTask[] }
+  | { type: "bots" }
+  | { type: "pause"; pausedUntil?: string }
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let message = `${method} ${path} failed with ${res.status}`
+    try {
+      const data = (await res.json()) as { error?: string }
+      if (data.error) message = data.error
+    } catch {
+      // The body is not JSON; keep the status message.
+    }
+    throw new Error(message)
+  }
+  if (res.status === 204) return undefined as T
+  return (await res.json()) as T
+}
+
+export const api = {
+  listBots: () => request<Bot[]>("GET", "/api/bots"),
+  reorderBots: (ids: string[]) => request<void>("PUT", "/api/bots/order", { ids }),
+  createBot: (name: string, instructions: string) => request<Bot>("POST", "/api/bots", { name, instructions }),
+  createRoom: (name: string, instructions: string, memberIds: string[]) =>
+    request<Bot>("POST", "/api/rooms", { name, instructions, memberIds }),
+  setRoomMembers: (id: string, memberIds: string[]) => request<Bot>("PUT", `/api/rooms/${id}/members`, { memberIds }),
+  updateBot: (id: string, patch: { name?: string; instructions?: string }) =>
+    request<Bot>("PATCH", `/api/bots/${id}`, patch),
+  deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),
+  entries: (id: string, afterRev: number) =>
+    request<{ entries: Entry[] }>("GET", `/api/bots/${id}/entries?after=${afterRev}`).then((r) => r.entries),
+  // media are base64-encoded file contents.
+  send: (id: string, text: string, media: string[] = []) =>
+    request<{ turnId: string }>("POST", `/api/bots/${id}/messages`, { text, media, clientNonce: crypto.randomUUID() }),
+  mediaUrl: (name: string) => `/api/media/${encodeURIComponent(name)}`,
+  interrupt: (id: string) => request<{ stopped: boolean }>("POST", `/api/bots/${id}/interrupt`, {}),
+  clearContext: (id: string) => request<void>("POST", `/api/bots/${id}/clear`, {}),
+  compactContext: (id: string) => request<{ queued: number }>("POST", `/api/bots/${id}/compact`, {}),
+  memory: (id: string) => request<Memory[]>("GET", `/api/bots/${id}/memory`),
+  addMemory: (id: string, fact: { scope: Memory["scope"]; tier: Memory["tier"]; fact: string }) =>
+    request<void>("POST", `/api/bots/${id}/memory`, fact),
+  deleteMemory: (id: string) => request<void>("DELETE", `/api/memory/${id}`),
+  routines: (id: string) => request<Routine[]>("GET", `/api/bots/${id}/routines`),
+  setRoutineEnabled: (id: string, enabled: boolean) => request<Routine>("PATCH", `/api/routines/${id}`, { enabled }),
+  runRoutine: (id: string) => request<{ turnId: string }>("POST", `/api/routines/${id}/run`, {}),
+  deleteRoutine: (id: string) => request<void>("DELETE", `/api/routines/${id}`),
+  skills: () => request<Skill[]>("GET", "/api/skills"),
+  skill: (id: string) => request<Skill>("GET", `/api/skills/${id}`),
+  deleteSkill: (id: string) => request<void>("DELETE", `/api/skills/${id}`),
+  grants: (id: string) => request<string[]>("GET", `/api/bots/${id}/grants`),
+  revokeGrant: (id: string, tool: string) =>
+    request<void>("DELETE", `/api/bots/${id}/grants/${encodeURIComponent(tool)}`),
+  connectors: () => request<Connector[]>("GET", "/api/connectors"),
+  connect: (name: string) => request<{ url: string }>("POST", `/api/connectors/${name}/connect`, {}),
+  disconnect: (name: string) => request<void>("DELETE", `/api/connectors/${name}/token`),
+  resolveApproval: (entryId: string, decision: Decision) =>
+    request<void>("POST", `/api/approvals/${entryId}`, { decision }),
+}

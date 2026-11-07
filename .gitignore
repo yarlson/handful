@@ -1,0 +1,7 @@
+/bin/
+/web/node_modules/
+/web/dist/*
+!/web/dist/.keep
+/docs/
+/target/
+/web/.stryker-tmp/

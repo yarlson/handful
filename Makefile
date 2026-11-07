@@ -1,7 +1,7 @@
 MISE := mise exec --
 export BASE ?= origin/main
 
-.PHONY: build web generate test run fmt check fmt-check lint generate-check mod-check race vuln web-check workflow-check crap mutation mutation-diff web-mutation
+.PHONY: build web generate test run app icons fmt check fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check crap mutation mutation-diff web-mutation
 
 build: web
 	$(MISE) go build -o bin/yargpt ./cmd/yargpt
@@ -19,11 +19,27 @@ test:
 run: build
 	./bin/yargpt
 
+# Builds desktop/dist/mac-arm64/YarGPT.app with the server inside it.
+app: build
+	cd desktop && $(MISE) npm ci && $(MISE) npm run build
+
+# Regenerates the committed icons from their SVG sources. It needs
+# rsvg-convert (Homebrew librsvg), which mise does not have, and iconutil.
+icons:
+	rsvg-convert -w 32 -h 32 cmd/yargpt/tray.svg -o cmd/yargpt/tray.png
+	rm -rf target/icon.iconset && mkdir -p target/icon.iconset
+	rsvg-convert -w 824 -h 824 --page-width 1024 --page-height 1024 --left 100 --top 100 web/public/logo.svg -o target/icon-1024.png
+	for s in 16 32 128 256 512; do \
+		sips -z $$s $$s target/icon-1024.png --out target/icon.iconset/icon_$${s}x$${s}.png >/dev/null && \
+		sips -z $$((s * 2)) $$((s * 2)) target/icon-1024.png --out target/icon.iconset/icon_$${s}x$${s}@2x.png >/dev/null || exit 1; \
+	done
+	iconutil -c icns target/icon.iconset -o desktop/build/icon.icns
+
 fmt:
 	$(MISE) golangci-lint fmt
 	cd web && $(MISE) npm run format
 
-check: fmt-check lint generate-check mod-check race vuln web-check workflow-check
+check: fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check
 
 fmt-check:
 	$(MISE) golangci-lint fmt --diff
@@ -46,6 +62,9 @@ vuln:
 
 web-check:
 	cd web && $(MISE) npm ci && $(MISE) npm run format:check && $(MISE) npm run lint && $(MISE) npm run typecheck && $(MISE) npm test && $(MISE) npm run build
+
+desktop-check:
+	cd desktop && ELECTRON_SKIP_BINARY_DOWNLOAD=1 $(MISE) npm ci && $(MISE) npm test
 
 workflow-check:
 	$(MISE) actionlint

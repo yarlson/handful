@@ -5,6 +5,12 @@ const path = require("node:path")
 const { test } = require("node:test")
 const { isAppURL, isWebURL, ensureSettingsFile } = require("./app")
 
+function tempDir(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yargpt-desktop-"))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
 test("only pages of the server are app pages", () => {
   assert.equal(isAppURL("http://127.0.0.1:7777/chat/abc"), true)
   assert.equal(isAppURL("http://127.0.0.1:7777"), true)
@@ -25,16 +31,16 @@ test("only http and https links go to the browser", () => {
   assert.equal(isWebURL(""), false)
 })
 
-test("the settings file is created with an empty object in a private folder", () => {
-  const dataDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "yargpt-desktop-")), ".yargpt")
+test("the settings file is created with an empty object in a private folder", (t) => {
+  const dataDir = path.join(tempDir(t), ".yargpt")
   const file = ensureSettingsFile(dataDir)
   assert.equal(file, path.join(dataDir, "config.json"))
   assert.equal(fs.readFileSync(file, "utf8"), "{}\n")
   assert.equal(fs.statSync(dataDir).mode & 0o777, 0o700)
 })
 
-test("an existing settings file is kept as it is", () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "yargpt-desktop-"))
+test("an existing settings file is kept as it is", (t) => {
+  const dataDir = tempDir(t)
   fs.writeFileSync(path.join(dataDir, "config.json"), '{"model": "sonnet"}\n')
   const file = ensureSettingsFile(dataDir)
   assert.equal(fs.readFileSync(file, "utf8"), '{"model": "sonnet"}\n')

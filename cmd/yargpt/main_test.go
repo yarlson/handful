@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -128,7 +130,9 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 	}
 }
 
-func TestServeFailsWhenTheAddressIsTaken(t *testing.T) {
+// A second server on the same address must not touch the database of the
+// first: it would mark the running turns of the first as interrupted.
+func TestServeFailsOnATakenAddressBeforeItOpensTheDatabase(t *testing.T) {
 	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +141,9 @@ func TestServeFailsWhenTheAddressIsTaken(t *testing.T) {
 	o := options{addr: ln.Addr().String(), dataDir: t.TempDir(), MaxParallel: 3, claudePath: fakeClaude(t)}
 	if err := serve(t.Context(), o, slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil || !strings.Contains(err.Error(), "listen on") {
 		t.Fatalf("serve on a taken address = %v; want a listen error", err)
+	}
+	if _, err := os.Stat(filepath.Join(o.dataDir, "yargpt.db")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("database after serve on a taken address: stat = %v; want no database file", err)
 	}
 }
 

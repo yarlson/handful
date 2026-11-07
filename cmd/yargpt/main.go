@@ -153,6 +153,15 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 
+	// Listen first: a second server on the same address must fail before
+	// RecoverAfterRestart marks the running turns of the first as interrupted.
+	// The runner also needs the actual port for the OAuth redirect URI.
+	// Not ctx: a signal during startup must still reach the clean shutdown below.
+	ln, err := new(net.ListenConfig).Listen(context.Background(), "tcp", o.addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", o.addr, err)
+	}
+	defer ln.Close()
 	conn, err := db.Open(ctx, filepath.Join(o.dataDir, "yargpt.db"))
 	if err != nil {
 		return err
@@ -166,12 +175,6 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		return err
 	}
 
-	// Listen before the runner starts: the OAuth redirect URI must name the actual port.
-	// Not ctx: a signal during startup must still reach the clean shutdown below.
-	ln, err := new(net.ListenConfig).Listen(context.Background(), "tcp", o.addr)
-	if err != nil {
-		return fmt.Errorf("listen on %s: %w", o.addr, err)
-	}
 	base := "http://" + ln.Addr().String()
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", Model: o.Model, MaxParallel: o.MaxParallel}, log)
 	ui, err := web.Assets()

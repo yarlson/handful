@@ -1,0 +1,20 @@
+# YarGPT
+
+> YarGPT runs personal AI agents, called bots, on your own computer. Each bot is a Claude Code CLI session with its own chat, memory, routines and working folder. Bots can work together in group chats, called rooms, and can message each other. There is no cloud service: the server, the SQLite database and the bots all run locally.
+
+Key facts:
+
+- Each time a bot works, YarGPT runs the `claude` CLI (Claude Code 2.1.319 or later) on your machine with your Claude account. It runs on macOS and Linux. The web UI is at <http://127.0.0.1:7777>, and all data is in `~/.yargpt`.
+- YarGPT has no login. It listens on loopback only and is safe only on a computer that one person uses.
+- A bot asks for your approval before it runs a command, changes a file or calls a connector tool.
+- In a room, your message wakes the bots that it @mentions, or every member when it mentions none. `@here` mentions every member. A bot's post wakes only the bots that it @mentions. Members answer one at a time.
+- A bot messages another bot with the `send_to_agent` tool. With `priority: true`, the message wakes the other bot at once. Otherwise it waits for that bot's next turn. After 6 bot-to-bot messages in a row, the next message wakes no one.
+- The HTTP API on `127.0.0.1:7777` is the local API of the web UI. It is not versioned and can change.
+
+## Docs
+
+- [YarGPT full reference](https://yargpt.com/llms-full.txt): bots, turns, approvals, memory, routines, skills, rooms and `@here`, bot-to-bot messages, the bot tools, connectors, configuration, the local HTTP API and event stream, security and limits.
+
+## Optional
+
+- [Claude Code](https://code.claude.com): the CLI that runs each bot's turns.

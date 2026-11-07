@@ -16,3 +16,7 @@
 
 - For a change in `web/src/lib`, run `make web-mutation` and kill the surviving mutants in the code that you changed.
 - oxlint warnings in `web/` are known follow-ups. Do not add new ones.
+
+## macOS app changes
+
+- For a change in `desktop/` or in `cmd/yargpt/tray_darwin.go`, run `make app` and open the built app. Check the window, a link, **Settings…**, the menu-bar icon and **Exit server**. `make check` covers only `desktop/app.js`.

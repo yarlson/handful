@@ -24,6 +24,24 @@ make build
 
 Open <http://127.0.0.1:7777>. YarGPT keeps all its data in `~/.yargpt`.
 
+### macOS app
+
+On a Mac, you can build an app instead. It keeps the server running in the background, from login on, with an icon in the menu bar.
+
+```sh
+make app
+```
+
+1. Move `desktop/dist/mac-arm64/YarGPT.app` to `/Applications`, then open it.
+2. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
+
+- The server keeps running when you quit the app, and starts at every login.
+- The icon in the menu bar has one item, **Exit server**. The server then stays stopped until you open the app again or log in again.
+- **YarGPT › Settings…** (⌘,) opens `~/.yargpt/config.json` in your default editor. A change applies when the server starts again: choose **Exit server**, then open the app.
+- Links in chats open in your default browser.
+- The server writes its log to `~/Library/Logs/YarGPT/server.log`.
+- The app has an ad-hoc signature, which is valid only on the Mac that built it. Build it on the Mac where you use it.
+
 ## Use YarGPT
 
 ### Create a bot
@@ -227,6 +245,8 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 `make build` builds the UI into `web/dist` and embeds it in `bin/yargpt`. To work on the UI, start `./bin/yargpt`, then run `cd web && npm run dev`. Vite sends `/api` requests to port 7777.
 
+`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
+
 `mise.toml` pins Go, Node.js and every check tool, and the Makefile runs each tool through `mise exec`. Coding agents get their working rules from `AGENTS.md`.
 
 ### Checks
@@ -250,6 +270,7 @@ The agent tests replace Claude Code with a fake CLI script and run a real MCP cl
 | `race` | A Go test fails, or the race detector finds a data race |
 | `vuln` | govulncheck finds a known vulnerability in code that YarGPT calls |
 | `web-check` | The UI is not formatted with oxfmt, oxlint reports an error, the type check or a vitest test fails, or the build fails. oxlint warnings do not fail it. |
+| `desktop-check` | A unit test of the macOS app fails |
 | `workflow-check` | actionlint finds a problem in a GitHub Actions workflow |
 
 Slower analyses have their own targets. They write their reports to `target/`.
@@ -287,7 +308,9 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 | `internal/core` | Domain state: bots, transcript, turns, memory, routines, skills, approvals, event hub |
 | `internal/agent` | Claude Code runner, stream-json parsing, system prompt and MCP tools |
 | `internal/httpapi` | REST API, event stream, origin guard and UI hosting |
+| `internal/shellenv` | The environment of the user's login shell, for a server that launchd starts |
 | `web` | React 19, TypeScript 7, Tailwind v4 and shadcn/ui app, embedded through `web/embed.go` |
+| `desktop` | The macOS app: Electron window, launch agent and icons |
 
 ## License
 

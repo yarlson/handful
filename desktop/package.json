@@ -8,7 +8,7 @@
   "license": "MIT",
   "main": "main.js",
   "scripts": {
-    "build": "electron-builder --mac --arm64",
+    "build": "electron-builder --mac",
     "build:universal": "electron-builder --mac zip --universal",
     "test": "node --test"
   },

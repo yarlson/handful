@@ -23,7 +23,8 @@ test:
 run: build
 	./bin/yargpt
 
-# Builds desktop/dist/mac-arm64/YarGPT.app with the server inside it.
+# Builds the app for this Mac, with the server inside it:
+# desktop/dist/mac-arm64/YarGPT.app, or desktop/dist/mac/YarGPT.app on an Intel Mac.
 app: build
 	cd desktop && $(MISE) npm ci && $(MISE) npm run build
 

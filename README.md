@@ -37,7 +37,7 @@ On a Mac, you can use an app instead. It keeps the server running in the backgro
 
 3. Open the app. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
 
-To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` to `/Applications`. A copy that you build is not blocked.
+To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` (`desktop/dist/mac/YarGPT.app` on an Intel Mac) to `/Applications`. A copy that you build is not blocked.
 
 - The server keeps running when you quit the app, and starts at every login.
 - The icon in the menu bar has one item, **Exit server**. The server then stays stopped until you open the app again or log in again.

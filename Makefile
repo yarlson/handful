@@ -4,10 +4,11 @@ export BASE ?= origin/main
 .PHONY: build web generate test run app app-universal icons fmt check fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check crap mutation mutation-diff web-mutation
 
 # app-universal leaves a universal binary in bin/yargpt, which go build does
-# not overwrite.
+# not overwrite. The server needs no cgo on macOS. On other systems cgo keeps
+# the system DNS resolver, for example for .local names.
 build: web
 	rm -f bin/yargpt
-	CGO_ENABLED=0 $(MISE) go build -o bin/yargpt ./cmd/yargpt
+	$(if $(filter Darwin,$(shell uname -s)),CGO_ENABLED=0) $(MISE) go build -o bin/yargpt ./cmd/yargpt
 
 web:
 	cd web && $(MISE) npm ci && $(MISE) npm run build

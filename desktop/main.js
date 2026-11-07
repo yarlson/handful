@@ -1,16 +1,23 @@
 // The YarGPT app: a window on the server, which runs as a launch agent of
 // this bundle, so that it keeps running when the app quits.
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron")
+const { app, BrowserWindow, Menu, dialog, session, shell } = require("electron")
 const { execFile } = require("node:child_process")
+const crypto = require("node:crypto")
+const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
+const { setTimeout: sleep } = require("node:timers/promises")
 const { serverURL, isAppURL, isWebURL, ensureSettingsFile } = require("./app")
 
 const agentLabel = "dev.yarlson.yargpt.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
 const agentTarget = `gui/${process.getuid()}/${agentLabel}`
+const serverBinary = path.join(process.resourcesPath, "yargpt")
 const dataDir = path.join(os.homedir(), ".yargpt")
 const logFile = path.join(os.homedir(), "Library", "Logs", "YarGPT", "server.log")
+// The page copies messages to the clipboard and plays videos full screen.
+// Electron grants every other permission too, unless a handler refuses it.
+const pagePermissions = new Set(["clipboard-sanitized-write", "fullscreen"])
 
 let window = null
 let opening = null
@@ -24,27 +31,71 @@ if (!app.requestSingleInstanceLock()) {
   app.on("window-all-closed", () => {})
   app.whenReady().then(() => {
     Menu.setApplicationMenu(buildMenu())
-    registerAgent()
+    session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
+      callback(pagePermissions.has(permission) && isAppURL(details.requestingUrl)),
+    )
+    session.defaultSession.setPermissionCheckHandler(
+      (_contents, permission, origin) => pagePermissions.has(permission) && isAppURL(origin),
+    )
     return showWindow()
   })
 }
 
-// registerAgent makes launchd start the server now and at every login.
-function registerAgent() {
+// launchd keeps the code requirement of the server from the registration of
+// the agent, and an ad-hoc signature changes with every build, so launchd
+// refuses to start a rebuilt or updated server until the agent is registered
+// again. This file holds the SHA-256 of the server that the current
+// registration started.
+function registeredServerFile() {
+  return path.join(app.getPath("userData"), "registered-server.sha256")
+}
+
+function serverDigest() {
+  return crypto.createHash("sha256").update(fs.readFileSync(serverBinary)).digest("hex")
+}
+
+function registeredDigest() {
   try {
-    app.setLoginItemSettings({ openAtLogin: true, ...agent })
+    return fs.readFileSync(registeredServerFile(), "utf8")
   } catch (err) {
-    dialog.showErrorBox("YarGPT could not register its server", err.message)
-    return
+    if (err.code === "ENOENT") return null
+    throw err
   }
-  if (app.getLoginItemSettings(agent).status !== "requires-approval") return
-  const choice = dialog.showMessageBoxSync({
-    type: "info",
-    message: "Allow the YarGPT server to run in the background",
-    detail: "Turn on YarGPT in System Settings › General › Login Items & Extensions. Then the server starts now and at every login.",
-    buttons: ["Open System Settings", "Later"],
+}
+
+function saveRegisteredDigest(digest) {
+  try {
+    fs.writeFileSync(registeredServerFile(), digest)
+  } catch (err) {
+    // The next launch then registers the agent again and restarts the server.
+    console.error("save the digest of the registered server:", err)
+  }
+}
+
+// agentStatus is the source of truth for the registration:
+// setLoginItemSettings only logs the errors of macOS.
+function agentStatus() {
+  return app.getLoginItemSettings(agent).status
+}
+
+// registerAgent registers the agent again, so that launchd loads it with the
+// code requirement of this server and starts it. A registration while the old
+// job is loaded keeps the old requirement. bootout returns at once, and
+// launchd removes the job only when its server has stopped, so wait for that.
+async function registerAgent() {
+  await launchctl("bootout")
+  const deadline = Date.now() + 30_000
+  while ((await launchctl("print")) && Date.now() < deadline) await sleep(250)
+  app.setLoginItemSettings({ openAtLogin: false, ...agent })
+  app.setLoginItemSettings({ openAtLogin: true, ...agent })
+}
+
+// launchctl runs a launchctl subcommand on the server job and returns whether
+// it succeeded. It fails when launchd has not loaded the job.
+function launchctl(subcommand) {
+  return new Promise((resolve) => {
+    execFile("/bin/launchctl", [subcommand, agentTarget], { timeout: 10_000 }, (err) => resolve(!err))
   })
-  if (choice === 0) void shell.openExternal("x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
 }
 
 async function serverAnswers() {
@@ -60,59 +111,61 @@ async function waitForServer(ms) {
   const deadline = Date.now() + ms
   while (Date.now() < deadline) {
     if (await serverAnswers()) return true
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await sleep(250)
   }
   return false
 }
 
-// launchctl runs a launchctl subcommand on the server job. It fails when
-// launchd has not loaded the job; the caller checks the server instead.
-function launchctl(subcommand) {
-  return new Promise((resolve) => {
-    execFile("/bin/launchctl", [subcommand, agentTarget], { timeout: 10_000 }, () => resolve())
-  })
-}
-
-// ensureServer starts the launch agent when the server does not answer, for
-// example after Exit server, and waits for it.
+// ensureServer makes the server of this app run. It registers the agent when
+// the server binary changed since the last registration, and starts the
+// server when it does not answer, for example after Exit server. It returns
+// false when the server does not start.
 async function ensureServer() {
-  if (await serverAnswers()) return true
-  await launchctl("kickstart")
-  if (await waitForServer(8_000)) return true
-  // The registration records the code requirement of the server, and an
-  // ad-hoc signature changes with every build, so launchd refuses to start a
-  // rebuilt or updated server. A new registration records the new
-  // requirement, but unregistering can leave the old job loaded with the old
-  // one, so remove that job before registering again.
-  try {
-    app.setLoginItemSettings({ openAtLogin: false, ...agent })
-    await launchctl("bootout")
-    app.setLoginItemSettings({ openAtLogin: true, ...agent })
-  } catch (err) {
-    console.error("register the server agent again:", err)
+  const digest = serverDigest()
+  const registered = digest === registeredDigest()
+  if (registered && (await serverAnswers())) return true
+  if (agentStatus() === "requires-approval") return false
+  let registerAgain = false
+  if (!registered || agentStatus() !== "enabled") {
+    await registerAgent()
+    if (agentStatus() !== "enabled") return false
+    registerAgain = true
   }
-  return waitForServer(20_000)
+  // kickstart starts a stopped job and leaves a running one alone, which can
+  // still be starting, or stopping after Exit server. So ask again until the
+  // server answers.
+  const started = Date.now()
+  while (Date.now() - started < 45_000) {
+    await launchctl("kickstart")
+    if (await waitForServer(2_000)) {
+      saveRegisteredDigest(digest)
+      return true
+    }
+    // A registration can keep the requirement of the old server. Then launchd
+    // refuses the first spawn, macOS records the new requirement at the next
+    // spawn one ThrottleInterval later, and a registration after that loads it.
+    if (registerAgain && Date.now() - started > 20_000) {
+      registerAgain = false
+      await registerAgent()
+    }
+  }
+  return false
 }
 
-// showWindow starts the server when it does not answer, for example after
-// Exit server, then shows the window or creates it. activate also fires at
-// launch, so a second call waits for the first.
+// showWindow makes the server run, then shows the window or creates it.
+// activate also fires at launch, so a second call waits for the first.
 function showWindow() {
-  opening ??= openWindow().finally(() => {
-    opening = null
-  })
+  opening ??= openWindow()
+    .catch((err) => dialog.showErrorBox("YarGPT could not open its window", err.message))
+    .finally(() => {
+      opening = null
+    })
   return opening
 }
 
 async function openWindow() {
   if (!(await ensureServer())) {
-    const choice = dialog.showMessageBoxSync({
-      type: "error",
-      message: "The YarGPT server did not start",
-      detail: `Its log is ${logFile}.`,
-      buttons: ["Open Log", "Close"],
-    })
-    if (choice === 0) void shell.openPath(logFile)
+    showServerError()
     return
   }
   if (window) {
@@ -127,7 +180,38 @@ async function openWindow() {
     window = null
   })
   routeLinks(window.webContents)
-  await window.loadURL(serverURL)
+  try {
+    await window.loadURL(serverURL)
+  } catch (err) {
+    // The next activation creates the window again.
+    window.destroy()
+    throw err
+  }
+}
+
+function showServerError() {
+  const status = agentStatus()
+  if (status === "requires-approval") {
+    const choice = dialog.showMessageBoxSync({
+      type: "info",
+      message: "Allow the YarGPT server to run in the background",
+      detail: "Turn on YarGPT in System Settings › General › Login Items & Extensions. Then the server starts now and at every login.",
+      buttons: ["Open System Settings", "Later"],
+    })
+    if (choice === 0) void shell.openExternal("x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
+    return
+  }
+  if (status !== "enabled") {
+    dialog.showErrorBox("YarGPT could not register its server", `macOS reports its launch agent as ${status}. Open YarGPT again to try again.`)
+    return
+  }
+  const choice = dialog.showMessageBoxSync({
+    type: "error",
+    message: "The YarGPT server did not start",
+    detail: `Its log is ${logFile}.`,
+    buttons: ["Open Log", "Close"],
+  })
+  if (choice === 0) void openFile(logFile, "the server log")
 }
 
 function openInBrowser(url) {
@@ -144,6 +228,7 @@ function routeLinks(contents) {
     return { action: "deny" }
   })
   contents.on("did-create-window", (child) => {
+    child.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
     child.webContents.on("will-navigate", (event, url) => {
       event.preventDefault()
       openInBrowser(url)
@@ -155,6 +240,17 @@ function routeLinks(contents) {
     event.preventDefault()
     openInBrowser(url)
   })
+  contents.on("will-frame-navigate", (event) => {
+    if (!event.isMainFrame && !isAppURL(event.url)) event.preventDefault()
+  })
+  contents.on("will-redirect", (event) => {
+    if (!isAppURL(event.url)) event.preventDefault()
+  })
+}
+
+async function openFile(file, name) {
+  const err = await shell.openPath(file)
+  if (err) dialog.showErrorBox(`YarGPT could not open ${name}`, `${file}: ${err}`)
 }
 
 async function openSettings() {
@@ -165,8 +261,7 @@ async function openSettings() {
     dialog.showErrorBox("YarGPT could not create the settings file", err.message)
     return
   }
-  const err = await shell.openPath(file)
-  if (err) dialog.showErrorBox("YarGPT could not open the settings file", `${file}: ${err}`)
+  await openFile(file, "the settings file")
 }
 
 function buildMenu() {

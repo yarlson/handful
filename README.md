@@ -24,6 +24,29 @@ make build
 
 Open <http://127.0.0.1:7777>. YarGPT keeps all its data in `~/.yargpt`.
 
+### macOS app
+
+On a Mac, you can use an app instead. It keeps the server running in the background, from login on, with an icon in the menu bar. It runs on Apple silicon and Intel Macs.
+
+1. Download `YarGPT-<version>-universal-mac.zip` from the [releases](https://github.com/yarlson/yargpt/releases), unzip it, and move `YarGPT.app` to `/Applications`.
+2. The app has an ad-hoc signature, not an Apple Developer ID, so macOS blocks a downloaded copy. Before you open it the first time, run:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/YarGPT.app
+   ```
+
+3. Open the app. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
+
+To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` (`desktop/dist/mac/YarGPT.app` on an Intel Mac) to `/Applications`. A copy that you build is not blocked.
+
+- The server keeps running when you quit the app, and starts at every login. It has no login of its own, so use the app only on a Mac that one person uses: see [Security](#security).
+- The icon in the menu bar has one item, **Exit server**. The server then stays stopped until you open the app again or log in again.
+- **YarGPT › Settings…** (⌘,) opens `~/.yargpt/config.json` in your default editor. A change applies when the server starts again: choose **Exit server**, then open the app.
+- Links in chats open in your default browser.
+- The server writes its log to `~/Library/Logs/YarGPT/server.log`.
+- After you install or build a new version, quit YarGPT with ⌘Q, then open the new app. It replaces the running server, which stops the turns that run. The new server takes up to half a minute to start.
+- To remove the app, turn off YarGPT in System Settings › General › Login Items & Extensions, then delete `YarGPT.app`. Your bots and chats stay in `~/.yargpt`. The app also leaves `~/Library/Logs/YarGPT` and `~/Library/Application Support/YarGPT`; delete them too to remove everything.
+
 ## Use YarGPT
 
 ### Create a bot
@@ -176,6 +199,9 @@ For example, Slack's MCP server works with Slack's public client for Claude Code
 | `-claude` | `claude` | Claude Code CLI to run |
 | `-model` | Claude Code's default | Model alias for every bot, for example `sonnet` |
 | `-max-parallel` | `3` | Turns that can run at the same time, across all bots |
+| `-login-env` | off | Take the environment, such as `PATH`, from your login shell. The macOS app uses it, because launchd starts the server with a minimal `PATH`. |
+| `-tray` | off | Show an icon in the macOS menu bar with one item, **Exit server**, which stops the server. The macOS app uses it. |
+| `-log` | none | Append the log and all other error output to this file. `~/` is your home folder. Without it, they go to stderr. |
 
 To set these without flags, put `claude`, `model` or `maxParallel` in `~/.yargpt/config.json`, for example `{"model": "sonnet", "maxParallel": 4}`.
 
@@ -225,7 +251,13 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 `make build` builds the UI into `web/dist` and embeds it in `bin/yargpt`. To work on the UI, start `./bin/yargpt`, then run `cd web && npm run dev`. Vite sends `/api` requests to port 7777.
 
-`mise.toml` pins Go, Node.js and every check tool, and the Makefile runs each tool through `mise exec`. Coding agents get their working rules from `AGENTS.md`.
+`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it for this Mac, and `make app-universal` builds the zip for Apple silicon and Intel Macs. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
+
+`mise.toml` pins Go, Node.js and every check tool, and the Makefile runs them through `mise exec`. `make app-universal` and `make icons` also use macOS tools that mise does not install: `lipo`, `sips` and `iconutil`, and `rsvg-convert` from Homebrew `librsvg`. Coding agents get their working rules from `AGENTS.md`.
+
+### Releases
+
+Push a tag such as `v0.2.0` to release. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner and creates a GitHub release with the zip. A tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release.
 
 ### Checks
 
@@ -248,6 +280,7 @@ The agent tests replace Claude Code with a fake CLI script and run a real MCP cl
 | `race` | A Go test fails, or the race detector finds a data race |
 | `vuln` | govulncheck finds a known vulnerability in code that YarGPT calls |
 | `web-check` | The UI is not formatted with oxfmt, oxlint reports an error, the type check or a vitest test fails, or the build fails. oxlint warnings do not fail it. |
+| `desktop-check` | A unit test of the macOS app fails |
 | `workflow-check` | actionlint finds a problem in a GitHub Actions workflow |
 
 Slower analyses have their own targets. They write their reports to `target/`.
@@ -285,7 +318,9 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 | `internal/core` | Domain state: bots, transcript, turns, memory, routines, skills, approvals, event hub |
 | `internal/agent` | Claude Code runner, stream-json parsing, system prompt and MCP tools |
 | `internal/httpapi` | REST API, event stream, origin guard and UI hosting |
+| `internal/shellenv` | The environment of the user's login shell, for a server that launchd starts |
 | `web` | React 19, TypeScript 7, Tailwind v4 and shadcn/ui app, embedded through `web/embed.go` |
+| `desktop` | The macOS app: Electron window, launch agent and icons |
 
 ## License
 

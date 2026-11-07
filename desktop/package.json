@@ -1,0 +1,37 @@
+{
+  "name": "yargpt-desktop",
+  "productName": "YarGPT",
+  "version": "0.1.0",
+  "private": true,
+  "description": "YarGPT for macOS",
+  "author": "Yar Kravtsov",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "build": "electron-builder --mac",
+    "build:universal": "electron-builder --mac zip --universal",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "dev.yarlson.yargpt",
+    "files": ["main.js", "app.js"],
+    "extraResources": [{ "from": "../bin/yargpt", "to": "yargpt" }],
+    "extraFiles": [
+      {
+        "from": "build/dev.yarlson.yargpt.server.plist",
+        "to": "Library/LaunchAgents/dev.yarlson.yargpt.server.plist"
+      }
+    ],
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.productivity",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "directories": { "output": "dist" }
+  }
+}

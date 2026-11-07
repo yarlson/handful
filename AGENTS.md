@@ -1,6 +1,6 @@
 # Instructions for coding agents
 
-- Run `mise install` once. The Makefile runs every tool through `mise exec`, so it uses the versions that `mise.toml` pins. To add or update a tool, change `mise.toml`.
+- Run `mise install` once. The Makefile runs every tool that `mise.toml` pins through `mise exec`, so it uses those versions. To add or update a tool, change `mise.toml`. The macOS app targets also use `lipo`, `sips`, `iconutil` and `rsvg-convert`, which mise does not install.
 - The section "Tests and checks" in README.md lists the make targets.
 - Run `make check` before you finish a change. CI runs the same target.
 
@@ -16,3 +16,8 @@
 
 - For a change in `web/src/lib`, run `make web-mutation` and kill the surviving mutants in the code that you changed.
 - oxlint warnings in `web/` are known follow-ups. Do not add new ones.
+
+## macOS app changes
+
+- For a change in `desktop/` or in `cmd/yargpt/tray_darwin.go`, run `make app`, quit YarGPT with ⌘Q, and open the built app, which replaces the running server. Check the window, a link, **Settings…**, the menu-bar icon and **Exit server**. `make check` covers only `desktop/app.js`.
+- For a change to `make app-universal` or `.github/workflows/release.yml`, run `make app-universal VERSION=0.0.0-test` and unzip the result with `ditto -x -k`: `codesign --verify --deep --strict` must pass, and `lipo -archs` must list x86_64 and arm64 for `Contents/MacOS/YarGPT` and `Contents/Resources/yargpt`.

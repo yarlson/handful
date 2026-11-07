@@ -1,10 +1,14 @@
 MISE := mise exec --
 export BASE ?= origin/main
 
-.PHONY: build web generate test run fmt check fmt-check lint generate-check mod-check race vuln web-check workflow-check crap mutation mutation-diff web-mutation
+.PHONY: build web generate test run app app-universal icons fmt check fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check crap mutation mutation-diff web-mutation
 
+# app-universal leaves a universal binary in bin/yargpt, which go build does
+# not overwrite. The server needs no cgo on macOS. On other systems cgo keeps
+# the system DNS resolver, for example for .local names.
 build: web
-	$(MISE) go build -o bin/yargpt ./cmd/yargpt
+	rm -f bin/yargpt
+	$(if $(filter Darwin,$(shell uname -s)),CGO_ENABLED=0) $(MISE) go build -o bin/yargpt ./cmd/yargpt
 
 web:
 	cd web && $(MISE) npm ci && $(MISE) npm run build
@@ -19,17 +23,48 @@ test:
 run: build
 	./bin/yargpt
 
+# Builds the app for this Mac, with the server inside it:
+# desktop/dist/mac-arm64/YarGPT.app, or desktop/dist/mac/YarGPT.app on an Intel Mac.
+app: build
+	cd desktop && $(MISE) npm ci && $(MISE) npm run build
+
+# Builds desktop/dist/YarGPT-<version>-universal-mac.zip, the app for Apple
+# silicon and Intel Macs. VERSION, if set, replaces the version in
+# desktop/package.json.
+app-universal: web
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MISE) go build -o bin/yargpt-arm64 ./cmd/yargpt
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MISE) go build -o bin/yargpt-amd64 ./cmd/yargpt
+	lipo -create -output bin/yargpt bin/yargpt-arm64 bin/yargpt-amd64
+	cd desktop && $(MISE) npm ci && $(MISE) npm run build:universal -- $(if $(VERSION),-c.extraMetadata.version=$(VERSION))
+
+# Regenerates the committed icons from their SVG sources. It needs
+# rsvg-convert (Homebrew librsvg), which mise does not have, and iconutil.
+icons:
+	rsvg-convert -w 32 -h 32 cmd/yargpt/tray.svg -o cmd/yargpt/tray.png
+	sips -s dpiWidth 144 -s dpiHeight 144 cmd/yargpt/tray.png >/dev/null
+	rm -rf target/icon.iconset && mkdir -p target/icon.iconset
+	rsvg-convert -w 824 -h 824 --page-width 1024 --page-height 1024 --left 100 --top 100 web/public/logo.svg -o target/icon-1024.png
+	for s in 16 32 128 256 512; do \
+		sips -z $$s $$s target/icon-1024.png --out target/icon.iconset/icon_$${s}x$${s}.png >/dev/null && \
+		sips -z $$((s * 2)) $$((s * 2)) target/icon-1024.png --out target/icon.iconset/icon_$${s}x$${s}@2x.png >/dev/null || exit 1; \
+	done
+	iconutil -c icns target/icon.iconset -o desktop/build/icon.icns
+
 fmt:
 	$(MISE) golangci-lint fmt
 	cd web && $(MISE) npm run format
 
-check: fmt-check lint generate-check mod-check race vuln web-check workflow-check
+check: fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check
 
 fmt-check:
 	$(MISE) golangci-lint fmt --diff
 
+# CI runs on Linux, so go vet with GOOS=darwin also compiles the macOS-only
+# code, such as the menu-bar icon.
 lint:
 	$(MISE) golangci-lint run ./...
+	CGO_ENABLED=0 GOOS=darwin $(MISE) go vet ./...
 
 generate-check:
 	$(MISE) sqlc diff
@@ -46,6 +81,9 @@ vuln:
 
 web-check:
 	cd web && $(MISE) npm ci && $(MISE) npm run format:check && $(MISE) npm run lint && $(MISE) npm run typecheck && $(MISE) npm test && $(MISE) npm run build
+
+desktop-check:
+	cd desktop && $(MISE) npm ci && $(MISE) npm test
 
 workflow-check:
 	$(MISE) actionlint

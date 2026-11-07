@@ -1,7 +1,7 @@
 MISE := mise exec --
 export BASE ?= origin/main
 
-.PHONY: build web generate test run app icons fmt check fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check crap mutation mutation-diff web-mutation
+.PHONY: build web generate test run app app-universal icons fmt check fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check crap mutation mutation-diff web-mutation
 
 build: web
 	CGO_ENABLED=0 $(MISE) go build -o bin/yargpt ./cmd/yargpt
@@ -22,6 +22,16 @@ run: build
 # Builds desktop/dist/mac-arm64/YarGPT.app with the server inside it.
 app: build
 	cd desktop && $(MISE) npm ci && $(MISE) npm run build
+
+# Builds desktop/dist/YarGPT-<version>-universal-mac.zip, the app for Apple
+# silicon and Intel Macs. VERSION, if set, replaces the version in
+# desktop/package.json.
+app-universal: web
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MISE) go build -o bin/yargpt-arm64 ./cmd/yargpt
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MISE) go build -o bin/yargpt-amd64 ./cmd/yargpt
+	lipo -create -output bin/yargpt bin/yargpt-arm64 bin/yargpt-amd64
+	cd desktop && $(MISE) npm ci && $(MISE) npm run build:universal -- $(if $(VERSION),-c.extraMetadata.version=$(VERSION))
 
 # Regenerates the committed icons from their SVG sources. It needs
 # rsvg-convert (Homebrew librsvg), which mise does not have, and iconutil.

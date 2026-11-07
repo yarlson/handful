@@ -26,22 +26,25 @@ Open <http://127.0.0.1:7777>. YarGPT keeps all its data in `~/.yargpt`.
 
 ### macOS app
 
-On a Mac, you can build an app instead. It keeps the server running in the background, from login on, with an icon in the menu bar.
+On a Mac, you can use an app instead. It keeps the server running in the background, from login on, with an icon in the menu bar. It runs on Apple silicon and Intel Macs.
 
-```sh
-make app
-```
+1. Download `YarGPT-<version>-universal-mac.zip` from the [releases](https://github.com/yarlson/yargpt/releases), unzip it, and move `YarGPT.app` to `/Applications`.
+2. The app has an ad-hoc signature, not an Apple Developer ID, so macOS blocks a downloaded copy. Before you open it the first time, run:
 
-1. Move `desktop/dist/mac-arm64/YarGPT.app` to `/Applications`, then open it.
-2. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/YarGPT.app
+   ```
+
+3. Open the app. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
+
+To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` to `/Applications`. A copy that you build is not blocked.
 
 - The server keeps running when you quit the app, and starts at every login.
 - The icon in the menu bar has one item, **Exit server**. The server then stays stopped until you open the app again or log in again.
 - **YarGPT › Settings…** (⌘,) opens `~/.yargpt/config.json` in your default editor. A change applies when the server starts again: choose **Exit server**, then open the app.
 - Links in chats open in your default browser.
 - The server writes its log to `~/Library/Logs/YarGPT/server.log`.
-- The app has an ad-hoc signature, which is valid only on the Mac that built it. Build it on the Mac where you use it.
-- After you build the app again, choose **Exit server**, then open the new app. The server that runs keeps its old version until it stops.
+- After you install or build a new version, choose **Exit server**, then open the new app. The server that runs keeps its old version until it stops.
 - To remove the app, turn off YarGPT in System Settings › General › Login Items & Extensions, then delete `YarGPT.app`.
 
 ## Use YarGPT
@@ -248,9 +251,13 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 `make build` builds the UI into `web/dist` and embeds it in `bin/yargpt`. To work on the UI, start `./bin/yargpt`, then run `cd web && npm run dev`. Vite sends `/api` requests to port 7777.
 
-`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
+`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it for this Mac, and `make app-universal` builds the zip for Apple silicon and Intel Macs. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
 
 `mise.toml` pins Go, Node.js and every check tool, and the Makefile runs each tool through `mise exec`. Coding agents get their working rules from `AGENTS.md`.
+
+### Releases
+
+Push a tag such as `v0.2.0` to release. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner and creates a GitHub release with the zip. A tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release.
 
 ### Checks
 

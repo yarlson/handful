@@ -83,7 +83,7 @@ web-check:
 	cd web && $(MISE) npm ci && $(MISE) npm run format:check && $(MISE) npm run lint && $(MISE) npm run typecheck && $(MISE) npm test && $(MISE) npm run build
 
 desktop-check:
-	cd desktop && ELECTRON_SKIP_BINARY_DOWNLOAD=1 $(MISE) npm ci && $(MISE) npm test
+	cd desktop && $(MISE) npm ci && $(MISE) npm test
 
 workflow-check:
 	$(MISE) actionlint

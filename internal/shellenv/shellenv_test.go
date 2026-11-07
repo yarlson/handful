@@ -68,6 +68,21 @@ func TestLoadStopsAHangingShellAtTheDeadline(t *testing.T) {
 	}
 }
 
+func TestLoadRunsTheEnvironmentCommandInALoginShell(t *testing.T) {
+	t.Setenv("YARGPT_SHELLENV_TEST", "a=b\nc")
+	// The fake shell checks the flags, then runs the command with a plain sh,
+	// which reads no startup files.
+	shell := fakeShell(t, `[ "$1" = -ilc ] || exit 9
+exec /bin/sh -c "$2"`)
+	got, err := Load(t.Context(), shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["YARGPT_SHELLENV_TEST"] != "a=b\nc" {
+		t.Fatalf("YARGPT_SHELLENV_TEST = %q; want %q from the environment of the shell", got["YARGPT_SHELLENV_TEST"], "a=b\nc")
+	}
+}
+
 func TestLoadKeepsTheEnvironmentWhenAStartupFileLeavesAProcess(t *testing.T) {
 	// The background sleep keeps stdout open after the shell exits.
 	shell := fakeShell(t, `sleep 2 &

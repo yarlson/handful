@@ -112,7 +112,7 @@ func parseFlags(args []string) (options, error) {
 		return options{}, fmt.Errorf("find home directory: %w", err)
 	}
 	o := options{set: map[string]bool{}}
-	fs := flag.NewFlagSet("yargpt", flag.ExitOnError)
+	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "loopback address to listen on")
 	fs.StringVar(&o.dataDir, "data", filepath.Join(home, ".yargpt"), "directory for the database, bot workspaces and skills")
 	fs.StringVar(&o.Claude, "claude", "claude", "path to the Claude Code CLI")

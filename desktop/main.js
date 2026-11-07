@@ -95,7 +95,9 @@ async function openWindow() {
     if (choice === 0) void shell.openPath(logFile)
     return
   }
-  window = new BrowserWindow({ width: 1280, height: 860, title: "YarGPT" })
+  // Hidden until the page paints, so a dark-mode window does not flash white.
+  window = new BrowserWindow({ width: 1280, height: 860, title: "YarGPT", show: false })
+  window.once("ready-to-show", () => window?.show())
   window.on("closed", () => {
     window = null
   })

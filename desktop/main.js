@@ -55,6 +55,15 @@ async function serverAnswers() {
   }
 }
 
+async function waitForServer(ms) {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline) {
+    if (await serverAnswers()) return true
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return false
+}
+
 // ensureServer starts the launch agent when the server does not answer, for
 // example after Exit server, and waits for it.
 async function ensureServer() {
@@ -62,12 +71,17 @@ async function ensureServer() {
   await new Promise((resolve) => {
     execFile("/bin/launchctl", ["kickstart", `gui/${process.getuid()}/${agentLabel}`], { timeout: 10_000 }, () => resolve())
   })
-  const deadline = Date.now() + 20_000
-  while (Date.now() < deadline) {
-    if (await serverAnswers()) return true
-    await new Promise((resolve) => setTimeout(resolve, 250))
+  if (await waitForServer(8_000)) return true
+  // launchd keeps the code requirement of the server from the registration,
+  // and an ad-hoc signature changes with every build, so it refuses to start
+  // a rebuilt or updated server until the agent is registered again.
+  try {
+    app.setLoginItemSettings({ openAtLogin: false, ...agent })
+    app.setLoginItemSettings({ openAtLogin: true, ...agent })
+  } catch (err) {
+    console.error("register the server agent again:", err)
   }
-  return false
+  return waitForServer(20_000)
 }
 
 // showWindow shows the window, and creates it when there is none. activate

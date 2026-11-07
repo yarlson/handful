@@ -41,6 +41,7 @@ make app
 - Links in chats open in your default browser.
 - The server writes its log to `~/Library/Logs/YarGPT/server.log`.
 - The app has an ad-hoc signature, which is valid only on the Mac that built it. Build it on the Mac where you use it.
+- After you build the app again, choose **Exit server**, then open the new app. The server that runs keeps its old version until it stops.
 
 ## Use YarGPT
 

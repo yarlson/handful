@@ -176,6 +176,8 @@ For example, Slack's MCP server works with Slack's public client for Claude Code
 | `-claude` | `claude` | Claude Code CLI to run |
 | `-model` | Claude Code's default | Model alias for every bot, for example `sonnet` |
 | `-max-parallel` | `3` | Turns that can run at the same time, across all bots |
+| `-login-env` | off | Take the environment, such as `PATH`, from your login shell. The macOS app uses it, because launchd starts the server with a minimal `PATH`. |
+| `-log` | none | Append the log and all other error output to this file. `~/` is your home folder. Without it, they go to stderr. |
 
 To set these without flags, put `claude`, `model` or `maxParallel` in `~/.yargpt/config.json`, for example `{"model": "sonnet", "maxParallel": 4}`.
 

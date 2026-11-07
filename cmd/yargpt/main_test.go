@@ -139,3 +139,54 @@ func TestServeFailsWhenTheAddressIsTaken(t *testing.T) {
 		t.Fatalf("serve on a taken address = %v; want a listen error", err)
 	}
 }
+
+// fakeLoginShell writes a shell script that prints startup noise and then the
+// given environment in the format that shellenv.Load reads.
+func fakeLoginShell(t *testing.T, env ...string) string {
+	t.Helper()
+	body := `printf 'motd\n__YARGPT_ENV__\0'`
+	for _, kv := range env {
+		body += `; printf '%s\0' '` + kv + `'`
+	}
+	path := filepath.Join(t.TempDir(), "shell")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestSetUpFindsClaudeOnTheLoginShellPATH(t *testing.T) {
+	claudeDir := filepath.Dir(fakeClaude(t))
+	t.Setenv("SHELL", fakeLoginShell(t, "PATH="+claudeDir+":/usr/bin:/bin", "YARGPT_LOGIN_ENV_TEST=yes"))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("YARGPT_LOGIN_ENV_TEST", "")
+
+	o, _, err := setUp([]string{"-login-env", "-data", t.TempDir(), "-claude", "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(claudeDir, "claude"); o.claudePath != want {
+		t.Errorf("claudePath = %q; want %q from the login shell's PATH", o.claudePath, want)
+	}
+	if got := os.Getenv("YARGPT_LOGIN_ENV_TEST"); got != "yes" {
+		t.Errorf("YARGPT_LOGIN_ENV_TEST = %q; want the login shell's value yes", got)
+	}
+}
+
+func TestSetUpKeepsTheEnvironmentWhenTheLoginShellFails(t *testing.T) {
+	shell := filepath.Join(t.TempDir(), "shell")
+	if err := os.WriteFile(shell, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	claude := fakeClaude(t)
+
+	o, _, err := setUp([]string{"-login-env", "-data", t.TempDir(), "-claude", claude})
+	if err != nil {
+		t.Fatalf("setUp with a failing login shell = %v; want it to go on", err)
+	}
+	if o.claudePath != claude || os.Getenv("PATH") != "/usr/bin:/bin" {
+		t.Fatalf("claudePath %q, PATH %q; want %q and the unchanged PATH", o.claudePath, os.Getenv("PATH"), claude)
+	}
+}

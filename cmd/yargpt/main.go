@@ -21,6 +21,7 @@ import (
 	"yargpt/internal/core"
 	"yargpt/internal/db"
 	"yargpt/internal/httpapi"
+	"yargpt/internal/shellenv"
 	"yargpt/web"
 )
 
@@ -36,21 +37,61 @@ type options struct {
 	addr    string
 	dataDir string
 	settings
+	loginEnv   bool
+	logFile    string
 	set        map[string]bool // flags given on the command line
 	claudePath string
 }
 
 func run(args []string) error {
-	o, err := parseFlags(args)
+	o, log, err := setUp(args)
 	if err != nil {
-		return err
-	}
-	if err := prepare(&o); err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return serve(ctx, o, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	return serve(ctx, o, log)
+}
+
+// setUp parses the flags and prepares the process: the log file, the
+// environment, the config file and the checks.
+func setUp(args []string) (options, *slog.Logger, error) {
+	o, err := parseFlags(args)
+	if err != nil {
+		return o, nil, err
+	}
+	if o.logFile != "" {
+		if err := redirectToFile(int(os.Stderr.Fd()), o.logFile); err != nil {
+			return o, nil, err
+		}
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if o.loginEnv {
+		if err := useLoginShellEnv(); err != nil {
+			log.Warn("keeping the environment that the server started with", "err", err)
+		}
+	}
+	return o, log, prepare(&o)
+}
+
+// useLoginShellEnv replaces the environment with the one of the user's login
+// shell, so that Claude Code and the tools of bots are on PATH.
+func useLoginShellEnv() error {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/zsh" // the default login shell of macOS
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	env, err := shellenv.Load(ctx, shell)
+	if err != nil {
+		return err
+	}
+	for name, value := range env {
+		// Setenv fails only on a name that is empty or holds "=", which Load never returns.
+		_ = os.Setenv(name, value)
+	}
+	return nil
 }
 
 func parseFlags(args []string) (options, error) {
@@ -65,6 +106,8 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.Claude, "claude", "claude", "path to the Claude Code CLI")
 	fs.StringVar(&o.Model, "model", "", "model alias for every bot (default: Claude Code's default)")
 	fs.IntVar(&o.MaxParallel, "max-parallel", 3, "turns that may run at once across all bots")
+	fs.BoolVar(&o.loginEnv, "login-env", false, "take the environment, such as PATH, from the user's login shell (launchd starts the server with a minimal PATH)")
+	fs.StringVar(&o.logFile, "log", "", "append the log and all other error output to this file; ~/ is the home directory")
 	// ExitOnError: Parse exits on -h or a bad flag, as flag.Parse does.
 	_ = fs.Parse(args)
 	fs.Visit(func(f *flag.Flag) { o.set[f.Name] = true })

@@ -1,6 +1,6 @@
 # Instructions for coding agents
 
-- Run `mise install` once. The Makefile runs every tool through `mise exec`, so it uses the versions that `mise.toml` pins. To add or update a tool, change `mise.toml`.
+- Run `mise install` once. The Makefile runs every tool that `mise.toml` pins through `mise exec`, so it uses those versions. To add or update a tool, change `mise.toml`. The macOS app targets also use `lipo`, `sips`, `iconutil` and `rsvg-convert`, which mise does not install.
 - The section "Tests and checks" in README.md lists the make targets.
 - Run `make check` before you finish a change. CI runs the same target.
 

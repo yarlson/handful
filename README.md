@@ -39,13 +39,13 @@ On a Mac, you can use an app instead. It keeps the server running in the backgro
 
 To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` (`desktop/dist/mac/YarGPT.app` on an Intel Mac) to `/Applications`. A copy that you build is not blocked.
 
-- The server keeps running when you quit the app, and starts at every login.
+- The server keeps running when you quit the app, and starts at every login. It has no login of its own, so use the app only on a Mac that one person uses: see [Security](#security).
 - The icon in the menu bar has one item, **Exit server**. The server then stays stopped until you open the app again or log in again.
 - **YarGPT › Settings…** (⌘,) opens `~/.yargpt/config.json` in your default editor. A change applies when the server starts again: choose **Exit server**, then open the app.
 - Links in chats open in your default browser.
 - The server writes its log to `~/Library/Logs/YarGPT/server.log`.
 - After you install or build a new version, choose **Exit server**, then open the new app. The server that runs keeps its old version until it stops.
-- To remove the app, turn off YarGPT in System Settings › General › Login Items & Extensions, then delete `YarGPT.app`.
+- To remove the app, turn off YarGPT in System Settings › General › Login Items & Extensions, then delete `YarGPT.app`. Your bots and chats stay in `~/.yargpt`. The app also leaves `~/Library/Logs/YarGPT` and `~/Library/Application Support/YarGPT`; delete them too to remove everything.
 
 ## Use YarGPT
 
@@ -253,7 +253,7 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 `desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it for this Mac, and `make app-universal` builds the zip for Apple silicon and Intel Macs. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
 
-`mise.toml` pins Go, Node.js and every check tool, and the Makefile runs each tool through `mise exec`. Coding agents get their working rules from `AGENTS.md`.
+`mise.toml` pins Go, Node.js and every check tool, and the Makefile runs them through `mise exec`. `make app-universal` and `make icons` also use macOS tools that mise does not install: `lipo`, `sips` and `iconutil`, and `rsvg-convert` from Homebrew `librsvg`. Coding agents get their working rules from `AGENTS.md`.
 
 ### Releases
 

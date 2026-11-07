@@ -26,10 +26,17 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	exit(run(os.Args[1:]))
+}
+
+// exit ends the process: with status 0 when err is nil, else with 1 after
+// printing err.
+func exit(err error) {
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "yargpt:", err)
 		os.Exit(1)
 	}
+	os.Exit(0)
 }
 
 // options holds the parsed flags and what prepare derives from them.

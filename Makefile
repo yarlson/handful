@@ -4,7 +4,7 @@ export BASE ?= origin/main
 .PHONY: build web generate test run app icons fmt check fmt-check lint generate-check mod-check race vuln web-check desktop-check workflow-check crap mutation mutation-diff web-mutation
 
 build: web
-	$(MISE) go build -o bin/yargpt ./cmd/yargpt
+	CGO_ENABLED=0 $(MISE) go build -o bin/yargpt ./cmd/yargpt
 
 web:
 	cd web && $(MISE) npm ci && $(MISE) npm run build
@@ -27,6 +27,7 @@ app: build
 # rsvg-convert (Homebrew librsvg), which mise does not have, and iconutil.
 icons:
 	rsvg-convert -w 32 -h 32 cmd/yargpt/tray.svg -o cmd/yargpt/tray.png
+	sips -s dpiWidth 144 -s dpiHeight 144 cmd/yargpt/tray.png >/dev/null
 	rm -rf target/icon.iconset && mkdir -p target/icon.iconset
 	rsvg-convert -w 824 -h 824 --page-width 1024 --page-height 1024 --left 100 --top 100 web/public/logo.svg -o target/icon-1024.png
 	for s in 16 32 128 256 512; do \

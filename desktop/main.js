@@ -8,6 +8,7 @@ const { serverURL, isAppURL, isWebURL, ensureSettingsFile } = require("./app")
 
 const agentLabel = "dev.yarlson.yargpt.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
+const agentTarget = `gui/${process.getuid()}/${agentLabel}`
 const dataDir = path.join(os.homedir(), ".yargpt")
 const logFile = path.join(os.homedir(), "Library", "Logs", "YarGPT", "server.log")
 
@@ -64,19 +65,28 @@ async function waitForServer(ms) {
   return false
 }
 
+// launchctl runs a launchctl subcommand on the server job. It fails when
+// launchd has not loaded the job; the caller checks the server instead.
+function launchctl(subcommand) {
+  return new Promise((resolve) => {
+    execFile("/bin/launchctl", [subcommand, agentTarget], { timeout: 10_000 }, () => resolve())
+  })
+}
+
 // ensureServer starts the launch agent when the server does not answer, for
 // example after Exit server, and waits for it.
 async function ensureServer() {
   if (await serverAnswers()) return true
-  await new Promise((resolve) => {
-    execFile("/bin/launchctl", ["kickstart", `gui/${process.getuid()}/${agentLabel}`], { timeout: 10_000 }, () => resolve())
-  })
+  await launchctl("kickstart")
   if (await waitForServer(8_000)) return true
-  // launchd keeps the code requirement of the server from the registration,
-  // and an ad-hoc signature changes with every build, so it refuses to start
-  // a rebuilt or updated server until the agent is registered again.
+  // The registration records the code requirement of the server, and an
+  // ad-hoc signature changes with every build, so launchd refuses to start a
+  // rebuilt or updated server. A new registration records the new
+  // requirement, but unregistering can leave the old job loaded with the old
+  // one, so remove that job before registering again.
   try {
     app.setLoginItemSettings({ openAtLogin: false, ...agent })
+    await launchctl("bootout")
     app.setLoginItemSettings({ openAtLogin: true, ...agent })
   } catch (err) {
     console.error("register the server agent again:", err)
@@ -84,14 +94,10 @@ async function ensureServer() {
   return waitForServer(20_000)
 }
 
-// showWindow shows the window, and creates it when there is none. activate
-// also fires at launch, so a second call waits for the first.
+// showWindow starts the server when it does not answer, for example after
+// Exit server, then shows the window or creates it. activate also fires at
+// launch, so a second call waits for the first.
 function showWindow() {
-  if (window) {
-    window.show()
-    window.focus()
-    return Promise.resolve()
-  }
   opening ??= openWindow().finally(() => {
     opening = null
   })
@@ -107,6 +113,11 @@ async function openWindow() {
       buttons: ["Open Log", "Close"],
     })
     if (choice === 0) void shell.openPath(logFile)
+    return
+  }
+  if (window) {
+    window.show()
+    window.focus()
     return
   }
   // Hidden until the page paints, so a dark-mode window does not flash white.

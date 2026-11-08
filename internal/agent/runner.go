@@ -52,6 +52,8 @@ type Runner struct {
 	log    *slog.Logger
 
 	outputTimeout time.Duration // turnOutputTimeout; tests shorten it
+	// publish sends a working state; tests watch it.
+	publish func(id string, running bool)
 
 	mu       sync.Mutex
 	running  map[string]runningTurn // bot id -> its running turn
@@ -80,7 +82,7 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 	resume.Stop()
 	return &Runner{
 		svc: svc, cfg: cfg, tokens: newTokenRegistry(), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), sessions: make(map[sessionKey]*session), done: make(chan struct{}, 1),
-		resume: resume, maxLimitPause: limitPauseMax,
+		resume: resume, maxLimitPause: limitPauseMax, publish: svc.PublishState,
 	}
 }
 
@@ -263,10 +265,14 @@ func (r *Runner) stopSessions() {
 }
 
 // publishState sends the working state of the bot and of the room it works in.
+// It publishes under mu, as dispatch does, so a state that a turn which
+// ended read cannot arrive after the next turn has published that it runs.
 func (r *Runner) publishState(botID, roomID string) {
-	r.svc.PublishState(botID, r.Running(botID))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.publish(botID, r.botBusyLocked(botID) || r.roomBusyLocked(botID))
 	if roomID != "" {
-		r.svc.PublishState(roomID, r.Running(roomID))
+		r.publish(roomID, r.botBusyLocked(roomID) || r.roomBusyLocked(roomID))
 	}
 }
 
@@ -306,9 +312,9 @@ func (r *Runner) dispatch(ctx context.Context) {
 		}
 		turnCtx, cancel := context.WithCancel(ctx)
 		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, itemID: t.ItemID, goalID: t.GoalID}
-		r.svc.PublishState(t.BotID, true)
+		r.publish(t.BotID, true)
 		if t.RoomID != "" {
-			r.svc.PublishState(t.RoomID, true)
+			r.publish(t.RoomID, true)
 		}
 		r.wg.Add(1)
 		go func(t core.Turn) {

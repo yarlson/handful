@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -3497,5 +3498,45 @@ func TestHeldMessagesBeyondTheByteCapWaitForALaterTurn(t *testing.T) {
 	}
 	if got := heldOverflow(0); got != "" {
 		t.Errorf("heldOverflow(0) = %q; want empty", got)
+	}
+}
+
+func TestAStateReadBeforeATurnStartsIsNotPublishedAfterIt(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	r := h.runner
+	var mu sync.Mutex
+	var published []bool
+	started := make(chan struct{})
+	r.publish = func(id string, running bool) {
+		if id != bot.ID {
+			return
+		}
+		if !running {
+			// The ended turn has read "idle": give the next turn the chance
+			// to start before this state goes out.
+			go func() {
+				r.mu.Lock()
+				r.running[bot.ID] = runningTurn{cancel: func() {}}
+				r.publish(bot.ID, true)
+				r.mu.Unlock()
+				close(started)
+			}()
+			select {
+			case <-started:
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+		mu.Lock()
+		published = append(published, running)
+		mu.Unlock()
+	}
+	r.publishState(bot.ID, "")
+	<-started
+	mu.Lock()
+	defer mu.Unlock()
+	if len(published) != 2 || !published[1] || !r.botBusyLocked(bot.ID) {
+		t.Fatalf("published states = %v; want the idle state first and running last, as the bot runs", published)
 	}
 }

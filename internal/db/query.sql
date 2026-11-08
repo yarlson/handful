@@ -9,6 +9,9 @@ SELECT * FROM bots WHERE id = ?;
 -- name: ListBots :many
 SELECT * FROM bots ORDER BY position, created_at, rowid;
 
+-- name: SetBotRole :exec
+UPDATE bots SET role = ? WHERE id = ?;
+
 -- name: UpdateBotProfile :one
 UPDATE bots SET name = ?, instructions = ?, updated_at = ?
 WHERE id = ?

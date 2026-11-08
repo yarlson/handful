@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"yargpt/internal/core"
 )
 
 // builtinTools is the Claude Code tool set a bot can use. Anything outside
@@ -45,7 +47,7 @@ func (r claudeRun) args() ([]string, error) {
 		return nil, fmt.Errorf("encode agents: %w", err)
 	}
 	allowed := append([]string{}, readOnlyTools...)
-	for _, t := range []string{"send_to_user", "send_to_agent", "read_room", "recall_memory", "update_memory", "update_routine", "update_skill", "find_artifacts", "read_artifact", "update_artifact", "update_profile", "update_board"} {
+	for _, t := range []string{"send_to_user", "send_to_agent", "read_room", "recall_memory", "update_memory", "update_routine", "update_skill", "find_artifacts", "read_artifact", "update_artifact", "update_profile", "update_board", core.ToolCreateSetup} {
 		allowed = append(allowed, yargptTool(t))
 	}
 

@@ -312,7 +312,7 @@ func (q *Queries) CountTurnReplies(ctx context.Context, turnID string) (int64, e
 const createBot = `-- name: CreateBot :one
 INSERT INTO bots (id, name, instructions, kind, position, created_at, updated_at)
 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(b.position), 0) + 1 FROM bots b), ?, ?)
-RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position
+RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role
 `
 
 type CreateBotParams struct {
@@ -343,6 +343,7 @@ func (q *Queries) CreateBot(ctx context.Context, arg CreateBotParams) (Bot, erro
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.Position,
+		&i.Role,
 	)
 	return i, err
 }
@@ -563,7 +564,7 @@ func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) 
 }
 
 const getBot = `-- name: GetBot :one
-SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position FROM bots WHERE id = ?
+SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role FROM bots WHERE id = ?
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -578,6 +579,7 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.Position,
+		&i.Role,
 	)
 	return i, err
 }
@@ -1147,7 +1149,7 @@ func (q *Queries) ListArtifactTags(ctx context.Context, artifactID string) ([]st
 }
 
 const listBots = `-- name: ListBots :many
-SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position FROM bots ORDER BY position, created_at, rowid
+SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role FROM bots ORDER BY position, created_at, rowid
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -1168,6 +1170,7 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.UpdatedAt,
 			&i.Kind,
 			&i.Position,
+			&i.Role,
 		); err != nil {
 			return nil, err
 		}
@@ -1749,7 +1752,7 @@ func (q *Queries) ListRoomMembers(ctx context.Context, roomID string) ([]ListRoo
 }
 
 const listRoomsOfBot = `-- name: ListRoomsOfBot :many
-SELECT b.id, b.name, b.instructions, b.claude_session_id, b.created_at, b.updated_at, b.kind, b.position FROM bots b JOIN room_members rm ON rm.room_id = b.id
+SELECT b.id, b.name, b.instructions, b.claude_session_id, b.created_at, b.updated_at, b.kind, b.position, b.role FROM bots b JOIN room_members rm ON rm.room_id = b.id
 WHERE rm.bot_id = ?
 ORDER BY b.position, b.created_at, b.rowid
 `
@@ -1772,6 +1775,7 @@ func (q *Queries) ListRoomsOfBot(ctx context.Context, botID string) ([]Bot, erro
 			&i.UpdatedAt,
 			&i.Kind,
 			&i.Position,
+			&i.Role,
 		); err != nil {
 			return nil, err
 		}
@@ -2148,6 +2152,20 @@ func (q *Queries) SetBotPosition(ctx context.Context, arg SetBotPositionParams) 
 	return err
 }
 
+const setBotRole = `-- name: SetBotRole :exec
+UPDATE bots SET role = ? WHERE id = ?
+`
+
+type SetBotRoleParams struct {
+	Role string `json:"role"`
+	ID   string `json:"id"`
+}
+
+func (q *Queries) SetBotRole(ctx context.Context, arg SetBotRoleParams) error {
+	_, err := q.db.ExecContext(ctx, setBotRole, arg.Role, arg.ID)
+	return err
+}
+
 const setBotSession = `-- name: SetBotSession :exec
 UPDATE bots SET claude_session_id = ?, updated_at = ? WHERE id = ?
 `
@@ -2319,7 +2337,7 @@ func (q *Queries) UpdateArtifact(ctx context.Context, arg UpdateArtifactParams) 
 const updateBotProfile = `-- name: UpdateBotProfile :one
 UPDATE bots SET name = ?, instructions = ?, updated_at = ?
 WHERE id = ?
-RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position
+RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role
 `
 
 type UpdateBotProfileParams struct {
@@ -2346,6 +2364,7 @@ func (q *Queries) UpdateBotProfile(ctx context.Context, arg UpdateBotProfilePara
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.Position,
+		&i.Role,
 	)
 	return i, err
 }

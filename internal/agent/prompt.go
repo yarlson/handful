@@ -24,7 +24,8 @@ type promptContext struct {
 	Teammates    []core.Bot // the user's other agent bots
 	Rooms        []core.Bot // rooms the bot is a member of
 	Now          time.Time
-	Global       string // <data>/AGENTS.md, the user's instructions for every bot
+	Global       string     // <data>/AGENTS.md, the user's instructions for every bot
+	Groups       []core.Bot // for Builder: the user's rooms and teams
 }
 
 // formatFact renders a fact with who wrote it. authors maps bot ids to the
@@ -149,7 +150,7 @@ A routine is a saved prompt that runs on a schedule even while the user is away.
 		}
 		fmt.Fprintf(&b, "- id %s: %q, schedule %q (%s)\n", r.ID, r.Name, r.Schedule, state)
 	}
-	fmt.Fprintf(&b, `%s
+	fmt.Fprintf(&b, `%s%s
 ## Skills
 Skills are reusable recipes (SKILL.md files) that the Skill tool lists by description. When you finish a multi-step process the user will likely want again, save it with update_skill: a name, a one-line "use when ..." description and generic steps without user-specific details. Skills are shared by all of the user's bots.
 
@@ -161,7 +162,7 @@ Change your own name or standing instructions with update_profile when the user 
 
 ## Time
 Each turn message starts with the current time in a timestamp tag; this prompt can be older than the turn. A turn that Claude Code starts after a background task reports has no timestamp: run date when the time matters. Time zone: %s.
-`, collaborationSection(pc), pc.Now.Format("MST"))
+`, collaborationSection(pc), builderSection(pc), pc.Now.Format("MST"))
 	return b.String()
 }
 

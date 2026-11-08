@@ -27,6 +27,7 @@ import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type Men
 import { Popover } from "radix-ui"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { isExternalLink } from "@/lib/links"
+import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -113,6 +114,43 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
       setBusy(false)
     }
   }
+  const setup = b.tool === CREATE_SETUP ? setupProposal(b.input) : null
+  if (setup) {
+    return (
+      <Card size="sm" className="max-w-xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <ShieldQuestion className="size-4" /> Create this setup?
+            {b.status !== "pending" && (
+              <Badge variant={b.status === "allowed" ? "secondary" : "outline"} className="ml-auto">
+                {b.status === "allowed" ? "confirmed" : b.status === "denied" ? "cancelled" : b.status}
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SetupSummary setup={setup} />
+          {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
+        </CardContent>
+        {b.status === "pending" && (
+          <CardFooter className="gap-2">
+            <Button size="sm" disabled={busy} aria-label="Create this setup" onClick={() => void decide("once")}>
+              <Check /> Create
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              aria-label="Cancel this setup"
+              onClick={() => void decide("deny")}
+            >
+              Cancel
+            </Button>
+          </CardFooter>
+        )}
+      </Card>
+    )
+  }
   const input = typeof b.input === "object" && b.input !== null ? (b.input as Record<string, unknown>) : {}
   const command = typeof input.command === "string" ? input.command : JSON.stringify(b.input, null, 2)
   return (
@@ -147,6 +185,62 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
         </CardFooter>
       )}
     </Card>
+  )
+}
+
+// SetupSummary lists everything that a setup creates, with each new bot's
+// whole instructions, so that the user can read what they confirm. It has no
+// scroll box of its own: nothing that the setup creates is out of sight.
+function SetupSummary({ setup }: { setup: SetupProposal }) {
+  const heading = "text-muted-foreground mb-1 text-xs font-medium uppercase"
+  return (
+    <div className="space-y-3 text-sm">
+      {setup.bots.length > 0 && (
+        <section>
+          <h4 className={heading}>New bots</h4>
+          <ul className="space-y-2">
+            {setup.bots.map((bot, i) => (
+              <li key={i}>
+                <span className="font-medium">{bot.name}</span>
+                <p className="text-muted-foreground text-xs whitespace-pre-wrap">{bot.instructions}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {setup.teams.length > 0 && (
+        <section>
+          <h4 className={heading}>Teams</h4>
+          <ul className="space-y-2">
+            {setup.teams.map((team, i) => (
+              <li key={i}>
+                <span className="font-medium">{team.name}</span>, led by {team.lead}, with {team.members.join(", ")}
+                {team.purpose && <p className="text-muted-foreground text-xs whitespace-pre-wrap">{team.purpose}</p>}
+                {team.agreement && (
+                  <p className="text-muted-foreground text-xs whitespace-pre-wrap">Agreement: {team.agreement}</p>
+                )}
+                {team.goalBudget !== undefined && (
+                  <p className="text-muted-foreground text-xs">{team.goalBudget} turns per goal</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {setup.rooms.length > 0 && (
+        <section>
+          <h4 className={heading}>Rooms</h4>
+          <ul className="space-y-2">
+            {setup.rooms.map((room, i) => (
+              <li key={i}>
+                <span className="font-medium">{room.name}</span>, with {room.members.join(", ")}
+                {room.purpose && <p className="text-muted-foreground text-xs whitespace-pre-wrap">{room.purpose}</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
   )
 }
 

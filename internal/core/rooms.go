@@ -60,37 +60,42 @@ func (s *Service) createRoom(ctx context.Context, id, name, instructions string,
 			return Bot{}, err
 		}
 	}
-	now := s.nowMs()
-	tx, err := s.sqlDB.BeginTx(ctx, nil)
+	var room Bot
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		var err error
+		room, err = insertRoom(ctx, q, id, name, instructions, members, team, s.nowMs())
+		return err
+	})
 	if err != nil {
-		return Bot{}, fmt.Errorf("begin transaction: %w", err)
+		return Bot{}, err
 	}
-	defer tx.Rollback()
-	qtx := s.q.WithTx(tx)
-	row, err := qtx.CreateBot(ctx, db.CreateBotParams{ID: id, Name: name, Instructions: instructions, Kind: KindRoom, CreatedAt: now, UpdatedAt: now})
-	if err != nil {
-		return Bot{}, fmt.Errorf("create room %q: %w", name, err)
-	}
-	for _, m := range members {
-		if err := qtx.AddRoomMember(ctx, db.AddRoomMemberParams{RoomID: row.ID, BotID: m.ID}); err != nil {
-			return Bot{}, fmt.Errorf("add %s to room %q: %w", m.Name, name, err)
-		}
-	}
-	if team != nil {
-		if err := qtx.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget}); err != nil {
-			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return Bot{}, fmt.Errorf("commit room %q: %w", name, err)
-	}
-	room := toBot(row)
-	room.Members = members
-	room.Team = team
 	if _, err := s.AppendEntry(ctx, room.ID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
 		return Bot{}, err
 	}
 	s.hub.Publish(Event{Type: "bots"})
+	return room, nil
+}
+
+// insertRoom stores a checked room with its members, and makes it a team when
+// team is not nil.
+func insertRoom(ctx context.Context, q *db.Queries, id, name, instructions string, members []Member, team *Team, now int64) (Bot, error) {
+	row, err := q.CreateBot(ctx, db.CreateBotParams{ID: id, Name: name, Instructions: instructions, Kind: KindRoom, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		return Bot{}, fmt.Errorf("create room %q: %w", name, err)
+	}
+	for _, m := range members {
+		if err := q.AddRoomMember(ctx, db.AddRoomMemberParams{RoomID: row.ID, BotID: m.ID}); err != nil {
+			return Bot{}, fmt.Errorf("add %s to room %q: %w", m.Name, name, err)
+		}
+	}
+	if team != nil {
+		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget}); err != nil {
+			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
+		}
+	}
+	room := toBot(row)
+	room.Members = members
+	room.Team = team
 	return room, nil
 }
 

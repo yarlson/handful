@@ -632,7 +632,29 @@ func (r *Runner) loadPromptContext(ctx context.Context, bot, room core.Bot, now 
 	if pc.OtherTeams, err = r.otherTeams(ctx, room); err != nil {
 		return promptContext{}, err
 	}
+	if pc.Groups, err = r.builderGroups(ctx, bot); err != nil {
+		return promptContext{}, err
+	}
 	return pc, nil
+}
+
+// builderGroups returns the user's rooms and teams when bot is Builder, whose
+// new names must differ from theirs.
+func (r *Runner) builderGroups(ctx context.Context, bot core.Bot) ([]core.Bot, error) {
+	if bot.Role != core.RoleBuilder {
+		return nil, nil
+	}
+	all, err := r.svc.ListBots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var groups []core.Bot
+	for _, b := range all {
+		if b.IsRoom() {
+			groups = append(groups, b)
+		}
+	}
+	return groups, nil
 }
 
 // otherTeams returns the user's teams other than room, when room is a team.

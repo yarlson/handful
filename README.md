@@ -43,6 +43,20 @@ To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGP
 
 ## Use YarGPT
 
+### Builder
+
+On the first start, YarGPT has one bot, **Builder**. It sets up bots, teams and rooms for you.
+
+1. Tell Builder what you want help with, or pick a start from its first message: a personal assistant, a software team, a research desk or a writing studio.
+2. Builder asks a few questions and proposes a setup in the chat.
+3. When you agree, Builder shows the setup on a card: each new bot with its instructions, and each team or room with its members. **Create** creates all of it at once. **Cancel** creates nothing. The card has no **Always allow**, so Builder asks you for every setup.
+
+- A setup adds at most 8 bots, 3 teams and 3 rooms. A new name must differ from the names of your bots, teams and rooms.
+- The new bots do not introduce themselves. Builder tells you where to start, for example to open a team and give it a goal.
+- The card shows everything that the setup creates. A setup whose texts hold an invisible character, or two blank lines in a row, is refused.
+- Builder cannot change or delete your other bots, teams or rooms, and it joins no team or room. Do that in the app.
+- YarGPT creates Builder only when it starts with no bots, teams or rooms. After you delete Builder, it does not come back while you have other bots.
+
 ### Create a bot
 
 1. Click **+** next to **Bots**.
@@ -72,7 +86,7 @@ A bot reads files and searches the web without asking. Before it runs a command,
 - **Always allow &lt;tool&gt;** lets this bot use the tool without asking. To remove this permission, open the bot panel, then **Settings**, then **Always allowed tools**.
 - **Deny** stops the call.
 
-A card that you do not answer expires after 10 minutes, or when the bot stops working.
+A card that you do not answer expires after 10 minutes, or when the bot stops working. A setup card from Builder has **Create** and **Cancel** instead (see [Builder](#builder)).
 
 In the sidebar, a shield marks a bot that waits for an approval. A question bubble marks a bot that asked you something.
 
@@ -357,7 +371,7 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 
 - **Turns.** A message, a routine or a bot's first start becomes a turn. A bot runs one turn at a time, and its turns share one Claude Code session, which each turn resumes. The prompt goes to the `claude` process on stdin as stream-json. Each send carries a `clientNonce`, so a retried send does not start a second turn.
 - **Delivery.** The model's plain text is private. The user sees what the bot sends with the `send_to_user` tool. When a turn ends without a message, the chat shows the model's final text, marked as a fallback.
-- **Tools.** Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a token that is valid only for its turn. The tools are `send_to_user`, `send_to_agent`, `read_room`, `recall_memory`, `update_memory`, `update_routine`, `update_skill`, `find_artifacts`, `read_artifact`, `update_artifact`, `update_profile`, `update_board` and `approve`. Tool calls that need approval reach `approve` through `--permission-prompt-tool`.
+- **Tools.** Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a token that is valid only for its turn. The tools are `send_to_user`, `send_to_agent`, `read_room`, `recall_memory`, `update_memory`, `update_routine`, `update_skill`, `find_artifacts`, `read_artifact`, `update_artifact`, `update_profile`, `update_board`, `create_setup` (Builder only) and `approve`. Tool calls that need approval reach `approve` through `--permission-prompt-tool`.
 - **Isolation.** Workers run with `--setting-sources project`, `--strict-mcp-config`, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`. The built-in tools are limited to Task, Bash, Monitor, TaskStop, Read, Edit, Write, Glob, Grep, WebSearch and Skill. YarGPT writes each process's MCP config to a 0600 file in `<data>/run`, so no token shows in the process list, and removes the file when the process exits.
 - **Transcript.** Each chat is an ordered log of `user`, `bot`, `event`, `activity` and `approval` entries. Each change gets a new `rev`. Clients catch up with `GET /api/bots/{id}/entries?after=<rev>` and the `GET /api/events` stream.
 - **Schema.** The migrations in `internal/db/migrations` run in order at start, each in one transaction with its `PRAGMA user_version` update.

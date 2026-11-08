@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -101,6 +102,7 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 
 	url := "http://" + o.addr + "/api/bots"
 	deadline := time.Now().Add(10 * time.Second)
+	var bots []struct{ Name, Role string }
 	for {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 		if err != nil {
@@ -108,8 +110,12 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 		}
 		res, err := http.DefaultClient.Do(req)
 		if err == nil {
+			ok := res.StatusCode == http.StatusOK
+			if ok {
+				err = json.NewDecoder(res.Body).Decode(&bots)
+			}
 			res.Body.Close()
-			if res.StatusCode == http.StatusOK {
+			if ok {
 				break
 			}
 		}
@@ -117,6 +123,9 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 			t.Fatalf("GET %s did not answer 200 within 10 s (last error %v)", url, err)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+	if len(bots) != 1 || bots[0].Name != "Builder" || bots[0].Role != "builder" {
+		t.Fatalf("bots of a new data directory = %+v; want only Builder", bots)
 	}
 
 	cancel()

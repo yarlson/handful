@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -355,5 +356,31 @@ func TestRoomHistoryReturnsTheLatestMessagesToMembersOnly(t *testing.T) {
 	}
 	if _, err := svc.RoomHistory(ctx, room.ID, bots["Bo"].ID, 51, 0); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("history with limit 51: err = %v; want ErrInvalid", err)
+	}
+}
+
+func TestMentionMatchesWholeNamesOnly(t *testing.T) {
+	members := []Member{{ID: "bo", Name: "Bo"}, {ID: "bob", Name: "Bob"}, {ID: "forge", Name: "Forge"}, {ID: "fr", Name: "Forge Reviewer"}}
+	for _, tc := range []struct {
+		text string
+		want []string
+	}{
+		{"@Bob, look", []string{"bob"}},
+		{"@bo: look", []string{"bo"}},
+		{"(@Bo)", []string{"bo"}},
+		{"write to ops@bo.dev", nil},
+		{"@Bob_2 and @Bobby", nil},
+		{"@Forge Reviewer, please check", []string{"fr"}},
+		{"@Forge reviews it", []string{"forge"}},
+		{"@Forge and @Forge Reviewer", []string{"forge", "fr"}},
+		{"@Forge Reviewers", []string{"forge"}},
+	} {
+		var got []string
+		for _, m := range mentioned(tc.text, members, "") {
+			got = append(got, m.ID)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("mentioned(%q) = %v; want %v", tc.text, got, tc.want)
+		}
 	}
 }

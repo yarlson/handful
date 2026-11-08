@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Play, Trash2 } from "lucide-react"
 import { api, type Artifact, type Bot, type Memory, type Routine, type Skill } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
+import { latestOnly } from "@/lib/latest"
 import { MarkdownText } from "@/components/chat"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -32,15 +33,24 @@ function when(ms: number | null) {
     : "—"
 }
 
-// useLoad fetches data and fetches it again whenever key changes.
+// useLoad fetches data and fetches it again whenever key changes. Only the
+// newest request's result applies, and a success clears an earlier error.
 function useLoad<T>(load: () => Promise<T>, key: string) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const loadRef = useRef(load)
   loadRef.current = load
+  const [run] = useState(latestOnly)
   const reload = useCallback(() => {
-    loadRef.current().then(setData, (e: Error) => setError(e.message))
-  }, [])
+    run(
+      loadRef.current(),
+      (d) => {
+        setData(d)
+        setError(null)
+      },
+      (e) => setError(e.message),
+    )
+  }, [run])
   useEffect(reload, [reload, key])
   return { data, error, reload, setError }
 }

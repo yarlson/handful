@@ -293,6 +293,41 @@ func TestRoutineScheduleValidation(t *testing.T) {
 	}
 }
 
+func TestRunRoutineNowByABotCountsAsAHop(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	r, err := svc.CreateRoutine(ctx, bot.ID, "Loop", "Run this routine again.", "0 8 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		by   string
+		hops int64
+		want int64
+	}{
+		{"Scout", 5, maxAgentHops},
+		{"", maxAgentHops, 0},
+	} {
+		turnID, err := svc.RunRoutineNow(ctx, r.ID, tc.by, tc.hops)
+		if err != nil {
+			t.Fatalf("run by %q at hop %d: %v", tc.by, tc.hops, err)
+		}
+		turns, err := svc.QueuedTurns(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tr := range turns {
+			if tr.ID == turnID && tr.Hops != tc.want {
+				t.Errorf("run by %q at hop %d: turn hops = %d; want %d", tc.by, tc.hops, tr.Hops, tc.want)
+			}
+		}
+	}
+	if _, err := svc.RunRoutineNow(ctx, r.ID, "Scout", maxAgentHops); err == nil {
+		t.Fatal("run by a bot at the hop limit succeeded; want it refused")
+	}
+}
+
 func TestRunRoutineNowNamesWhoRanItAndRecordsTheRun(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)

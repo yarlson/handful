@@ -1,3 +1,5 @@
+import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifacts"
+
 export type Member = { id: string; name: string }
 
 export type Bot = {
@@ -85,6 +87,18 @@ export type Routine = {
   createdAt: number
 }
 
+export type Artifact = {
+  id: string
+  kind: ArtifactKind
+  title: string
+  content?: string // only when the artifact is read by id
+  authorId: string // a bot id, or "user"
+  tags: string[]
+  links: string[]
+  createdAt: number
+  updatedAt: number
+}
+
 export type Skill = { id: string; name: string; description: string; body?: string }
 
 // Connector is an external MCP server. The API never returns its tokens or headers.
@@ -152,6 +166,9 @@ export const api = {
   skills: () => request<Skill[]>("GET", "/api/skills"),
   skill: (id: string) => request<Skill>("GET", `/api/skills/${id}`),
   deleteSkill: (id: string) => request<void>("DELETE", `/api/skills/${id}`),
+  artifacts: (filter: ArtifactFilter) => request<Artifact[]>("GET", artifactsPath(filter)),
+  artifact: (id: string) => request<Artifact>("GET", `/api/artifacts/${encodeURIComponent(id)}`),
+  deleteArtifact: (id: string) => request<void>("DELETE", `/api/artifacts/${encodeURIComponent(id)}`),
   grants: (id: string) => request<string[]>("GET", `/api/bots/${id}/grants`),
   revokeGrant: (id: string, tool: string) =>
     request<void>("DELETE", `/api/bots/${id}/grants/${encodeURIComponent(tool)}`),

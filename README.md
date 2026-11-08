@@ -257,16 +257,6 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 Push a tag such as `v0.2.0` to release; the tag must be a version, such as `v0.2.0` or `v0.2.0-rc.1`. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner, which signs the app with a Developer ID and the hardened runtime and has Apple notarize it, and creates a GitHub release with the zip. A tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release.
 
-The workflow needs these repository secrets:
-
-| Secret | Value |
-| --- | --- |
-| `MAC_CERT_P12` | The Developer ID Application certificate with its private key, exported as `.p12` and base64-encoded |
-| `MAC_CERT_PASSWORD` | The password of the `.p12` |
-| `APPLE_API_KEY_P8` | The App Store Connect API key (`AuthKey_<id>.p8`) for notarization |
-| `APPLE_API_KEY_ID` | The ID of that key |
-| `APPLE_API_ISSUER` | The issuer ID of the App Store Connect team |
-
 ### Checks
 
 ```sh

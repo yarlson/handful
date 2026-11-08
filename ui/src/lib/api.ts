@@ -1,4 +1,5 @@
 import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifacts"
+import { errorMessage } from "./errors"
 
 export type Member = { id: string; name: string }
 
@@ -171,7 +172,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     } catch {
       // The body is not JSON; keep the status message.
     }
-    throw new Error(message)
+    throw new Error(errorMessage(message))
   }
   if (res.status === 204) return undefined as T
   return (await res.json()) as T

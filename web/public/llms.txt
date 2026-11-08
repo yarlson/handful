@@ -138,7 +138,7 @@ How the team works:
 
 ### Goals and the board
 
-A goal is work for the team with several steps. You start one with **New goal** above the team's chat. The lead can also start one with `update_board` `start_goal`, but only in a turn that a post of yours woke. A team has at most one open goal.
+A goal is work for the team with several steps. You start one by typing `/goal` and what the team should do in the team's chat, for example `/goal Add CSV export`. The lead can also start one with `update_board` `start_goal`, but only in a turn that a post of yours woke. A team has at most one open goal.
 
 - The lead splits the goal into items with `create`. An item has a title (unique in the goal, at most 120 characters), a brief, acceptance criteria, an owner, an optional reviewer who is another member, and the items that it depends on. A goal has at most 30 items that are not dropped. A member who does not lead can add an item without an owner: a proposal that the lead assigns. Only the lead adds items to a delivered goal.
 - Item states: `todo`, `doing`, `review`, `done`, `blocked` and `dropped`.

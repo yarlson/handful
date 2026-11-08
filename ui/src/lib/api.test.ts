@@ -54,3 +54,17 @@ test("ending a goal posts to its route and returns nothing", async () => {
   assert.strictEqual(await api.endGoal("g1"), undefined)
   assert.deepEqual(calls, [{ method: "POST", url: "/api/goals/g1/end", body: {} }])
 })
+
+test("a failed request throws the server's error without its invalid input prefix", async () => {
+  vi.stubGlobal("fetch", async () =>
+    Response.json({ error: "invalid input: Ship already works on a goal; end it first" }, { status: 400 }),
+  )
+  const err = await api.startGoal("t1", "Again.").catch((e: Error) => e)
+  assert.strictEqual((err as Error).message, "Ship already works on a goal; end it first")
+})
+
+test("a failed request without a server error throws its status", async () => {
+  vi.stubGlobal("fetch", async () => Response.json({}, { status: 502 }))
+  const err = await api.board("t1").catch((e: Error) => e)
+  assert.strictEqual((err as Error).message, "GET /api/teams/t1/board failed with 502")
+})

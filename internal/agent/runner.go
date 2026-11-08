@@ -41,8 +41,9 @@ const (
 
 // Runner takes queued turns from the service and runs each one in the claude
 // process of its Claude session. Turns of one bot run one at a time, in order.
-// Turns in one room also run one at a time, so each member sees the replies
-// before its own; idle members go before members that are busy elsewhere.
+// Conversation turns in one room also run one at a time, so each member sees
+// the replies before its own; idle members go before members that are busy
+// elsewhere. The work and the reviews of a team's items run beside them.
 type Runner struct {
 	svc    *core.Service
 	cfg    Config
@@ -67,6 +68,8 @@ type Runner struct {
 type runningTurn struct {
 	cancel context.CancelFunc
 	roomID string
+	itemID string // set for a work or review turn on a team's item
+	goalID string // set for a board turn: the goal it works for
 }
 
 func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
@@ -89,6 +92,7 @@ func (r *Runner) Run(ctx context.Context) {
 	defer ticker.Stop()
 	defer r.resume.Stop()
 	r.fireRoutines(ctx)
+	r.settleItems(ctx)
 	r.dispatch(ctx)
 	for {
 		select {
@@ -103,8 +107,25 @@ func (r *Runner) Run(ctx context.Context) {
 		case <-ticker.C:
 			r.fireRoutines(ctx)
 		}
+		r.settleItems(ctx)
 		r.dispatch(ctx)
 	}
+}
+
+// settleItems blocks the items whose owner or reviewer stopped without
+// handing them on, so that the lead learns of them.
+func (r *Runner) settleItems(ctx context.Context) {
+	if err := r.svc.SettleItems(ctx, r.hasSession); err != nil && ctx.Err() == nil {
+		r.log.Error("settle board items", "err", err)
+	}
+}
+
+// hasSession reports whether a claude process runs for the bot's seat in a room.
+func (r *Runner) hasSession(botID, roomID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.sessions[sessionKey{botID, roomID}]
+	return ok
 }
 
 func (r *Runner) fireRoutines(ctx context.Context) {
@@ -130,6 +151,22 @@ func (r *Runner) botBusyLocked(botID string) bool {
 	}
 	for _, s := range r.sessions {
 		if s.waking && s.key.botID == botID {
+			return true
+		}
+	}
+	return false
+}
+
+// chatBusyLocked reports whether a conversation turn runs in the room: a
+// turn that works on no item. Work and reviews of items run beside it.
+func (r *Runner) chatBusyLocked(roomID string) bool {
+	for _, rt := range r.running {
+		if rt.roomID == roomID && rt.itemID == "" {
+			return true
+		}
+	}
+	for _, s := range r.sessions {
+		if s.waking && s.key.roomID == roomID {
 			return true
 		}
 	}
@@ -167,6 +204,9 @@ func (r *Runner) Active(id string) bool {
 // and processes in the room, and drops the member turns still queued there.
 // It returns false when nothing was running.
 func (r *Runner) Interrupt(ctx context.Context, id string) (bool, error) {
+	// A team's board stops first, so that no item counts as left behind
+	// meanwhile; the turns stop even when that fails.
+	stopErr := r.svc.StopTeam(ctx, id)
 	r.mu.Lock()
 	var cancels []context.CancelFunc
 	for botID, rt := range r.running {
@@ -188,10 +228,24 @@ func (r *Runner) Interrupt(ctx context.Context, id string) (bool, error) {
 		r.stopSession(s)
 	}
 	stopped := len(cancels) > 0 || len(sessions) > 0
-	if err := r.svc.CancelQueuedRoomTurns(ctx, id); err != nil {
-		return stopped, err
+	return stopped, errors.Join(stopErr, r.svc.CancelQueuedRoomTurns(ctx, id))
+}
+
+// CancelGoal stops the running turns that work for a goal, in every team,
+// and returns how many it stopped.
+func (r *Runner) CancelGoal(goalID string) int {
+	r.mu.Lock()
+	var cancels []context.CancelFunc
+	for _, rt := range r.running {
+		if rt.goalID == goalID {
+			cancels = append(cancels, rt.cancel)
+		}
 	}
-	return stopped, nil
+	r.mu.Unlock()
+	for _, c := range cancels {
+		c()
+	}
+	return len(cancels)
 }
 
 // stopSessions ends every claude process. Run calls it at shutdown; the
@@ -239,23 +293,19 @@ func (r *Runner) dispatch(ctx context.Context) {
 		if len(r.running) >= r.cfg.MaxParallel {
 			return
 		}
-		// A bot runs one turn at a time. A member busy elsewhere does not hold
-		// up the room: the next idle member in queue order goes first, and the
-		// busy member answers when it is free.
-		if r.botBusyLocked(t.BotID) {
+		if !r.mayStartLocked(ctx, t) {
 			continue
 		}
-		// A room runs one member turn at a time, so each member sees the
-		// replies before its own.
-		if t.RoomID != "" && r.roomBusyLocked(t.RoomID) {
-			continue
-		}
-		if err := r.svc.StartTurn(ctx, t.ID); err != nil {
+		started, err := r.svc.StartTurn(ctx, t.ID)
+		if err != nil {
 			r.log.Error("start turn", "turn", t.ID, "err", err)
+		}
+		// A turn that a board change cancelled after the list was read does not start.
+		if !started {
 			continue
 		}
 		turnCtx, cancel := context.WithCancel(ctx)
-		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID}
+		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, itemID: t.ItemID, goalID: t.GoalID}
 		r.svc.PublishState(t.BotID, true)
 		if t.RoomID != "" {
 			r.svc.PublishState(t.RoomID, true)
@@ -272,6 +322,43 @@ func (r *Runner) dispatch(ctx context.Context) {
 			r.signalDone()
 		}(t)
 	}
+}
+
+// mayStartLocked reports whether turn t may start now. r.mu is held.
+func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
+	// A bot runs one turn at a time. A member busy elsewhere does not hold
+	// up the room: the next idle member in queue order goes first, and the
+	// busy member answers when it is free.
+	if r.botBusyLocked(t.BotID) {
+		return false
+	}
+	// A room runs one conversation turn at a time, so each member sees the
+	// replies before its own.
+	if t.RoomID != "" && t.ItemID == "" && r.chatBusyLocked(t.RoomID) {
+		return false
+	}
+	if t.GoalID == "" {
+		return true
+	}
+	// Board turns leave a slot for the user's other chats.
+	if r.boardTurnsLocked() >= max(1, r.cfg.MaxParallel-1) {
+		return false
+	}
+	ok, err := r.svc.GoalAllows(ctx, t)
+	if err != nil {
+		r.log.Error("check the goal of a turn", "turn", t.ID, "goal", t.GoalID, "err", err)
+	}
+	return ok
+}
+
+func (r *Runner) boardTurnsLocked() int {
+	n := 0
+	for _, rt := range r.running {
+		if rt.goalID != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // outcome is what Claude Code reported for one message.
@@ -417,61 +504,36 @@ type delivery struct {
 // also returns what the turn delivers.
 func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claudeRun, delivery, error) {
 	now := time.Now().In(r.svc.Location())
-	profile, recent, err := r.svc.PromptMemory(ctx, bot.ID)
-	if err != nil {
-		return claudeRun{}, delivery{}, err
-	}
-	routines, err := r.svc.ListRoutines(ctx, bot.ID)
-	if err != nil {
-		return claudeRun{}, delivery{}, err
-	}
-	teammates, err := r.svc.Teammates(ctx, bot.ID)
-	if err != nil {
-		return claudeRun{}, delivery{}, err
-	}
-	rooms, err := r.svc.RoomsOf(ctx, bot.ID)
-	if err != nil {
-		return claudeRun{}, delivery{}, err
-	}
-	inbox, err := r.svc.Inbox(ctx, bot.ID)
-	if err != nil {
-		return claudeRun{}, delivery{}, err
-	}
-	global, err := r.globalInstructions()
-	if err != nil {
-		return claudeRun{}, delivery{}, err
-	}
-	delivered := delivery{inbox: inbox}
-
-	prompt, sessionID := t.Prompt, bot.ClaudeSessionID
-	if skill, args, ok := r.invokedSkill(t); ok {
-		prompt = skillPrompt(skill, args)
-	}
-	if t.Source == core.SourceUser {
-		media, err := r.svc.TurnMedia(ctx, bot.ID, t.ID)
-		if err != nil {
+	// The item is being done from now on, so the prompt shows it that way.
+	if t.BoardRole == core.RoleWork {
+		if err := r.svc.StartItemWork(ctx, t.ItemID, bot.ID); err != nil {
 			return claudeRun{}, delivery{}, err
 		}
-		prompt += mediaNote(r.svc.MediaDir(), media)
 	}
+	prompt, update, err := r.turnPrompt(ctx, bot, t)
+	if err != nil {
+		return claudeRun{}, delivery{}, err
+	}
+	pc, err := r.loadPromptContext(ctx, bot, update.Room, now)
+	if err != nil {
+		return claudeRun{}, delivery{}, err
+	}
+	inbox, err := r.heldMessages(ctx, bot, update.Room)
+	if err != nil {
+		return claudeRun{}, delivery{}, err
+	}
+	delivered := delivery{inbox: inbox, roomSeq: update.LastSeq}
+	sessionID := bot.ClaudeSessionID
 	if t.RoomID != "" {
-		update, err := r.svc.PendingRoomUpdate(ctx, t.RoomID, bot.ID)
-		if err != nil {
-			return claudeRun{}, delivery{}, err
-		}
-		prompt, sessionID = roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()), update.Seat.ClaudeSessionID
-		delivered.roomSeq = update.LastSeq
+		sessionID = update.Seat.ClaudeSessionID
 	}
 	run := claudeRun{
-		Prompt: timestampLine(now) + inboxBlock(inbox) + prompt,
-		SystemPrompt: systemPrompt(promptContext{
-			Bot: bot, Workspace: r.svc.Workspace(bot.ID), Profile: profile, Recent: recent, Routines: routines,
-			Teammates: teammates, Rooms: rooms, Now: now, Global: global,
-		}),
-		SessionID: sessionID,
-		Resume:    sessionID != "",
-		BotName:   bot.Name,
-		Model:     r.cfg.Model,
+		Prompt:       timestampLine(now) + inboxBlock(inbox) + prompt,
+		SystemPrompt: systemPrompt(pc),
+		SessionID:    sessionID,
+		Resume:       sessionID != "",
+		BotName:      bot.Name,
+		Model:        r.cfg.Model,
 	}
 	if !run.Resume {
 		run.SessionID = uuid.NewString()
@@ -480,6 +542,115 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 		}
 	}
 	return run, delivered, nil
+}
+
+// turnPrompt returns the message of the turn, and for a turn in a room the
+// room update that the message carries.
+func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (string, core.RoomUpdate, error) {
+	if t.RoomID != "" {
+		update, err := r.svc.PendingRoomUpdate(ctx, t.RoomID, bot.ID)
+		if err != nil {
+			return "", core.RoomUpdate{}, err
+		}
+		board, err := r.teamBoard(ctx, update.Room, t)
+		if err != nil {
+			return "", core.RoomUpdate{}, err
+		}
+		return roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t), update, nil
+	}
+	prompt := t.Prompt
+	if skill, args, ok := r.invokedSkill(t); ok {
+		prompt = skillPrompt(skill, args)
+	}
+	if t.Source == core.SourceUser {
+		media, err := r.svc.TurnMedia(ctx, bot.ID, t.ID)
+		if err != nil {
+			return "", core.RoomUpdate{}, err
+		}
+		prompt += mediaNote(r.svc.MediaDir(), media)
+	}
+	return prompt, core.RoomUpdate{}, nil
+}
+
+// heldMessages returns the messages held for the bot that its turn delivers.
+// A turn in a team delivers none, since the bot answers only its team there:
+// they wait for its next turn outside the team.
+func (r *Runner) heldMessages(ctx context.Context, bot, room core.Bot) ([]core.InboxMessage, error) {
+	if room.IsTeam() {
+		return nil, nil
+	}
+	return r.svc.Inbox(ctx, bot.ID)
+}
+
+// teamBoard returns the board that a turn in a team shows: the team's open
+// goal, and the requests of other teams to it. A retro turn shows the goal
+// that it looks back on; a turn for another team's goal shows no goal of the
+// team.
+func (r *Runner) teamBoard(ctx context.Context, room core.Bot, t core.Turn) (core.Board, error) {
+	if !room.IsTeam() {
+		return core.Board{}, nil
+	}
+	if t.BoardRole == core.RoleRetro {
+		return r.svc.GoalBoard(ctx, t.GoalID)
+	}
+	board, err := r.svc.Board(ctx, room.ID)
+	if err != nil || board.Goal == nil {
+		return board, err
+	}
+	if !board.Goal.Open() || (t.GoalID != "" && t.GoalID != board.Goal.ID) {
+		board.Goal, board.Items = nil, nil
+	}
+	return board, nil
+}
+
+// loadPromptContext gathers what the system prompt describes. room is the
+// room of a turn in a room, else the zero Bot; in a team the bot works in the
+// team's folder and sees the team's memory.
+func (r *Runner) loadPromptContext(ctx context.Context, bot, room core.Bot, now time.Time) (promptContext, error) {
+	pc := promptContext{Bot: bot, Workspace: r.svc.Workspace(bot.ID), Now: now}
+	teamID := ""
+	if room.IsTeam() {
+		pc.Team, pc.OwnWorkspace, pc.Workspace = &room, pc.Workspace, r.svc.TeamWorkspace(room.ID)
+		teamID = room.ID
+	}
+	var err error
+	if pc.Profile, pc.Recent, err = r.svc.PromptMemory(ctx, bot.ID, teamID); err != nil {
+		return promptContext{}, err
+	}
+	if pc.Routines, err = r.svc.ListRoutines(ctx, bot.ID); err != nil {
+		return promptContext{}, err
+	}
+	if pc.Teammates, err = r.svc.Teammates(ctx, bot.ID); err != nil {
+		return promptContext{}, err
+	}
+	if pc.Rooms, err = r.svc.RoomsOf(ctx, bot.ID); err != nil {
+		return promptContext{}, err
+	}
+	if pc.Global, err = r.globalInstructions(); err != nil {
+		return promptContext{}, err
+	}
+	if pc.OtherTeams, err = r.otherTeams(ctx, room); err != nil {
+		return promptContext{}, err
+	}
+	return pc, nil
+}
+
+// otherTeams returns the user's teams other than room, when room is a team.
+func (r *Runner) otherTeams(ctx context.Context, room core.Bot) ([]core.Bot, error) {
+	if !room.IsTeam() {
+		return nil, nil
+	}
+	all, err := r.svc.ListBots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var teams []core.Bot
+	for _, b := range all {
+		if b.IsTeam() && b.ID != room.ID {
+			teams = append(teams, b)
+		}
+	}
+	return teams, nil
 }
 
 // invokedSkill reports whether a user message starts with "/<skill-id>" for an

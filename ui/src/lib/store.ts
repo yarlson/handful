@@ -107,7 +107,7 @@ export function useYarGPT() {
     return () => source.close()
   }, [loadTranscript, merge, refreshBots, scheduleBotsRefresh])
 
-  // reorder sets the order of one sidebar section (all bots or all rooms). The
+  // reorder sets the order of one sidebar section (all bots, teams or rooms). The
   // list changes at once; a failed save reloads the order from the server.
   const reorder = useCallback(
     async (ids: string[]) => {

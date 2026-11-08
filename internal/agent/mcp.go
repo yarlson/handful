@@ -26,6 +26,15 @@ type runContext struct {
 	TurnID  string
 	RoomID  string // set when the bot takes a turn in a room
 	Hops    int64
+	// BoardRole is the board role of a turn in a team: core.RoleLead,
+	// core.RoleWork, core.RoleReview, core.RoleRetro, or "".
+	BoardRole string
+	UserPost  bool // a post of the user woke the turn
+}
+
+// actor is who acts on a team's board in this run.
+func (rc runContext) actor() core.Actor {
+	return core.Actor{BotID: rc.BotID, TurnID: rc.TurnID, TeamID: rc.RoomID, Role: rc.BoardRole, UserPost: rc.UserPost}
 }
 
 // transcript is where the run's messages and approval cards appear.
@@ -137,14 +146,14 @@ type readRoomInput struct {
 
 type recallInput struct {
 	Query string `json:"query" jsonschema:"words to look for; facts sharing more words rank first"`
-	Scope string `json:"scope,omitempty" jsonschema:"agent, user or all (default all)"`
+	Scope string `json:"scope,omitempty" jsonschema:"agent, user, team (in a turn in your team) or all (default all)"`
 	Limit int    `json:"limit,omitempty" jsonschema:"maximum facts to return, 1 to 50 (default 20)"`
 }
 
 type memoryInput struct {
 	Action   string `json:"action" jsonschema:"write or forget"`
 	Fact     string `json:"fact" jsonschema:"one self-contained sentence; for forget, the exact recorded text"`
-	Scope    string `json:"scope,omitempty" jsonschema:"agent (default, your own memory) or user (shared with all the user's bots)"`
+	Scope    string `json:"scope,omitempty" jsonschema:"agent (default, your own memory), user (shared with all the user's bots) or team (shared with your team; only in a turn in your team)"`
 	Tier     string `json:"tier,omitempty" jsonschema:"write only: profile (always in mind, keep small), log (default, dated history) or note (fades after a week)"`
 	Replaces string `json:"replaces,omitempty" jsonschema:"write only: the exact text of a fact in the same scope that the new fact replaces; it is removed in the same step"`
 }
@@ -187,6 +196,19 @@ type skillInput struct {
 	Body        string `json:"body,omitempty" jsonschema:"the generic recipe in markdown; required for write"`
 }
 
+type boardInput struct {
+	Action     string   `json:"action" jsonschema:"list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver or request"`
+	ItemID     string   `json:"item_id,omitempty" jsonschema:"the item to act on; required except for list, start_goal, create, deliver and request"`
+	TeamID     string   `json:"team_id,omitempty" jsonschema:"request: the team to ask for work"`
+	Text       string   `json:"text,omitempty" jsonschema:"start_goal: the goal in the user's words; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; drop and pass: an optional note; deliver: the result for the user"`
+	Title      string   `json:"title,omitempty" jsonschema:"create and request: a short title, unique in the goal"`
+	Brief      string   `json:"brief,omitempty" jsonschema:"create and request: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
+	Acceptance string   `json:"acceptance,omitempty" jsonschema:"create and request: how a reviewer can tell that the item is done"`
+	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the item"`
+	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the item; optional"`
+	DependsOn  []string `json:"depends_on,omitempty" jsonschema:"create: ids of items of the goal that must be done first"`
+}
+
 type profileInput struct {
 	Name         *string `json:"name,omitempty" jsonschema:"your new display name"`
 	Instructions *string `json:"instructions,omitempty" jsonschema:"your new standing instructions"`
@@ -207,195 +229,234 @@ func addRunTool[In any](s *mcp.Server, current func() (runContext, bool), tool *
 
 func newToolServer(svc *core.Service, current func() (runContext, bool)) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: "1"}, nil)
-
-	addRunTool(s, current, &mcp.Tool{Name: "send_to_user", Description: "Send a message to the user, with images or videos if you attach files. This is the only output the user sees. During a turn in a room, it posts into the room for everyone."},
-		func(ctx context.Context, rc runContext, in sendInput) (*mcp.CallToolResult, any, error) {
-			if rc.RoomID != "" {
-				woken, err := svc.PostToRoom(ctx, rc.RoomID, rc.BotID, rc.TurnID, in.Text, in.Files, rc.Hops, in.NeedsReply)
-				if err != nil {
-					return nil, nil, err
-				}
-				room, err := svc.GetBot(ctx, rc.RoomID)
-				if err != nil {
-					return nil, nil, err
-				}
-				posted := fmt.Sprintf("Posted in room %q, seen by its %d members and the user.", room.Name, len(room.Members))
-				if len(woken) > 0 {
-					return textResult("%s Woke %s; their replies come in their own turns.", posted, strings.Join(woken, ", ")), nil, nil
-				}
-				return textResult("%s", posted), nil, nil
-			}
-			if _, err := svc.AppendBotMessage(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply); err != nil {
-				return nil, nil, err
-			}
-			return textResult("Delivered."), nil, nil
-		})
-
-	addRunTool(s, current, &mcp.Tool{Name: "send_to_agent", Description: fmt.Sprintf("Message one of the user's other bots, or post into a room you are in; at most %d characters. Asynchronous like texting: the reply, if any, arrives later as its own turn, so do not wait or poll for it. To ask a teammate to act, message them directly. A room post wakes only the members it names with @Name; use that only when the room should see the request.", core.MaxAgentMessage)},
-		func(ctx context.Context, rc runContext, in agentMessageInput) (*mcp.CallToolResult, any, error) {
-			res, err := svc.SendAgentMessage(ctx, rc.BotID, in.TargetID, in.Message, in.Files, in.Priority, rc.Hops)
-			if err != nil {
-				return nil, nil, err
-			}
-			switch res.Delivered {
-			case "woke":
-				return textResult("Sent; the recipient is reading it now. Their reply, if any, arrives later as its own turn."), nil, nil
-			case "held":
-				return textResult("Sent; the recipient reads it at the start of their next turn."), nil, nil
-			}
-			if len(res.Woken) > 0 {
-				return textResult("Posted in the room. Woke %s.", strings.Join(res.Woken, ", ")), nil, nil
-			}
-			return textResult("Posted in the room; no one was woken. To ask a teammate to act, message them directly."), nil, nil
-		})
-
-	addRunTool(s, current, &mcp.Tool{Name: "read_room", Description: "Read the latest messages of a room you are in, oldest first, with the files they carry. Each line starts with the message's #seq; pass the oldest one as before_seq to read further back. Reading does not change what your next room turn shows as new."},
-		func(ctx context.Context, rc runContext, in readRoomInput) (*mcp.CallToolResult, any, error) {
-			limit := in.Limit
-			if limit == 0 {
-				limit = 20
-			}
-			entries, err := svc.RoomHistory(ctx, in.RoomID, rc.BotID, limit, in.BeforeSeq)
-			if err != nil {
-				return nil, nil, err
-			}
-			room, err := svc.GetBot(ctx, in.RoomID)
-			if err != nil {
-				return nil, nil, err
-			}
-			if len(entries) == 0 {
-				return textResult("The room has no messages yet."), nil, nil
-			}
-			var b strings.Builder
-			for _, e := range entries {
-				fmt.Fprintf(&b, "#%d [%s] %s\n", e.Seq, time.UnixMilli(e.CreatedAt).In(svc.Location()).Format("Mon Jan 2 15:04"), roomLine(e, room.Members, svc.MediaDir()))
-			}
-			return textResult("%s", b.String()), nil, nil
-		})
-
-	addRunTool(s, current, &mcp.Tool{Name: "recall_memory", Description: "Search your durable memory and the shared user memory for facts that are not in your prompt."},
-		func(ctx context.Context, rc runContext, in recallInput) (*mcp.CallToolResult, any, error) {
-			facts, err := svc.Recall(ctx, rc.BotID, in.Query, in.Scope, in.Limit)
-			if err != nil {
-				return nil, nil, err
-			}
-			if len(facts) == 0 {
-				return textResult("No facts match %q.", in.Query), nil, nil
-			}
-			bots, err := svc.ListBots(ctx)
-			if err != nil {
-				return nil, nil, err
-			}
-			authors := factAuthors(rc.BotID, bots)
-			var b strings.Builder
-			for _, f := range facts {
-				fmt.Fprintf(&b, "%s\n", formatFact(f, svc.Location(), authors))
-			}
-			return textResult("%s", b.String()), nil, nil
-		})
-
-	addRunTool(s, current, &mcp.Tool{Name: "update_memory", Description: fmt.Sprintf("Save a durable fact (write), replace one (write with replaces) or drop one by its exact text (forget). A fact is one sentence of at most %d characters; keep long lists in a file in your working directory. Save without asking and mention it only in passing.", core.MaxFactLen)},
-		func(ctx context.Context, rc runContext, in memoryInput) (*mcp.CallToolResult, any, error) {
-			switch in.Action {
-			case "write":
-				if in.Replaces != "" {
-					if err := svc.ReplaceFact(ctx, rc.BotID, in.Scope, in.Tier, in.Replaces, in.Fact); err != nil {
-						return nil, nil, err
-					}
-					return textResult("Replaced."), nil, nil
-				}
-				created, err := svc.WriteFact(ctx, rc.BotID, in.Scope, in.Tier, in.Fact)
-				if err != nil {
-					return nil, nil, err
-				}
-				if !created {
-					return textResult("Already remembered."), nil, nil
-				}
-				return textResult("Saved."), nil, nil
-			case "forget":
-				found, err := svc.ForgetFact(ctx, rc.BotID, in.Scope, in.Fact)
-				if err != nil {
-					return nil, nil, err
-				}
-				if !found {
-					return textResult("No fact with that exact text in scope %q. Use recall_memory to find it.", in.Scope), nil, nil
-				}
-				return textResult("Forgotten."), nil, nil
-			}
-			return nil, nil, fmt.Errorf("action must be write or forget")
-		})
-
-	addRunTool(s, current, &mcp.Tool{Name: "update_routine", Description: "Create, change, pause, resume, delete, run or list your routines: saved prompts that run on a schedule, even while the user is away."},
-		func(ctx context.Context, rc runContext, in routineInput) (*mcp.CallToolResult, any, error) {
-			return routineAction(ctx, svc, rc, in)
-		})
-
-	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."},
-		func(ctx context.Context, rc runContext, in skillInput) (*mcp.CallToolResult, any, error) {
-			switch in.Action {
-			case "write":
-				sk, err := svc.WriteSkill(in.Name, in.Description, in.Body)
-				if err != nil {
-					return nil, nil, err
-				}
-				return textResult("Saved skill %q (id %s). It is available through the Skill tool from the next turn.", sk.Name, sk.ID), nil, nil
-			case "delete":
-				if err := svc.DeleteSkill(in.ID); err != nil {
-					return nil, nil, err
-				}
-				return textResult("Deleted skill %s.", in.ID), nil, nil
-			case "list":
-				skills, err := svc.ListSkills()
-				if err != nil {
-					return nil, nil, err
-				}
-				if len(skills) == 0 {
-					return textResult("No skills yet."), nil, nil
-				}
-				var b strings.Builder
-				for _, sk := range skills {
-					fmt.Fprintf(&b, "- %s: %s\n", sk.ID, sk.Description)
-				}
-				return textResult("%s", b.String()), nil, nil
-			}
-			return nil, nil, fmt.Errorf("action must be write, delete or list")
-		})
-
-	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."},
-		func(ctx context.Context, rc runContext, in profileInput) (*mcp.CallToolResult, any, error) {
-			bot, err := svc.UpdateBot(ctx, rc.BotID, in.Name, in.Instructions)
-			if err != nil {
-				return nil, nil, err
-			}
-			return textResult("Profile updated: name %q.", bot.Name), nil, nil
-		})
-
-	// approve answers Claude Code's permission prompts (--permission-prompt-tool).
-	// Its input and output shapes are fixed by Claude Code.
-	addRunTool(s, current, &mcp.Tool{Name: "approve", Description: "Internal: asks the user to approve a tool call."},
-		func(ctx context.Context, rc runContext, in map[string]any) (*mcp.CallToolResult, any, error) {
-			tool, _ := in["tool_name"].(string)
-			input, err := json.Marshal(in["input"])
-			if err != nil {
-				return nil, nil, fmt.Errorf("encode tool input: %w", err)
-			}
-			allowed, reason, err := svc.RequestApproval(ctx, core.ApprovalRequest{BotID: rc.BotID, BotName: rc.BotName, TranscriptID: rc.transcript(), TurnID: rc.TurnID, Tool: tool, Input: input})
-			if err != nil {
-				return nil, nil, err
-			}
-			var answer any
-			if allowed {
-				answer = map[string]any{"behavior": "allow", "updatedInput": in["input"]}
-			} else {
-				answer = map[string]any{"behavior": "deny", "message": reason}
-			}
-			out, err := json.Marshal(answer)
-			if err != nil {
-				return nil, nil, fmt.Errorf("encode approval answer: %w", err)
-			}
-			return textResult("%s", out), nil, nil
-		})
+	h := tools{svc: svc}
+	addRunTool(s, current, &mcp.Tool{Name: "send_to_user", Description: "Send a message to the user, with images or videos if you attach files. This is the only output the user sees. During a turn in a room, it posts into the room for everyone."}, h.sendToUser)
+	addRunTool(s, current, &mcp.Tool{Name: "send_to_agent", Description: fmt.Sprintf("Message one of the user's other bots, or post into a room you are in; at most %d characters. Asynchronous like texting: the reply, if any, arrives later as its own turn, so do not wait or poll for it. To ask a teammate to act, message them directly. A room post wakes only the members it names with @Name; use that only when the room should see the request.", core.MaxAgentMessage)}, h.sendToAgent)
+	addRunTool(s, current, &mcp.Tool{Name: "read_room", Description: "Read the latest messages of a room you are in, oldest first, with the files they carry. Each line starts with the message's #seq; pass the oldest one as before_seq to read further back. Reading does not change what your next room turn shows as new."}, h.readRoom)
+	addRunTool(s, current, &mcp.Tool{Name: "recall_memory", Description: "Search your durable memory and the shared user memory for facts that are not in your prompt."}, h.recallMemory)
+	addRunTool(s, current, &mcp.Tool{Name: "update_memory", Description: fmt.Sprintf("Save a durable fact (write), replace one (write with replaces) or drop one by its exact text (forget). A fact is one sentence of at most %d characters; keep long lists in a file in your working directory. Save without asking and mention it only in passing.", core.MaxFactLen)}, h.updateMemory)
+	addRunTool(s, current, &mcp.Tool{Name: "update_routine", Description: "Create, change, pause, resume, delete, run or list your routines: saved prompts that run on a schedule, even while the user is away."}, h.updateRoutine)
+	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
+	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
+	if inTeam(svc, current) {
+		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: the user's goal and its items. list shows the board. The lead starts a goal (start_goal, in a turn that the user's post started), adds items (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop); another member's create is a proposal for the lead. An item's owner hands it on with submit, or stops it with block and a question. Its reviewer passes it or asks for changes. When every item is done or dropped, the lead delivers the result to the user (deliver). A lead asks another team for work with request; that team's lead assigns it or declines it with drop."}, h.updateBoard)
+	}
+	addRunTool(s, current, &mcp.Tool{Name: "approve", Description: "Internal: asks the user to approve a tool call."}, h.approve)
 	return s
+}
+
+// inTeam reports whether the run of a tool server's token is a turn in a
+// team, where update_board belongs. A seat's process stays in one room. When
+// the room cannot be read, the tool is there and reports the error on use.
+func inTeam(svc *core.Service, current func() (runContext, bool)) bool {
+	rc, ok := current()
+	if !ok {
+		return false
+	}
+	teamID, err := svc.TurnTeam(context.Background(), rc.RoomID)
+	return err != nil || teamID != ""
+}
+
+// tools holds the handlers of the MCP tools. Each acts on the run of the
+// token that called it.
+type tools struct{ svc *core.Service }
+
+func (t tools) sendToUser(ctx context.Context, rc runContext, in sendInput) (*mcp.CallToolResult, any, error) {
+	if rc.RoomID != "" {
+		woken, err := t.svc.PostToRoom(ctx, rc.RoomID, rc.BotID, rc.TurnID, in.Text, in.Files, rc.Hops, in.NeedsReply)
+		if err != nil {
+			return nil, nil, err
+		}
+		room, err := t.svc.GetBot(ctx, rc.RoomID)
+		if err != nil {
+			return nil, nil, err
+		}
+		posted := fmt.Sprintf("Posted in room %q, seen by its %d members and the user.", room.Name, len(room.Members))
+		if len(woken) > 0 {
+			return textResult("%s Woke %s; their replies come in their own turns.", posted, strings.Join(woken, ", ")), nil, nil
+		}
+		return textResult("%s", posted), nil, nil
+	}
+	if _, err := t.svc.AppendBotMessage(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply); err != nil {
+		return nil, nil, err
+	}
+	return textResult("Delivered."), nil, nil
+}
+
+func (t tools) sendToAgent(ctx context.Context, rc runContext, in agentMessageInput) (*mcp.CallToolResult, any, error) {
+	if err := t.svc.CheckTeamTurnTarget(ctx, rc.RoomID, in.TargetID); err != nil {
+		return nil, nil, err
+	}
+	res, err := t.svc.SendAgentMessage(ctx, rc.BotID, in.TargetID, in.Message, in.Files, in.Priority, rc.Hops)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch res.Delivered {
+	case "woke":
+		return textResult("Sent; the recipient is reading it now. Their reply, if any, arrives later as its own turn."), nil, nil
+	case "held":
+		return textResult("Sent; the recipient reads it at the start of their next turn."), nil, nil
+	}
+	if len(res.Woken) > 0 {
+		return textResult("Posted in the room. Woke %s.", strings.Join(res.Woken, ", ")), nil, nil
+	}
+	return textResult("Posted in the room; no one was woken. To ask a teammate to act, message them directly."), nil, nil
+}
+
+func (t tools) readRoom(ctx context.Context, rc runContext, in readRoomInput) (*mcp.CallToolResult, any, error) {
+	limit := in.Limit
+	if limit == 0 {
+		limit = 20
+	}
+	entries, err := t.svc.RoomHistory(ctx, in.RoomID, rc.BotID, limit, in.BeforeSeq)
+	if err != nil {
+		return nil, nil, err
+	}
+	room, err := t.svc.GetBot(ctx, in.RoomID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(entries) == 0 {
+		return textResult("The room has no messages yet."), nil, nil
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		fmt.Fprintf(&b, "#%d [%s] %s\n", e.Seq, time.UnixMilli(e.CreatedAt).In(t.svc.Location()).Format("Mon Jan 2 15:04"), roomLine(e, room.Members, t.svc.MediaDir()))
+	}
+	return textResult("%s", b.String()), nil, nil
+}
+
+func (t tools) recallMemory(ctx context.Context, rc runContext, in recallInput) (*mcp.CallToolResult, any, error) {
+	teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
+	if err != nil {
+		return nil, nil, err
+	}
+	facts, err := t.svc.Recall(ctx, rc.BotID, teamID, in.Query, in.Scope, in.Limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(facts) == 0 {
+		return textResult("No facts match %q.", in.Query), nil, nil
+	}
+	bots, err := t.svc.ListBots(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	authors := factAuthors(rc.BotID, bots)
+	var b strings.Builder
+	for _, f := range facts {
+		fmt.Fprintf(&b, "%s\n", formatFact(f, t.svc.Location(), authors))
+	}
+	return textResult("%s", b.String()), nil, nil
+}
+
+func (t tools) updateMemory(ctx context.Context, rc runContext, in memoryInput) (*mcp.CallToolResult, any, error) {
+	teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch in.Action {
+	case "write":
+		if in.Replaces != "" {
+			if err := t.svc.ReplaceFact(ctx, rc.BotID, teamID, in.Scope, in.Tier, in.Replaces, in.Fact); err != nil {
+				return nil, nil, err
+			}
+			return textResult("Replaced."), nil, nil
+		}
+		created, err := t.svc.WriteFact(ctx, rc.BotID, teamID, in.Scope, in.Tier, in.Fact)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !created {
+			return textResult("Already remembered."), nil, nil
+		}
+		return textResult("Saved."), nil, nil
+	case "forget":
+		found, err := t.svc.ForgetFact(ctx, rc.BotID, teamID, in.Scope, in.Fact)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !found {
+			return textResult("No fact with that exact text in scope %q. Use recall_memory to find it.", in.Scope), nil, nil
+		}
+		return textResult("Forgotten."), nil, nil
+	}
+	return nil, nil, fmt.Errorf("action must be write or forget")
+}
+
+func (t tools) updateRoutine(ctx context.Context, rc runContext, in routineInput) (*mcp.CallToolResult, any, error) {
+	return routineAction(ctx, t.svc, rc, in)
+}
+
+func (t tools) updateSkill(ctx context.Context, rc runContext, in skillInput) (*mcp.CallToolResult, any, error) {
+	switch in.Action {
+	case "write":
+		sk, err := t.svc.WriteSkill(in.Name, in.Description, in.Body)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult("Saved skill %q (id %s). It is available through the Skill tool from the next turn.", sk.Name, sk.ID), nil, nil
+	case "delete":
+		if err := t.svc.DeleteSkill(in.ID); err != nil {
+			return nil, nil, err
+		}
+		return textResult("Deleted skill %s.", in.ID), nil, nil
+	case "list":
+		skills, err := t.svc.ListSkills()
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(skills) == 0 {
+			return textResult("No skills yet."), nil, nil
+		}
+		var b strings.Builder
+		for _, sk := range skills {
+			fmt.Fprintf(&b, "- %s: %s\n", sk.ID, sk.Description)
+		}
+		return textResult("%s", b.String()), nil, nil
+	}
+	return nil, nil, fmt.Errorf("action must be write, delete or list")
+}
+
+func (t tools) updateProfile(ctx context.Context, rc runContext, in profileInput) (*mcp.CallToolResult, any, error) {
+	bot, err := t.svc.UpdateBot(ctx, rc.BotID, in.Name, in.Instructions)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult("Profile updated: name %q.", bot.Name), nil, nil
+}
+
+// approve answers Claude Code's permission prompts (--permission-prompt-tool).
+// Its input and output shapes are fixed by Claude Code.
+func (t tools) approve(ctx context.Context, rc runContext, in map[string]any) (*mcp.CallToolResult, any, error) {
+	tool, _ := in["tool_name"].(string)
+	input, err := json.Marshal(in["input"])
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode tool input: %w", err)
+	}
+	allowed, reason := false, "A reviewer checks the work and does not change it. Ask for changes with update_board changes."
+	// Before the grants: a reviewer may not edit the work, even with a tool that is always allowed.
+	reviewing, err := t.reviewerEdits(ctx, rc, tool)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !reviewing {
+		allowed, reason, err = t.svc.RequestApproval(ctx, core.ApprovalRequest{BotID: rc.BotID, BotName: rc.BotName, TranscriptID: rc.transcript(), TurnID: rc.TurnID, Tool: tool, Input: input})
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	var answer any
+	if allowed {
+		answer = map[string]any{"behavior": "allow", "updatedInput": in["input"]}
+	} else {
+		answer = map[string]any{"behavior": "deny", "message": reason}
+	}
+	out, err := json.Marshal(answer)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode approval answer: %w", err)
+	}
+	return textResult("%s", out), nil, nil
 }
 
 func routineAction(ctx context.Context, svc *core.Service, rc runContext, in routineInput) (*mcp.CallToolResult, any, error) {
@@ -629,4 +690,125 @@ func updateArtifact(ctx context.Context, svc *core.Service, rc runContext, in ar
 		return textResult("Deleted artifact %s.", in.ID), nil, nil
 	}
 	return nil, nil, fmt.Errorf("action must be write or delete")
+}
+
+// reviewerEdits reports whether a call of tool would edit the work as its
+// reviewer: Edit or Write in a review turn, or by a bot that reviews an item
+// in review in the turn's team, in any turn. Bash can still change files.
+func (t tools) reviewerEdits(ctx context.Context, rc runContext, tool string) (bool, error) {
+	if tool != "Edit" && tool != "Write" {
+		return false, nil
+	}
+	if rc.BoardRole == core.RoleReview {
+		return true, nil
+	}
+	if rc.RoomID == "" {
+		return false, nil
+	}
+	return t.svc.ReviewsItem(ctx, rc.RoomID, rc.BotID)
+}
+
+// boardAction carries out one action of update_board and says what it did.
+type boardAction func(t tools, ctx context.Context, a core.Actor, in boardInput) (string, error)
+
+var boardActions = map[string]boardAction{
+	"list":       tools.boardList,
+	"start_goal": tools.boardStartGoal,
+	"create":     tools.boardCreate,
+	"assign":     tools.boardAssign,
+	"deliver":    tools.boardDeliver,
+	"request":    tools.boardRequest,
+	"submit":     itemAction((*core.Service).SubmitItem),
+	"block":      itemAction((*core.Service).BlockItem),
+	"unblock":    itemAction((*core.Service).UnblockItem),
+	"drop":       itemAction((*core.Service).DropItem),
+	"pass":       itemAction((*core.Service).PassItem),
+	"changes":    itemAction((*core.Service).RequestChanges),
+}
+
+func (t tools) updateBoard(ctx context.Context, rc runContext, in boardInput) (*mcp.CallToolResult, any, error) {
+	act, ok := boardActions[in.Action]
+	if !ok {
+		return nil, nil, errors.New("action must be list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver or request")
+	}
+	teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if teamID == "" {
+		return nil, nil, errors.New("update_board works only in a turn in your team")
+	}
+	text, err := act(t, ctx, rc.actor(), in)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult("%s", text), nil, nil
+}
+
+func (t tools) boardList(ctx context.Context, a core.Actor, _ boardInput) (string, error) {
+	team, err := t.svc.GetBot(ctx, a.TeamID)
+	if err != nil {
+		return "", err
+	}
+	board, err := t.svc.Board(ctx, a.TeamID)
+	if err != nil {
+		return "", err
+	}
+	if board.Goal == nil && len(board.Requests) == 0 {
+		return "The team has had no goal yet, and no request.", nil
+	}
+	return boardTable(team, board), nil
+}
+
+func (t tools) boardStartGoal(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	g, err := t.svc.StartGoalAsLead(ctx, a, in.Text)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Started the goal (id %s, %d turns). Plan it now, in this turn: add its items with create.", g.ID, g.Budget), nil
+}
+
+func (t tools) boardCreate(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	it, err := t.svc.CreateItem(ctx, a, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance, OwnerID: in.OwnerID, ReviewerID: in.ReviewerID, DependsOn: in.DependsOn})
+	if err != nil {
+		return "", err
+	}
+	if it.OwnerID == "" {
+		return fmt.Sprintf("Added %q (id %s) without an owner; the lead assigns it.", it.Title, it.ID), nil
+	}
+	return fmt.Sprintf("Added %q (id %s). Its owner's turn starts when it is ready.", it.Title, it.ID), nil
+}
+
+func (t tools) boardAssign(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	it, err := t.svc.AssignItem(ctx, a, in.ItemID, in.OwnerID, in.ReviewerID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Assigned %q. Its owner's turn starts when it is ready.", it.Title), nil
+}
+
+func (t tools) boardRequest(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	it, err := t.svc.RequestWork(ctx, a, in.TeamID, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Asked for %q (id %s). That team's lead assigns it. Make your items that need its result depend on it with depends_on.", it.Title, it.ID), nil
+}
+
+func (t tools) boardDeliver(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	if _, err := t.svc.DeliverGoal(ctx, a, in.Text); err != nil {
+		return "", err
+	}
+	return "Delivered: the result is in the team's channel. The user accepts the goal or asks for changes.", nil
+}
+
+// itemAction makes a boardAction of an item change that takes a text.
+func itemAction(change func(*core.Service, context.Context, core.Actor, string, string) (core.Item, error)) boardAction {
+	return func(t tools, ctx context.Context, a core.Actor, in boardInput) (string, error) {
+		it, err := change(t.svc, ctx, a, in.ItemID, in.Text)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%q is %s now.", it.Title, it.State), nil
+	}
 }

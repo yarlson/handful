@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -37,7 +39,14 @@ import (
 // because the tests run in parallel and share one environment.
 const fakeClaude = `dir=$(dirname "$0")
 IFS= read -r input
+# Turns of a team run at once; a lock keeps their long lines whole in args.log.
+# A process that is killed holding it releases it; after 10 s it writes anyway.
+tries=0
+until mkdir "$dir/args.lock" 2>/dev/null || [ $tries -ge 1000 ]; do tries=$((tries + 1)); sleep 0.01; done
+trap 'rmdir "$dir/args.lock" 2>/dev/null' EXIT
 printf '%s\n<<STDIN>>%s\n<<END>>\n' "$*" "$input" >> "$dir/args.log"
+rmdir "$dir/args.lock"
+trap - EXIT
 env | grep -E '^CLAUDE_CODE_(SILENT_TURN_REMINDER|DISABLE_CLAUDE_MDS)=' | sort > "$dir/env.log"
 lifecycle() {
   uuid=$(printf '%s' "$input" | sed -n 's/.*"uuid":"\([^"]*\)".*/\1/p')
@@ -603,6 +612,1079 @@ func TestMCPToolsActOnTheTokensBotAndRejectUnknownTokens(t *testing.T) {
 	}
 	if in, _ := decoded["updatedInput"].(map[string]any); in["command"] != "rm -rf build" {
 		t.Fatalf("approve updatedInput = %v; want the original input", decoded["updatedInput"])
+	}
+}
+
+func TestMCPSkillProfileAndForgetToolsAnswerWithTheirResult(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	defer srv.Close()
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+
+	calls := []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{"update_skill", map[string]any{"action": "list"}, "No skills yet."},
+		{"update_skill", map[string]any{"action": "write", "name": "Weekly report", "description": "Use when the user asks for the weekly report.", "body": "1. Collect the numbers."}, `Saved skill "weekly-report" (id weekly-report). It is available through the Skill tool from the next turn.`},
+		{"update_skill", map[string]any{"action": "list"}, "- weekly-report: Use when the user asks for the weekly report.\n"},
+		{"update_skill", map[string]any{"action": "delete", "id": "weekly-report"}, "Deleted skill weekly-report."},
+		{"update_profile", map[string]any{"name": "Scout"}, `Profile updated: name "Scout".`},
+		{"update_memory", map[string]any{"action": "write", "fact": "The user lives in Riga."}, "Saved."},
+		{"update_memory", map[string]any{"action": "forget", "fact": "The user lives in Riga."}, "Forgotten."},
+		{"update_memory", map[string]any{"action": "forget", "fact": "The user lives in Riga."}, `No fact with that exact text in scope "". Use recall_memory to find it.`},
+	}
+	for _, c := range calls {
+		if text, isErr := callText(t, cs, c.tool, c.args); isErr || text != c.want {
+			t.Fatalf("%s %v = %q (error %v); want %q", c.tool, c.args, text, isErr, c.want)
+		}
+	}
+	failures := []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{"update_skill", map[string]any{"action": "write", "name": "", "description": "x", "body": "x"}, "name"},
+		{"update_skill", map[string]any{"action": "delete", "id": "missing"}, "missing"},
+		{"update_profile", map[string]any{"name": " "}, "name is required"},
+		{"update_memory", map[string]any{"action": "forget", "fact": " "}, "fact is empty"},
+	}
+	for _, f := range failures {
+		if text, isErr := callText(t, cs, f.tool, f.args); !isErr || !strings.Contains(text, f.want) {
+			t.Fatalf("%s %v = %q (error %v); want an error that mentions %q", f.tool, f.args, text, isErr, f.want)
+		}
+	}
+}
+
+func TestMCPRoomPostWithoutMentionsWakesNobody(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ana, bo := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo")
+	room, err := h.svc.CreateRoom(context.Background(), "Plan", "", []string{ana.ID, bo.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	defer srv.Close()
+	token, err := h.runner.tokens.issue(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: room.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+
+	want := `Posted in room "Plan", seen by its 2 members and the user.`
+	if text, isErr := callText(t, cs, "send_to_user", map[string]any{"text": "Drafted it."}); isErr || text != want {
+		t.Fatalf("send_to_user in a room without mentions = %q (error %v); want %q", text, isErr, want)
+	}
+}
+
+// newTeam creates bots Ana, Bo and Cy and team "Ship" of Ana and Bo, led by Ana.
+func (h *harness) newTeam(t *testing.T) (team, ana, bo, cy core.Bot) {
+	t.Helper()
+	ana, bo, cy = h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo"), h.newNamedBot(t, "Cy")
+	team, err := h.svc.CreateTeam(context.Background(), "Ship", "Ship small changes.", []string{ana.ID, bo.ID}, core.TeamSettings{LeadID: ana.ID, Agreement: "Tests pass before a change is done."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return team, ana, bo, cy
+}
+
+func TestTeamTurnRunsInTheTeamFolderAndItsPromptShowsOnlyTheTeam(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "slow")
+	ctx := context.Background()
+	team, ana, bo, cy := h.newTeam(t)
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, team.ID, "What should we ship next?", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the lead's turn to end", func() bool {
+		raw, _ := os.ReadFile(filepath.Join(h.dir, "order.log"))
+		return strings.Contains(string(raw), "end")
+	})
+	if raw, _ := os.ReadFile(filepath.Join(h.dir, "order.log")); string(raw) != "start "+team.ID+"\nend "+team.ID+"\n" {
+		t.Fatalf("order.log = %q; want one turn that runs in the team folder", raw)
+	}
+	calls := h.argsLog(t)
+	if len(calls) != 1 {
+		t.Fatalf("claude calls = %d; want only the lead's turn", len(calls))
+	}
+	for _, want := range []string{
+		"In this team, the team's working agreement overrides your standing instructions on how work is done and checked. Your standing instructions override the defaults below",
+		"## Your team\nThis turn is in team \"Ship\" (id " + team.ID + ")",
+		"A turn in the team is marked [team].\nTeam purpose: Ship small changes.\nMembers:\n",
+		"- you (Ana, the lead)",
+		"- Bo (id " + bo.ID + "): no instructions yet",
+		"Working agreement (the user's rules for how the team works and when work is done):\nTests pass before a change is done.",
+		"Your own folder is " + h.svc.Workspace(ana.ID) + ".",
+		"You are the lead, the team's front door",
+		`Scope "team" is shared by the members of team "Ship"`,
+		"Your working directory is " + h.svc.TeamWorkspace(team.ID),
+		"[team] Team channel \"Ship\" (id " + team.ID + "). Members: you (Ana), Bo, and the user.",
+		"User: What should we ship next?",
+	} {
+		if !strings.Contains(calls[0], want) {
+			t.Errorf("the lead's call lacks %q", want)
+		}
+	}
+	for _, unwanted := range []string{cy.Name, cy.ID, "## Teammates and rooms"} {
+		if strings.Contains(calls[0], unwanted) {
+			t.Errorf("the lead's call names %q; a team turn shows only the team", unwanted)
+		}
+	}
+}
+
+func TestTeamMemberPromptHasNoLeadDutiesAndOwnChatListsTheTeam(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, team.ID, "@Bo check the tests", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitCalls(t, 1)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, ana.ID, "hi", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.waitCalls(t, 2)
+	if !strings.Contains(calls[0], "- you (Bo)\n") || !strings.Contains(calls[0], "Your own folder is "+h.svc.Workspace(bo.ID)) || strings.Contains(calls[0], "You are the lead") {
+		t.Errorf("Bo's team call = %q; want Bo as a plain member with his own folder and no lead duties", calls[0])
+	}
+	own := calls[1]
+	if want := fmt.Sprintf(`- "Ship" (id %s, a team; a turn there is marked [team]): members Ana, Bo`, team.ID); !strings.Contains(own, want) {
+		t.Errorf("Ana's own call lacks %q", want)
+	}
+	if strings.Contains(own, "## Your team") || strings.Contains(own, "working agreement overrides") || strings.Contains(own, `Scope "team"`) {
+		t.Errorf("Ana's own call shows the team section; only a team turn should")
+	}
+}
+
+func TestMCPInATeamTurnTalksOnlyToTheTeamAndSharesTeamMemory(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	team, ana, bo, cy := h.newTeam(t)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	// Cleanups run last first: the sessions close before the server.
+	t.Cleanup(srv.Close)
+	session := func(rc runContext) *mcp.ClientSession {
+		t.Helper()
+		token, err := h.runner.tokens.issue(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcpSession(t, srv.URL, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cs.Close() })
+		return cs
+	}
+	inTeam := session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: team.ID})
+	ownChat := session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t2"})
+
+	for _, target := range []string{bo.ID, cy.ID} {
+		if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": target, "message": "Can you help?", "priority": true}); !isErr || !strings.Contains(text, "talk to the team in its channel") {
+			t.Fatalf("send_to_agent to %s from a team turn = %q (error %v); want an error that points to the team channel", target, text, isErr)
+		}
+	}
+	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": team.ID, "message": "@Bo can you help?", "priority": false}); isErr || !strings.Contains(text, "Woke Bo") {
+		t.Fatalf("send_to_agent to the team = %q (error %v); want a post that wakes Bo", text, isErr)
+	}
+	if text, isErr := callText(t, ownChat, "send_to_agent", map[string]any{"target_id": cy.ID, "message": "Hi.", "priority": false}); isErr || !strings.Contains(text, "next turn") {
+		t.Fatalf("send_to_agent to Cy from Ana's own chat = %q (error %v); want it delivered", text, isErr)
+	}
+
+	if text, isErr := callText(t, inTeam, "update_memory", map[string]any{"action": "write", "fact": "Releases go out on Fridays.", "scope": "team", "tier": "profile"}); isErr || text != "Saved." {
+		t.Fatalf("update_memory scope team in a team turn = %q (error %v)", text, isErr)
+	}
+	if text, isErr := callText(t, inTeam, "recall_memory", map[string]any{"query": "Fridays", "scope": "team"}); isErr || !strings.Contains(text, "(team, profile, from you) Releases go out on Fridays.") {
+		t.Fatalf("recall_memory scope team = %q (error %v)", text, isErr)
+	}
+	if text, isErr := callText(t, inTeam, "update_memory", map[string]any{"action": "write", "fact": "Releases go out on Thursdays.", "scope": "team", "tier": "profile", "replaces": "Releases go out on Fridays."}); isErr || text != "Replaced." {
+		t.Fatalf("update_memory replace in the team = %q (error %v)", text, isErr)
+	}
+	if text, isErr := callText(t, inTeam, "update_memory", map[string]any{"action": "forget", "fact": "Releases go out on Thursdays.", "scope": "team"}); isErr || text != "Forgotten." {
+		t.Fatalf("update_memory forget in the team = %q (error %v)", text, isErr)
+	}
+	for _, args := range []map[string]any{
+		{"action": "write", "fact": "Outside the team.", "scope": "team"},
+		{"action": "forget", "fact": "Outside the team.", "scope": "team"},
+	} {
+		if text, isErr := callText(t, ownChat, "update_memory", args); !isErr || !strings.Contains(text, "works only in a turn in your team") {
+			t.Fatalf("update_memory %v outside a team = %q (error %v); want an error", args, text, isErr)
+		}
+	}
+	if text, isErr := callText(t, ownChat, "recall_memory", map[string]any{"query": "Fridays", "scope": "team"}); !isErr || !strings.Contains(text, "works only in a turn in your team") {
+		t.Fatalf("recall_memory scope team outside a team = %q (error %v); want an error", text, isErr)
+	}
+}
+
+// newGoal gives the harness's team a goal that its lead started, so that no
+// lead turn waits, and adds items that the lead creates.
+func (h *harness) newGoal(t *testing.T, team core.Bot, items ...core.NewItem) []core.Item {
+	t.Helper()
+	ctx := context.Background()
+	lead, _ := team.Lead()
+	actor := core.Actor{BotID: lead.ID, TeamID: team.ID, Role: core.RoleLead, UserPost: true}
+	if _, err := h.svc.StartGoalAsLead(ctx, actor, "Ship CSV export."); err != nil {
+		t.Fatal(err)
+	}
+	var out []core.Item
+	for _, n := range items {
+		it, err := h.svc.CreateItem(ctx, actor, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+func boardItem(title, brief, owner, reviewer string) core.NewItem {
+	return core.NewItem{Title: title, Brief: brief, Acceptance: title + " works.", OwnerID: owner, ReviewerID: reviewer}
+}
+
+// orderLog waits until order.log has n lines and returns them.
+func (h *harness) orderLog(t *testing.T, n int) []string {
+	t.Helper()
+	var lines []string
+	waitFor(t, strconv.Itoa(n)+" lines in order.log", func() bool {
+		raw, _ := os.ReadFile(filepath.Join(h.dir, "order.log"))
+		lines = strings.Split(strings.TrimSpace(string(raw)), "\n")
+		return len(lines) >= n && lines[0] != ""
+	})
+	return lines
+}
+
+func TestIndependentItemsOfATeamRunAtTheSameTime(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "slow")
+	team, _, bo, cy := h.newTeam(t)
+	team, err := h.svc.SetRoomMembers(context.Background(), team.ID, []string{team.Members[0].ID, bo.ID, cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.newGoal(t, team, boardItem("Parse", "LONG parse the file.", bo.ID, ""), boardItem("Docs", "LONG write the docs.", cy.ID, ""))
+	h.start(t)
+
+	lines := h.orderLog(t, 2)
+	if lines[0] != "start "+team.ID+"-long" || lines[1] != "start "+team.ID+"-long" {
+		t.Fatalf("order.log = %q; want both items to start before either ends, in the team folder", lines)
+	}
+}
+
+func TestAChatTurnInATeamRunsBesideItemWork(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "slow")
+	team, _, bo, _ := h.newTeam(t)
+	h.newGoal(t, team, boardItem("Parse", "LONG parse the file.", bo.ID, ""))
+	h.start(t)
+	h.orderLog(t, 1)
+	if _, _, err := h.svc.SubmitUserMessage(context.Background(), team.ID, "How is it going?", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	lines := h.orderLog(t, 3)
+	want := []string{"start " + team.ID + "-long", "start " + team.ID, "end " + team.ID}
+	if !slices.Equal(lines[:3], want) {
+		t.Fatalf("order.log = %q; want the lead's chat turn to run and end while the item's work goes on", lines)
+	}
+}
+
+func TestTheBudgetOfAGoalHoldsItsTurnsBack(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	budget := int64(1)
+	if _, err := h.svc.UpdateTeam(ctx, team.ID, core.TeamPatch{GoalBudget: &budget}); err != nil {
+		t.Fatal(err)
+	}
+	team, _ = h.svc.GetBot(ctx, team.ID)
+	items := h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""), boardItem("Docs", "Write it.", ana.ID, ""))
+	h.start(t)
+
+	waitFor(t, "the goal to pause", func() bool {
+		board, _ := h.svc.Board(ctx, team.ID)
+		return board.Goal.State == core.GoalPaused
+	})
+	board, _ := h.svc.Board(ctx, team.ID)
+	if board.Goal.Used != 1 {
+		t.Fatalf("goal = %+v; want it paused after its 1 turn", board.Goal)
+	}
+	if turns, _ := h.svc.QueuedTurns(ctx, 10); len(turns) != 0 {
+		t.Fatalf("queued turns of the paused goal = %+v; want none: a resume queues them again", turns)
+	}
+	if board.Items[1].State != core.ItemTodo || board.Items[1].ID != items[1].ID {
+		t.Fatalf("Docs = %+v; want it to wait for its turn", board.Items[1])
+	}
+}
+
+func TestAnItemThatNobodyWorksOnIsBlockedAndTheLeadWakes(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	items := h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	// As after a restart: Bo's work started, and no turn or process is left.
+	if err := h.svc.StartItemWork(ctx, items[0].ID, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	turns, _ := h.svc.QueuedTurns(ctx, 10)
+	for _, tr := range turns {
+		if err := h.svc.FinishTurn(ctx, tr.ID, "interrupted", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.start(t)
+
+	calls := h.waitCalls(t, 1)
+	board, _ := h.svc.Board(ctx, team.ID)
+	if board.Items[0].State != core.ItemBlocked {
+		t.Fatalf("Parse = %+v; want it blocked", board.Items[0])
+	}
+	if !strings.Contains(calls[0], "Blocked: Bo stopped before handing it on") || !strings.Contains(calls[0], "You lead this goal.") || !strings.Contains(calls[0], "- you ("+ana.Name+", the lead)") {
+		t.Fatalf("the first call = %q; want the lead's turn with the blocked item", calls[0])
+	}
+}
+
+func TestStoppingATeamPausesItsGoal(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, _, bo, _ := h.newTeam(t)
+	h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	if _, err := h.runner.Interrupt(ctx, team.ID); err != nil {
+		t.Fatal(err)
+	}
+	board, _ := h.svc.Board(ctx, team.ID)
+	if board.Goal.State != core.GoalPaused {
+		t.Fatalf("goal after Stop = %+v; want it paused", board.Goal)
+	}
+	if turns, _ := h.svc.QueuedTurns(ctx, 10); len(turns) != 0 {
+		t.Fatalf("queued turns after Stop = %+v; want none", turns)
+	}
+}
+
+func TestBoardTurnsTellEachRoleWhatToDo(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, cy := h.newTeam(t)
+	team, err := h.svc.SetRoomMembers(ctx, team.ID, []string{ana.ID, bo.ID, cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := h.newGoal(t, team, boardItem("Parse", "Parse the CSV file.", bo.ID, cy.ID), boardItem("Docs", "Write docs.md.", ana.ID, ""))
+	if err := h.svc.StartItemWork(ctx, items[0].ID, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SubmitItem(ctx, core.Actor{BotID: bo.ID, TeamID: team.ID, Role: core.RoleWork}, items[0].ID, "Parsed in parse.go."); err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+
+	calls := h.waitCalls(t, 2)
+	byRole := map[string]string{}
+	for _, c := range calls {
+		switch {
+		case strings.Contains(c, "Your item:"):
+			byRole["work"] = c
+		case strings.Contains(c, "Review \"Parse\""):
+			byRole["review"] = c
+		}
+	}
+	board, _ := h.svc.Board(ctx, team.ID)
+	// Both board turns start at once, so the work turn sees 1 or 2 turns used.
+	if goalLine := regexp.MustCompile(`Goal \(id ` + board.Goal.ID + `, active, [12] of 30 turns used\): Ship CSV export\.`); !goalLine.MatchString(byRole["work"]) {
+		t.Errorf("Ana's work turn lacks the goal line %s", goalLine)
+	}
+	for _, want := range []string{
+		"- \"Parse\" (id " + items[0].ID + ") [review] owner Bo (id " + bo.ID + "), reviewer Cy (id " + cy.ID + ")",
+		"Your item: \"Docs\" (id " + items[1].ID + ").\nBrief: Write docs.md.\nAcceptance criteria: Docs works.",
+		"call update_board submit with item_id " + items[1].ID,
+	} {
+		if !strings.Contains(byRole["work"], want) {
+			t.Errorf("Ana's work turn lacks %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Review \"Parse\" (id " + items[0].ID + ") of Bo (id " + bo.ID + ").",
+		"Result: Parsed in parse.go.",
+		"Edit and Write are denied in a review",
+	} {
+		if !strings.Contains(byRole["review"], want) {
+			t.Errorf("Cy's review turn lacks %q", want)
+		}
+	}
+}
+
+func TestMCPUpdateBoardTakesAnItemFromStartToDone(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, cy := h.newTeam(t)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	session := func(rc runContext) *mcp.ClientSession {
+		t.Helper()
+		token, err := h.runner.tokens.issue(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcpSession(t, srv.URL, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cs.Close() })
+		return cs
+	}
+	lead := session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: team.ID, UserPost: true})
+	owner := session(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t2", RoomID: team.ID, BoardRole: core.RoleWork})
+	outside := session(runContext{BotID: cy.ID, BotName: "Cy", TurnID: "t3"})
+	call := func(cs *mcp.ClientSession, args map[string]any) string {
+		t.Helper()
+		text, isErr := callText(t, cs, "update_board", args)
+		if isErr {
+			t.Fatalf("update_board %v = error %q", args, text)
+		}
+		return text
+	}
+
+	for cs, want := range map[*mcp.ClientSession]bool{lead: true, outside: false} {
+		listed, err := cs.ListTools(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := slices.ContainsFunc(listed.Tools, func(tool *mcp.Tool) bool { return tool.Name == "update_board" }); got != want {
+			t.Fatalf("update_board listed = %v; want %v (only in a turn in a team)", got, want)
+		}
+	}
+	if text := call(lead, map[string]any{"action": "list"}); text != "The team has had no goal yet, and no request." {
+		t.Fatalf("list without a goal = %q", text)
+	}
+	if text := call(lead, map[string]any{"action": "start_goal", "text": "Ship CSV export."}); !strings.HasPrefix(text, "Started the goal (id ") || !strings.Contains(text, "30 turns") {
+		t.Fatalf("start_goal = %q", text)
+	}
+	text := call(lead, map[string]any{"action": "create", "title": "Parse", "brief": "Parse it.", "acceptance": "Tests pass.", "owner_id": bo.ID})
+	board, _ := h.svc.Board(ctx, team.ID)
+	itemID := board.Items[0].ID
+	if want := fmt.Sprintf("Added \"Parse\" (id %s). Its owner's turn starts when it is ready.", itemID); text != want {
+		t.Fatalf("create = %q; want %q", text, want)
+	}
+	if text := call(owner, map[string]any{"action": "create", "title": "Docs", "brief": "Write docs.", "acceptance": "Docs exist."}); !strings.HasSuffix(text, "without an owner; the lead assigns it.") {
+		t.Fatalf("a member's create = %q", text)
+	}
+	if text := call(lead, map[string]any{"action": "list"}); !strings.Contains(text, "- \"Parse\" (id "+itemID+") [todo] owner Bo") || !strings.Contains(text, "\"Docs\"") {
+		t.Fatalf("list = %q; want both items", text)
+	}
+	if text := call(lead, map[string]any{"action": "assign", "item_id": board.Items[0].ID, "owner_id": bo.ID, "reviewer_id": ana.ID}); text != "Assigned \"Parse\". Its owner's turn starts when it is ready." {
+		t.Fatalf("assign = %q", text)
+	}
+	if err := h.svc.StartItemWork(ctx, itemID, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if text := call(owner, map[string]any{"action": "submit", "item_id": itemID, "text": "Parsed."}); text != "\"Parse\" is review now." {
+		t.Fatalf("submit = %q", text)
+	}
+	reviewer := session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t4", RoomID: team.ID, BoardRole: core.RoleReview})
+	if text := call(reviewer, map[string]any{"action": "pass", "item_id": itemID}); text != "\"Parse\" is done now." {
+		t.Fatalf("pass = %q", text)
+	}
+
+	for name, c := range map[string]struct {
+		cs   *mcp.ClientSession
+		args map[string]any
+		want string
+	}{
+		"an unknown action":   {lead, map[string]any{"action": "merge"}, "action must be list, start_goal"},
+		"a refused action":    {owner, map[string]any{"action": "drop", "item_id": itemID}, "only the lead"},
+		"a second goal":       {lead, map[string]any{"action": "start_goal", "text": "More."}, "already works on a goal"},
+		"a create without it": {lead, map[string]any{"action": "create", "title": "X"}, "the brief is required"},
+		"an assign of a done": {lead, map[string]any{"action": "assign", "item_id": itemID, "owner_id": bo.ID}, "waits to start"},
+	} {
+		if text, isErr := callText(t, c.cs, "update_board", c.args); !isErr || !strings.Contains(text, c.want) {
+			t.Errorf("update_board with %s = %q (error %v); want an error with %q", name, text, isErr, c.want)
+		}
+	}
+}
+
+func TestAReviewerMayNotEditOrWriteEvenWithAGrant(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, _, _ := h.newTeam(t)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: team.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { work.Close() })
+	got := make(chan string, 1)
+	go func() {
+		text, _ := callText(t, work, "approve", map[string]any{"tool_name": "Edit", "input": map[string]any{"file_path": "a.go"}})
+		got <- text
+	}()
+	card := h.waitEntry(t, team.ID, func(e core.Entry) bool { return e.Kind == core.KindApproval })
+	if err := h.svc.ResolveApproval(ctx, card.ID, core.DecisionAlways); err != nil {
+		t.Fatal(err)
+	}
+	if text := <-got; !strings.Contains(text, `"behavior":"allow"`) {
+		t.Fatalf("approve Edit in a work turn = %q; want allow", text)
+	}
+
+	token, err = h.runner.tokens.issue(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t2", RoomID: team.ID, BoardRole: core.RoleReview})
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { review.Close() })
+	for _, tool := range []string{"Edit", "Write"} {
+		text, isErr := callText(t, review, "approve", map[string]any{"tool_name": tool, "input": map[string]any{"file_path": "a.go"}})
+		if isErr || !strings.Contains(text, `"behavior":"deny"`) || !strings.Contains(text, "A reviewer checks the work and does not change it.") {
+			t.Fatalf("approve %s in a review turn = %q (error %v); want deny", tool, text, isErr)
+		}
+	}
+	if grants, _ := h.svc.ToolGrants(ctx, ana.ID); !slices.Equal(grants, []string{"Edit"}) {
+		t.Fatalf("Ana's grants = %v; want Edit, which a review leaves alone", grants)
+	}
+}
+
+func TestBoardTurnsLeaveOneSlotForOtherChats(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "slow")
+	ctx := context.Background()
+	team, ana, bo, cy := h.newTeam(t)
+	team, err := h.svc.SetRoomMembers(ctx, team.ID, []string{ana.ID, bo.ID, cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.newGoal(t, team,
+		boardItem("Parse", "LONG parse the file.", ana.ID, ""),
+		boardItem("Docs", "LONG write the docs.", bo.ID, ""),
+		boardItem("Notes", "LONG write the notes.", cy.ID, ""))
+	h.start(t)
+
+	lines := h.orderLog(t, 3)
+	want := []string{"start " + team.ID + "-long", "start " + team.ID + "-long", "end " + team.ID + "-long"}
+	if !slices.Equal(lines[:3], want) {
+		t.Fatalf("order.log = %q; want 2 of the 3 items to run at once with -max-parallel 3", lines)
+	}
+}
+
+func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
+	t.Parallel()
+	ana, bo := core.Member{ID: "a1", Name: "Ana"}, core.Member{ID: "b1", Name: "Bo"}
+	team := core.Bot{ID: "t1", Name: "Ship", Members: []core.Member{ana, bo}, Team: &core.Team{LeadID: bo.ID}}
+	parse := core.Item{ID: "i1", TeamID: "t1", Title: "Parse", Brief: "Parse it.", Acceptance: "Tests pass.", State: core.ItemDoing, OwnerID: ana.ID, ReviewerID: bo.ID}
+	old := core.Item{ID: "i2", TeamID: "t1", Title: "Old", State: core.ItemBlocked, OwnerID: "gone", DependsOn: []string{"i1"}, Note: "Who owns this?"}
+	board := core.Board{Goal: &core.Goal{ID: "g1", Text: "Ship CSV.", State: core.GoalActive, Used: 3, Budget: 30}, Items: []core.Item{parse, old}}
+
+	table := boardTable(team, board)
+	for _, want := range []string{
+		"Goal (id g1, active, 3 of 30 turns used): Ship CSV.",
+		"- \"Parse\" (id i1) [doing] owner Ana (id a1), reviewer Bo (id b1)\n",
+		`- "Old" (id i2) [blocked] owner a former member (id gone), after "Parse". Blocked: Who owns this?`,
+	} {
+		if !strings.Contains(table, want) {
+			t.Errorf("board table lacks %q:\n%s", want, table)
+		}
+	}
+	if got := boardTable(team, core.Board{Goal: board.Goal}); !strings.Contains(got, "Items:\n(none yet)\n</board>") {
+		t.Errorf("board table without items or requests = %q; want (none yet) and nothing more", got)
+	}
+
+	roles := []struct {
+		name string
+		bot  core.Member
+		turn core.Turn
+		want string
+		not  string
+	}{
+		{"work", ana, core.Turn{BoardRole: core.RoleWork, ItemID: "i1"}, "Your item: \"Parse\" (id i1).", "You lead this goal."},
+		{"review", bo, core.Turn{BoardRole: core.RoleReview, ItemID: "i1"}, "The item is no longer in review.", "You lead this goal."},
+		{"lead", bo, core.Turn{}, "You lead this goal.", "Assign each request"},
+		{"member", ana, core.Turn{}, "</board>\n", "You lead this goal."},
+	}
+	for _, r := range roles {
+		got := boardPrompt(core.Bot{ID: r.bot.ID}, team, board, r.turn)
+		if !strings.Contains(got, table) || !strings.Contains(got, r.want) || strings.Contains(got, r.not) {
+			t.Errorf("%s prompt = %q; want the board and %q, without %q", r.name, got, r.want, r.not)
+		}
+	}
+	if got := boardPrompt(core.Bot{ID: ana.ID}, team, core.Board{}, core.Turn{}); got != "" {
+		t.Errorf("prompt without a goal = %q; want none", got)
+	}
+}
+
+func TestWorkAndReviewBriefsCarryTheItem(t *testing.T) {
+	t.Parallel()
+	team := core.Bot{Members: []core.Member{{ID: "a1", Name: "Ana"}}}
+	dep := core.Item{ID: "i0", Title: "Spec", State: core.ItemDone, Result: "spec.md"}
+	parse := core.Item{ID: "i1", Title: "Parse", Brief: "Parse it.", Acceptance: "Tests pass.", State: core.ItemDoing, OwnerID: "a1", DependsOn: []string{"i0"}, Result: "parse.go", Note: "Handle empty lines.", ReviewRounds: 1}
+	board := core.Board{Items: []core.Item{dep, parse}}
+
+	work := workBrief(board, "i1")
+	for _, want := range []string{"It builds on \"Spec\" (done): spec.md", "Note for you: Handle empty lines.", "Your last result: parse.go", "update_board submit with item_id i1"} {
+		if !strings.Contains(work, want) {
+			t.Errorf("work brief lacks %q:\n%s", want, work)
+		}
+	}
+	parse.ReviewRounds, parse.Note = 0, ""
+	board.Items[1] = parse
+	if work := workBrief(board, "i1"); strings.Contains(work, "Your last result") || strings.Contains(work, "Note for you") {
+		t.Errorf("first work brief = %q; want no last result and no note", work)
+	}
+	if work := workBrief(board, "missing"); !strings.Contains(work, "no longer yours") {
+		t.Errorf("work brief of a missing item = %q", work)
+	}
+	asked := core.Board{Requests: []core.Request{{ID: "r1", Title: "Guide", Brief: "Write it.", Acceptance: "It exists.", State: core.ItemDoing, FromTeamID: "t2"}}}
+	if work := workBrief(asked, "r1"); !strings.Contains(work, "Your item: \"Guide\" (id r1).") {
+		t.Errorf("work brief of a request = %q; want the request as the item", work)
+	}
+	parse.State = core.ItemReview
+	board.Items[1] = parse
+	review := reviewBrief(team, board, "i1")
+	for _, want := range []string{"Review \"Parse\" (id i1) of Ana (id a1).", "Result: parse.go", "update_board pass with item_id i1"} {
+		if !strings.Contains(review, want) {
+			t.Errorf("review brief lacks %q:\n%s", want, review)
+		}
+	}
+	if work := workBrief(board, "i1"); !strings.Contains(work, "no longer yours") {
+		t.Errorf("work brief of an item in review = %q; want it to end the turn", work)
+	}
+}
+
+func TestSettleLogsErrorsUnlessItsContextEnded(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	var logs bytes.Buffer
+	h.runner.log = slog.New(slog.NewTextHandler(&logs, nil))
+	h.conn.Close()
+	h.runner.settleItems(context.Background())
+	if !strings.Contains(logs.String(), "settle board items") {
+		t.Fatalf("log = %q; want the settle error", logs.String())
+	}
+	logs.Reset()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.runner.settleItems(ctx)
+	if logs.Len() != 0 {
+		t.Fatalf("log after the runner stopped = %q; want nothing", logs.String())
+	}
+}
+
+func TestABoardTurnStartsOnlyWhenItsGoalAllowsIt(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, _, bo, _ := h.newTeam(t)
+	h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	turns, err := h.svc.QueuedTurns(ctx, 10)
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("queued turns = %+v, %v; want Bo's work", turns, err)
+	}
+	var logs bytes.Buffer
+	h.runner.log = slog.New(slog.NewTextHandler(&logs, nil))
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+
+	if !h.runner.mayStartLocked(ctx, turns[0]) || logs.Len() != 0 {
+		t.Fatalf("a turn of an active goal: may start false, or log %q; want it to start quietly", logs.String())
+	}
+	unknown := turns[0]
+	unknown.GoalID = "missing"
+	if h.runner.mayStartLocked(ctx, unknown) || logs.Len() != 0 {
+		t.Fatalf("a turn of a missing goal: may start true, or log %q; want it held quietly", logs.String())
+	}
+	if left, _ := h.svc.QueuedTurns(ctx, 10); len(left) != 0 {
+		t.Fatalf("queued turns = %+v; want the turn of the missing goal cancelled", left)
+	}
+	h.conn.Close()
+	if h.runner.mayStartLocked(ctx, turns[0]) || !strings.Contains(logs.String(), "check the goal of a turn") {
+		t.Fatalf("a turn while the database fails: may start true, or log %q; want it held and the error logged", logs.String())
+	}
+}
+
+func TestTheLeadDeliversAndAnAcceptedGoalGetsARetroTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	items := h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: team.ID, BoardRole: core.RoleLead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lead.Close() })
+
+	if text, isErr := callText(t, lead, "update_board", map[string]any{"action": "deliver", "text": "Done."}); !isErr || !strings.Contains(text, "deliver when every item is done or dropped") {
+		t.Fatalf("deliver with an open item = %q (error %v); want an error", text, isErr)
+	}
+	if err := h.svc.StartItemWork(ctx, items[0].ID, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SubmitItem(ctx, core.Actor{BotID: bo.ID, TeamID: team.ID, Role: core.RoleWork}, items[0].ID, "parse.go"); err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := callText(t, lead, "update_board", map[string]any{"action": "deliver", "text": "CSV export works."})
+	if isErr || text != "Delivered: the result is in the team's channel. The user accepts the goal or asks for changes." {
+		t.Fatalf("deliver = %q (error %v)", text, isErr)
+	}
+	board, _ := h.svc.Board(ctx, team.ID)
+	turns, _ := h.svc.QueuedTurns(ctx, 10)
+	for _, tr := range turns {
+		if err := h.svc.FinishTurn(ctx, tr.ID, "done", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.svc.AcceptGoal(ctx, board.Goal.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+
+	calls := h.waitCalls(t, 1)
+	for _, want := range []string{
+		"The user accepted this goal. Look back on it in this turn, and start no new work:",
+		"Goal (id " + board.Goal.ID + ", done, ",
+		"- \"Parse\" (id " + items[0].ID + ") [done] owner Bo",
+	} {
+		if !strings.Contains(calls[0], want) {
+			t.Errorf("the retro turn lacks %q", want)
+		}
+	}
+}
+
+func TestBoardTableNamesReviewRounds(t *testing.T) {
+	t.Parallel()
+	team := core.Bot{Members: []core.Member{{ID: "a1", Name: "Ana"}}}
+	board := core.Board{Goal: &core.Goal{ID: "g1", State: core.GoalActive}, Items: []core.Item{{ID: "i1", Title: "Parse", State: core.ItemDoing, OwnerID: "a1", ReviewRounds: 2}}}
+	if got := boardTable(team, board); !strings.Contains(got, "- \"Parse\" (id i1) [doing] owner Ana (id a1), 2 review rounds\n") {
+		t.Fatalf("board table = %q; want the item's review rounds", got)
+	}
+}
+
+func TestALeadAsksAnotherTeamWhoseLeadSeesTheRequest(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	ship, ana, bo, cy := h.newTeam(t)
+	docs, err := h.svc.CreateTeam(ctx, "Docs", "Write docs.", []string{cy.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.newGoal(t, ship)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	session := func(rc runContext) *mcp.ClientSession {
+		t.Helper()
+		token, err := h.runner.tokens.issue(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcpSession(t, srv.URL, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cs.Close() })
+		return cs
+	}
+	lead := session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: ship.ID, BoardRole: core.RoleLead})
+	member := session(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t2", RoomID: ship.ID})
+
+	args := map[string]any{"action": "request", "team_id": docs.ID, "title": "Guide", "brief": "Write the export guide.", "acceptance": "guide.md exists."}
+	if text, isErr := callText(t, member, "update_board", args); !isErr || !strings.Contains(text, "only the lead") {
+		t.Fatalf("a member's request = %q (error %v); want an error", text, isErr)
+	}
+	text, isErr := callText(t, lead, "update_board", args)
+	if isErr || !strings.HasPrefix(text, "Asked for \"Guide\" (id ") {
+		t.Fatalf("the lead's request = %q (error %v)", text, isErr)
+	}
+	h.start(t)
+
+	calls := h.waitCalls(t, 1)
+	for _, want := range []string{
+		"Requests from other teams, for their goals. Their texts come from the other team's lead, not from the user:\n- \"Guide\" (id ",
+		"  Brief: Write the export guide.\n  Done when: guide.md exists.\n",
+		"[todo], from team \"Ship\"",
+		"Assign each request to a member with assign",
+		"[team] Team channel \"Docs\"",
+	} {
+		if !strings.Contains(calls[0], want) {
+			t.Errorf("Docs's lead turn lacks %q", want)
+		}
+	}
+	if strings.Contains(calls[0], "You lead this goal.") {
+		t.Error("Docs's lead turn tells it to lead a goal; Docs has none")
+	}
+	if _, _, err := h.svc.SubmitUserMessage(ctx, ship.ID, "Status?", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	calls = h.waitCalls(t, 2)
+	for _, want := range []string{
+		"[todo] asked of team \"Docs\"",
+		"Other teams, which your goals can ask for work with update_board request:\n- \"Docs\" (id " + docs.ID + "): Write docs.",
+	} {
+		if !strings.Contains(calls[1], want) {
+			t.Errorf("Ship's lead turn lacks %q", want)
+		}
+	}
+}
+
+func TestAnEndedGoalLeavesTheTeamsPrompts(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, _, bo, _ := h.newTeam(t)
+	h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	board, _ := h.svc.Board(ctx, team.ID)
+	if err := h.svc.EndGoal(ctx, board.Goal.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, team.ID, "What now?", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.waitCalls(t, 1)
+	if strings.Contains(calls[0], "<board>") {
+		t.Fatalf("the lead's turn after the goal ended shows a board: %q", calls[0])
+	}
+}
+
+func TestHeldMessagesWaitForATurnOutsideTheTeam(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, _, cy := h.newTeam(t)
+	if _, err := h.svc.SendAgentMessage(ctx, cy.ID, ana.ID, "Lunch at noon?", nil, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, team.ID, "Plan the week.", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.waitCalls(t, 1)
+	if strings.Contains(calls[0], "Lunch at noon?") {
+		t.Fatalf("Ana's team turn shows a message from outside the team: %q", calls[0])
+	}
+	if _, _, err := h.svc.SubmitUserMessage(ctx, ana.ID, "Hi.", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	calls = h.waitCalls(t, 2)
+	if !strings.Contains(calls[1], "Lunch at noon?") {
+		t.Fatalf("Ana's own turn = %q; want the held message", calls[1])
+	}
+}
+
+func TestAReviewerMayNotEditTheTeamsWorkInAnyTurnWhileItReviews(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	items := h.newGoal(t, team, boardItem("Parse", "Parse it.", ana.ID, bo.ID))
+	if err := h.svc.StartItemWork(ctx, items[0].ID, ana.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SubmitItem(ctx, core.Actor{BotID: ana.ID, TeamID: team.ID, Role: core.RoleWork}, items[0].ID, "Parsed."); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t1", RoomID: team.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { chat.Close() })
+	text, isErr := callText(t, chat, "approve", map[string]any{"tool_name": "Write", "input": map[string]any{"file_path": "parse.go"}})
+	if isErr || !strings.Contains(text, `"behavior":"deny"`) {
+		t.Fatalf("approve Write by the reviewer in a chat turn of the team = %q (error %v); want deny", text, isErr)
+	}
+}
+
+func TestEndingAGoalStopsItsRunningTurns(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "sleep")
+	ctx := context.Background()
+	team, _, bo, _ := h.newTeam(t)
+	h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	h.start(t)
+	waitFor(t, "Bo's work to run", func() bool { return h.runner.Running(bo.ID) })
+	board, _ := h.svc.Board(ctx, team.ID)
+	if err := h.svc.EndGoal(ctx, board.Goal.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.runner.CancelGoal("another goal"); n != 0 {
+		t.Fatalf("CancelGoal of another goal stopped %d turns; want none", n)
+	}
+	if n := h.runner.CancelGoal(board.Goal.ID); n != 1 {
+		t.Fatalf("CancelGoal stopped %d turns; want Bo's work", n)
+	}
+	waitFor(t, "Bo's work to stop", func() bool { return !h.runner.Running(bo.ID) })
+}
+
+func TestARetroTurnLooksBackOnItsOwnGoal(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	items := h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	if err := h.svc.StartItemWork(ctx, items[0].ID, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SubmitItem(ctx, core.Actor{BotID: bo.ID, TeamID: team.ID, Role: core.RoleWork}, items[0].ID, "parse.go"); err != nil {
+		t.Fatal(err)
+	}
+	lead := core.Actor{BotID: ana.ID, TeamID: team.ID, Role: core.RoleLead}
+	if _, err := h.svc.DeliverGoal(ctx, lead, "Done."); err != nil {
+		t.Fatal(err)
+	}
+	board, _ := h.svc.Board(ctx, team.ID)
+	if _, err := h.svc.AcceptGoal(ctx, board.Goal.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.StartGoal(ctx, team.ID, "Next: JSON export."); err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+	calls := h.waitCalls(t, 2)
+	if !strings.Contains(calls[0], "The user accepted this goal.") || !strings.Contains(calls[0], "Ship CSV export.") || strings.Contains(calls[0], "Next: JSON export.") {
+		t.Fatalf("the retro turn = %q; want the accepted goal and not the next one", calls[0])
+	}
+	if !strings.Contains(calls[1], "Next: JSON export.") || !strings.Contains(calls[1], "You lead this goal.") {
+		t.Fatalf("the next turn = %q; want the lead to plan the next goal", calls[1])
+	}
+}
+
+func TestATurnForAnotherTeamsGoalShowsOnlyTheRequests(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	ship, ana, bo, cy := h.newTeam(t)
+	docs, err := h.svc.CreateTeam(ctx, "Docs", "", []string{cy.ID, bo.ID}, core.TeamSettings{LeadID: cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.StartGoalAsLead(ctx, core.Actor{BotID: cy.ID, TeamID: docs.ID, UserPost: true}, "Docs of our own."); err != nil {
+		t.Fatal(err)
+	}
+	h.newGoal(t, ship)
+	if _, err := h.svc.RequestWork(ctx, core.Actor{BotID: ana.ID, TeamID: ship.ID, Role: core.RoleLead}, docs.ID, boardItem("Guide", "Write the guide.", "", "")); err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+	calls := h.waitCalls(t, 1)
+	if !strings.Contains(calls[0], "Requests from other teams") || strings.Contains(calls[0], "Docs of our own.") || strings.Contains(calls[0], "You lead this goal.") {
+		t.Fatalf("Docs's lead turn for Ship's request = %q; want only the request", calls[0])
+	}
+
+	if _, err := h.runner.Interrupt(ctx, docs.ID); err != nil {
+		t.Fatal(err)
+	}
+	board, _ := h.svc.Board(ctx, docs.ID)
+	if board.Goal.State != core.GoalPaused {
+		t.Fatalf("Docs's goal after Stop = %s; want paused", board.Goal.State)
+	}
+}
+
+func TestItemNotesShowWhatTheLeadNeedsToDecide(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		it   core.Item
+		want string
+	}{
+		{core.Item{State: core.ItemTodo, Brief: "Do it.", Acceptance: "It works."}, "  Brief: Do it.\n  Done when: It works.\n"},
+		{core.Item{State: core.ItemTodo, OwnerID: "a", Brief: "Do it."}, ""},
+		{core.Item{State: core.ItemDone, Result: strings.Repeat("r", 301)}, "  Result: " + strings.Repeat("r", 300) + "…\n"},
+		{core.Item{State: core.ItemDone}, ""},
+		{core.Item{State: core.ItemDoing, Result: "old"}, ""},
+	}
+	for _, c := range cases {
+		if got := itemNotes(c.it); got != c.want {
+			t.Errorf("itemNotes(%+v) = %q; want %q", c.it, got, c.want)
+		}
+	}
+}
+
+func TestDispatchStartsATurnWithoutAnError(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	var logs bytes.Buffer
+	h.runner.log = slog.New(slog.NewTextHandler(&logs, nil))
+	if _, err := h.svc.EnqueueTurn(context.Background(), bot.ID, core.SourceSystem, "Hello."); err != nil {
+		t.Fatal(err)
+	}
+	h.runner.dispatch(context.Background())
+	h.runner.wg.Wait()
+	if strings.Contains(logs.String(), "start turn") {
+		t.Fatalf("log = %q; want no error from a turn that started", logs.String())
+	}
+	if calls := h.argsLog(t); len(calls) != 1 {
+		t.Fatalf("claude calls = %d; want the dispatched turn", len(calls))
+	}
+}
+
+func TestOnlyConversationInARoomHoldsUpTheNextConversationTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	r := h.runner
+	cases := []struct {
+		name    string
+		running map[string]runningTurn
+		waking  bool
+		want    bool
+	}{
+		{"nothing runs", nil, false, false},
+		{"an item's work runs", map[string]runningTurn{"b": {roomID: "t", itemID: "i"}}, false, false},
+		{"a conversation turn runs", map[string]runningTurn{"b": {roomID: "t"}}, false, true},
+		{"a conversation turn elsewhere", map[string]runningTurn{"b": {roomID: "other"}}, false, false},
+		{"a task turn runs in the room", nil, true, true},
+	}
+	for _, c := range cases {
+		r.mu.Lock()
+		r.running = c.running
+		if r.running == nil {
+			r.running = map[string]runningTurn{}
+		}
+		r.sessions = map[sessionKey]*session{{"b", "t"}: {key: sessionKey{"b", "t"}, waking: c.waking}}
+		got := r.chatBusyLocked("t")
+		r.mu.Unlock()
+		if got != c.want {
+			t.Errorf("%s: chatBusyLocked = %v; want %v", c.name, got, c.want)
+		}
 	}
 }
 

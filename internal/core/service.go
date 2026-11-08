@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -50,6 +51,7 @@ type Bot struct {
 	Instructions    string   `json:"instructions"`
 	ClaudeSessionID string   `json:"-"`
 	Members         []Member `json:"members,omitempty"`
+	Team            *Team    `json:"team,omitempty"`      // set for a room that is a team
 	Attention       string   `json:"attention,omitempty"` // set by ListBots: AttentionApproval or AttentionQuestion
 	CreatedAt       int64    `json:"createdAt"`
 	UpdatedAt       int64    `json:"updatedAt"`
@@ -57,10 +59,12 @@ type Bot struct {
 
 func (b Bot) IsRoom() bool { return b.Kind == KindRoom }
 
-// What a bot or room needs from the user. An approval outranks a question.
+// What a bot or room needs from the user. An approval outranks a question,
+// and a question outranks a paused goal.
 const (
 	AttentionApproval = "approval" // a tool approval card is pending
 	AttentionQuestion = "question" // the latest message asks the user and is unanswered
+	AttentionGoal     = "goal"     // the team's goal is paused
 )
 
 type Entry struct {
@@ -81,6 +85,16 @@ type Turn struct {
 	Prompt string
 	RoomID string // set when the bot takes a turn in a room
 	Hops   int64  // agent messages that led to this turn
+	// GoalID is the goal that a board turn works for; its budget counts the turn.
+	GoalID    string
+	ItemID    string // the item of a work or review turn
+	BoardRole string // RoleLead, RoleWork, RoleReview or RoleRetro for a board turn
+}
+
+// FromUserPost reports whether a post of the user woke the turn in its room:
+// only such a turn has no hops and no board role there.
+func (t Turn) FromUserPost() bool {
+	return t.Source == SourceRoom && t.Hops == 0 && t.BoardRole == ""
 }
 
 // Entry kinds and turn sources, as stored in the database.
@@ -199,7 +213,7 @@ func (s *Service) CreateBot(ctx context.Context, name, instructions string) (Bot
 		return Bot{}, err
 	}
 	id := uuid.NewString()
-	if err := s.prepareWorkspace(id); err != nil {
+	if err := s.prepareWorkspace(s.Workspace(id)); err != nil {
 		return Bot{}, err
 	}
 	now := s.nowMs()
@@ -214,13 +228,14 @@ func (s *Service) CreateBot(ctx context.Context, name, instructions string) (Bot
 	return toBot(row), nil
 }
 
-// prepareWorkspace creates the bot's working directory. Its .claude/skills
-// links to the shared skills directory, so every bot sees the same skills.
-// The link is relative, so it survives a move of the data directory.
-func (s *Service) prepareWorkspace(botID string) error {
-	claudeDir := filepath.Join(s.Workspace(botID), ".claude")
+// prepareWorkspace creates a working directory of a bot or a team. Its
+// .claude/skills links to the shared skills directory, so every bot sees the
+// same skills. The link is relative, so it survives a move of the data
+// directory.
+func (s *Service) prepareWorkspace(dir string) error {
+	claudeDir := filepath.Join(dir, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
-		return fmt.Errorf("create workspace for bot %s: %w", botID, err)
+		return fmt.Errorf("create workspace %s: %w", dir, err)
 	}
 	link := filepath.Join(claudeDir, "skills")
 	if _, err := os.Lstat(link); err == nil {
@@ -228,10 +243,10 @@ func (s *Service) prepareWorkspace(botID string) error {
 	}
 	target, err := filepath.Rel(claudeDir, s.SkillsDir())
 	if err != nil {
-		return fmt.Errorf("locate skills from workspace of bot %s: %w", botID, err)
+		return fmt.Errorf("locate skills from workspace %s: %w", dir, err)
 	}
 	if err := os.Symlink(target, link); err != nil {
-		return fmt.Errorf("link skills into workspace of bot %s: %w", botID, err)
+		return fmt.Errorf("link skills into workspace %s: %w", dir, err)
 	}
 	return nil
 }
@@ -245,6 +260,14 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list room members: %w", err)
 	}
+	teams, err := s.q.ListTeams(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list teams: %w", err)
+	}
+	teamRows := map[string]db.Team{}
+	for _, t := range teams {
+		teamRows[t.TeamID] = t
+	}
 	byRoom := map[string][]Member{}
 	for _, m := range members {
 		byRoom[m.RoomID] = append(byRoom[m.RoomID], Member{ID: m.BotID, Name: m.Name})
@@ -257,6 +280,9 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	for _, r := range rows {
 		b := toBot(r)
 		b.Members = byRoom[b.ID]
+		if row, ok := teamRows[b.ID]; ok {
+			b.Team = toTeam(row, b.Members)
+		}
 		b.Attention = attention[b.ID]
 		bots = append(bots, b)
 	}
@@ -266,6 +292,13 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 // attention maps each bot or room that waits on the user to the reason.
 func (s *Service) attention(ctx context.Context) (map[string]string, error) {
 	out := map[string]string{}
+	paused, err := s.q.ListTeamsWithPausedGoals(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list teams with paused goals: %w", err)
+	}
+	for _, id := range paused {
+		out[id] = AttentionGoal
+	}
 	asking, err := s.q.ListBotsAwaitingReply(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list bots awaiting a reply: %w", err)
@@ -294,6 +327,9 @@ func (s *Service) GetBot(ctx context.Context, id string) (Bot, error) {
 	b := toBot(row)
 	if b.IsRoom() {
 		if b.Members, err = s.memberList(ctx, id); err != nil {
+			return Bot{}, err
+		}
+		if b.Team, err = s.teamOf(ctx, id, b.Members); err != nil {
 			return Bot{}, err
 		}
 	}
@@ -330,20 +366,36 @@ func (s *Service) UpdateBot(ctx context.Context, id string, name, instructions *
 	return toBot(row), nil
 }
 
-// DeleteBot removes the bot, its agent memory and its workspace directory.
-// The caller must stop any running turn of the bot first.
+// DeleteBot removes a bot, its agent memory and its workspace directory, or
+// a team with its team memory and its shared folder. The caller must stop any
+// running turn of the bot first.
 func (s *Service) DeleteBot(ctx context.Context, id string) error {
-	if _, err := s.GetBot(ctx, id); err != nil {
+	bot, err := s.GetBot(ctx, id)
+	if err != nil {
 		return err
 	}
-	if err := s.q.DeleteAgentMemories(ctx, id); err != nil {
-		return fmt.Errorf("delete memories of bot %s: %w", id, err)
+	teams, err := s.RoomsOf(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, key := range []string{id, teamScopeKey + id} {
+		if err := s.q.DeleteMemoriesInScope(ctx, key); err != nil {
+			return fmt.Errorf("delete memories of %s: %w", id, err)
+		}
 	}
 	if err := s.q.DeleteBot(ctx, id); err != nil {
 		return fmt.Errorf("delete bot %s: %w", id, err)
 	}
-	if err := os.RemoveAll(filepath.Join(s.dataDir, "bots", id)); err != nil {
-		return fmt.Errorf("remove workspace of bot %s: %w", id, err)
+	for _, dir := range []string{filepath.Join(s.dataDir, "bots", id), filepath.Join(s.dataDir, "teams", id)} {
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove the folder of %s: %w", id, err)
+		}
+	}
+	// The teams of a deleted bot no longer wait on it.
+	for _, team := range slices.DeleteFunc(teams, func(r Bot) bool { return !r.IsTeam() }) {
+		if err := s.releaseMember(ctx, team.ID, id, bot.Name); err != nil {
+			return err
+		}
 	}
 	s.hub.Publish(Event{Type: "bots"})
 	return nil
@@ -432,7 +484,7 @@ func (s *Service) AppendBotMessage(ctx context.Context, botID, turnID, text stri
 	if err != nil {
 		return Entry{}, err
 	}
-	media, err := s.saveBotFiles(botID, files)
+	media, err := s.saveBotFiles(s.Workspace(botID), files)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -455,18 +507,27 @@ func (s *Service) TurnReplyCount(ctx context.Context, turnID string) (int64, err
 	return n, nil
 }
 
+// checkUserMessage checks a message that the user sends, with its number
+// of attached files.
+func checkUserMessage(text, clientNonce string, files int) error {
+	if text == "" && files == 0 {
+		return invalid("message text is empty")
+	}
+	if utf8.RuneCountInString(text) > maxMessageLen {
+		return invalid("message is longer than %d characters", maxMessageLen)
+	}
+	if clientNonce == "" || len(clientNonce) > maxNonceLen {
+		return invalid("clientNonce must be 1 to %d characters", maxNonceLen)
+	}
+	return nil
+}
+
 // SubmitUserMessage records a user message and queues a turn for it.
 // A repeated clientNonce returns the original turn and duplicate=true.
 func (s *Service) SubmitUserMessage(ctx context.Context, botID, text, clientNonce string, media ...[]byte) (turnID string, duplicate bool, err error) {
 	text = strings.TrimSpace(text)
-	if text == "" && len(media) == 0 {
-		return "", false, invalid("message text is empty")
-	}
-	if utf8.RuneCountInString(text) > maxMessageLen {
-		return "", false, invalid("message is longer than %d characters", maxMessageLen)
-	}
-	if clientNonce == "" || len(clientNonce) > maxNonceLen {
-		return "", false, invalid("clientNonce must be 1 to %d characters", maxNonceLen)
+	if err := checkUserMessage(text, clientNonce, len(media)); err != nil {
+		return "", false, err
 	}
 	bot, err := s.GetBot(ctx, botID)
 	if err != nil {
@@ -482,47 +543,52 @@ func (s *Service) SubmitUserMessage(ctx context.Context, botID, text, clientNonc
 	if err != nil {
 		return "", false, err
 	}
-	// Until the entry that refers to the files is committed, a failure must remove them.
-	fail := func(err error) (string, bool, error) {
+	turnID, e, err := s.insertUserMessage(ctx, bot, text, nonce, names)
+	if err != nil {
+		// Until the entry that refers to the files is committed, a failure must remove them.
 		return "", false, errors.Join(err, s.removeMedia(names))
 	}
-
-	tx, err := s.sqlDB.BeginTx(ctx, nil)
-	if err != nil {
-		return fail(fmt.Errorf("begin transaction: %w", err))
-	}
-	defer tx.Rollback()
-	qtx := s.q.WithTx(tx)
-	now := s.nowMs()
-	// In a room the turn row only anchors the nonce; members get their own turns below.
-	source, status, roomID := SourceUser, "queued", ""
-	if bot.IsRoom() {
-		source, status, roomID = SourceRoom, "done", botID
-	}
-	turn, err := qtx.InsertTurn(ctx, db.InsertTurnParams{ID: uuid.NewString(), BotID: botID, Source: source, ClientNonce: nonce, Prompt: text, Status: status, RoomID: roomID, CreatedAt: now})
-	if err != nil {
-		return fail(fmt.Errorf("insert turn for bot %s: %w", botID, err))
-	}
-	body, err := json.Marshal(userBody{Text: text, Media: names})
-	if err != nil {
-		return fail(fmt.Errorf("encode user entry: %w", err))
-	}
-	row, err := qtx.AppendEntry(ctx, db.AppendEntryParams{BotID: botID, ID: uuid.NewString(), Kind: KindUser, TurnID: turn.ID, Body: string(body), CreatedAt: now})
-	if err != nil {
-		return fail(fmt.Errorf("append user entry to bot %s: %w", botID, err))
-	}
-	if err := tx.Commit(); err != nil {
-		return fail(fmt.Errorf("commit user message for bot %s: %w", botID, err))
-	}
-	e := toEntry(row)
 	s.hub.Publish(Event{Type: "entry", BotID: botID, Entry: &e})
 	if bot.IsRoom() {
-		if err := s.wakeRoomMembers(ctx, bot, "", text, 0, "The user posted a new message."); err != nil {
+		if err := s.wakeRoomMembers(ctx, bot, text); err != nil {
 			return "", false, err
 		}
 	}
 	s.signalTurns()
-	return turn.ID, false, nil
+	return turnID, false, nil
+}
+
+// insertUserMessage stores the user's message to bot and its turn in one
+// transaction. In a room the turn row only anchors the nonce; members get
+// their own turns.
+func (s *Service) insertUserMessage(ctx context.Context, bot Bot, text string, nonce sql.NullString, media []string) (string, Entry, error) {
+	tx, err := s.sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", Entry{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	qtx := s.q.WithTx(tx)
+	now := s.nowMs()
+	source, status, roomID := SourceUser, "queued", ""
+	if bot.IsRoom() {
+		source, status, roomID = SourceRoom, "done", bot.ID
+	}
+	turn, err := qtx.InsertTurn(ctx, db.InsertTurnParams{ID: uuid.NewString(), BotID: bot.ID, Source: source, ClientNonce: nonce, Prompt: text, Status: status, RoomID: roomID, CreatedAt: now})
+	if err != nil {
+		return "", Entry{}, fmt.Errorf("insert turn for bot %s: %w", bot.ID, err)
+	}
+	body, err := json.Marshal(userBody{Text: text, Media: media})
+	if err != nil {
+		return "", Entry{}, fmt.Errorf("encode user entry: %w", err)
+	}
+	row, err := qtx.AppendEntry(ctx, db.AppendEntryParams{BotID: bot.ID, ID: uuid.NewString(), Kind: KindUser, TurnID: turn.ID, Body: string(body), CreatedAt: now})
+	if err != nil {
+		return "", Entry{}, fmt.Errorf("append user entry to bot %s: %w", bot.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return "", Entry{}, fmt.Errorf("commit user message for bot %s: %w", bot.ID, err)
+	}
+	return turn.ID, toEntry(row), nil
 }
 
 // EnqueueTurn queues a hidden turn (a routine run or a system cue) for the bot.
@@ -531,11 +597,24 @@ func (s *Service) EnqueueTurn(ctx context.Context, botID, source, prompt string)
 }
 
 func (s *Service) enqueueTurn(ctx context.Context, t Turn) (string, error) {
-	turn, err := s.q.InsertTurn(ctx, db.InsertTurnParams{ID: uuid.NewString(), BotID: t.BotID, Source: t.Source, Prompt: t.Prompt, Status: "queued", RoomID: t.RoomID, Hops: t.Hops, CreatedAt: s.nowMs()})
+	id, err := s.queueTurn(ctx, s.q, t)
+	if err != nil {
+		return "", err
+	}
+	s.signalTurns()
+	return id, nil
+}
+
+// queueTurn inserts a queued turn with q, which can be a transaction. The
+// caller signals the runner after the turn is committed.
+func (s *Service) queueTurn(ctx context.Context, q *db.Queries, t Turn) (string, error) {
+	turn, err := q.InsertTurn(ctx, db.InsertTurnParams{
+		ID: uuid.NewString(), BotID: t.BotID, Source: t.Source, Prompt: t.Prompt, Status: "queued", RoomID: t.RoomID, Hops: t.Hops,
+		GoalID: t.GoalID, ItemID: t.ItemID, BoardRole: t.BoardRole, CreatedAt: s.nowMs(),
+	})
 	if err != nil {
 		return "", fmt.Errorf("queue %s turn for bot %s: %w", t.Source, t.BotID, err)
 	}
-	s.signalTurns()
 	return turn.ID, nil
 }
 
@@ -558,16 +637,22 @@ func (s *Service) QueuedTurns(ctx context.Context, limit int) ([]Turn, error) {
 	}
 	turns := make([]Turn, 0, len(rows))
 	for _, r := range rows {
-		turns = append(turns, Turn{ID: r.ID, BotID: r.BotID, Source: r.Source, Prompt: r.Prompt, RoomID: r.RoomID, Hops: r.Hops})
+		turns = append(turns, Turn{
+			ID: r.ID, BotID: r.BotID, Source: r.Source, Prompt: r.Prompt, RoomID: r.RoomID, Hops: r.Hops,
+			GoalID: r.GoalID, ItemID: r.ItemID, BoardRole: r.BoardRole,
+		})
 	}
 	return turns, nil
 }
 
-func (s *Service) StartTurn(ctx context.Context, id string) error {
-	if err := s.q.StartTurn(ctx, db.StartTurnParams{StartedAt: sql.NullInt64{Int64: s.nowMs(), Valid: true}, ID: id}); err != nil {
-		return fmt.Errorf("start turn %s: %w", id, err)
+// StartTurn marks a queued turn as running. It returns false when the turn
+// is no longer queued, for example because a change on a board cancelled it.
+func (s *Service) StartTurn(ctx context.Context, id string) (bool, error) {
+	n, err := s.q.StartTurn(ctx, db.StartTurnParams{StartedAt: sql.NullInt64{Int64: s.nowMs(), Valid: true}, ID: id})
+	if err != nil {
+		return false, fmt.Errorf("start turn %s: %w", id, err)
 	}
-	return nil
+	return n == 1, nil
 }
 
 // FinishTurn records the final status ("done", "failed" or "interrupted").

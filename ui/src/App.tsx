@@ -4,15 +4,18 @@ import {
   MessageCircleQuestion,
   MessagesSquare,
   PanelRight,
+  PauseCircle,
   Plug,
   Plus,
   ShieldQuestion,
+  Users,
 } from "lucide-react"
 import { botColor } from "@/lib/bot-color"
 import { api, type Bot } from "@/lib/api"
 import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel } from "@/components/bot-panel"
+import { GoalBar } from "@/components/board"
 import { ConnectorsDialog } from "@/components/connectors"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -160,6 +163,106 @@ function NewRoomDialog({
   )
 }
 
+function NewTeamDialog({
+  open,
+  onOpenChange,
+  agents,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  agents: Bot[]
+  onCreated: (id: string) => Promise<void>
+}) {
+  const [name, setName] = useState("")
+  const [purpose, setPurpose] = useState("")
+  const [agreement, setAgreement] = useState("")
+  const [members, setMembers] = useState<string[]>([])
+  const [lead, setLead] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  // The lead is a member; without a choice, the first member leads.
+  const leadId = members.includes(lead) ? lead : (members[0] ?? "")
+  const toggle = (id: string, on: boolean) => setMembers((prev) => (on ? [...prev, id] : prev.filter((m) => m !== id)))
+  const create = async () => {
+    try {
+      const team = await api.createTeam({ name, instructions: purpose, memberIds: members, leadId, agreement })
+      setName("")
+      setPurpose("")
+      setAgreement("")
+      setMembers([])
+      setLead("")
+      setError(null)
+      await onCreated(team.id)
+      onOpenChange(false)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New team</DialogTitle>
+          <DialogDescription>
+            Bots that work together for you in one channel and one shared folder. Your messages go to the lead; write
+            @Name to ask a member.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="team-name">Name</Label>
+          <Input id="team-name" placeholder="Release" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="team-purpose">Purpose (optional)</Label>
+          <Textarea id="team-purpose" rows={2} value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label>Members</Label>
+          {agents.length === 0 && <p className="text-muted-foreground text-sm">Create a bot first.</p>}
+          {agents.map((a) => (
+            <label key={a.id} className="flex items-center gap-2 text-sm">
+              <Checkbox checked={members.includes(a.id)} onCheckedChange={(v) => toggle(a.id, v === true)} />
+              {a.name}
+            </label>
+          ))}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="team-lead">Lead</Label>
+          <select
+            id="team-lead"
+            className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
+            disabled={members.length === 0}
+            value={leadId}
+            onChange={(e) => setLead(e.target.value)}
+          >
+            {members.map((id) => (
+              <option key={id} value={id}>
+                {agents.find((a) => a.id === id)?.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="team-agreement">Working agreement (optional)</Label>
+          <Textarea
+            id="team-agreement"
+            rows={3}
+            placeholder="How the team works and when work is done, for example: tests pass and another member checks each change."
+            value={agreement}
+            onChange={(e) => setAgreement(e.target.value)}
+          />
+        </div>
+        {error && <p className="text-destructive text-sm">{error}</p>}
+        <DialogFooter>
+          <Button disabled={!name.trim() || members.length === 0} onClick={() => void create()}>
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function SidebarItem({
   bot,
   selected,
@@ -173,7 +276,7 @@ function SidebarItem({
   onSelect: () => void
   onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
 }) {
-  const Icon = bot.kind === "room" ? MessagesSquare : BotIcon
+  const Icon = bot.team ? Users : bot.kind === "room" ? MessagesSquare : BotIcon
   return (
     <button
       type="button"
@@ -194,6 +297,11 @@ function SidebarItem({
         <ShieldQuestion className="size-4 shrink-0 text-amber-500" aria-label="Needs your approval">
           <title>Needs your approval</title>
         </ShieldQuestion>
+      )}
+      {bot.attention === "goal" && (
+        <PauseCircle className="size-4 shrink-0 text-amber-500" aria-label="The goal is paused">
+          <title>The goal is paused</title>
+        </PauseCircle>
       )}
       {bot.attention === "question" && (
         <MessageCircleQuestion className="size-4 shrink-0 text-amber-500" aria-label="Waiting for your reply">
@@ -342,6 +450,16 @@ function SectionTitle({ title, action, onAction }: { title: string; action: stri
   )
 }
 
+// chatSubtitle names who is in a room or a team, and what a bot does.
+function chatSubtitle(bot: Bot) {
+  if (bot.kind !== "room") return bot.instructions
+  const members = bot.members ?? []
+  const lead = members.find((m) => m.id === bot.team?.leadId)
+  if (!lead) return `with ${members.map((m) => m.name).join(", ")}`
+  const others = members.filter((m) => m.id !== lead.id).map((m) => m.name)
+  return `led by ${lead.name}, with ${others.join(", ") || "no other members"}`
+}
+
 export function App() {
   const { bots, transcripts, unread, connected, error, setError, pausedUntil, select, refreshBots, reorder } =
     useYarGPT()
@@ -351,6 +469,7 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(chatInLocation)
   const [creating, setCreating] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
+  const [creatingTeam, setCreatingTeam] = useState(false)
   const [connectors, setConnectors] = useState(false)
   const [panel, setPanel] = useState(true)
 
@@ -372,13 +491,10 @@ export function App() {
   useEffect(() => select(selected), [selected, select])
 
   const bot = bots.find((b) => b.id === selected)
-  const subtitle = bot
-    ? bot.kind === "room"
-      ? `with ${(bot.members ?? []).map((m) => m.name).join(", ")}`
-      : bot.instructions
-    : ""
+  const subtitle = bot ? chatSubtitle(bot) : ""
   const agents = bots.filter((b) => b.kind !== "room")
-  const rooms = bots.filter((b) => b.kind === "room")
+  const rooms = bots.filter((b) => b.kind === "room" && !b.team)
+  const teams = bots.filter((b) => b.team)
   const transcript = selected ? transcripts.get(selected) : undefined
   const entries = orderedEntries(transcript)
 
@@ -392,6 +508,14 @@ export function App() {
           <SectionTitle title="Bots" action="New bot" onAction={() => setCreating(true)} />
           <BotList
             items={agents}
+            selected={selected}
+            unread={unread}
+            onSelect={openChat}
+            onReorder={(ids) => void reorder(ids)}
+          />
+          <SectionTitle title="Teams" action="New team" onAction={() => setCreatingTeam(true)} />
+          <BotList
+            items={teams}
             selected={selected}
             unread={unread}
             onSelect={openChat}
@@ -484,6 +608,7 @@ export function App() {
                 <PanelRight />
               </Button>
             </header>
+            {bot.team && <GoalBar key={bot.id} team={bot} version={transcript?.rev ?? 0} />}
             <div className="flex min-h-0 flex-1">
               <Chat
                 bot={bot}
@@ -513,6 +638,15 @@ export function App() {
         )}
       </main>
       <ConnectorsDialog open={connectors} onOpenChange={setConnectors} bots={agents} />
+      <NewTeamDialog
+        open={creatingTeam}
+        onOpenChange={setCreatingTeam}
+        agents={agents}
+        onCreated={async (id) => {
+          await refreshBots()
+          openChat(id)
+        }}
+      />
       <NewRoomDialog
         open={creatingRoom}
         onOpenChange={setCreatingRoom}

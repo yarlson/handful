@@ -97,10 +97,10 @@ func TestBodilessDeletesAreAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.WriteFact(ctx, bot.ID, core.ScopeAgent, core.TierLog, "A fact to forget."); err != nil {
+	if _, err := svc.WriteFact(ctx, bot.ID, "", core.ScopeAgent, core.TierLog, "A fact to forget."); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := svc.Memories(ctx, bot.ID)
+	facts, err := svc.Memories(ctx, bot.ID, "")
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("memories = %+v, %v", facts, err)
 	}
@@ -675,5 +675,149 @@ func TestArtifactEndpoints(t *testing.T) {
 	}
 	if got := listIDs(""); len(got) != 1 || got[0] != byUser.ID {
 		t.Fatalf("list after the rejected writes = %v; want only %s", got, byUser.ID)
+	}
+}
+
+func TestTeamEndpointsCreateAndUpdateATeamAndShowItsMemory(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bo, err := svc.CreateBot(ctx, "Bo", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "POST", "/api/teams", `{"name":"Ship","instructions":"Ship changes.","memberIds":["`+ana.ID+`","`+bo.ID+`"],"leadId":"`+bo.ID+`","agreement":"Tests pass.","goalBudget":20}`, jsonHeader)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create team: %d %s", rec.Code, rec.Body)
+	}
+	var team struct {
+		ID   string
+		Kind string
+		Team core.Team
+	}
+	want := core.Team{LeadID: bo.ID, Agreement: "Tests pass.", GoalBudget: 20}
+	if err := json.Unmarshal(rec.Body.Bytes(), &team); err != nil || team.Kind != "room" || team.Team != want {
+		t.Fatalf("created team = %s; want a room with %+v", rec.Body, want)
+	}
+	rec = do(h, "PATCH", "/api/teams/"+team.ID, `{"leadId":"`+ana.ID+`"}`, jsonHeader)
+	want.LeadID = ana.ID
+	if err := json.Unmarshal(rec.Body.Bytes(), &team); rec.Code != http.StatusOK || err != nil || team.Team != want {
+		t.Fatalf("patch team: %d %s; want %+v", rec.Code, rec.Body, want)
+	}
+	if rec := do(h, "PATCH", "/api/teams/"+team.ID, `{"goalBudget":999}`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch team with a budget over the limit: %d; want 400", rec.Code)
+	}
+	if rec := do(h, "PATCH", "/api/teams/"+team.ID, `{"goalBudget":`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch team with bad JSON: %d; want 400", rec.Code)
+	}
+	if rec := do(h, "POST", "/api/teams", `{"name":"Empty","memberIds":[]}`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("team without members: %d; want 400", rec.Code)
+	}
+	if rec := do(h, "POST", "/api/teams", `{"name":`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("create team with bad JSON: %d; want 400", rec.Code)
+	}
+
+	if rec := do(h, "POST", "/api/bots/"+team.ID+"/memory", `{"scope":"team","tier":"profile","fact":"Ship on Fridays."}`, jsonHeader); rec.Code != http.StatusNoContent {
+		t.Fatalf("add a team fact: %d %s", rec.Code, rec.Body)
+	}
+	rec = do(h, "GET", "/api/bots/"+team.ID+"/memory", "", nil)
+	var facts []core.Memory
+	if err := json.Unmarshal(rec.Body.Bytes(), &facts); err != nil || len(facts) != 1 || facts[0].Scope != core.ScopeTeam || facts[0].LearnedBy != core.LearnedByUser {
+		t.Fatalf("team memory = %s; want the user's team fact", rec.Body)
+	}
+	if rec := do(h, "GET", "/api/bots/"+ana.ID+"/memory", "", nil); rec.Body.String() != "[]\n" {
+		t.Fatalf("Ana's memory = %s; want no team fact in a bot's own panel", rec.Body)
+	}
+}
+
+func TestGoalEndpointsStartExtendAndEndAGoal(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := svc.CreateTeam(ctx, "Ship", "", []string{ana.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil); rec.Code != http.StatusOK || rec.Body.String() != `{"goal":null,"items":[],"requests":[],"teams":{}}`+"\n" {
+		t.Fatalf("board without a goal: %d %s", rec.Code, rec.Body)
+	}
+	rec := do(h, "POST", "/api/teams/"+team.ID+"/goals", `{"text":"Ship CSV export."}`, jsonHeader)
+	var goal core.Goal
+	if err := json.Unmarshal(rec.Body.Bytes(), &goal); rec.Code != http.StatusCreated || err != nil || goal.State != core.GoalActive || goal.Budget != core.DefaultGoalBudget {
+		t.Fatalf("start goal: %d %s", rec.Code, rec.Body)
+	}
+	rec = do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil)
+	var board core.Board
+	if err := json.Unmarshal(rec.Body.Bytes(), &board); err != nil || board.Goal == nil || board.Goal.ID != goal.ID || board.Goal.Text != "Ship CSV export." {
+		t.Fatalf("board: %d %s; want the new goal", rec.Code, rec.Body)
+	}
+	rec = do(h, "POST", "/api/goals/"+goal.ID+"/extend", `{"turns":5}`, jsonHeader)
+	if err := json.Unmarshal(rec.Body.Bytes(), &goal); rec.Code != http.StatusOK || err != nil || goal.Budget != core.DefaultGoalBudget+5 {
+		t.Fatalf("extend goal: %d %s; want %d turns", rec.Code, rec.Body, core.DefaultGoalBudget+5)
+	}
+	if rec := do(h, "POST", "/api/goals/"+goal.ID+"/end", `{}`, jsonHeader); rec.Code != http.StatusNoContent {
+		t.Fatalf("end goal: %d %s", rec.Code, rec.Body)
+	}
+	if b, _ := svc.Board(ctx, team.ID); b.Goal.State != core.GoalEnded {
+		t.Fatalf("goal after end = %+v; want it ended", b.Goal)
+	}
+	for name, c := range map[string]struct{ path, body string }{
+		"a goal without text":    {"/api/teams/" + team.ID + "/goals", `{"text":""}`},
+		"a goal with bad JSON":   {"/api/teams/" + team.ID + "/goals", `{"text":`},
+		"extend an ended goal":   {"/api/goals/" + goal.ID + "/extend", `{"turns":1}`},
+		"extend with bad JSON":   {"/api/goals/" + goal.ID + "/extend", `{"turns":`},
+		"end an ended goal":      {"/api/goals/" + goal.ID + "/end", `{}`},
+		"a goal for a plain bot": {"/api/teams/" + ana.ID + "/goals", `{"text":"Plan."}`},
+	} {
+		if rec := do(h, "POST", c.path, c.body, jsonHeader); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s; want 400", name, rec.Code, rec.Body)
+		}
+	}
+	if rec := do(h, "POST", "/api/goals/missing/end", `{}`, jsonHeader); rec.Code != http.StatusNotFound {
+		t.Errorf("end a missing goal: %d; want 404", rec.Code)
+	}
+	if rec := do(h, "POST", "/api/goals/"+goal.ID+"/accept", `{}`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Errorf("accept an ended goal: %d; want 400", rec.Code)
+	}
+}
+
+func TestAcceptEndpointFinishesADeliveredGoal(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := svc.CreateTeam(ctx, "Ship", "", []string{ana.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := core.Actor{BotID: ana.ID, TeamID: team.ID, Role: core.RoleLead, UserPost: true}
+	goal, err := svc.StartGoalAsLead(ctx, lead, "Ship it.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, err := svc.CreateItem(ctx, lead, core.NewItem{Title: "Do", Brief: "Do it.", Acceptance: "Done.", OwnerID: ana.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.StartItemWork(ctx, it.ID, ana.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SubmitItem(ctx, core.Actor{BotID: ana.ID, TeamID: team.ID, Role: core.RoleWork}, it.ID, "Did it."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DeliverGoal(ctx, lead, "It is done."); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "POST", "/api/goals/"+goal.ID+"/accept", `{}`, jsonHeader)
+	if err := json.Unmarshal(rec.Body.Bytes(), &goal); rec.Code != http.StatusOK || err != nil || goal.State != core.GoalDone {
+		t.Fatalf("accept: %d %s; want the goal done", rec.Code, rec.Body)
 	}
 }

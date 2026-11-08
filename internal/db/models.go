@@ -55,6 +55,36 @@ type Entry struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+type Goal struct {
+	ID        string `json:"id"`
+	TeamID    string `json:"team_id"`
+	Text      string `json:"text"`
+	State     string `json:"state"`
+	Budget    int64  `json:"budget"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type Item struct {
+	ID           string `json:"id"`
+	TeamID       string `json:"team_id"`
+	GoalID       string `json:"goal_id"`
+	Title        string `json:"title"`
+	Brief        string `json:"brief"`
+	Acceptance   string `json:"acceptance"`
+	State        string `json:"state"`
+	OwnerID      string `json:"owner_id"`
+	ReviewerID   string `json:"reviewer_id"`
+	DependsOn    string `json:"depends_on"`
+	Result       string `json:"result"`
+	Note         string `json:"note"`
+	BlockedFrom  string `json:"blocked_from"`
+	ReviewRounds int64  `json:"review_rounds"`
+	CreatedBy    string `json:"created_by"`
+	Position     int64  `json:"position"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
 type Memory struct {
 	ID        string `json:"id"`
 	ScopeKey  string `json:"scope_key"`
@@ -85,6 +115,13 @@ type Routine struct {
 	LastRunBy sql.NullString `json:"last_run_by"`
 }
 
+type Team struct {
+	TeamID     string `json:"team_id"`
+	LeadBotID  string `json:"lead_bot_id"`
+	Agreement  string `json:"agreement"`
+	GoalBudget int64  `json:"goal_budget"`
+}
+
 type ToolGrant struct {
 	BotID     string `json:"bot_id"`
 	ToolName  string `json:"tool_name"`
@@ -104,4 +141,7 @@ type Turn struct {
 	CreatedAt   int64          `json:"created_at"`
 	StartedAt   sql.NullInt64  `json:"started_at"`
 	FinishedAt  sql.NullInt64  `json:"finished_at"`
+	GoalID      string         `json:"goal_id"`
+	ItemID      string         `json:"item_id"`
+	BoardRole   string         `json:"board_role"`
 }

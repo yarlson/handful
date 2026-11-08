@@ -40,6 +40,12 @@ type RoomSeat struct {
 
 // CreateRoom creates a group chat of the user and the given bots.
 func (s *Service) CreateRoom(ctx context.Context, name, instructions string, memberIDs []string) (Bot, error) {
+	return s.createRoom(ctx, uuid.NewString(), name, instructions, memberIDs, nil)
+}
+
+// createRoom stores a room with its members, and makes it a team when set is
+// not nil, in one transaction.
+func (s *Service) createRoom(ctx context.Context, id, name, instructions string, memberIDs []string, set *TeamSettings) (Bot, error) {
 	name, instructions, err := validateProfile(name, instructions)
 	if err != nil {
 		return Bot{}, err
@@ -48,6 +54,12 @@ func (s *Service) CreateRoom(ctx context.Context, name, instructions string, mem
 	if err != nil {
 		return Bot{}, err
 	}
+	var team *Team
+	if set != nil {
+		if team, err = validTeam(*set, members); err != nil {
+			return Bot{}, err
+		}
+	}
 	now := s.nowMs()
 	tx, err := s.sqlDB.BeginTx(ctx, nil)
 	if err != nil {
@@ -55,7 +67,7 @@ func (s *Service) CreateRoom(ctx context.Context, name, instructions string, mem
 	}
 	defer tx.Rollback()
 	qtx := s.q.WithTx(tx)
-	row, err := qtx.CreateBot(ctx, db.CreateBotParams{ID: uuid.NewString(), Name: name, Instructions: instructions, Kind: KindRoom, CreatedAt: now, UpdatedAt: now})
+	row, err := qtx.CreateBot(ctx, db.CreateBotParams{ID: id, Name: name, Instructions: instructions, Kind: KindRoom, CreatedAt: now, UpdatedAt: now})
 	if err != nil {
 		return Bot{}, fmt.Errorf("create room %q: %w", name, err)
 	}
@@ -64,12 +76,18 @@ func (s *Service) CreateRoom(ctx context.Context, name, instructions string, mem
 			return Bot{}, fmt.Errorf("add %s to room %q: %w", m.Name, name, err)
 		}
 	}
+	if team != nil {
+		if err := qtx.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget}); err != nil {
+			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return Bot{}, fmt.Errorf("commit room %q: %w", name, err)
 	}
 	room := toBot(row)
 	room.Members = members
-	if _, err := s.AppendEntry(ctx, room.ID, KindEvent, "", map[string]string{"type": "members", "text": "Members: " + memberNames(members)}); err != nil {
+	room.Team = team
+	if _, err := s.AppendEntry(ctx, room.ID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
 		return Bot{}, err
 	}
 	s.hub.Publish(Event{Type: "bots"})
@@ -99,17 +117,31 @@ func (s *Service) SetRoomMembers(ctx context.Context, roomID string, memberIDs [
 	}
 	for _, m := range room.Members {
 		if !keep[m.ID] {
-			if err := s.q.RemoveRoomMember(ctx, db.RemoveRoomMemberParams{RoomID: roomID, BotID: m.ID}); err != nil {
-				return Bot{}, fmt.Errorf("remove %s from room %s: %w", m.Name, roomID, err)
+			if err := s.removeMember(ctx, room, m); err != nil {
+				return Bot{}, err
 			}
 		}
 	}
-	if _, err := s.AppendEntry(ctx, roomID, KindEvent, "", map[string]string{"type": "members", "text": "Members: " + memberNames(members)}); err != nil {
+	if room, err = s.GetBot(ctx, roomID); err != nil {
+		return Bot{}, err
+	}
+	if _, err := s.AppendEntry(ctx, roomID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
 		return Bot{}, err
 	}
 	s.hub.Publish(Event{Type: "bots"})
-	room.Members = members
 	return room, nil
+}
+
+// removeMember takes a member out of a room. A team's items then no longer
+// wait on it.
+func (s *Service) removeMember(ctx context.Context, room Bot, m Member) error {
+	if err := s.q.RemoveRoomMember(ctx, db.RemoveRoomMemberParams{RoomID: room.ID, BotID: m.ID}); err != nil {
+		return fmt.Errorf("remove %s from room %s: %w", m.Name, room.ID, err)
+	}
+	if !room.IsTeam() {
+		return nil
+	}
+	return s.releaseMember(ctx, room.ID, m.ID, m.Name)
 }
 
 func (s *Service) validMembers(ctx context.Context, ids []string) ([]Member, error) {
@@ -180,6 +212,9 @@ func (s *Service) RoomsOf(ctx context.Context, botID string) ([]Bot, error) {
 		if b.Members, err = s.memberList(ctx, b.ID); err != nil {
 			return nil, err
 		}
+		if b.Team, err = s.teamOf(ctx, b.ID, b.Members); err != nil {
+			return nil, err
+		}
 		out = append(out, b)
 	}
 	return out, nil
@@ -210,18 +245,21 @@ func mentioned(text string, members []Member, speakerID string) []Member {
 	return out
 }
 
-// wakeRoomMembers queues room turns after a post in the room. A post from the
-// user wakes the members it @mentions, or all members when it mentions none.
-// A post from a bot (speakerID set) wakes only the members it @mentions.
+// wakeRoomMembers queues room turns after the user's post in the room. It
+// wakes the members the post @mentions; when it mentions none, it wakes the
+// lead of a team, or all members of a plain room.
 // Members take their turns one at a time, in order (the runner runs one turn
 // per room at a time), so each sees the replies before it.
-func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, speakerID, text string, hops int64, reason string) error {
-	targets := mentioned(text, room.Members, speakerID)
-	if len(targets) == 0 && speakerID == "" {
+func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string) error {
+	targets := mentioned(text, room.Members, "")
+	if len(targets) == 0 {
 		targets = room.Members
+		if lead, ok := room.Lead(); ok {
+			targets = []Member{lead}
+		}
 	}
 	for _, m := range targets {
-		if _, err := s.enqueueTurn(ctx, Turn{BotID: m.ID, Source: SourceRoom, RoomID: room.ID, Hops: hops, Prompt: reason}); err != nil {
+		if _, err := s.enqueueTurn(ctx, Turn{BotID: m.ID, Source: SourceRoom, RoomID: room.ID, Prompt: "The user posted a new message."}); err != nil {
 			return err
 		}
 	}
@@ -244,7 +282,11 @@ func (s *Service) PostToRoom(ctx context.Context, roomID, botID, turnID, text st
 		return nil, err
 	}
 	text = withoutSelfIntro(text, speaker.Name)
-	media, err := s.saveBotFiles(botID, files)
+	workspace := s.Workspace(botID)
+	if room.IsTeam() {
+		workspace = s.TeamWorkspace(room.ID)
+	}
+	media, err := s.saveBotFiles(workspace, files)
 	if err != nil {
 		return nil, err
 	}

@@ -671,9 +671,11 @@ function Composer({
               aria-activedescendant={open ? `completion-${active}` : undefined}
               className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0"
               placeholder={
-                isRoom
-                  ? `Message ${bot.name}… (@Name asks one member, @here all, / for commands)`
-                  : `Message ${bot.name}… (/ for commands and skills, @ for bots)`
+                bot.team
+                  ? `Message ${bot.name}… (the lead answers; @Name asks one member, @here all)`
+                  : isRoom
+                    ? `Message ${bot.name}… (@Name asks one member, @here all, / for commands)`
+                    : `Message ${bot.name}… (/ for commands and skills, @ for bots)`
               }
               value={text}
               onChange={(e) => {

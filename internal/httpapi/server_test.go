@@ -563,3 +563,117 @@ func TestReactionEndpointAddsAndRemovesAReaction(t *testing.T) {
 		t.Fatalf("body after rejected requests = %s; want no reactions", e.Body)
 	}
 }
+
+func TestArtifactEndpoints(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	decodeArtifact := func(rec *httptest.ResponseRecorder) core.Artifact {
+		t.Helper()
+		var a core.Artifact
+		if err := json.Unmarshal(rec.Body.Bytes(), &a); err != nil {
+			t.Fatalf("decode %s: %v", rec.Body, err)
+		}
+		return a
+	}
+	listIDs := func(query string) []string {
+		t.Helper()
+		rec := do(h, "GET", "/api/artifacts"+query, "", nil)
+		var list []map[string]any
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &list) != nil {
+			t.Fatalf("GET /api/artifacts%s: %d %s", query, rec.Code, rec.Body)
+		}
+		ids := []string{}
+		for _, a := range list {
+			if _, ok := a["content"]; ok {
+				t.Fatalf("GET /api/artifacts%s returned content: %s", query, rec.Body)
+			}
+			ids = append(ids, a["id"].(string))
+		}
+		return ids
+	}
+
+	if rec := do(h, "GET", "/api/artifacts", "", nil); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("empty list: %d %q; want []", rec.Code, rec.Body)
+	}
+	rec := do(h, "POST", "/api/artifacts", `{"kind":"plan","title":"DEV-3 plan","content":"# Plan","tags":["DEV-3"],"links":["https://example.com/pr/1"]}`, jsonHeader)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST: %d %s; want 201", rec.Code, rec.Body)
+	}
+	byUser := decodeArtifact(rec)
+	if byUser.AuthorID != core.ArtifactAuthorUser || byUser.Content != "# Plan" || len(byUser.Tags) != 1 || byUser.Tags[0] != "dev-3" || len(byUser.Links) != 1 {
+		t.Fatalf("created = %+v; want the user's artifact with its fields", byUser)
+	}
+
+	bot, err := svc.CreateBot(ctx, "Scout", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind, title, content := "review", "Plan review", "Looks fine."
+	byBot, err := svc.CreateArtifact(ctx, bot.ID, core.ArtifactInput{Kind: &kind, Title: &title, Content: &content})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for query, want := range map[string][]string{
+		"":                       {byBot.ID, byUser.ID},
+		"?kind=plan":             {byUser.ID},
+		"?author=user":           {byUser.ID},
+		"?author=" + bot.ID:      {byBot.ID},
+		"?tag=dev-3":             {byUser.ID},
+		"?q=FINE":                {byBot.ID},
+		"?limit=1":               {byBot.ID},
+		"?kind=review&q=nothing": {},
+	} {
+		if got := listIDs(query); strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("GET /api/artifacts%s = %v; want %v", query, got, want)
+		}
+	}
+	for _, query := range []string{"?kind=poem", "?limit=x"} {
+		if rec := do(h, "GET", "/api/artifacts"+query, "", nil); rec.Code != http.StatusBadRequest {
+			t.Errorf("GET /api/artifacts%s: %d; want 400", query, rec.Code)
+		}
+	}
+
+	rec = do(h, "GET", "/api/artifacts/"+byBot.ID, "", nil)
+	if got := decodeArtifact(rec); rec.Code != http.StatusOK || got.Content != "Looks fine." || got.AuthorID != bot.ID {
+		t.Fatalf("GET by id: %d %s", rec.Code, rec.Body)
+	}
+	rec = do(h, "PATCH", "/api/artifacts/"+byBot.ID, `{"title":"Edited by the user","tags":["x"]}`, jsonHeader)
+	if got := decodeArtifact(rec); rec.Code != http.StatusOK || got.Title != "Edited by the user" || got.Content != "Looks fine." || got.AuthorID != bot.ID || len(got.Tags) != 1 {
+		t.Fatalf("user's PATCH of a bot's artifact: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(h, "PATCH", "/api/artifacts/"+byBot.ID, `{}`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty PATCH: %d; want 400", rec.Code)
+	}
+	if rec := do(h, "PATCH", "/api/artifacts/"+byBot.ID, `{"title":`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed PATCH: %d; want 400", rec.Code)
+	}
+	if rec := do(h, "PATCH", "/api/artifacts/missing", `{"title":"x"}`, jsonHeader); rec.Code != http.StatusNotFound {
+		t.Fatalf("PATCH missing: %d; want 404", rec.Code)
+	}
+	if rec := do(h, "DELETE", "/api/artifacts/"+byBot.ID, "", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("user's DELETE of a bot's artifact: %d %s; want 204", rec.Code, rec.Body)
+	}
+	if rec := do(h, "GET", "/api/artifacts/"+byBot.ID, "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET after delete: %d; want 404", rec.Code)
+	}
+	if rec := do(h, "DELETE", "/api/artifacts/"+byBot.ID, "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("second DELETE: %d; want 404", rec.Code)
+	}
+
+	for name, body := range map[string]string{
+		"unknown kind": `{"kind":"poem","title":"t","content":"c"}`,
+		"no content":   `{"kind":"plan","title":"t"}`,
+		"malformed":    `{"kind":`,
+	} {
+		if rec := do(h, "POST", "/api/artifacts", body, jsonHeader); rec.Code != http.StatusBadRequest {
+			t.Errorf("POST %s: %d; want 400", name, rec.Code)
+		}
+	}
+	if rec := do(h, "POST", "/api/artifacts", `{"kind":"plan","title":"t","content":"c"}`, map[string]string{"Content-Type": "text/plain"}); rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("POST with a non-JSON content type: %d; want 415", rec.Code)
+	}
+	if got := listIDs(""); len(got) != 1 || got[0] != byUser.ID {
+		t.Fatalf("list after the rejected writes = %v; want only %s", got, byUser.ID)
+	}
+}

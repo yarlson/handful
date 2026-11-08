@@ -608,6 +608,64 @@ func TestApprovalAlwaysCreatesGrantThatSkipsTheNextCard(t *testing.T) {
 	}
 }
 
+func TestApprovalCardExpiresBeforeClaudeCodeAbortsTheToolCall(t *testing.T) {
+	// Claude Code aborts an MCP tool call that sends nothing for 300 s, even
+	// with MCP_TOOL_TIMEOUT set; the card must not stay clickable after that.
+	if approvalTimeout >= 300*time.Second {
+		t.Fatalf("approvalTimeout = %v; want less than Claude Code's 300 s idle abort", approvalTimeout)
+	}
+}
+
+func TestADecisionThatWinsTheRaceWithExpiryReachesTheWorker(t *testing.T) {
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	ctx, cancel := context.WithCancel(context.Background())
+	events, stop := svc.Hub().Subscribe()
+	defer stop()
+	type result struct {
+		ok     bool
+		reason string
+	}
+	done := make(chan result, 1)
+	go func() {
+		ok, reason, _ := svc.RequestApproval(ctx, ApprovalRequest{BotID: bot.ID, TranscriptID: bot.ID, TurnID: "t", Tool: "Write", Input: json.RawMessage(`{}`)})
+		done <- result{ok, reason}
+	}()
+	var cardID string
+	for cardID == "" {
+		if e := <-events; e.Type == "entry" && e.Entry.Kind == KindApproval {
+			cardID = e.Entry.ID
+		}
+	}
+	// The user's Allow takes the waiter, as ResolveApproval does, and the
+	// request ends before the decision is sent.
+	w, ok := svc.approvals.take(cardID)
+	if !ok {
+		t.Fatal("no waiter for the card")
+	}
+	cancel()
+	select {
+	case r := <-done:
+		t.Fatalf("the request ended with %+v before the decision that won was sent", r)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := svc.UpdateEntry(context.Background(), cardID, approvalBody{Tool: "Write", Input: json.RawMessage(`{}`), Status: "allowed", Decision: DecisionOnce}); err != nil {
+		t.Fatal(err)
+	}
+	w.ch <- DecisionOnce
+	if r := <-done; !r.ok {
+		t.Fatalf("worker got %+v; want allowed, as the card says", r)
+	}
+	card, err := svc.GetEntry(context.Background(), cardID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body approvalBody
+	if err := json.Unmarshal(card.Body, &body); err != nil || body.Status != "allowed" {
+		t.Fatalf("card = %s; want allowed, as the worker got", card.Body)
+	}
+}
+
 func TestApprovalDenyAndCancel(t *testing.T) {
 	svc := newTestService(t)
 	bot := newTestBot(t, svc)

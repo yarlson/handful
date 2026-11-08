@@ -14,7 +14,11 @@ import (
 	"yargpt/internal/db"
 )
 
-const approvalTimeout = 10 * time.Minute
+// approvalTimeout ends an approval before Claude Code gives up on the tool
+// call: it aborts an MCP call that sends nothing for 300 s, even with
+// MCP_TOOL_TIMEOUT set, and a card left after that would take a decision
+// that reaches no one.
+const approvalTimeout time.Duration = 270e9 // 270 s, in nanoseconds
 
 // Approval decisions a user can make on an approval card.
 const (
@@ -122,10 +126,11 @@ func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (boo
 	select {
 	case decision = <-ch:
 	case <-ctx.Done():
+		decision = s.awaitTaken(entry.ID, ch)
 	case <-timer.C:
+		decision = s.awaitTaken(entry.ID, ch)
 	}
 	if decision == "" {
-		s.approvals.take(entry.ID)
 		body.Status = "expired"
 		// The request context may be done; record the outcome regardless.
 		if _, err := s.UpdateEntry(context.WithoutCancel(ctx), entry.ID, body); err != nil {
@@ -134,6 +139,16 @@ func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (boo
 		return false, "The user did not answer the approval request in time.", nil
 	}
 	return decision != DecisionDeny, "The user denied this action.", nil
+}
+
+// awaitTaken ends the wait for an approval that timed out or whose request
+// ended. If a decision or a turn's expiry took the waiter first, it sends on
+// ch, and that outcome stands, so the worker gets what the card shows.
+func (s *Service) awaitTaken(entryID string, ch chan string) string {
+	if _, ok := s.approvals.take(entryID); ok {
+		return ""
+	}
+	return <-ch
 }
 
 // ExpireTurnApprovals ends the pending approvals of a turn that has stopped.

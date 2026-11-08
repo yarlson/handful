@@ -377,3 +377,14 @@ SELECT team_id FROM goals WHERE state = 'paused';
 SELECT sqlc.embed(i), g.team_id AS from_team_id FROM items i JOIN goals g ON g.id = i.goal_id
 WHERE i.team_id = sqlc.arg(team_id) AND g.team_id <> sqlc.arg(team_id) AND g.state IN ('active', 'delivered', 'paused')
 ORDER BY i.created_at, i.rowid;
+
+-- name: QueueUserPostTurn :execrows
+-- Queues the room turn that a user's post gives a member, unless one waits
+-- already: that turn sees every post that came before it starts.
+INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, board_role, created_at)
+SELECT sqlc.arg(id), sqlc.arg(bot_id), 'room', sqlc.arg(prompt), 'queued', sqlc.arg(room_id), 0, '', '', '', sqlc.arg(created_at)
+WHERE NOT EXISTS (
+  SELECT 1 FROM turns
+  WHERE bot_id = sqlc.arg(bot_id) AND room_id = sqlc.arg(room_id) AND source = 'room' AND status = 'queued'
+    AND hops = 0 AND item_id = '' AND board_role = ''
+);

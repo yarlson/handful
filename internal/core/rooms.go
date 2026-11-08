@@ -298,11 +298,14 @@ func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string) er
 			targets = []Member{lead}
 		}
 	}
+	// A member that already has a turn waiting for an earlier post gets no
+	// second one: that turn shows every post since its last turn.
 	for _, m := range targets {
-		if _, err := s.enqueueTurn(ctx, Turn{BotID: m.ID, Source: SourceRoom, RoomID: room.ID, Prompt: "The user posted a new message."}); err != nil {
-			return err
+		if _, err := s.q.QueueUserPostTurn(ctx, db.QueueUserPostTurnParams{ID: uuid.NewString(), BotID: m.ID, Prompt: "The user posted a new message.", RoomID: room.ID, CreatedAt: s.nowMs()}); err != nil {
+			return fmt.Errorf("queue room turn for bot %s: %w", m.ID, err)
 		}
 	}
+	s.signalTurns()
 	return nil
 }
 

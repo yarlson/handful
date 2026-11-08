@@ -2061,6 +2061,40 @@ func (q *Queries) PruneNotes(ctx context.Context, createdAt int64) (int64, error
 	return result.RowsAffected()
 }
 
+const queueUserPostTurn = `-- name: QueueUserPostTurn :execrows
+INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, board_role, created_at)
+SELECT ?1, ?2, 'room', ?3, 'queued', ?4, 0, '', '', '', ?5
+WHERE NOT EXISTS (
+  SELECT 1 FROM turns
+  WHERE bot_id = ?2 AND room_id = ?4 AND source = 'room' AND status = 'queued'
+    AND hops = 0 AND item_id = '' AND board_role = ''
+)
+`
+
+type QueueUserPostTurnParams struct {
+	ID        string `json:"id"`
+	BotID     string `json:"bot_id"`
+	Prompt    string `json:"prompt"`
+	RoomID    string `json:"room_id"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// Queues the room turn that a user's post gives a member, unless one waits
+// already: that turn sees every post that came before it starts.
+func (q *Queries) QueueUserPostTurn(ctx context.Context, arg QueueUserPostTurnParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, queueUserPostTurn,
+		arg.ID,
+		arg.BotID,
+		arg.Prompt,
+		arg.RoomID,
+		arg.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const removeRoomMember = `-- name: RemoveRoomMember :exec
 DELETE FROM room_members WHERE room_id = ? AND bot_id = ?
 `

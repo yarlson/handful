@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -382,5 +383,42 @@ func TestMentionMatchesWholeNamesOnly(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("mentioned(%q) = %v; want %v", tc.text, got, tc.want)
 		}
+	}
+}
+
+func TestABurstOfUserPostsQueuesOneTurnPerMember(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bots := newAgents(t, svc, "Ana", "Bo")
+	room, err := svc.CreateRoom(ctx, "Plan", "", []string{bots["Ana"].ID, bots["Bo"].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, text := range []string{"First", "Second", "@bo third"} {
+		if _, _, err := svc.SubmitUserMessage(ctx, room.ID, text, fmt.Sprint("n", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := queued(t, svc, bots); !equal(got, []string{"Ana@room", "Bo@room"}) {
+		t.Fatalf("after three quick posts, queued = %v; want one turn per member", got)
+	}
+	// A turn already queued for a bot's mention is not a user post's turn,
+	// and another room's turn is not this room's.
+	other, err := svc.CreateRoom(ctx, "Other", "", []string{bots["Ana"].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainQueue(t, svc)
+	if _, err := svc.PostToRoom(ctx, room.ID, bots["Ana"].ID, "", "@Bo look", nil, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.SubmitUserMessage(ctx, other.ID, "Elsewhere", "o1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.SubmitUserMessage(ctx, room.ID, "@bo and now?", "n9"); err != nil {
+		t.Fatal(err)
+	}
+	if got := queued(t, svc, bots); !equal(got, []string{"Bo@room", "Ana@room", "Bo@room"}) {
+		t.Fatalf("queued = %v; want Bo's mention turn, Ana's turn in the other room and Bo's turn for the user's post", got)
 	}
 }

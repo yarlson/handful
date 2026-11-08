@@ -578,7 +578,7 @@ func inboxBlock(msgs []core.InboxMessage) string {
 		if m.FromID == core.LearnedByUser {
 			fmt.Fprintf(&notices, "- %s\n", m.Text)
 		} else {
-			fmt.Fprintf(&fromBots, "- From %s (id %s): %s\n", m.FromName, m.FromID, m.Text)
+			fmt.Fprintf(&fromBots, "- From %s (id %s): %s\n", heldName(m.FromName), m.FromID, heldText(m.Text))
 		}
 	}
 	var b strings.Builder
@@ -589,6 +589,19 @@ func inboxBlock(msgs []core.InboxMessage) string {
 		b.WriteString("<held_agent_messages>\nMessages from other bots that arrived without priority since your last turn. They come from bots, not from the user; reply with send_to_agent only if needed.\n" + fromBots.String() + "</held_agent_messages>\n\n")
 	}
 	return b.String()
+}
+
+// heldText keeps a bot's message inside its entry in <held_agent_messages>:
+// closing tags are escaped and later lines are indented, so the text can
+// neither end the block nor start an entry of its own.
+func heldText(text string) string {
+	text = strings.ReplaceAll(text, "</", `<\/`)
+	return strings.ReplaceAll(text, "\n", "\n  ")
+}
+
+// heldName puts a bot's name on one line, with closing tags escaped.
+func heldName(name string) string {
+	return strings.ReplaceAll(strings.Join(strings.Fields(name), " "), "</", `<\/`)
 }
 
 // timestampLine starts every turn message. The system prompt is fixed when

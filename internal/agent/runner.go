@@ -518,17 +518,18 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 	if err != nil {
 		return claudeRun{}, delivery{}, err
 	}
-	inbox, err := r.heldMessages(ctx, bot, update.Room)
+	held, err := r.heldMessages(ctx, bot, update.Room)
 	if err != nil {
 		return claudeRun{}, delivery{}, err
 	}
+	inbox, more := capHeld(held)
 	delivered := delivery{inbox: inbox, roomSeq: update.LastSeq}
 	sessionID := bot.ClaudeSessionID
 	if t.RoomID != "" {
 		sessionID = update.Seat.ClaudeSessionID
 	}
 	run := claudeRun{
-		Prompt:       timestampLine(now) + inboxBlock(inbox) + prompt,
+		Prompt:       timestampLine(now) + inboxBlock(inbox) + heldOverflow(more) + prompt,
 		SystemPrompt: systemPrompt(pc),
 		SessionID:    sessionID,
 		Resume:       sessionID != "",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, type Bot, type Entry, type ServerEvent } from "./api"
+import { loadEntriesAfter } from "./entries"
 
 type Transcript = { byId: Map<string, Entry>; rev: number }
 
@@ -47,7 +48,11 @@ export function useYarGPT() {
       try {
         const after = loaded.current.get(botId) ?? 0
         loaded.current.set(botId, after)
-        merge(botId, await api.entries(botId, after))
+        await loadEntriesAfter(
+          (rev) => api.entries(botId, rev),
+          after,
+          (entries) => merge(botId, entries),
+        )
       } catch (e) {
         setError((e as Error).message)
       }

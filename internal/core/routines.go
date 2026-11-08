@@ -287,7 +287,9 @@ func (s *Service) FireDueRoutines(ctx context.Context) (int, error) {
 	for _, row := range rows {
 		r := toRoutine(row)
 		next := sql.NullInt64{}
-		if sched, err := s.parseSchedule(r.Schedule); err == nil {
+		// The spacing check ran when the schedule was saved. Running it again
+		// here can fail near a clock change, which would stop the routine.
+		if sched, err := cronParser.Parse(strings.TrimSpace(r.Schedule)); err == nil {
 			next = sql.NullInt64{Int64: sched.Next(now).UnixMilli(), Valid: true}
 		}
 		// Advance first: a crash after this point skips one run instead of repeating it.

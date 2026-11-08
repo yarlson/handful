@@ -1,5 +1,5 @@
 ---
-import { macDownloadUrl, version } from "../release";
+import { macDownloadUrl } from "../release";
 
 const sourceCommands = ["git clone https://github.com/yarlson/yargpt.git", "cd yargpt && mise install && make build", "./bin/yargpt"].join("\n");
 ---
@@ -16,7 +16,7 @@ const sourceCommands = ["git clone https://github.com/yarlson/yargpt.git", "cd y
 			Download for macOS
 		</a>
 		<p class="text-pretty text-sm text-ink-3">
-			Version {version} for Apple silicon and Intel. Needs <a
+			For Apple silicon and Intel. Needs <a
 				href="https://code.claude.com"
 				class="underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink">Claude Code</a
 			> 2.1.319 or later, signed in.

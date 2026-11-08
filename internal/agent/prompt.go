@@ -578,7 +578,7 @@ func inboxBlock(msgs []core.InboxMessage) string {
 		if m.FromID == core.LearnedByUser {
 			fmt.Fprintf(&notices, "- %s\n", m.Text)
 		} else {
-			fmt.Fprintf(&fromBots, "- From %s (id %s): %s\n", m.FromName, m.FromID, heldText(m.Text))
+			fmt.Fprintf(&fromBots, "- From %s (id %s): %s\n", heldName(m.FromName), m.FromID, heldText(m.Text))
 		}
 	}
 	var b strings.Builder
@@ -597,6 +597,11 @@ func inboxBlock(msgs []core.InboxMessage) string {
 func heldText(text string) string {
 	text = strings.ReplaceAll(text, "</", `<\/`)
 	return strings.ReplaceAll(text, "\n", "\n  ")
+}
+
+// heldName puts a bot's name on one line, with closing tags escaped.
+func heldName(name string) string {
+	return strings.ReplaceAll(strings.Join(strings.Fields(name), " "), "</", `<\/`)
 }
 
 // timestampLine starts every turn message. The system prompt is fixed when

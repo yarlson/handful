@@ -17,6 +17,22 @@ type AgentInbox struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+type Artifact struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+	Links     string `json:"links"`
+	AuthorID  string `json:"author_id"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type ArtifactTag struct {
+	ArtifactID string `json:"artifact_id"`
+	Tag        string `json:"tag"`
+}
+
 type Bot struct {
 	ID              string `json:"id"`
 	Name            string `json:"name"`

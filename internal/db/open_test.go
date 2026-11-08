@@ -40,8 +40,8 @@ func TestOpenMigratesAnUnversionedV1Database(t *testing.T) {
 	}
 	defer conn.Close()
 	var version int
-	if err := conn.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 7 {
-		t.Fatalf("user_version = %d, %v; want 7", version, err)
+	if err := conn.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 8 {
+		t.Fatalf("user_version = %d, %v; want 8", version, err)
 	}
 	q := New(conn)
 	bot, err := q.GetBot(ctx, "b1")
@@ -66,6 +66,19 @@ func TestOpenMigratesAnUnversionedV1Database(t *testing.T) {
 	}
 	if _, err := conn.ExecContext(ctx, `INSERT INTO turns (id, bot_id, source, prompt, status, room_id, created_at) VALUES ('t2', 'b1', 'room', 'x', 'queued', 'r1', 2)`); err != nil {
 		t.Fatalf("new turn source rejected after migration: %v", err)
+	}
+
+	if _, err := q.InsertArtifact(ctx, InsertArtifactParams{ID: "a1", Kind: "plan", Title: "Plan", Content: "x", Links: "[]", AuthorID: "b1", CreatedAt: 1, UpdatedAt: 1}); err != nil {
+		t.Fatalf("insert artifact after migration: %v", err)
+	}
+	if err := q.InsertArtifactTag(ctx, InsertArtifactTagParams{ArtifactID: "a1", Tag: "dev-3"}); err != nil {
+		t.Fatalf("insert artifact tag after migration: %v", err)
+	}
+	if _, err := q.DeleteArtifact(ctx, "a1"); err != nil {
+		t.Fatal(err)
+	}
+	if tags, err := q.ListArtifactTags(ctx, "a1"); err != nil || len(tags) != 0 {
+		t.Fatalf("tags of a deleted artifact = %v, %v; want none", tags, err)
 	}
 
 	again, err := Open(ctx, path)

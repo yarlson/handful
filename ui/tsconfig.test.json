@@ -4,6 +4,6 @@
     "types": ["node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src/lib/*.test.ts"],
+  "include": ["src/lib/*.test.ts", "src/components/*.test.tsx"],
   "exclude": []
 }

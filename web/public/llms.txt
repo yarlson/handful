@@ -346,7 +346,7 @@ The data folder holds:
 ## How a turn runs
 
 - The server starts `claude -p` in the bot's working folder, or for a team turn in the team's shared folder, and sends the prompt on stdin as stream-json.
-- The process runs with `--setting-sources project`, `--strict-mcp-config`, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`.
+- The process runs with `--setting-sources project`, `--strict-mcp-config`, `--settings` that turn off auto memory and commit and PR attribution, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`.
 - The built-in tools are limited to Task, Bash, Monitor, TaskStop, Read, Edit, Write, Glob, Grep, WebSearch and Skill.
 - YarGPT writes each process's MCP config to a 0600 file in `~/.yargpt/run`, so no token shows in the process list. It removes the file when the process exits.
 - Tool calls that need approval reach the `approve` tool through `--permission-prompt-tool`.

@@ -28,7 +28,7 @@ Open <http://127.0.0.1:7777>. YarGPT keeps all its data in `~/.yargpt`.
 
 On a Mac, you can use an app instead. It keeps the server running in the background, from login on, with an icon in the menu bar. It runs on Apple silicon and Intel Macs.
 
-1. Download `YarGPT-<version>-universal-mac.zip` from the [releases](https://github.com/yarlson/yargpt/releases), unzip it, and move `YarGPT.app` to `/Applications`. The app is signed with a Developer ID and notarized by Apple, so macOS opens it.
+1. Download `YarGPT-<version>-universal-mac.zip` from the [releases](https://github.com/yarlson/yargpt/releases), unzip it, and move `YarGPT.app` to `/Applications`.
 2. Open the app. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
 
 To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` (`desktop/dist/mac/YarGPT.app` on an Intel Mac) to `/Applications`. A copy that you build has an ad-hoc signature; macOS opens it because it was not downloaded.
@@ -261,7 +261,7 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 ### Releases
 
-Push a tag such as `v0.2.0` to release; the tag must be a version, such as `v0.2.0` or `v0.2.0-rc.1`. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner, which signs the app with a Developer ID and the hardened runtime and has Apple notarize it, and creates a GitHub release with the zip. A tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release.
+Push a tag such as `v0.2.0` to release; the tag must be a version, such as `v0.2.0` or `v0.2.0-rc.1`. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner, which signs the app with a Developer ID and the hardened runtime and has Apple notarize it, and creates a GitHub release with the zip. A tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release. After the release exists, set `version` in `web/src/release.ts` to the new version, so that yargpt.com links the new zip.
 
 ### Checks
 

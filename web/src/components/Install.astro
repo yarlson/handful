@@ -1,0 +1,93 @@
+---
+import { macDownloadUrl, version } from "../release";
+
+const sourceCommands = ["git clone https://github.com/yarlson/yargpt.git", "cd yargpt && mise install && make build", "./bin/yargpt"].join("\n");
+---
+
+<div class="flex w-full max-w-[36rem] flex-col items-center gap-6">
+	<div class="flex flex-col items-center gap-3">
+		<a
+			href={macDownloadUrl}
+			class="inline-flex min-h-[3.25rem] items-center gap-2.5 rounded-xl bg-button px-6 text-base font-[550] text-button-ink transition-colors hover:bg-button-hover"
+		>
+			<svg viewBox="0 0 24 24" aria-hidden="true" class="size-[1.125rem] fill-none stroke-current stroke-[1.75] [stroke-linecap:round] [stroke-linejoin:round]">
+				<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"></path>
+			</svg>
+			Download for macOS
+		</a>
+		<p class="text-pretty text-sm text-ink-3">
+			Version {version} for Apple silicon and Intel. Needs <a
+				href="https://code.claude.com"
+				class="underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink">Claude Code</a
+			> 2.1.319 or later, signed in.
+		</p>
+	</div>
+
+	<details id="install-source" class="group w-full">
+		<summary
+			class="mx-auto flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-lg px-2 py-1 text-[0.9375rem] text-ink-2 transition-colors hover:text-ink [&::-webkit-details-marker]:hidden"
+		>
+			Linux, or build from source
+			<svg
+				viewBox="0 0 24 24"
+				aria-hidden="true"
+				class="size-4 fill-none stroke-current stroke-[1.75] transition-transform [stroke-linecap:round] [stroke-linejoin:round] group-open:rotate-90 motion-reduce:transition-none"
+			>
+				<path d="m9.5 6 6 6-6 6"></path>
+			</svg>
+		</summary>
+		<div class="mt-4 text-left">
+			<pre class="whitespace-pre-wrap rounded-xl border border-line bg-fill px-4 py-3.5 font-mono text-[0.8125rem] leading-relaxed [overflow-wrap:anywhere]"><code>{sourceCommands}</code></pre>
+			<div class="mt-3 flex items-center justify-between gap-4">
+				<p class="text-pretty text-sm text-ink-3">Building needs mise. Then open 127.0.0.1:7777.</p>
+				<button
+					type="button"
+					data-copy={sourceCommands}
+					class="group/copy inline-flex h-9 flex-none items-center gap-2 rounded-lg border border-line-strong px-3 text-sm font-medium text-ink transition-colors hover:bg-hover active:bg-pressed [&_svg]:size-4 [&_svg]:fill-none [&_svg]:stroke-current [&_svg]:stroke-[1.75] [&_svg]:[stroke-linecap:round] [&_svg]:[stroke-linejoin:round]"
+				>
+					<svg viewBox="0 0 24 24" aria-hidden="true" class="group-data-[copied]/copy:hidden">
+						<rect x="8.5" y="8.5" width="11" height="11" rx="2"></rect>
+						<path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"></path>
+					</svg>
+					<svg viewBox="0 0 24 24" aria-hidden="true" class="hidden group-data-[copied]/copy:block">
+						<path d="m5 12.5 4.5 4.5L19 7.5"></path>
+					</svg>
+					<span class="group-data-[copied]/copy:hidden">Copy</span>
+					<span class="hidden group-data-[copied]/copy:inline">Copied</span>
+				</button>
+			</div>
+		</div>
+	</details>
+	<p id="install-status" class="sr-only" role="status"></p>
+</div>
+
+<script>
+	const source = document.getElementById("install-source");
+	if (source instanceof HTMLDetailsElement && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)) {
+		source.open = true;
+	}
+
+	const status = document.getElementById("install-status");
+	const button = document.querySelector<HTMLButtonElement>("[data-copy]");
+	let reset: number | undefined;
+
+	button?.addEventListener("click", async () => {
+		if (status) status.textContent = "";
+		let message = "Copied";
+		try {
+			await navigator.clipboard.writeText(button.dataset.copy ?? "");
+			button.dataset.copied = "";
+		} catch {
+			delete button.dataset.copied;
+			const commands = document.querySelector("#install-source code");
+			if (commands) getSelection()?.selectAllChildren(commands);
+			message = "Copy failed. The commands are selected.";
+		}
+		if (status) status.textContent = message;
+		clearTimeout(reset);
+		reset = window.setTimeout(() => {
+			delete button.dataset.copied;
+			if (status) status.textContent = "";
+		}, 1500);
+	});
+</script>

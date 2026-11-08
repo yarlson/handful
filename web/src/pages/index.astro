@@ -1,10 +1,171 @@
 ---
-import Layout from '../layouts/Layout.astro';
-import Card from '../components/Card.astro';
+import type { ImageOutputFormat } from "astro";
+import { Picture } from "astro:assets";
+import Layout from "../layouts/Layout.astro";
+import GlassMark from "../components/GlassMark.astro";
+import Install from "../components/Install.astro";
+import { macDownloadUrl, version } from "../release";
+import botScreenshot from "../../../assets/screenshot.png";
+import roomScreenshot from "../../../assets/screenshot-dev-dark.png";
+
+const title = "YarGPT: open-source Claude Code agents on your computer";
+const description =
+	"YarGPT runs personal AI agents on your Mac or Linux computer. Each bot keeps its own chat, memory and routines, and works through Claude Code.";
+const softwareApplication = {
+	"@context": "https://schema.org",
+	"@type": "SoftwareApplication",
+	name: "YarGPT",
+	description,
+	url: Astro.site?.href,
+	applicationCategory: "DeveloperApplication",
+	operatingSystem: "macOS, Linux",
+	softwareVersion: version,
+	downloadUrl: macDownloadUrl,
+	license: "https://opensource.org/licenses/MIT",
+	sameAs: "https://github.com/yarlson/yargpt",
+	offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+	author: { "@type": "Person", name: "Yar Kravtsov" },
+};
+
+const wrap = "mx-auto w-full max-w-6xl px-6 sm:px-10 lg:px-16";
+const chapter = "py-[clamp(5rem,11vw,8.5rem)]";
+const heading = "max-w-[24ch] text-balance text-[clamp(1.875rem,3.6vw,2.875rem)] font-[560] leading-[1.1] tracking-[-0.035em]";
+const figure = "mt-[clamp(2.5rem,5vw,4rem)] overflow-hidden rounded-xl border border-line bg-band";
+const featureGrid = "mt-[clamp(2.5rem,5vw,3.5rem)] grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4";
+const formats: ImageOutputFormat[] = ["avif", "webp"];
+const screenshot = {
+	formats,
+	widths: [720, 1440, 2160],
+	sizes: "(min-width: 72rem) 64rem, calc(100vw - 3rem)",
+	class: "block h-auto w-full",
+};
+
+const botFeatures = [
+	{ title: "Memory", text: "Facts from you or the bot, kept across conversations." },
+	{ title: "Routines", text: "A prompt on a schedule, in your local time." },
+	{ title: "Skills", text: "Saved procedures that every bot can run." },
+	{ title: "Approvals", text: "A bot asks before it runs a command or changes a file." },
+];
+
+const localFeatures = [
+	{ title: "Your Claude account", text: "Each turn runs the Claude Code CLI on your machine." },
+	{ title: "Your files", text: "The SQLite database and every bot's folder are in ~/.yargpt." },
+	{ title: "One person", text: "YarGPT has no login. Use it on a computer that one person uses." },
+	{ title: "Open source", text: "The code is on GitHub under the MIT License." },
+];
 ---
 
-<Layout title="YarGPT">
-	<main class="flex flex-col items-center justify-center">
-			<Card/>
+<Layout title={title} description={description}>
+	<script slot="head" type="application/ld+json" is:inline set:html={JSON.stringify(softwareApplication)} />
+	<div class={wrap}>
+		<header class="flex items-center justify-between py-5 lg:py-8">
+			<a href="/" class="inline-flex items-center gap-2.5 text-[0.9375rem] font-semibold tracking-[-0.01em]">
+				<GlassMark id="header-mark" size="1.75rem" />
+				YarGPT
+			</a>
+			<a href="https://github.com/yarlson/yargpt" class="text-[0.9375rem] text-ink-2 transition-colors hover:text-ink">GitHub</a>
+		</header>
+	</div>
+
+	<main>
+		<section class={`${wrap} flex flex-col items-center gap-[clamp(1.5rem,3.4vh,2.25rem)] pb-[clamp(4rem,10vh,7rem)] pt-[clamp(1.5rem,6vh,4.5rem)] text-center`}>
+			<GlassMark id="hero-mark" size="clamp(6.5rem, 17vmin, 8.75rem)" intro />
+			<div class="flex flex-col items-center gap-4">
+				<h1 class="max-w-[14ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
+					Your bots. Your computer.
+				</h1>
+				<p class="max-w-[44ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
+					YarGPT is an open-source app that runs personal AI agents on your Mac or Linux machine. Each bot keeps its own chat, memory, routines and folder, and works through Claude Code with your Claude account.
+				</p>
+			</div>
+			<Install />
+		</section>
+
+		<section class={`bg-band ${chapter}`}>
+			<div class={wrap}>
+				<h2 class={heading}>
+					A bot is a chat, a memory and a folder. <span class="text-ink-2">It keeps all three from one conversation to the next.</span>
+				</h2>
+				<figure class={figure}>
+					<Picture src={botScreenshot} alt="A bot's chat in YarGPT: the tools it used, its reply, and its memory in the side panel" {...screenshot} />
+				</figure>
+				<ul class={featureGrid}>
+					{
+						botFeatures.map((feature) => (
+							<li>
+								<h3 class="text-[1.0625rem] font-[550] tracking-[-0.01em]">{feature.title}</h3>
+								<p class="mt-1.5 text-pretty text-base text-ink-2">{feature.text}</p>
+							</li>
+						))
+					}
+				</ul>
+			</div>
+		</section>
+
+		<section class={chapter}>
+			<div class={wrap}>
+				<h2 class={heading}>
+					Rooms put several bots in one chat. <span class="text-ink-2">An @mention hands the work to the next bot.</span>
+				</h2>
+				<p class="mt-5 max-w-[58ch] text-pretty text-lg text-ink-2">
+					Members answer one at a time, so each one sees the earlier replies. Here, four bots ship a change: one writes it, one reviews it, one fixes it and one merges it.
+				</p>
+				<figure class={figure}>
+					<Picture src={roomScreenshot} alt="A room in dark mode: Implementer, Reviewer, Fixer and Merger ship a change by mentioning each other" {...screenshot} />
+				</figure>
+			</div>
+		</section>
+
+		<section class={`bg-band ${chapter}`}>
+			<div class={wrap}>
+				<h2 class={heading}>
+					It all runs on your computer. <span class="text-ink-2">There is no YarGPT cloud service.</span>
+				</h2>
+				<ul class={featureGrid}>
+					{
+						localFeatures.map((feature) => (
+							<li>
+								<h3 class="text-[1.0625rem] font-[550] tracking-[-0.01em]">{feature.title}</h3>
+								<p class="mt-1.5 text-pretty text-base text-ink-2">{feature.text}</p>
+							</li>
+						))
+					}
+				</ul>
+			</div>
+		</section>
+
+		<section class={`${wrap} ${chapter} flex flex-col items-center gap-6 text-center`}>
+			<GlassMark id="closing-mark" size="4.5rem" />
+			<h2 class={heading}>Start your first bot.</h2>
+			<div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+				<a
+					href={macDownloadUrl}
+					class="inline-flex min-h-12 items-center justify-center gap-2 rounded-[0.625rem] border border-button bg-button px-5 text-[0.9375rem] font-[550] text-button-ink transition-colors hover:border-button-hover hover:bg-button-hover"
+				>
+					<svg viewBox="0 0 24 24" aria-hidden="true" class="size-[1.0625rem] fill-none stroke-current stroke-[1.75] [stroke-linecap:round] [stroke-linejoin:round]">
+						<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"></path>
+					</svg>
+					Download for macOS
+				</a>
+				<a
+					href="https://github.com/yarlson/yargpt#install-and-start"
+					class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line-strong px-5 text-[0.9375rem] font-[550] transition-colors hover:bg-hover active:bg-pressed"
+				>
+					Build from source
+				</a>
+			</div>
+			<p class="text-sm text-ink-3">Version {version} · MIT License</p>
+		</section>
 	</main>
+
+	<div class={wrap}>
+		<footer class="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-line pb-12 pt-8 text-sm text-ink-3">
+			<span>© 2026 Yar Kravtsov</span>
+			<nav aria-label="Footer" class="flex flex-wrap gap-x-6 gap-y-2">
+				<a href="https://github.com/yarlson/yargpt" class="text-ink-2 transition-colors hover:text-ink">GitHub</a>
+				<a href="https://github.com/yarlson/yargpt/releases" class="text-ink-2 transition-colors hover:text-ink">Releases</a>
+				<a href="/llms.txt" class="text-ink-2 transition-colors hover:text-ink">llms.txt</a>
+			</nav>
+		</footer>
+	</div>
 </Layout>

@@ -174,6 +174,9 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	if err := svc.RecoverAfterRestart(ctx); err != nil {
 		return err
 	}
+	if err := svc.SeedBuilder(ctx); err != nil {
+		return err
+	}
 
 	base := "http://" + ln.Addr().String()
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", Model: o.Model, MaxParallel: o.MaxParallel}, log)

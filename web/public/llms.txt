@@ -13,7 +13,7 @@
 ## Bots and turns
 
 - A bot has a name (at most 80 characters) and instructions (at most 8000 characters). It works in its own folder, `~/.yargpt/bots/<bot id>`. The bot id is the last part of the chat address, `/chat/<bot id>`.
-- A new bot starts and introduces itself in its chat.
+- A new bot starts and introduces itself in its chat. A bot that Builder creates does not (see [Builder](#builder)).
 - Each piece of work is a turn. A turn starts from a message of yours, a routine, a message from another bot, a room post, a change on a team's board, a compaction, a bot's first start, or a background task that reported.
 - A bot runs one turn at a time. Other turns wait in its queue. Across all bots, at most 3 turns run at the same time (`-max-parallel`).
 - A bot's turns share one Claude Code session, which each turn resumes. In each room, a member has a separate session.
@@ -41,6 +41,17 @@
 - A card expires after 10 minutes without an answer, or when the bot stops working.
 - To remove an "always allow" permission, open the bot panel, then **Settings**, then **Always allowed tools**.
 - In the sidebar, a shield marks a bot that waits for an approval. A question bubble marks a bot that asked you something.
+
+## Builder
+
+- When the server starts with no bots, teams or rooms, it creates one bot, Builder, with `role` `builder`. Builder's first message lists starter setups: a personal assistant, a software team, a research desk and a writing studio. Builder starts no turn until you write to it.
+- Builder asks what you want, proposes a setup in the chat and, when you agree, calls `create_setup`.
+- `create_setup` shows a card with the whole setup: the new bots with their instructions, and the teams and rooms with their members, lead and working agreement. **Create** creates all of it in one transaction, with the member list that opens each channel. **Cancel** creates nothing. The card has no **Always allow**, and the API refuses `always` for it.
+- A setup adds at most 8 bots, 3 teams and 3 rooms. A team or room has 1 to 8 members: new bots of the setup or bots you have. A new name must differ, ignoring case, from the name of every bot, team and room.
+- The card shows the setup as it will be created: names trimmed, each member by its own name, and each team's lead and turn budget. A setup whose texts hold a control or format character (other than a newline or a tab), or two blank lines in a row, is refused, so that the card hides nothing.
+- The new bots start no turn and do not introduce themselves.
+- Only Builder has `create_setup`. Builder cannot change or delete your other bots, teams or rooms, and it cannot be a member of a team or room.
+- After you delete Builder, the server creates it again only when it starts with no bots, teams or rooms.
 
 ## Memory
 
@@ -228,6 +239,10 @@ Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a bearer t
   - `kind`, `title`, `content`: required to create. When the bot changes an artifact, a field that it leaves out stays the same.
   - `tags`, `links`: replace the old tags or links.
 - `update_profile`: change the bot's own `name` or `instructions`. A field that the bot leaves out stays the same.
+- `create_setup`: Builder only. Create new bots, teams and rooms after the user confirms them on a card. See [Builder](#builder).
+  - `bots`: each with `name` and `instructions`.
+  - `teams`: each with `name`, `purpose`, `members` (bot names), `lead` (a member's name; the first member when empty), `agreement` and `goal_budget`.
+  - `rooms`: each with `name`, `purpose` and `members`.
 - `update_board`: work on the team's board, only in a turn in the team. See [Goals and the board](#goals-and-the-board).
   - `action`: `list`, `start_goal`, `create`, `assign`, `submit`, `block`, `unblock`, `drop`, `pass`, `changes`, `deliver` or `request`.
   - `item_id`: the item, for every action except `list`, `start_goal`, `create`, `deliver` and `request`.
@@ -353,7 +368,7 @@ Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `ro
 
 Bots:
 
-- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `members` (rooms), `team` (teams: `leadId`, `agreement` and `goalBudget`), `attention` (`approval`, `question`, or for a team with a paused goal `goal`), `running`, `tasks`, `createdAt` and `updatedAt`.
+- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `members` (rooms), `team` (teams: `leadId`, `agreement` and `goalBudget`), `attention` (`approval`, `question`, or for a team with a paused goal `goal`), `running`, `tasks`, `createdAt` and `updatedAt`.
 - `POST /api/bots` with `{"name", "instructions"}`: create a bot. Returns 201 and the bot.
 - `GET /api/bots/{id}`: one bot or room.
 - `PATCH /api/bots/{id}` with `{"name"?, "instructions"?}`: change a bot.
@@ -412,7 +427,7 @@ Memory, routines, approvals and permissions:
 - `PATCH /api/routines/{id}` with `{"name"?, "prompt"?, "schedule"?, "enabled"?}`: change, pause or resume a routine.
 - `POST /api/routines/{id}/run`: run a routine now. Returns 202 with `{"turnId"}`.
 - `DELETE /api/routines/{id}`: delete a routine.
-- `POST /api/approvals/{entry id}` with `{"decision": "once" | "always" | "deny"}`: answer an approval card. Returns 204, or 409 when the card is no longer pending.
+- `POST /api/approvals/{entry id}` with `{"decision": "once" | "always" | "deny"}`: answer an approval card. Returns 204, or 409 when the card is no longer pending. `always` on a card of `create_setup` returns 400.
 - `GET /api/bots/{id}/grants`: the tools that the bot may use without asking.
 - `DELETE /api/bots/{id}/grants/{tool}`: remove one of them.
 

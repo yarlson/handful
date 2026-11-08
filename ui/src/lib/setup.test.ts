@@ -1,0 +1,75 @@
+import { assert, test } from "vitest"
+import { CREATE_SETUP, setupProposal } from "./setup.ts"
+
+test("the card's tool is the server's create_setup", () => {
+  // internal/core/setup.go names the tool create_setup.
+  assert.strictEqual(CREATE_SETUP, "create_setup")
+})
+
+test("a setup card shows its bots, teams with their lead and budget, and rooms", () => {
+  const input = {
+    bots: [{ name: "Developer", instructions: "Write the code." }],
+    teams: [
+      {
+        name: "Web app",
+        purpose: "Build it.",
+        members: ["Developer", "Ana"],
+        lead: "Ana",
+        agreement: "Tests pass.",
+        goal_budget: 12,
+      },
+    ],
+    rooms: [{ name: "Standup", purpose: "Notes.", members: ["Ana"] }],
+  }
+  assert.deepEqual(setupProposal(input), {
+    bots: [{ name: "Developer", instructions: "Write the code." }],
+    teams: [
+      {
+        name: "Web app",
+        purpose: "Build it.",
+        members: ["Developer", "Ana"],
+        lead: "Ana",
+        agreement: "Tests pass.",
+        goalBudget: 12,
+      },
+    ],
+    rooms: [{ name: "Standup", purpose: "Notes.", members: ["Ana"] }],
+  })
+})
+
+test("a team without a lead is led by its first member, and missing parts are empty", () => {
+  assert.deepEqual(setupProposal({ teams: [{ name: "Pair", members: ["Bo", "Cy"] }] }), {
+    bots: [],
+    teams: [{ name: "Pair", purpose: "", members: ["Bo", "Cy"], lead: "Bo", agreement: "" }],
+    rooms: [],
+  })
+  assert.deepEqual(setupProposal({ teams: [{ name: "Nobody", lead: "", goal_budget: "30" }] }), {
+    bots: [],
+    teams: [{ name: "Nobody", purpose: "", members: [], lead: "", agreement: "" }],
+    rooms: [],
+  })
+})
+
+test("fields of the wrong type read as empty", () => {
+  assert.deepEqual(setupProposal({ bots: [{ name: 7 }], rooms: [{ name: "R", members: ["Ana", 3, null] }] }), {
+    bots: [{ name: "", instructions: "" }],
+    teams: [],
+    rooms: [{ name: "R", purpose: "", members: ["Ana"] }],
+  })
+})
+
+test("input that is no setup gives null", () => {
+  for (const input of [
+    null,
+    undefined,
+    "setup",
+    3,
+    [],
+    { bots: "Ana" },
+    { teams: [null] },
+    { rooms: [["Ana"]] },
+    { bots: [{ name: "A" }, "B"] },
+  ]) {
+    assert.isNull(setupProposal(input), JSON.stringify(input))
+  }
+})

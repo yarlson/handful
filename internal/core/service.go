@@ -49,6 +49,7 @@ type Bot struct {
 	Kind            string   `json:"kind"`
 	Name            string   `json:"name"`
 	Instructions    string   `json:"instructions"`
+	Role            string   `json:"role,omitempty"` // RoleBuilder for Builder
 	ClaudeSessionID string   `json:"-"`
 	Members         []Member `json:"members,omitempty"`
 	Team            *Team    `json:"team,omitempty"`      // set for a room that is a team
@@ -185,7 +186,7 @@ func (s *Service) signalTurns() {
 func (s *Service) nowMs() int64 { return s.now().UnixMilli() }
 
 func toBot(b db.Bot) Bot {
-	return Bot{ID: b.ID, Kind: b.Kind, Name: b.Name, Instructions: b.Instructions, ClaudeSessionID: b.ClaudeSessionID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
+	return Bot{ID: b.ID, Kind: b.Kind, Name: b.Name, Instructions: b.Instructions, Role: b.Role, ClaudeSessionID: b.ClaudeSessionID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
 }
 
 func toEntry(e db.Entry) Entry {

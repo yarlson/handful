@@ -241,6 +241,9 @@ func newToolServer(svc *core.Service, current func() (runContext, bool)) *mcp.Se
 	if inTeam(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: the user's goal and its items. list shows the board. The lead starts a goal (start_goal, in a turn that the user's post started), adds items (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop); another member's create is a proposal for the lead. An item's owner hands it on with submit, or stops it with block and a question. Its reviewer passes it or asks for changes. When every item is done or dropped, the lead delivers the result to the user (deliver). A lead asks another team for work with request; that team's lead assigns it or declines it with drop."}, h.updateBoard)
 	}
+	if isBuilder(svc, current) {
+		addRunTool(s, current, &mcp.Tool{Name: core.ToolCreateSetup, Description: createSetupDescription}, h.createSetup)
+	}
 	addRunTool(s, current, &mcp.Tool{Name: "approve", Description: "Internal: asks the user to approve a tool call."}, h.approve)
 	return s
 }

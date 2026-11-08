@@ -141,15 +141,9 @@ func (s *Service) ExpireTurnApprovals(turnID string) { s.approvals.expireTurn(tu
 
 // ResolveApproval records the user's decision on a pending approval card.
 func (s *Service) ResolveApproval(ctx context.Context, entryID, decision string) error {
-	if decision != DecisionOnce && decision != DecisionAlways && decision != DecisionDeny {
-		return invalid("decision must be once, always or deny")
-	}
-	entry, err := s.GetEntry(ctx, entryID)
+	body, err := s.decidableApproval(ctx, entryID, decision)
 	if err != nil {
 		return err
-	}
-	if entry.Kind != KindApproval {
-		return invalid("entry %s is not an approval", entryID)
 	}
 	ch, ok := s.approvals.take(entryID)
 	if !ok {
@@ -157,10 +151,6 @@ func (s *Service) ResolveApproval(ctx context.Context, entryID, decision string)
 	}
 	// The waiting worker gets the decision even if recording it below fails.
 	defer func() { ch.ch <- decision }()
-	var body approvalBody
-	if err := json.Unmarshal(entry.Body, &body); err != nil {
-		return fmt.Errorf("decode approval %s: %w", entryID, err)
-	}
 	body.Decision = decision
 	body.Status = "allowed"
 	if decision == DecisionDeny {
@@ -175,6 +165,29 @@ func (s *Service) ResolveApproval(ctx context.Context, entryID, decision string)
 		return err
 	}
 	return nil
+}
+
+// decidableApproval returns the approval card that the decision answers, or
+// why the decision cannot answer it.
+func (s *Service) decidableApproval(ctx context.Context, entryID, decision string) (approvalBody, error) {
+	var body approvalBody
+	if decision != DecisionOnce && decision != DecisionAlways && decision != DecisionDeny {
+		return body, invalid("decision must be once, always or deny")
+	}
+	entry, err := s.GetEntry(ctx, entryID)
+	if err != nil {
+		return body, err
+	}
+	if entry.Kind != KindApproval {
+		return body, invalid("entry %s is not an approval", entryID)
+	}
+	if err := json.Unmarshal(entry.Body, &body); err != nil {
+		return body, fmt.Errorf("decode approval %s: %w", entryID, err)
+	}
+	if decision == DecisionAlways && body.Tool == ToolCreateSetup {
+		return body, invalid("the user confirms every setup; choose once or deny")
+	}
+	return body, nil
 }
 
 // ToolGrants lists tools the user always allows for this bot.

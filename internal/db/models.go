@@ -42,6 +42,7 @@ type Bot struct {
 	UpdatedAt       int64  `json:"updated_at"`
 	Kind            string `json:"kind"`
 	Position        int64  `json:"position"`
+	Role            string `json:"role"`
 }
 
 type Entry struct {

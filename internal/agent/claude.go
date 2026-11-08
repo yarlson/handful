@@ -35,6 +35,12 @@ type claudeRun struct {
 	Model        string
 }
 
+// isolatedSettings is the --settings value for every claude run. It turns
+// off auto memory and the Co-Authored-By and "Generated with Claude Code"
+// lines that Claude Code adds to commits and pull requests, since
+// --setting-sources project keeps the user's own attribution setting out.
+const isolatedSettings = `{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}`
+
 // args builds the claude CLI arguments; the prompt goes to stdin as a
 // userMessage. --setting-sources project keeps the
 // user's personal settings and hooks out of the bot (startSession keeps
@@ -59,7 +65,7 @@ func (r claudeRun) args() ([]string, error) {
 		"--setting-sources", "project",
 		"--strict-mcp-config",
 		"--mcp-config", r.MCPConfig,
-		"--settings", `{"autoMemoryEnabled":false}`,
+		"--settings", isolatedSettings,
 		"--system-prompt-snapshot", "off",
 		"--append-system-prompt", r.SystemPrompt,
 		"--agents", string(agents),
@@ -108,7 +114,7 @@ func compactArgs(sessionID, model string) []string {
 		"--verbose",
 		"--setting-sources", "project",
 		"--strict-mcp-config",
-		"--settings", `{"autoMemoryEnabled":false}`,
+		"--settings", isolatedSettings,
 		"--resume", sessionID,
 	}
 	if model != "" {

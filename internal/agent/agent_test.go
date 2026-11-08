@@ -422,7 +422,7 @@ func TestFirstTurnStartsSessionAndLaterTurnsResumeIt(t *testing.T) {
 			t.Errorf("first call does not allow %s without approval: %v", tool, allowed)
 		}
 	}
-	for _, flag := range []string{"--setting-sources project", "--strict-mcp-config", "--permission-prompt-tool mcp__yargpt__approve", "--system-prompt-snapshot off", "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
+	for _, flag := range []string{"--setting-sources project", "--strict-mcp-config", "--permission-prompt-tool mcp__yargpt__approve", "--system-prompt-snapshot off", `--settings {"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}`, "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
 		if !strings.Contains(calls[0], flag) {
 			t.Errorf("first call lacks %q", flag)
 		}
@@ -2228,6 +2228,9 @@ func TestCompactionRunsSlashCompactOnTheStoredSession(t *testing.T) {
 	}
 	if strings.Contains(calls[0], "--append-system-prompt") || strings.Contains(calls[0], "--mcp-config") {
 		t.Fatalf("compaction call carries turn flags: %s", calls[0])
+	}
+	if !strings.Contains(calls[0], `--settings {"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}`) {
+		t.Fatalf("compaction call lacks the isolated settings: %s", calls[0])
 	}
 }
 

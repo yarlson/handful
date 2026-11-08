@@ -1,14 +1,18 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -237,17 +241,48 @@ func (s *Service) SetRoomSession(ctx context.Context, roomID, botID, sessionID s
 var hereMention = regexp.MustCompile(`(?i)(^|[^\w@])@here\b`)
 
 // mentioned returns the members whose @name appears in text, or every member
-// when text contains @here; never the speaker.
+// when text contains @here; never the speaker. An @name counts as a word of
+// its own, like @here, and the longest name wins, so "@Bob" does not wake Bo
+// and "@Forge Reviewer" does not wake Forge.
 func mentioned(text string, members []Member, speakerID string) []Member {
 	everyone := hereMention.MatchString(text)
 	lower := strings.ToLower(text)
+	// Longest name first, so the first match at an "@" is the longest.
+	byLength := slices.SortedStableFunc(slices.Values(members), func(a, b Member) int { return cmp.Compare(len(b.Name), len(a.Name)) })
+	named := map[string]bool{}
+	for i, r := range lower {
+		if r == '@' {
+			named[mentionAt(lower, i, byLength)] = true
+		}
+	}
 	var out []Member
 	for _, m := range members {
-		if m.ID != speakerID && (everyone || strings.Contains(lower, "@"+strings.ToLower(m.Name))) {
+		if m.ID != speakerID && (everyone || named[m.ID]) {
 			out = append(out, m)
 		}
 	}
 	return out
+}
+
+// mentionAt returns the id of the first of members whose name the "@" at
+// index i of lower-case text names as a whole word, or "".
+func mentionAt(lower string, i int, members []Member) string {
+	if before, _ := utf8.DecodeLastRuneInString(lower[:i]); nameRune(before) || before == '@' {
+		return ""
+	}
+	rest := lower[i+1:]
+	for _, m := range members {
+		name := strings.ToLower(m.Name)
+		if after, _ := utf8.DecodeRuneInString(strings.TrimPrefix(rest, name)); strings.HasPrefix(rest, name) && !nameRune(after) {
+			return m.ID
+		}
+	}
+	return ""
+}
+
+// nameRune reports whether r can continue a name, as \w does for @here.
+func nameRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 // wakeRoomMembers queues room turns after the user's post in the room. It

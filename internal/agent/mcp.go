@@ -491,16 +491,17 @@ type routineCall struct {
 	in  routineInput
 }
 
-// owned returns the routine of the call, if it belongs to the calling bot.
-func (c routineCall) owned() (core.Routine, error) {
+// owned returns an error unless the routine of the call belongs to the
+// calling bot.
+func (c routineCall) owned() error {
 	r, err := c.svc.GetRoutine(c.ctx, c.in.ID)
 	if err != nil {
-		return core.Routine{}, err
+		return err
 	}
 	if r.BotID != c.rc.BotID {
-		return core.Routine{}, fmt.Errorf("routine %s belongs to another bot", c.in.ID)
+		return fmt.Errorf("routine %s belongs to another bot", c.in.ID)
 	}
-	return r, nil
+	return nil
 }
 
 func (c routineCall) describe(r core.Routine) string {
@@ -523,7 +524,7 @@ func (c routineCall) create() (*mcp.CallToolResult, any, error) {
 }
 
 func (c routineCall) update() (*mcp.CallToolResult, any, error) {
-	if _, err := c.owned(); err != nil {
+	if err := c.owned(); err != nil {
 		return nil, nil, err
 	}
 	var p core.RoutinePatch
@@ -544,7 +545,7 @@ func (c routineCall) update() (*mcp.CallToolResult, any, error) {
 }
 
 func (c routineCall) setEnabled(v bool) (*mcp.CallToolResult, any, error) {
-	if _, err := c.owned(); err != nil {
+	if err := c.owned(); err != nil {
 		return nil, nil, err
 	}
 	r, err := c.svc.UpdateRoutine(c.ctx, c.in.ID, core.RoutinePatch{Enabled: &v}, c.rc.BotName)
@@ -555,7 +556,7 @@ func (c routineCall) setEnabled(v bool) (*mcp.CallToolResult, any, error) {
 }
 
 func (c routineCall) delete() (*mcp.CallToolResult, any, error) {
-	if _, err := c.owned(); err != nil {
+	if err := c.owned(); err != nil {
 		return nil, nil, err
 	}
 	if err := c.svc.DeleteRoutine(c.ctx, c.in.ID, c.rc.BotName); err != nil {
@@ -566,7 +567,7 @@ func (c routineCall) delete() (*mcp.CallToolResult, any, error) {
 
 // runNow queues a run of the routine one hop deeper than the calling turn.
 func (c routineCall) runNow() (*mcp.CallToolResult, any, error) {
-	if _, err := c.owned(); err != nil {
+	if err := c.owned(); err != nil {
 		return nil, nil, err
 	}
 	if _, err := c.svc.RunRoutineNow(c.ctx, c.in.ID, c.rc.BotName, c.rc.Hops); err != nil {

@@ -600,6 +600,7 @@ func timestampLine(now time.Time) string {
 
 // skillPrompt is the turn message when the user starts a message with
 // "/<skill-id>": it carries the skill's recipe, so the bot runs it at once.
+// In a team's chat it follows the room context of the turn.
 func skillPrompt(skill core.Skill, args string) string {
 	request := "no further details"
 	if args != "" {

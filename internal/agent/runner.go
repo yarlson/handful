@@ -556,7 +556,11 @@ func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (str
 		if err != nil {
 			return "", core.RoomUpdate{}, err
 		}
-		return roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t), update, nil
+		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t)
+		if skill, args, ok := r.teamSkill(update, t); ok {
+			prompt += "\n\n" + skillPrompt(skill, args)
+		}
+		return prompt, update, nil
 	}
 	prompt := t.Prompt
 	if skill, args, ok := r.invokedSkill(t); ok {
@@ -678,10 +682,19 @@ func (r *Runner) otherTeams(ctx context.Context, room core.Bot) ([]core.Bot, err
 // invokedSkill reports whether a user message starts with "/<skill-id>" for an
 // existing skill, and returns the skill and the text after the id.
 func (r *Runner) invokedSkill(t core.Turn) (core.Skill, string, bool) {
-	if t.Source != core.SourceUser || !strings.HasPrefix(t.Prompt, "/") {
+	if t.Source != core.SourceUser {
 		return core.Skill{}, "", false
 	}
-	id, args, _ := strings.Cut(strings.TrimPrefix(t.Prompt, "/"), " ")
+	return r.slashSkill(t.Prompt)
+}
+
+// slashSkill reports whether text starts with "/<skill-id>" for an existing
+// skill, and returns the skill and the text after the id.
+func (r *Runner) slashSkill(text string) (core.Skill, string, bool) {
+	if !strings.HasPrefix(text, "/") {
+		return core.Skill{}, "", false
+	}
+	id, args, _ := strings.Cut(strings.TrimPrefix(text, "/"), " ")
 	skill, err := r.svc.GetSkill(id)
 	if err != nil {
 		return core.Skill{}, "", false

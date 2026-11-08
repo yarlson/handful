@@ -81,7 +81,7 @@
 - A skill is a saved procedure that every bot can use. It is a `SKILL.md` file in `~/.yargpt/skills/<skill id>/`.
 - The skill id comes from its name: lowercase letters and digits, joined by hyphens, at most 64 characters. A description has at most 1000 characters, and the body at most 64000.
 - A bot can save a process that you will repeat as a skill. A new skill is available from the bot's next turn.
-- The **Skills** tab lists the skills. To run one now, type `/<skill> <request>` in a bot's chat.
+- The **Skills** tab lists the skills. To run one now, type `/<skill> <request>` in a bot's chat or in a team's chat. In a team the lead runs it, or each member that the message @mentions, and the skill stays in their context until `/clear`. A plain room does not run skills: there `/<skill>` is text.
 
 ## Artifacts
 

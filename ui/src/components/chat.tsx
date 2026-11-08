@@ -13,6 +13,7 @@ import {
   Loader2,
   Paperclip,
   Play,
+  SmilePlus,
   ShieldQuestion,
   Sparkles,
   Square,
@@ -23,6 +24,8 @@ import {
 } from "lucide-react"
 import { api, type BackgroundTask, type Bot, type Decision, type Entry, type Member, type Skill } from "@/lib/api"
 import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type MentionQuery } from "@/lib/completion"
+import { Popover } from "radix-ui"
+import { REACTIONS, toggled } from "@/lib/reactions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -194,6 +197,83 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+// Reactions shows the user's reactions on a message as chips, with a picker
+// to add one. A click on a chip removes it. The message updates when the
+// server sends the changed entry; reactions never wake a bot.
+function Reactions({ entryId, reactions, copyText }: { entryId: string; reactions?: string[]; copyText?: string }) {
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const set = async (emoji: string) => {
+    setOpen(false)
+    setError(null)
+    try {
+      await api.react(entryId, emoji, toggled(reactions, emoji))
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {reactions?.map((emoji) => (
+        <Button
+          key={emoji}
+          size="xs"
+          variant="outline"
+          aria-pressed
+          aria-label={`Remove ${emoji} reaction`}
+          title={`Remove ${emoji} reaction`}
+          className="rounded-full"
+          onClick={() => void set(emoji)}
+        >
+          <span>{emoji}</span> <span className="text-muted-foreground">1</span>
+        </Button>
+      ))}
+      {copyText && <CopyButton text={copyText} />}
+      <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Trigger asChild>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Add reaction"
+            title="Add reaction"
+            className={cn(
+              "text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100",
+              open && "opacity-100",
+            )}
+          >
+            <SmilePlus />
+          </Button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            sideOffset={4}
+            aria-label="Reactions"
+            className="bg-popover text-popover-foreground z-50 flex gap-0.5 rounded-lg border p-1 shadow-md"
+          >
+            {REACTIONS.map((emoji) => {
+              const on = reactions?.includes(emoji) ?? false
+              return (
+                <Button
+                  key={emoji}
+                  size="icon-sm"
+                  variant={on ? "secondary" : "ghost"}
+                  aria-pressed={on}
+                  aria-label={on ? `Remove ${emoji} reaction` : `React with ${emoji}`}
+                  className="text-base"
+                  onClick={() => void set(emoji)}
+                >
+                  {emoji}
+                </Button>
+              )
+            })}
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+      {error && <span className="text-destructive text-xs">{error}</span>}
+    </div>
+  )
+}
+
 function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
   const b = entry.body
   const incoming = b.direction === "in"
@@ -209,7 +289,7 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
         </div>
         <MarkdownText text={b.text} />
       </div>
-      <CopyButton text={b.text} />
+      {b.text && <Reactions entryId={entry.id} reactions={b.reactions} copyText={b.text} />}
     </div>
   )
 }
@@ -225,12 +305,12 @@ function EntryView({ entry, botName }: { entry: Entry; botName: string }) {
             </div>
           )}
           {entry.body.text && (
-            <>
-              <div className="bg-primary text-primary-foreground max-w-[75%] rounded-2xl rounded-br-sm px-3.5 py-2 text-sm whitespace-pre-wrap">
-                {entry.body.text}
-              </div>
-              <CopyButton text={entry.body.text} />
-            </>
+            <div className="bg-primary text-primary-foreground max-w-[75%] rounded-2xl rounded-br-sm px-3.5 py-2 text-sm whitespace-pre-wrap">
+              {entry.body.text}
+            </div>
+          )}
+          {(entry.body.text || (entry.body.media && entry.body.media.length > 0)) && (
+            <Reactions entryId={entry.id} reactions={entry.body.reactions} copyText={entry.body.text} />
           )}
         </div>
       )
@@ -256,7 +336,9 @@ function EntryView({ entry, botName }: { entry: Entry; botName: string }) {
                 <MediaGallery names={entry.body.media} />
               </div>
             )}
-            {entry.body.text && <CopyButton text={entry.body.text} />}
+            {(entry.body.text || (entry.body.media && entry.body.media.length > 0)) && (
+              <Reactions entryId={entry.id} reactions={entry.body.reactions} copyText={entry.body.text} />
+            )}
           </div>
         </div>
       )

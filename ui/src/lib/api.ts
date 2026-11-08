@@ -16,7 +16,8 @@ export type Bot = {
 // A background shell, monitor or subagent that a bot runs between turns.
 export type BackgroundTask = { id: string; description: string; bot?: string }
 
-export type UserBody = { text: string; media?: string[] }
+// reactions are the user's emoji on a message, in the order of REACTIONS.
+export type UserBody = { text: string; media?: string[]; reactions?: string[] }
 export type BotBody = {
   text: string
   media?: string[]
@@ -24,6 +25,7 @@ export type BotBody = {
   needsReply?: boolean
   speakerId?: string
   speakerName?: string
+  reactions?: string[]
 }
 export type AgentBody = {
   direction: "in" | "out"
@@ -32,6 +34,7 @@ export type AgentBody = {
   text: string
   priority: boolean
   held?: boolean
+  reactions?: string[]
 }
 export type EventBody = { type: string; text?: string; from?: string; to?: string }
 export type ActivityBody = {
@@ -157,4 +160,6 @@ export const api = {
   disconnect: (name: string) => request<void>("DELETE", `/api/connectors/${name}/token`),
   resolveApproval: (entryId: string, decision: Decision) =>
     request<void>("POST", `/api/approvals/${entryId}`, { decision }),
+  react: (entryId: string, emoji: string, on: boolean) =>
+    request<Entry>("POST", `/api/entries/${entryId}/reactions`, { emoji, on }),
 }

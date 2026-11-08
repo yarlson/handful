@@ -61,6 +61,7 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger) ht
 	mux.HandleFunc("GET /api/bots/{id}/grants", s.listGrants)
 	mux.HandleFunc("DELETE /api/bots/{id}/grants/{tool}", s.revokeGrant)
 	mux.HandleFunc("POST /api/approvals/{id}", s.resolveApproval)
+	mux.HandleFunc("POST /api/entries/{id}/reactions", s.setReaction)
 	mux.HandleFunc("GET /api/skills", s.listSkills)
 	mux.HandleFunc("GET /api/skills/{id}", s.getSkill)
 	mux.HandleFunc("DELETE /api/skills/{id}", s.deleteSkill)
@@ -533,6 +534,25 @@ func (s *server) resolveApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// setReaction puts the user's emoji on a message or takes it off and
+// returns the updated entry.
+func (s *server) setReaction(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Emoji string `json:"emoji"`
+		On    bool   `json:"on"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	e, err := s.svc.SetReaction(r.Context(), r.PathValue("id"), in.Emoji, in.On)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, e)
 }
 
 func (s *server) listSkills(w http.ResponseWriter, r *http.Request) {

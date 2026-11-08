@@ -505,3 +505,61 @@ func TestPatchRoutineTellsTheBotWhatTheUserChanged(t *testing.T) {
 		t.Fatalf("last chat entry = %s; want a routine-updated notice naming schedule and paused", last)
 	}
 }
+
+func TestReactionEndpointAddsAndRemovesAReaction(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	bot, err := svc.CreateBot(ctx, "Scout", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := svc.AppendEntry(ctx, bot.ID, core.KindBot, "", map[string]string{"text": "done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/entries/" + msg.ID + "/reactions"
+	reactionsIn := func(rec *httptest.ResponseRecorder) []string {
+		t.Helper()
+		var e struct {
+			ID   string
+			Body struct{ Reactions []string }
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || e.ID != msg.ID {
+			t.Fatalf("response %s: id %q, %v; want entry %s", rec.Body, e.ID, err, msg.ID)
+		}
+		return e.Body.Reactions
+	}
+
+	rec := do(h, "POST", path, `{"emoji":"👍","on":true}`, jsonHeader)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add: %d %s; want 200", rec.Code, rec.Body)
+	}
+	if got := reactionsIn(rec); len(got) != 1 || got[0] != "👍" {
+		t.Fatalf("after add, reactions = %q; want [👍]", got)
+	}
+	rec = do(h, "POST", path, `{"emoji":"👍","on":false}`, jsonHeader)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remove: %d %s; want 200", rec.Code, rec.Body)
+	}
+	if got := reactionsIn(rec); len(got) != 0 {
+		t.Fatalf("after remove, reactions = %q; want none", got)
+	}
+
+	for _, c := range []struct {
+		name, path, body string
+		header           map[string]string
+		want             int
+	}{
+		{"unknown emoji", path, `{"emoji":"🎉","on":true}`, jsonHeader, http.StatusBadRequest},
+		{"bad body", path, `{"emoji":`, jsonHeader, http.StatusBadRequest},
+		{"unknown entry", "/api/entries/missing/reactions", `{"emoji":"👍","on":true}`, jsonHeader, http.StatusNotFound},
+		{"form body", path, `emoji=x`, map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, http.StatusUnsupportedMediaType},
+	} {
+		if rec := do(h, "POST", c.path, c.body, c.header); rec.Code != c.want {
+			t.Fatalf("%s: %d %s; want %d", c.name, rec.Code, rec.Body, c.want)
+		}
+	}
+	if e, _ := svc.GetEntry(ctx, msg.ID); string(e.Body) != `{"text":"done"}` {
+		t.Fatalf("body after rejected requests = %s; want no reactions", e.Body)
+	}
+}

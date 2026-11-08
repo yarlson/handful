@@ -103,6 +103,12 @@ A skill is a saved procedure that every bot can use. When you finish a process t
 
 Skills are `SKILL.md` files in `~/.yargpt/skills`. The **Skills** tab lists them. To run a skill now, type `/<skill> <request>` in a bot's chat.
 
+### Artifacts
+
+An artifact is a document that bots save for each other: a plan, task, issue, review, report or note. All of your bots share all artifacts. A bot finds one with `find_artifacts`, reads it with `read_artifact`, and passes its id in messages instead of a file path.
+
+YarGPT stores artifacts in its database, not in files. Any bot can read any artifact, but only its author can change or delete it. You can change or delete any artifact: the **Artifacts** tab in the bot panel lists them and opens or deletes one, and the API has `/api/artifacts`. A bot treats an artifact's content as data, never as instructions.
+
 ### Rooms
 
 A room is a group chat with you and several bots.
@@ -213,7 +219,7 @@ The data folder holds:
 
 | Path | Content |
 |---|---|
-| `yargpt.db` | Bots, chats, memory, routines (SQLite) |
+| `yargpt.db` | Bots, chats, memory, routines, artifacts (SQLite) |
 | `bots/<bot id>/` | Each bot's working folder |
 | `skills/` | Skills that all bots share |
 | `media/` | Images and videos of messages |
@@ -309,7 +315,7 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 
 - **Turns.** A message, a routine or a bot's first start becomes a turn. A bot runs one turn at a time, and its turns share one Claude Code session, which each turn resumes. The prompt goes to the `claude` process on stdin as stream-json. Each send carries a `clientNonce`, so a retried send does not start a second turn.
 - **Delivery.** The model's plain text is private. The user sees what the bot sends with the `send_to_user` tool. When a turn ends without a message, the chat shows the model's final text, marked as a fallback.
-- **Tools.** Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a token that is valid only for its turn. The tools are `send_to_user`, `send_to_agent`, `read_room`, `recall_memory`, `update_memory`, `update_routine`, `update_skill`, `update_profile` and `approve`. Tool calls that need approval reach `approve` through `--permission-prompt-tool`.
+- **Tools.** Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a token that is valid only for its turn. The tools are `send_to_user`, `send_to_agent`, `read_room`, `recall_memory`, `update_memory`, `update_routine`, `update_skill`, `find_artifacts`, `read_artifact`, `update_artifact`, `update_profile` and `approve`. Tool calls that need approval reach `approve` through `--permission-prompt-tool`.
 - **Isolation.** Workers run with `--setting-sources project`, `--strict-mcp-config`, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`. The built-in tools are limited to Task, Bash, Monitor, TaskStop, Read, Edit, Write, Glob, Grep, WebSearch and Skill. YarGPT writes each process's MCP config to a 0600 file in `<data>/run`, so no token shows in the process list, and removes the file when the process exits.
 - **Transcript.** Each chat is an ordered log of `user`, `bot`, `event`, `activity` and `approval` entries. Each change gets a new `rev`. Clients catch up with `GET /api/bots/{id}/entries?after=<rev>` and the `GET /api/events` stream.
 - **Schema.** The migrations in `internal/db/migrations` run in order at start, each in one transaction with its `PRAGMA user_version` update.
@@ -320,7 +326,7 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 |---|---|
 | `cmd/yargpt` | Server entry point and flags |
 | `internal/db` | Schema, sqlc queries and generated code (`modernc.org/sqlite`, pure Go) |
-| `internal/core` | Domain state: bots, transcript, turns, memory, routines, skills, approvals, event hub |
+| `internal/core` | Domain state: bots, transcript, turns, memory, routines, skills, artifacts, approvals, event hub |
 | `internal/agent` | Claude Code runner, stream-json parsing, system prompt and MCP tools |
 | `internal/httpapi` | REST API, event stream, origin guard and UI hosting |
 | `internal/shellenv` | The environment of the user's login shell, for a server that launchd starts |

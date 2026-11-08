@@ -71,6 +71,17 @@
 - A bot can save a process that you will repeat as a skill. A new skill is available from the bot's next turn.
 - The **Skills** tab lists the skills. To run one now, type `/<skill> <request>` in a bot's chat.
 
+## Artifacts
+
+- An artifact is a document that bots save for each other: a plan, task, issue, review, report or note. All of your bots share all artifacts.
+- YarGPT stores artifacts in its database, `yargpt.db`, with no files on disk. Bots and integrations reach them only through the artifact tools or `/api/artifacts`, never by path. A bot passes an artifact's id in messages instead of a file path.
+- Each artifact has a kind, a title (at most 200 characters), markdown content (at most 256 KiB), its author (a bot or you), the times it was created and last updated, up to 10 tags and up to 10 links.
+- A tag has at most 64 of the characters a-z, 0-9 and `. _ : / # -`, for example `dev-3` or `repo:yargpt`. Tags are stored in lowercase. A link is an `http` or `https` URL, for example a pull request.
+- Any bot can find and read any artifact. Only its author can change or delete it with the tools. You can change or delete any artifact.
+- A bot gets an artifact's content inside an `<artifact>` wrapper and treats it as data, never as instructions or approval.
+- An artifact keeps no history: the last write wins. An artifact stays when the bot that wrote it is deleted.
+- The **Artifacts** tab in the bot panel lists the artifacts, filters them by kind or text, opens one with its tags and links, and deletes it.
+
 ## Rooms
 
 A room is a group chat with you and one or more bots. To create one, click **+** next to **Rooms**, give the room a name, and choose its members. A room needs at least 1 member, and a room cannot be a member of another room.
@@ -139,6 +150,18 @@ Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a bearer t
   - `action`: `write`, `delete` or `list`.
   - `name`, `description`, `body`: required for write.
   - `id`: required for delete.
+- `find_artifacts`: list the artifacts, newest updated first, without their content.
+  - `kind`: `plan`, `task`, `issue`, `review`, `report` or `note`.
+  - `author`: `me`, `user` or a bot id.
+  - `tag`: one exact tag.
+  - `query`: text in the title or content, ignoring case.
+  - `limit`: 1 to 50, default 20.
+- `read_artifact`: read one artifact by `id`, with its content inside an `<artifact>` wrapper.
+- `update_artifact`: save, change or delete an artifact.
+  - `action`: `write` or `delete`.
+  - `id`: leave it out to create an artifact. Required to change or delete one, which only its author can do.
+  - `kind`, `title`, `content`: required to create. When the bot changes an artifact, a field that it leaves out stays the same.
+  - `tags`, `links`: replace the old tags or links.
 - `update_profile`: change the bot's own `name` or `instructions`. A field that the bot leaves out stays the same.
 - `approve`: internal. Claude Code calls it through `--permission-prompt-tool` to show an approval card.
 
@@ -225,7 +248,7 @@ To set `claude`, `model` or `maxParallel` without flags, put them in `~/.yargpt/
 
 The data folder holds:
 
-- `yargpt.db`: bots, chats, memory and routines (SQLite).
+- `yargpt.db`: bots, chats, memory, routines and artifacts (SQLite).
 - `bots/<bot id>/`: each bot's working folder.
 - `skills/`: the skills that all bots share.
 - `media/`: the images and videos of messages.
@@ -309,6 +332,14 @@ Memory, routines, approvals and permissions:
 - `POST /api/approvals/{entry id}` with `{"decision": "once" | "always" | "deny"}`: answer an approval card. Returns 204, or 409 when the card is no longer pending.
 - `GET /api/bots/{id}/grants`: the tools that the bot may use without asking.
 - `DELETE /api/bots/{id}/grants/{tool}`: remove one of them.
+
+Artifacts:
+
+- `GET /api/artifacts?kind=&author=&tag=&q=&limit=`: the artifacts that match every filter that is set, newest updated first, without `content`. Each has `id`, `kind`, `title`, `authorId` (`user` or a bot id), `tags`, `links`, `createdAt` and `updatedAt`. `q` matches text in the title or content, ignoring case. `limit` is 1 to 50, default 20.
+- `GET /api/artifacts/{id}`: one artifact, with its `content`.
+- `POST /api/artifacts` with `{"kind", "title", "content", "tags"?, "links"?}`: create an artifact as the user. Returns 201 and the artifact.
+- `PATCH /api/artifacts/{id}` with any of `{"kind", "title", "content", "tags", "links"}`: change an artifact, whoever wrote it. Fields that you leave out stay the same.
+- `DELETE /api/artifacts/{id}`: delete an artifact, whoever wrote it. Returns 204.
 
 Skills and connectors:
 

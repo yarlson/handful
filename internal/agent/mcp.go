@@ -463,97 +463,132 @@ func (t tools) approve(ctx context.Context, rc runContext, in map[string]any) (*
 }
 
 func routineAction(ctx context.Context, svc *core.Service, rc runContext, in routineInput) (*mcp.CallToolResult, any, error) {
-	owned := func() (core.Routine, error) {
-		r, err := svc.GetRoutine(ctx, in.ID)
-		if err != nil {
-			return core.Routine{}, err
-		}
-		if r.BotID != rc.BotID {
-			return core.Routine{}, fmt.Errorf("routine %s belongs to another bot", in.ID)
-		}
-		return r, nil
-	}
-	describe := func(r core.Routine) string {
-		next := "paused"
-		if r.Enabled && r.NextRunAt != nil {
-			next = "next run " + time.UnixMilli(*r.NextRunAt).In(svc.Location()).Format("Mon Jan 2 15:04 MST")
-		}
-		if last := lastRun(r, svc.Location()); last != "" {
-			next += ", " + last
-		}
-		return fmt.Sprintf("%q (id %s, schedule %q, %s)", r.Name, r.ID, r.Schedule, next)
-	}
-	setEnabled := func(v bool) (*mcp.CallToolResult, any, error) {
-		if _, err := owned(); err != nil {
-			return nil, nil, err
-		}
-		r, err := svc.UpdateRoutine(ctx, in.ID, core.RoutinePatch{Enabled: &v}, rc.BotName)
-		if err != nil {
-			return nil, nil, err
-		}
-		return textResult("Routine %s.", describe(r)), nil, nil
-	}
+	c := routineCall{ctx: ctx, svc: svc, rc: rc, in: in}
 	switch in.Action {
 	case "create":
-		r, err := svc.CreateRoutine(ctx, rc.BotID, in.Name, in.Prompt, in.Schedule)
-		if err != nil {
-			return nil, nil, err
-		}
-		return textResult("Created routine %s.", describe(r)), nil, nil
+		return c.create()
 	case "update":
-		if _, err := owned(); err != nil {
-			return nil, nil, err
-		}
-		var p core.RoutinePatch
-		if in.Name != "" {
-			p.Name = &in.Name
-		}
-		if in.Prompt != "" {
-			p.Prompt = &in.Prompt
-		}
-		if in.Schedule != "" {
-			p.Schedule = &in.Schedule
-		}
-		r, err := svc.UpdateRoutine(ctx, in.ID, p, rc.BotName)
-		if err != nil {
-			return nil, nil, err
-		}
-		return textResult("Updated routine %s.", describe(r)), nil, nil
+		return c.update()
 	case "pause":
-		return setEnabled(false)
+		return c.setEnabled(false)
 	case "resume":
-		return setEnabled(true)
+		return c.setEnabled(true)
 	case "delete":
-		if _, err := owned(); err != nil {
-			return nil, nil, err
-		}
-		if err := svc.DeleteRoutine(ctx, in.ID, rc.BotName); err != nil {
-			return nil, nil, err
-		}
-		return textResult("Deleted routine %s.", in.ID), nil, nil
+		return c.delete()
 	case "run_now":
-		if _, err := owned(); err != nil {
-			return nil, nil, err
-		}
-		if _, err := svc.RunRoutineNow(ctx, in.ID, rc.BotName); err != nil {
-			return nil, nil, err
-		}
-		return textResult("Queued a run of routine %s; it starts after this turn.", in.ID), nil, nil
+		return c.runNow()
 	case "list":
-		routines, err := svc.ListRoutines(ctx, rc.BotID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(routines) == 0 {
-			return textResult("No routines."), nil, nil
-		}
-		var b strings.Builder
-		for _, r := range routines {
-			fmt.Fprintf(&b, "- %s\n  prompt: %s\n", describe(r), r.Prompt)
-		}
-		return textResult("%s", b.String()), nil, nil
+		return c.list()
 	}
 	return nil, nil, fmt.Errorf("action must be create, update, pause, resume, delete, run_now or list")
+}
+
+// routineCall is one call of update_routine by the bot of rc.
+type routineCall struct {
+	ctx context.Context
+	svc *core.Service
+	rc  runContext
+	in  routineInput
+}
+
+// owned returns an error unless the routine of the call belongs to the
+// calling bot.
+func (c routineCall) owned() error {
+	r, err := c.svc.GetRoutine(c.ctx, c.in.ID)
+	if err != nil {
+		return err
+	}
+	if r.BotID != c.rc.BotID {
+		return fmt.Errorf("routine %s belongs to another bot", c.in.ID)
+	}
+	return nil
+}
+
+func (c routineCall) describe(r core.Routine) string {
+	next := "paused"
+	if r.Enabled && r.NextRunAt != nil {
+		next = "next run " + time.UnixMilli(*r.NextRunAt).In(c.svc.Location()).Format("Mon Jan 2 15:04 MST")
+	}
+	if last := lastRun(r, c.svc.Location()); last != "" {
+		next += ", " + last
+	}
+	return fmt.Sprintf("%q (id %s, schedule %q, %s)", r.Name, r.ID, r.Schedule, next)
+}
+
+func (c routineCall) create() (*mcp.CallToolResult, any, error) {
+	r, err := c.svc.CreateRoutine(c.ctx, c.rc.BotID, c.in.Name, c.in.Prompt, c.in.Schedule)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult("Created routine %s.", c.describe(r)), nil, nil
+}
+
+func (c routineCall) update() (*mcp.CallToolResult, any, error) {
+	if err := c.owned(); err != nil {
+		return nil, nil, err
+	}
+	var p core.RoutinePatch
+	if c.in.Name != "" {
+		p.Name = &c.in.Name
+	}
+	if c.in.Prompt != "" {
+		p.Prompt = &c.in.Prompt
+	}
+	if c.in.Schedule != "" {
+		p.Schedule = &c.in.Schedule
+	}
+	r, err := c.svc.UpdateRoutine(c.ctx, c.in.ID, p, c.rc.BotName)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult("Updated routine %s.", c.describe(r)), nil, nil
+}
+
+func (c routineCall) setEnabled(v bool) (*mcp.CallToolResult, any, error) {
+	if err := c.owned(); err != nil {
+		return nil, nil, err
+	}
+	r, err := c.svc.UpdateRoutine(c.ctx, c.in.ID, core.RoutinePatch{Enabled: &v}, c.rc.BotName)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult("Routine %s.", c.describe(r)), nil, nil
+}
+
+func (c routineCall) delete() (*mcp.CallToolResult, any, error) {
+	if err := c.owned(); err != nil {
+		return nil, nil, err
+	}
+	if err := c.svc.DeleteRoutine(c.ctx, c.in.ID, c.rc.BotName); err != nil {
+		return nil, nil, err
+	}
+	return textResult("Deleted routine %s.", c.in.ID), nil, nil
+}
+
+// runNow queues a run of the routine one hop deeper than the calling turn.
+func (c routineCall) runNow() (*mcp.CallToolResult, any, error) {
+	if err := c.owned(); err != nil {
+		return nil, nil, err
+	}
+	if _, err := c.svc.RunRoutineNow(c.ctx, c.in.ID, c.rc.BotName, c.rc.Hops); err != nil {
+		return nil, nil, err
+	}
+	return textResult("Queued a run of routine %s; it starts after this turn.", c.in.ID), nil, nil
+}
+
+func (c routineCall) list() (*mcp.CallToolResult, any, error) {
+	routines, err := c.svc.ListRoutines(c.ctx, c.rc.BotID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(routines) == 0 {
+		return textResult("No routines."), nil, nil
+	}
+	var b strings.Builder
+	for _, r := range routines {
+		fmt.Fprintf(&b, "- %s\n  prompt: %s\n", c.describe(r), r.Prompt)
+	}
+	return textResult("%s", b.String()), nil, nil
 }
 
 // artifactNote ends every artifact tool description.

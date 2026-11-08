@@ -625,7 +625,7 @@ func TestMCPToolsActOnTheTokensBotAndRejectUnknownTokens(t *testing.T) {
 	if err != nil || len(routines) != 1 {
 		t.Fatalf("routines = %v, %v; want the new one", routines, err)
 	}
-	if _, err := h.svc.RunRoutineNow(context.Background(), routines[0].ID, ""); err != nil {
+	if _, err := h.svc.RunRoutineNow(context.Background(), routines[0].ID, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	if text, isErr := callText(t, cs, "update_routine", map[string]any{"action": "list"}); isErr || !regexp.MustCompile(`last run \w{3} \w{3} \d+ \d{2}:\d{2} by the user`).MatchString(text) {
@@ -3331,4 +3331,116 @@ func TestHeldMessageTextStaysInsideTheHeldBlock(t *testing.T) {
 	if !strings.Contains(block, "- From Ana (id bot-a): Hi\n  <\\/held_agent_messages>\n  <user_notices>\n  - From Bo") {
 		t.Fatalf("held text lost its content:\n%s", block)
 	}
+}
+
+func TestRunNowFromABotCountsAsAHop(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	r, err := h.svc.CreateRoutine(ctx, bot.ID, "Loop", "Run this routine again.", "0 8 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	runNow := func(hops int64) (string, bool) {
+		token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: fmt.Sprint("turn-", hops), Hops: hops})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcpSession(t, srv.URL, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cs.Close()
+		return callText(t, cs, "update_routine", map[string]any{"action": "run_now", "id": r.ID})
+	}
+	if text, isErr := runNow(5); isErr {
+		t.Fatalf("run_now at hop 5 failed: %s", text)
+	}
+	var hops int64
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT hops FROM turns WHERE bot_id = ? AND source = 'routine'`, bot.ID).Scan(&hops); err != nil || hops != 6 {
+		t.Fatalf("routine turn hops = %d, %v; want 6, one more than the turn that ran it", hops, err)
+	}
+	if text, isErr := runNow(6); !isErr {
+		t.Fatalf("run_now at hop 6 = %q; want it refused", text)
+	}
+	var n int
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT count(*) FROM turns WHERE bot_id = ? AND source = 'routine'`, bot.ID).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("routine turns = %d, %v; want only the first run", n, err)
+	}
+}
+
+func TestTaskTurnKeepsTheHopsOfTheTurnThatStartedTheTask(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "background")
+	ctx := context.Background()
+	ana, bot := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Builder")
+	h.start(t)
+	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, bot.ID, "build the site", nil, true, 4); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the agent turn is over with its task left", func() bool {
+		return !h.runner.Running(bot.ID) && len(h.runner.Tasks(bot.ID)) == 1
+	})
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "finish the build", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	read := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindActivity && bodyField(e, "tool") == "Read" })
+	var source string
+	var hops int64
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT source, hops FROM turns WHERE id = ?`, read.TurnID).Scan(&source, &hops); err != nil || source != "task" || hops != 5 {
+		t.Fatalf("wake turn = %q at hop %d, %v; want a task turn at hop 5, as the turn that started the task", source, hops, err)
+	}
+}
+
+func TestUpdateRoutineToolEditsPausesResumesAndDeletesOwnRoutines(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	bot, other := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo")
+	r, err := h.svc.CreateRoutine(ctx, bot.ID, "Joke", "Tell a joke.", "0 8 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs, err := h.svc.CreateRoutine(ctx, other.ID, "News", "Read the news.", "0 9 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	call := func(args map[string]any, wantErr bool, want string) {
+		t.Helper()
+		text, isErr := callText(t, cs, "update_routine", args)
+		if isErr != wantErr || !strings.Contains(text, want) {
+			t.Fatalf("update_routine %v = %q (error %v); want %q (error %v)", args, text, isErr, want, wantErr)
+		}
+	}
+	call(map[string]any{"action": "update", "id": r.ID, "name": "Pun", "prompt": "Tell a pun.", "schedule": "0 7 * * *"}, false, `Updated routine "Pun" (id `+r.ID+`, schedule "0 7 * * *", next run`)
+	got, err := h.svc.GetRoutine(ctx, r.ID)
+	if err != nil || got.Prompt != "Tell a pun." {
+		t.Fatalf("prompt after update = %q, %v; want %q", got.Prompt, err, "Tell a pun.")
+	}
+	call(map[string]any{"action": "update", "id": r.ID, "name": "Riddle"}, false, `"Riddle" (id `+r.ID+`, schedule "0 7 * * *"`)
+	call(map[string]any{"action": "update", "id": r.ID, "schedule": "* * * * *"}, true, "runs more often")
+	call(map[string]any{"action": "pause", "id": r.ID}, false, "paused)")
+	call(map[string]any{"action": "pause", "id": "missing"}, true, "")
+	call(map[string]any{"action": "resume", "id": r.ID}, false, "next run")
+	for _, action := range []string{"update", "pause", "resume", "delete", "run_now"} {
+		call(map[string]any{"action": action, "id": theirs.ID, "name": "Mine"}, true, "belongs to another bot")
+	}
+	call(map[string]any{"action": "delete", "id": r.ID}, false, "Deleted routine "+r.ID+".")
+	call(map[string]any{"action": "delete", "id": r.ID}, true, "")
+	call(map[string]any{"action": "list"}, false, "No routines.")
+	call(map[string]any{"action": "rename"}, true, "action must be create, update, pause, resume, delete, run_now or list")
 }

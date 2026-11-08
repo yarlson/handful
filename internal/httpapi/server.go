@@ -602,7 +602,7 @@ func (s *server) updateRoutine(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) runRoutine(w http.ResponseWriter, r *http.Request) {
-	turnID, err := s.svc.RunRoutineNow(r.Context(), r.PathValue("id"), "")
+	turnID, err := s.svc.RunRoutineNow(r.Context(), r.PathValue("id"), "", 0)
 	if err != nil {
 		s.fail(w, r, err)
 		return

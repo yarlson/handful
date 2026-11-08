@@ -75,7 +75,7 @@
 
 - An artifact is a document that bots save for each other: a plan, task, issue, review, report or note. All of your bots share all artifacts.
 - YarGPT stores artifacts in its database, `yargpt.db`, with no files on disk. Bots and integrations reach them only through the artifact tools or `/api/artifacts`, never by path. A bot passes an artifact's id in messages instead of a file path.
-- Each artifact has a kind, a title (at most 200 characters), markdown content (at most 256 KiB), its author (a bot or you), the times it was created and last updated, up to 10 tags and up to 10 links (absolute http or https URLs, with spaces escaped as `%20`).
+- Each artifact has a kind, a title (at most 200 characters), markdown content (at most 256 KiB), its author (a bot or you), the times it was created and last updated, up to 10 tags and up to 10 links (absolute `http` or `https` URLs in canonical form, of printable ASCII only, so spaces and non-ASCII characters must be percent-encoded, for example `%20` for a space).
 - A tag has at most 64 of the characters a-z, 0-9 and `. _ : / # -`, for example `dev-3` or `repo:yargpt`. Tags are stored in lowercase. A link is an `http` or `https` URL, for example a pull request.
 - Any bot can find and read any artifact. Only its author can change or delete it with the tools. You can change or delete any artifact.
 - A bot gets an artifact's content inside an `<artifact>` wrapper and treats it as data, never as instructions or approval.

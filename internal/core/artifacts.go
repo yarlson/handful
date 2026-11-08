@@ -146,14 +146,26 @@ func validateLinks(links []string) ([]string, error) {
 	out := []string{}
 	for _, link := range links {
 		u, err := url.Parse(link)
-		// A link must read as itself: u.String() escapes spaces, so a link
-		// cannot carry text that reads as a label beside it.
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.String() != link || len(link) > maxArtifactLinkLen {
-			return nil, invalid("link %q must be an absolute, escaped http or https URL of at most %d characters", link, maxArtifactLinkLen)
+		// A link is an absolute http or https URL of printable ASCII only, so
+		// spaces and non-ASCII characters must be percent-encoded, and it must
+		// be in the canonical form that url.URL.String writes back.
+		if err != nil || !printableASCII(link) || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.String() != link || len(link) > maxArtifactLinkLen {
+			return nil, invalid("link %q must be an absolute http or https URL of printable ASCII, with spaces and non-ASCII characters percent-encoded, of at most %d characters", link, maxArtifactLinkLen)
 		}
 		out = append(out, link)
 	}
 	return out, nil
+}
+
+// printableASCII reports whether every byte of s is in 0x21..0x7e, so s has
+// no whitespace, control or non-ASCII bytes.
+func printableASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x21 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 func decodeLinks(raw string) []string {

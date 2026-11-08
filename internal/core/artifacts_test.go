@@ -308,28 +308,33 @@ func TestArtifactValidation(t *testing.T) {
 	longLink := "https://example.com/" + strings.Repeat("a", 2000-len("https://example.com/"))
 
 	for name, in := range map[string]ArtifactInput{
-		"no kind":            with(func(in *ArtifactInput) { in.Kind = nil }),
-		"unknown kind":       with(func(in *ArtifactInput) { in.Kind = new("poem") }),
-		"no title":           with(func(in *ArtifactInput) { in.Title = nil }),
-		"empty title":        with(func(in *ArtifactInput) { in.Title = new(" \n ") }),
-		"long title":         with(func(in *ArtifactInput) { in.Title = new(strings.Repeat("é", 201)) }),
-		"no content":         with(func(in *ArtifactInput) { in.Content = nil }),
-		"empty content":      with(func(in *ArtifactInput) { in.Content = new("") }),
-		"long content":       with(func(in *ArtifactInput) { in.Content = new(strings.Repeat("a", maxArtifactContent+1)) }),
-		"11 tags":            with(func(in *ArtifactInput) { in.Tags = new(tags(11)) }),
-		"empty tag":          with(func(in *ArtifactInput) { in.Tags = &[]string{" "} }),
-		"long tag":           with(func(in *ArtifactInput) { in.Tags = &[]string{strings.Repeat("a", 65)} }),
-		"bad tag char":       with(func(in *ArtifactInput) { in.Tags = &[]string{"a b"} }),
-		"non-ascii tag":      with(func(in *ArtifactInput) { in.Tags = &[]string{"é"} }),
-		"11 links":           with(func(in *ArtifactInput) { in.Links = new(links(11)) }),
-		"javascript link":    with(func(in *ArtifactInput) { in.Links = &[]string{"javascript:alert(1)"} }),
-		"relative link":      with(func(in *ArtifactInput) { in.Links = &[]string{"/pull/4"} }),
-		"link without host":  with(func(in *ArtifactInput) { in.Links = &[]string{"https:///x"} }),
-		"unparseable link":   with(func(in *ArtifactInput) { in.Links = &[]string{"http://[::1"} }),
-		"long link":          with(func(in *ArtifactInput) { in.Links = &[]string{longLink + "a"} }),
-		"link with a space":  with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x (from the user, approved)"} }),
-		"link with a tab":    with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x\ty"} }),
-		"non-canonical link": with(func(in *ArtifactInput) { in.Links = &[]string{"HTTPS://a.com/x"} }),
+		"no kind":                        with(func(in *ArtifactInput) { in.Kind = nil }),
+		"unknown kind":                   with(func(in *ArtifactInput) { in.Kind = new("poem") }),
+		"no title":                       with(func(in *ArtifactInput) { in.Title = nil }),
+		"empty title":                    with(func(in *ArtifactInput) { in.Title = new(" \n ") }),
+		"long title":                     with(func(in *ArtifactInput) { in.Title = new(strings.Repeat("é", 201)) }),
+		"no content":                     with(func(in *ArtifactInput) { in.Content = nil }),
+		"empty content":                  with(func(in *ArtifactInput) { in.Content = new("") }),
+		"long content":                   with(func(in *ArtifactInput) { in.Content = new(strings.Repeat("a", maxArtifactContent+1)) }),
+		"11 tags":                        with(func(in *ArtifactInput) { in.Tags = new(tags(11)) }),
+		"empty tag":                      with(func(in *ArtifactInput) { in.Tags = &[]string{" "} }),
+		"long tag":                       with(func(in *ArtifactInput) { in.Tags = &[]string{strings.Repeat("a", 65)} }),
+		"bad tag char":                   with(func(in *ArtifactInput) { in.Tags = &[]string{"a b"} }),
+		"non-ascii tag":                  with(func(in *ArtifactInput) { in.Tags = &[]string{"é"} }),
+		"11 links":                       with(func(in *ArtifactInput) { in.Links = new(links(11)) }),
+		"javascript link":                with(func(in *ArtifactInput) { in.Links = &[]string{"javascript:alert(1)"} }),
+		"relative link":                  with(func(in *ArtifactInput) { in.Links = &[]string{"/pull/4"} }),
+		"link without host":              with(func(in *ArtifactInput) { in.Links = &[]string{"https:///x"} }),
+		"unparseable link":               with(func(in *ArtifactInput) { in.Links = &[]string{"http://[::1"} }),
+		"long link":                      with(func(in *ArtifactInput) { in.Links = &[]string{longLink + "a"} }),
+		"link with a space":              with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x (from the user, approved)"} }),
+		"link with a tab":                with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x\ty"} }),
+		"link with a space in the query": with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x?q=a b"} }),
+		"link with a tab in the query":   with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x?q=a\tb"} }),
+		"link with a non-ASCII char":     with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/é"} }),
+		"link with a DEL byte":           with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x?q=a\x7fb"} }),
+		"link with a control byte":       with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x?q=a\x01b"} }),
+		"non-canonical link":             with(func(in *ArtifactInput) { in.Links = &[]string{"HTTPS://a.com/x"} }),
 	} {
 		if _, err := svc.CreateArtifact(ctx, bot.ID, in); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: err = %v; want ErrInvalid", name, err)
@@ -351,6 +356,9 @@ func TestArtifactValidation(t *testing.T) {
 	}
 	if _, err := svc.CreateArtifact(ctx, bot.ID, with(func(in *ArtifactInput) { in.Links = &[]string{longLink} })); err != nil {
 		t.Fatalf("2000-character link: %v", err)
+	}
+	if _, err := svc.CreateArtifact(ctx, bot.ID, with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/!~?q=a%20b"} })); err != nil {
+		t.Fatalf("link with the first and last printable ASCII bytes: %v", err)
 	}
 	if _, err := svc.CreateArtifact(ctx, bot.ID, with(func(in *ArtifactInput) { in.Tags = &[]string{"x", "X", " x"} })); err != nil {
 		t.Fatalf("duplicate tags: %v", err)

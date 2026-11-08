@@ -105,12 +105,13 @@ func uploadedMedia(data [][]byte) []mediaFile {
 	return files
 }
 
-// saveBotFiles stores files that a bot shares with a message. A relative
-// path is in the bot's workspace. A file must be, after symlinks, in the
-// bot's workspace, the media folder or a temp folder, so that a misled bot
-// cannot post the user's own files; the content must be a media file within
-// the limits.
-func (s *Service) saveBotFiles(botID string, paths []string) ([]string, error) {
+// saveBotFiles stores files that a bot shares with a message. workspace is
+// where the bot works in the turn: its own workspace or its team's folder. A
+// relative path is in workspace. A file must be, after symlinks, in
+// workspace, the media folder or a temp folder, so that a misled bot cannot
+// post the user's own files; the content must be a media file within the
+// limits.
+func (s *Service) saveBotFiles(workspace string, paths []string) ([]string, error) {
 	if len(paths) > MaxMedia {
 		return nil, invalid("a message can carry at most %d files", MaxMedia)
 	}
@@ -118,9 +119,9 @@ func (s *Service) saveBotFiles(botID string, paths []string) ([]string, error) {
 	for _, p := range paths {
 		path := p
 		if !filepath.IsAbs(path) {
-			path = filepath.Join(s.Workspace(botID), path)
+			path = filepath.Join(workspace, path)
 		}
-		path, err := s.allowedBotFile(botID, path, p)
+		path, err := s.allowedBotFile(workspace, path, p)
 		if err != nil {
 			return nil, err
 		}
@@ -134,9 +135,8 @@ func (s *Service) saveBotFiles(botID string, paths []string) ([]string, error) {
 }
 
 // allowedBotFile resolves the symlinks of path and returns it when it lies in
-// the bot's workspace, the media folder or a temp folder. label names the
-// file in errors.
-func (s *Service) allowedBotFile(botID, path, label string) (string, error) {
+// workspace, the media folder or a temp folder. label names the file in errors.
+func (s *Service) allowedBotFile(workspace, path, label string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", invalid("%s does not exist", label)
@@ -144,7 +144,7 @@ func (s *Service) allowedBotFile(botID, path, label string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", label, err)
 	}
-	roots := append([]string{s.Workspace(botID), s.MediaDir()}, s.tempDirs...)
+	roots := append([]string{workspace, s.MediaDir()}, s.tempDirs...)
 	for _, root := range roots {
 		root, err := filepath.EvalSymlinks(root)
 		if err != nil {

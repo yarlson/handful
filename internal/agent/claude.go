@@ -45,7 +45,7 @@ func (r claudeRun) args() ([]string, error) {
 		return nil, fmt.Errorf("encode agents: %w", err)
 	}
 	allowed := append([]string{}, readOnlyTools...)
-	for _, t := range []string{"send_to_user", "send_to_agent", "read_room", "recall_memory", "update_memory", "update_routine", "update_skill", "find_artifacts", "read_artifact", "update_artifact", "update_profile"} {
+	for _, t := range []string{"send_to_user", "send_to_agent", "read_room", "recall_memory", "update_memory", "update_routine", "update_skill", "find_artifacts", "read_artifact", "update_artifact", "update_profile", "update_board"} {
 		allowed = append(allowed, yargptTool(t))
 	}
 

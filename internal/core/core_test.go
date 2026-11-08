@@ -123,7 +123,7 @@ func TestReplaceFactSwapsTheOldFactForTheNewOne(t *testing.T) {
 	bot := newTestBot(t, svc)
 	facts := func() []string {
 		t.Helper()
-		ms, err := svc.Memories(ctx, bot.ID)
+		ms, err := svc.Memories(ctx, bot.ID, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -134,18 +134,18 @@ func TestReplaceFactSwapsTheOldFactForTheNewOne(t *testing.T) {
 		sort.Strings(out)
 		return out
 	}
-	if _, err := svc.WriteFact(ctx, bot.ID, ScopeAgent, TierProfile, "Post GIFs as links."); err != nil {
+	if _, err := svc.WriteFact(ctx, bot.ID, "", ScopeAgent, TierProfile, "Post GIFs as links."); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := svc.ReplaceFact(ctx, bot.ID, ScopeAgent, TierProfile, "Post GIFs  as links.", "Post GIFs as files, never as links."); err != nil {
+	if err := svc.ReplaceFact(ctx, bot.ID, "", ScopeAgent, TierProfile, "Post GIFs  as links.", "Post GIFs as files, never as links."); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	if got, want := strings.Join(facts(), " | "), "profile: Post GIFs as files, never as links."; got != want {
 		t.Fatalf("facts after replace = %q; want %q", got, want)
 	}
 
-	err := svc.ReplaceFact(ctx, bot.ID, ScopeAgent, TierProfile, "No such rule.", "A new rule.")
+	err := svc.ReplaceFact(ctx, bot.ID, "", ScopeAgent, TierProfile, "No such rule.", "A new rule.")
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("replace of a missing fact: err = %v; want ErrInvalid", err)
 	}
@@ -158,7 +158,7 @@ func TestFactsRecordWhetherTheUserOrABotWroteThem(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 	bot := newTestBot(t, svc)
-	if _, err := svc.WriteFact(ctx, bot.ID, ScopeUser, TierProfile, "Post GIFs in Random."); err != nil {
+	if _, err := svc.WriteFact(ctx, bot.ID, "", ScopeUser, TierProfile, "Post GIFs in Random."); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.AddUserFact(ctx, bot.ID, ScopeAgent, TierProfile, "Ask before you merge."); err != nil {
@@ -167,7 +167,7 @@ func TestFactsRecordWhetherTheUserOrABotWroteThem(t *testing.T) {
 	if err := svc.AddUserFact(ctx, bot.ID, ScopeUser, TierProfile, "Post GIFs  in Random."); err != nil {
 		t.Fatalf("user confirms a bot's fact: %v", err)
 	}
-	ms, err := svc.Memories(ctx, bot.ID)
+	ms, err := svc.Memories(ctx, bot.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,10 +179,10 @@ func TestFactsRecordWhetherTheUserOrABotWroteThem(t *testing.T) {
 	if len(got) != len(want) || got["Ask before you merge."] != want["Ask before you merge."] || got["Post GIFs in Random."] != want["Post GIFs in Random."] {
 		t.Fatalf("facts by author = %v; want %v (a fact the user adds is the user's, also when a bot wrote it first)", got, want)
 	}
-	if _, err := svc.WriteFact(ctx, bot.ID, ScopeAgent, TierLog, "Bot note."); err != nil {
+	if _, err := svc.WriteFact(ctx, bot.ID, "", ScopeAgent, TierLog, "Bot note."); err != nil {
 		t.Fatal(err)
 	}
-	ms, _ = svc.Memories(ctx, bot.ID)
+	ms, _ = svc.Memories(ctx, bot.ID, "")
 	for _, m := range ms {
 		if m.Fact == "Bot note." && m.LearnedBy != bot.ID {
 			t.Fatalf("bot fact learned by %q; want the bot id %s", m.LearnedBy, bot.ID)
@@ -203,29 +203,29 @@ func TestMemoryWriteDedupesRecallRanksAndForget(t *testing.T) {
 		{ScopeAgent, TierLog, "The user asked for a flight to Lisbon in March."},
 		{ScopeAgent, TierLog, "Ticket ABC-123 is blocked."},
 	} {
-		if created, err := svc.WriteFact(ctx, bot.ID, f.scope, f.tier, f.fact); err != nil || !created {
+		if created, err := svc.WriteFact(ctx, bot.ID, "", f.scope, f.tier, f.fact); err != nil || !created {
 			t.Fatalf("write %q: created=%v err=%v", f.fact, created, err)
 		}
 	}
-	if created, err := svc.WriteFact(ctx, bot.ID, ScopeUser, TierProfile, "The  user lives in Lisbon."); err != nil || created {
+	if created, err := svc.WriteFact(ctx, bot.ID, "", ScopeUser, TierProfile, "The  user lives in Lisbon."); err != nil || created {
 		t.Fatalf("duplicate write: created=%v err=%v; want created=false", created, err)
 	}
 
-	got, err := svc.Recall(ctx, bot.ID, "flight Lisbon", "all", 10)
+	got, err := svc.Recall(ctx, bot.ID, "", "flight Lisbon", "all", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 || got[0].Fact != "The user asked for a flight to Lisbon in March." {
 		t.Fatalf("recall flight Lisbon = %+v; want the flight fact first, then the home fact", got)
 	}
-	got, err = svc.Recall(ctx, bot.ID, "BC-12", "agent", 10)
+	got, err = svc.Recall(ctx, bot.ID, "", "BC-12", "agent", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Fact != "Ticket ABC-123 is blocked." {
 		t.Fatalf("substring recall = %+v; want the ticket fact", got)
 	}
-	got, err = svc.Recall(ctx, bot.ID, "Lisbon", "user", 10)
+	got, err = svc.Recall(ctx, bot.ID, "", "Lisbon", "user", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,10 +233,10 @@ func TestMemoryWriteDedupesRecallRanksAndForget(t *testing.T) {
 		t.Fatalf("user-scope recall = %+v; want only the shared fact", got)
 	}
 
-	if ok, err := svc.ForgetFact(ctx, bot.ID, ScopeAgent, "Ticket ABC-123 is blocked."); err != nil || !ok {
+	if ok, err := svc.ForgetFact(ctx, bot.ID, "", ScopeAgent, "Ticket ABC-123 is blocked."); err != nil || !ok {
 		t.Fatalf("forget: ok=%v err=%v", ok, err)
 	}
-	if got, _ := svc.Recall(ctx, bot.ID, "ticket", "all", 10); len(got) != 0 {
+	if got, _ := svc.Recall(ctx, bot.ID, "", "ticket", "all", 10); len(got) != 0 {
 		t.Fatalf("recall after forget = %+v; want none", got)
 	}
 }
@@ -246,13 +246,13 @@ func TestMemorySharedUserScopeIsVisibleToOtherBots(t *testing.T) {
 	svc := newTestService(t)
 	a := newTestBot(t, svc)
 	b := newTestBot(t, svc)
-	if _, err := svc.WriteFact(ctx, a.ID, ScopeUser, TierProfile, "The user's name is Ana."); err != nil {
+	if _, err := svc.WriteFact(ctx, a.ID, "", ScopeUser, TierProfile, "The user's name is Ana."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.WriteFact(ctx, a.ID, ScopeAgent, TierLog, "Only bot A knows this."); err != nil {
+	if _, err := svc.WriteFact(ctx, a.ID, "", ScopeAgent, TierLog, "Only bot A knows this."); err != nil {
 		t.Fatal(err)
 	}
-	profile, recent, err := svc.PromptMemory(ctx, b.ID)
+	profile, recent, err := svc.PromptMemory(ctx, b.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,11 +267,11 @@ func TestNotesFadeAfterTheirLifetime(t *testing.T) {
 	bot := newTestBot(t, svc)
 	base := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return base }
-	if _, err := svc.WriteFact(ctx, bot.ID, ScopeAgent, TierNote, "Short-lived context."); err != nil {
+	if _, err := svc.WriteFact(ctx, bot.ID, "", ScopeAgent, TierNote, "Short-lived context."); err != nil {
 		t.Fatal(err)
 	}
 	svc.now = func() time.Time { return base.Add(8 * 24 * time.Hour) }
-	if got, err := svc.Memories(ctx, bot.ID); err != nil || len(got) != 0 {
+	if got, err := svc.Memories(ctx, bot.ID, ""); err != nil || len(got) != 0 {
 		t.Fatalf("memories after 8 days = %+v, %v; want none", got, err)
 	}
 }
@@ -690,5 +690,36 @@ func TestRecoverAfterRestartClosesOpenCardsAndToolCalls(t *testing.T) {
 		if body["status"] != want {
 			t.Errorf("entry %s status = %v; want %s", e.Kind, body["status"], want)
 		}
+	}
+}
+
+func TestWriteAndReplaceFactRejectBadTiersAndEmptyFacts(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	bot := newTestBot(t, svc)
+	if _, err := svc.WriteFact(ctx, bot.ID, "", ScopeAgent, "", "A rule."); err != nil {
+		t.Fatal(err)
+	}
+	if ms, _ := svc.Memories(ctx, bot.ID, ""); len(ms) != 1 || ms[0].Tier != TierLog {
+		t.Fatalf("facts = %+v; want one fact in the default tier %q", ms, TierLog)
+	}
+	if _, err := svc.WriteFact(ctx, bot.ID, "", ScopeAgent, "forever", "Another rule."); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("WriteFact with tier forever: err = %v; want ErrInvalid", err)
+	}
+	for name, args := range map[string][3]string{
+		"an unknown tier": {"forever", "A rule.", "A new rule."},
+		"an empty old":    {"", " ", "A new rule."},
+		"an empty fact":   {"", "A rule.", " "},
+		"a missing old":   {"", "No such rule.", "A new rule."},
+	} {
+		if err := svc.ReplaceFact(ctx, bot.ID, "", ScopeAgent, args[0], args[1], args[2]); !errors.Is(err, ErrInvalid) {
+			t.Errorf("ReplaceFact with %s: err = %v; want ErrInvalid", name, err)
+		}
+	}
+	if err := svc.ReplaceFact(ctx, bot.ID, "", ScopeAgent, "", "A rule.", "A new rule."); err != nil {
+		t.Fatal(err)
+	}
+	if ms, _ := svc.Memories(ctx, bot.ID, ""); len(ms) != 1 || ms[0].Fact != "A new rule." || ms[0].Tier != TierLog {
+		t.Fatalf("facts after the replace = %+v; want only the new fact in tier %q", ms, TierLog)
 	}
 }

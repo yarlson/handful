@@ -86,7 +86,7 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 	if err != nil {
 		return outcome{}, err
 	}
-	c := &command{turn: t, rc: runContext{BotID: bot.ID, BotName: bot.Name, TurnID: t.ID, RoomID: key.roomID, Hops: t.Hops}, done: make(chan outcome, 1)}
+	c := &command{turn: t, rc: runContext{BotID: bot.ID, BotName: bot.Name, TurnID: t.ID, RoomID: key.roomID, Hops: t.Hops, BoardRole: t.BoardRole, UserPost: t.FromUserPost()}, done: make(chan outcome, 1)}
 	s, err := r.claimSession(ctx, key, bot, c, startArgs)
 	if err != nil {
 		return outcome{}, err
@@ -134,6 +134,10 @@ func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot,
 }
 
 func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, string, error)) (*session, error) {
+	dir, err := r.svc.TurnWorkspace(context.Background(), key.botID, key.roomID)
+	if err != nil {
+		return nil, err
+	}
 	token, err := r.tokens.issue(c.rc)
 	if err != nil {
 		return nil, err
@@ -147,7 +151,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// stopSessions at shutdown, end it.
 	ctx, kill := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, r.cfg.ClaudePath, args...)
-	cmd.Dir = r.svc.Workspace(bot.ID)
+	cmd.Dir = dir
 	// Bundled skills such as "schedule" create cloud routines, which compete with YarGPT's own routines.
 	// The silent-turn reminder tells the model that the user waits for news,
 	// which is wrong for hidden routine and agent turns.

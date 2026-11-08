@@ -14,7 +14,7 @@
 
 - A bot has a name (at most 80 characters) and instructions (at most 8000 characters). It works in its own folder, `~/.yargpt/bots/<bot id>`. The bot id is the last part of the chat address, `/chat/<bot id>`.
 - A new bot starts and introduces itself in its chat.
-- Each piece of work is a turn. A turn starts from a message of yours, a routine, a message from another bot, a room post, a compaction, a bot's first start, or a background task that reported.
+- Each piece of work is a turn. A turn starts from a message of yours, a routine, a message from another bot, a room post, a change on a team's board, a compaction, a bot's first start, or a background task that reported.
 - A bot runs one turn at a time. Other turns wait in its queue. Across all bots, at most 3 turns run at the same time (`-max-parallel`).
 - A bot's turns share one Claude Code session, which each turn resumes. In each room, a member has a separate session.
 - The model's plain text is private. You see only what the bot sends with the `send_to_user` tool. When a turn ends without a message, the chat shows the model's final text, marked as a fallback.
@@ -44,9 +44,10 @@
 
 ## Memory
 
-- Two scopes:
+- Three scopes:
   - `agent`: the bot's own memory.
   - `user`: facts about you, shared with every bot ("Shared with all bots" in the UI).
+  - `team`: facts of a team, shared by its members in the team's turns only. See [Teams](#teams).
 - Three tiers:
   - `profile`: always in mind. The bot sees these facts on every turn ("Always in mind" in the UI).
   - `log`: the journal, with dates. The bot searches it when it needs to. This is the default tier.
@@ -54,7 +55,7 @@
 - A fact is one sentence of at most 500 characters.
 - Each fact records who wrote it: you or a bot. A bot treats a standing rule as yours only when you wrote the fact.
 - Bots save facts on their own. You can see, add and delete facts in the bot panel under **Memory**.
-- Rooms have no memory of their own.
+- A plain room has no memory of its own.
 
 ## Routines
 
@@ -104,6 +105,70 @@ How members answer:
 
 Bots can hand work to each other in a room. For example, an Implementer bot @mentions a Reviewer, the Reviewer @mentions a Fixer, and the Fixer @mentions a Merger.
 
+## Teams
+
+A team is a room with a lead, a working agreement and a shared folder: a group of bots that work together for you. To create one, click **+** next to **Teams**, give the team a name and a purpose, choose its members and its lead, and write the working agreement. Without a choice, the first member leads.
+
+Who wakes up:
+
+- Your message wakes the members that it @mentions. A message without mentions wakes only the lead. `@here` wakes every member.
+- A bot's post wakes only the members that it @mentions, as in a room.
+
+How the team works:
+
+- The lead is the team's front door. It answers your message itself, or @mentions the member who should do the work.
+- The working agreement holds your rules for how the team works and when work is done. In a team turn, it overrides the member's standing instructions on how work is done and checked. The fixed safety rules still apply.
+- Every turn in the team runs in the team's shared folder, `~/.yargpt/teams/<team id>/workspace`, which links the shared skills like a bot's workspace. A file that a member posts in the team must be in this folder, the media folder or a temp folder.
+- In a team turn, the prompt shows the team, its purpose, members, lead and working agreement, and no other bot or room. `send_to_agent` accepts only the team's own id there: a member talks to its team in the team's channel.
+- Team memory (scope `team`) reaches the members only in the team's turns. You can see and add team facts in the team panel under **Memory**.
+- When the lead leaves the team, the first member leads. When the chosen lead comes back, it leads again.
+- A bot can be in several teams. It keeps one Claude Code session for each team, as for each room.
+- Deleting a team deletes its conversation, its team memory, its goals and its shared folder. The member bots stay.
+
+### Goals and the board
+
+A goal is work for the team with several steps. You start one with **New goal** above the team's chat. The lead can also start one with `update_board` `start_goal`, but only in a turn that a post of yours woke. A team has at most one open goal.
+
+- The lead splits the goal into items with `create`. An item has a title (unique in the goal, at most 120 characters), a brief, acceptance criteria, an owner, an optional reviewer who is another member, and the items that it depends on. A goal has at most 30 items that are not dropped. A member who does not lead can add an item without an owner: a proposal that the lead assigns. Only the lead adds items to a delivered goal.
+- Item states: `todo`, `doing`, `review`, `done`, `blocked` and `dropped`.
+- A `todo` item with an owner starts when every item that it depends on is `done` or `dropped`. Its owner's work turn then makes it `doing`. Items that are ready run at the same time.
+- The owner submits the result: the item goes to `review`, or to `done` without a reviewer. The reviewer passes it (`done`) or asks for changes (`doing` again, with the review's note). Every third request for changes blocks the item instead.
+- The owner of a `doing` item, or the reviewer of an item in review, can block it with a question. The lead answers with `unblock` and a note, and the item goes back to the state that it was blocked in. The lead can also `assign` a `todo` or a `blocked` item, which then starts again, and `drop` an item.
+- While a bot reviews an item in review in a team, the `approve` tool denies it Edit and Write in that team, before the tools that you always allow, in every turn. Bash can still change files.
+- Each change of an item runs in one transaction with the turns that it needs: the owner's work, the reviewer's check, or the work of items that waited for it. A change cancels the item's queued turns first.
+- The lead wakes when it must act: an item is blocked, an item has no owner, or no item is in flight. A change that a lead makes as the lead wakes no lead of its own team. A queued turn of the lead for the goal, or a queued chat turn of the lead, stands for the wake.
+- When a member leaves the team, or its bot is deleted, its queued turns in the team stop, its items wait for a new owner, and a review that it did not finish is blocked for the lead.
+- Every board turn shows the board in its message: the goal, its turns, and each item with its state, owner and reviewer. An item without an owner also shows its brief and acceptance criteria, and a done item its result, shortened. A work turn adds the item's brief, acceptance criteria, the results of the items that it builds on and the latest note. A review turn adds the result to check. The lead's turns add how to run the goal.
+- Each change of an item shows in the team's chat as an event.
+- In a team turn, the bot does not get the direct messages that wait for it: they wait for its next turn outside the team. `update_board` exists only in team turns.
+
+Delivery and acceptance:
+
+- When every item is `done` or `dropped`, and at least one is `done`, the lead calls `deliver` with the result. The goal is then `delivered`, and the result goes into the team's chat as the lead's message with `needsReply`.
+- You click **Accept** (`POST /api/goals/{id}/accept`): the goal is `done`, the chat shows your message "Accepted the goal.", and the lead gets one retro turn about that goal. In it, the lead is asked to save up to 5 lessons in team memory and can suggest a change to the working agreement. Only you change the agreement. The retro turn does not count against the budget.
+- To ask for changes instead, write in the team's chat. A new item from the lead opens the delivered goal again.
+
+Requests between teams:
+
+- A lead asks another team for work with `update_board` `request`, with the other team's `team_id`, a `title`, a `brief` and `acceptance`. Only a lead asks, and only for its team's active goal. The team that it asks must have members.
+- The request is an item of the asking goal whose `teamId` is the other team. It counts toward the goal's 30 items and needs a title that is unique in the goal. Its turns run in the other team and count against the asking goal's budget, and the asking goal cannot be delivered until it is done or dropped.
+- The other team's lead wakes to triage it, and sees its brief and acceptance criteria: `assign` gives it an owner and a reviewer of that team, and `drop` with a note declines it. The asking lead cannot assign or drop it.
+- The asking lead makes its items that need the result depend on the request with `depends_on`. They start when the request is done or dropped, and the result shows on the asking board.
+- The lead of the item's team wakes when the item is blocked or has no owner. The lead of the goal's team wakes when the goal has no work left in flight. So a declined or finished request wakes the asking lead when nothing else runs.
+- The team that does the work sees the request on its board. A turn of that team for the asking goal shows only the requests, not its own goal. The asking team sees it among its goal's items, with the other team's name. Each change of a request shows in both teams' chats.
+- In a team turn, the lead's prompt lists the user's other teams, with their purpose. A member talks only to its own team: `send_to_agent` still accepts only the team's own id.
+- Deleting a team deletes the requests that other teams sent to it, with the goals and the items of the team.
+
+Budget and stops:
+
+- A goal can use the team's `goalBudget` of turns, default 30: the board turns, that is the lead's turns, the work and the reviews. Each started board turn counts, except the retro turn. Chat turns, @mention turns and the turns that a background task starts do not count. At the budget, the goal pauses with an event, and the team's `attention` is `goal`. The team's `goalBudget` applies to the goals that start after a change.
+- A goal that leaves `active` (paused, delivered, done or ended) drops its queued turns. A queued turn of a goal that is over or gone is dropped when it would start.
+- **Add 10 turns** (`POST /api/goals/{id}/extend`) raises the budget, up to 500, and resumes a paused goal: the members whose items wait on them get their turns again, and the lead wakes.
+- **Stop** in the team's chat pauses the team's active goal, blocks the requests of other teams that wait on one of its members (without a turn of its lead), then stops the turns.
+- **End goal** closes the goal, drops its queued turns, and stops its running turns in every team.
+- Before each dispatch, YarGPT blocks an item of an active goal that waits on a member who has no queued or running turn for it and no running process in the team, for example after a failed turn, a turn that ended without a submit, or a restart. The lead then wakes. It also wakes the lead of an active goal that has nothing in flight and no open turn, when the goal's last turn did not end well, unless the lead has a turn in the team.
+- Board turns run in at most `maxParallel - 1` slots, and in at least 1. A conversation turn in a team runs beside the item work of other members.
+
 ## Bots that message each other
 
 - A bot sends a direct message to another bot with the `send_to_agent` tool. Each bot's prompt lists the other bots and the rooms it is in, with their ids.
@@ -122,7 +187,7 @@ Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a bearer t
   - `text`: markdown. It can be empty when files are attached.
   - `files`: up to 4 paths of images or videos.
   - `needs_reply`: true when the bot cannot continue without an answer. The app then shows that the bot waits for you.
-- `send_to_agent`: message another bot, or post into a room that the bot is in.
+- `send_to_agent`: message another bot, or post into a room that the bot is in. In a team turn, only the team's own id is allowed.
   - `target_id`: the id of a bot, or of a room.
   - `message`: at most 8000 characters.
   - `priority`: true wakes the bot now. False delivers at its next turn. Room posts always land at once.
@@ -134,12 +199,12 @@ Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a bearer t
   - Reading does not change what the bot's next room turn shows as new.
 - `recall_memory`: search the bot's memory and the shared user memory.
   - `query`: facts that share more words rank first.
-  - `scope`: `agent`, `user` or `all` (default).
+  - `scope`: `agent`, `user`, `team` (only in a team turn) or `all` (default). In a team turn, `all` includes the team's facts.
   - `limit`: 1 to 50, default 20.
 - `update_memory`: write or forget a fact.
   - `action`: `write` or `forget`.
   - `fact`: for forget, the exact recorded text.
-  - `scope`: `agent` (default) or `user`.
+  - `scope`: `agent` (default), `user` or `team` (only in a team turn).
   - `tier`: `profile`, `log` (default) or `note`.
   - `replaces`: the exact text of a fact that the new fact replaces.
 - `update_routine`: manage the bot's own routines.
@@ -163,6 +228,13 @@ Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a bearer t
   - `kind`, `title`, `content`: required to create. When the bot changes an artifact, a field that it leaves out stays the same.
   - `tags`, `links`: replace the old tags or links.
 - `update_profile`: change the bot's own `name` or `instructions`. A field that the bot leaves out stays the same.
+- `update_board`: work on the team's board, only in a turn in the team. See [Goals and the board](#goals-and-the-board).
+  - `action`: `list`, `start_goal`, `create`, `assign`, `submit`, `block`, `unblock`, `drop`, `pass`, `changes`, `deliver` or `request`.
+  - `item_id`: the item, for every action except `list`, `start_goal`, `create`, `deliver` and `request`.
+  - `team_id`: for `request`, the team to ask.
+  - `text`: the goal, the result, the question, the answer, a note, or for `deliver` the result for the user.
+  - `title`, `brief`, `acceptance`: for `create` and `request`. `depends_on`: for `create`.
+  - `owner_id`, `reviewer_id`: for `create` and `assign`, by the lead only.
 - `approve`: internal. Claude Code calls it through `--permission-prompt-tool` to show an approval card.
 
 ## Global instructions
@@ -258,7 +330,7 @@ The data folder holds:
 
 ## How a turn runs
 
-- The server starts `claude -p` in the bot's working folder and sends the prompt on stdin as stream-json.
+- The server starts `claude -p` in the bot's working folder, or for a team turn in the team's shared folder, and sends the prompt on stdin as stream-json.
 - The process runs with `--setting-sources project`, `--strict-mcp-config`, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`.
 - The built-in tools are limited to Task, Bash, Monitor, TaskStop, Read, Edit, Write, Glob, Grep, WebSearch and Skill.
 - YarGPT writes each process's MCP config to a 0600 file in `~/.yargpt/run`, so no token shows in the process list. It removes the file when the process exits.
@@ -277,16 +349,16 @@ Rules for every request:
 - There is no authentication beyond these rules.
 - An error is JSON: `{"error": "<message>"}`. Status 400 means invalid input, 404 not found, and 409 a conflict, for example an approval that is no longer pending.
 
-Bots and rooms are the same resource. `kind` is `agent` for a bot and `room` for a room.
+Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `room` for a room or a team. A team also has `team`.
 
 Bots:
 
-- `GET /api/bots`: all bots and rooms. Each has `id`, `kind`, `name`, `instructions`, `members` (rooms), `attention` (`approval` or `question`), `running`, `tasks`, `createdAt` and `updatedAt`.
+- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `members` (rooms), `team` (teams: `leadId`, `agreement` and `goalBudget`), `attention` (`approval`, `question`, or for a team with a paused goal `goal`), `running`, `tasks`, `createdAt` and `updatedAt`.
 - `POST /api/bots` with `{"name", "instructions"}`: create a bot. Returns 201 and the bot.
 - `GET /api/bots/{id}`: one bot or room.
 - `PATCH /api/bots/{id}` with `{"name"?, "instructions"?}`: change a bot.
 - `DELETE /api/bots/{id}`: stop the bot's running turn, then delete it. Returns 204.
-- `PUT /api/bots/order` with `{"ids": [...]}`: set the order of one sidebar section, all bots or all rooms. Room members answer in the order of the bots section.
+- `PUT /api/bots/order` with `{"ids": [...]}`: set the order of one sidebar section: all bots, all teams or all plain rooms. Room members answer in the order of the bots section.
 
 Chats:
 
@@ -319,10 +391,21 @@ Rooms:
 - `PUT /api/rooms/{id}/members` with `{"memberIds"}`: set the members.
 - Send a message to a room with `POST /api/bots/{room id}/messages`.
 
+Teams:
+
+- `POST /api/teams` with `{"name", "instructions", "memberIds", "leadId"?, "agreement"?, "goalBudget"?}`: create a team. `instructions` is its purpose. Without `leadId`, the first member leads. `goalBudget` is 1 to 500 turns, default 30. Returns 201 and the team.
+- `PATCH /api/teams/{id}` with `{"leadId"?, "agreement"?, "goalBudget"?}`: change a team. The lead must be a member.
+- Set the members with `PUT /api/rooms/{team id}/members`, and change the name or the purpose with `PATCH /api/bots/{team id}`.
+- `GET /api/teams/{id}/board`: the open goal, or the latest goal, with its items, and the open requests of other teams: `{"goal", "items", "requests", "teams"}`. `goal` is null when the team has had no goal. Each request is an item with `fromTeamId`. `teams` maps the ids of the other teams on the board to their names. A goal has `id`, `teamId`, `text`, `state` (`active`, `delivered`, `paused`, `done` or `ended`), `budget`, `used` and `createdAt`. An item has `id`, `teamId`, `goalId`, `title`, `brief`, `acceptance`, `state`, `ownerId`, `reviewerId`, `dependsOn`, `result`, `note`, `blockedFrom` (for a blocked item, the state it was blocked in), `reviewRounds`, `createdBy` and `updatedAt`.
+- `POST /api/teams/{id}/goals` with `{"text"}`: start a goal and wake the lead. Returns 201 and the goal, or 400 when the team has an open goal.
+- `POST /api/goals/{id}/extend` with `{"turns"}`: add turns, and resume a paused goal. Returns the goal.
+- `POST /api/goals/{id}/end`: end the goal and stop its turns in every team. Returns 204.
+- `POST /api/goals/{id}/accept`: accept a delivered goal. Returns the goal, now `done`, or 400 when the goal is not delivered.
+
 Memory, routines, approvals and permissions:
 
-- `GET /api/bots/{id}/memory`: the facts that the bot sees. Each has `id`, `scope`, `tier`, `fact`, `learnedBy` (`user` or a bot id) and `createdAt`.
-- `POST /api/bots/{id}/memory` with `{"scope", "tier", "fact"}`: add a fact as the user. Returns 204.
+- `GET /api/bots/{id}/memory`: the facts that the bot sees outside teams, or for a team id its team facts and the user facts. Each has `id`, `scope`, `tier`, `fact`, `learnedBy` (`user` or a bot id) and `createdAt`.
+- `POST /api/bots/{id}/memory` with `{"scope", "tier", "fact"}`: add a fact as the user. Returns 204. For a team, `scope` is `team` or `user`.
 - `DELETE /api/memory/{id}`: delete a fact.
 - `GET /api/bots/{id}/routines`: the bot's routines. Each has `id`, `botId`, `name`, `prompt`, `schedule`, `enabled`, `nextRunAt`, `lastRunAt`, `lastRunBy` and `createdAt`.
 - `POST /api/bots/{id}/routines` with `{"name", "prompt", "schedule"}`: create a routine. Returns 201.

@@ -53,8 +53,8 @@ SELECT COUNT(*) FROM entries WHERE turn_id = ? AND kind = 'bot';
 SELECT body FROM entries WHERE bot_id = ? AND turn_id = ? AND kind = 'user' LIMIT 1;
 
 -- name: InsertTurn :one
-INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, hops, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, hops, goal_id, item_id, board_role, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: InsertRunningTurn :one
@@ -68,7 +68,7 @@ SELECT * FROM turns WHERE bot_id = ? AND client_nonce = ?;
 -- name: ListQueuedTurns :many
 SELECT * FROM turns WHERE status = 'queued' ORDER BY created_at, rowid LIMIT ?;
 
--- name: StartTurn :exec
+-- name: StartTurn :execrows
 UPDATE turns SET status = 'running', started_at = ? WHERE id = ? AND status = 'queued';
 
 -- name: FinishTurn :exec
@@ -92,10 +92,10 @@ DELETE FROM memories WHERE id = ?;
 
 -- name: ListMemoriesForBot :many
 SELECT * FROM memories
-WHERE scope_key IN (sqlc.arg(bot_id), 'user')
+WHERE scope_key IN (sqlc.arg(bot_id), 'user', sqlc.arg(team_key))
 ORDER BY created_at DESC;
 
--- name: DeleteAgentMemories :exec
+-- name: DeleteMemoriesInScope :exec
 DELETE FROM memories WHERE scope_key = ?;
 
 -- name: PruneNotes :execrows
@@ -252,3 +252,125 @@ LIMIT sqlc.arg(max_rows);
 SELECT artifact_id, tag FROM artifact_tags
 WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
+
+-- name: CreateTeam :exec
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget) VALUES (?, ?, ?, ?);
+
+-- name: GetTeam :one
+SELECT * FROM teams WHERE team_id = ?;
+
+-- name: ListTeams :many
+SELECT * FROM teams;
+
+-- name: UpdateTeam :exec
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ? WHERE team_id = ?;
+
+-- name: InsertGoal :one
+INSERT INTO goals (id, team_id, text, state, budget, created_at)
+VALUES (?, ?, ?, 'active', ?, ?)
+RETURNING *;
+
+-- name: GetGoal :one
+SELECT * FROM goals WHERE id = ?;
+
+-- name: GetLatestGoal :one
+SELECT * FROM goals WHERE team_id = ?
+ORDER BY state IN ('active', 'delivered', 'paused') DESC, created_at DESC, rowid DESC
+LIMIT 1;
+
+-- name: ListOpenGoals :many
+SELECT * FROM goals WHERE state IN ('active', 'delivered', 'paused') ORDER BY created_at, rowid;
+
+-- name: SetGoalState :execrows
+UPDATE goals SET state = sqlc.arg(state)
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
+-- name: SetGoalBudget :exec
+UPDATE goals SET budget = ? WHERE id = ?;
+
+-- name: PauseGoalAtBudget :execrows
+UPDATE goals SET state = 'paused'
+WHERE id = sqlc.arg(id) AND state = 'active' AND budget <= sqlc.arg(used);
+
+-- name: CountGoalTurns :one
+SELECT COUNT(*) FROM turns
+WHERE goal_id = ? AND started_at IS NOT NULL AND board_role <> 'retro';
+
+-- name: CancelQueuedGoalTurns :exec
+UPDATE turns SET status = 'interrupted', error = 'the goal ended', finished_at = ?
+WHERE goal_id = ? AND status = 'queued';
+
+-- name: InsertItem :one
+INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, position, created_at, updated_at)
+VALUES (
+  sqlc.arg(id), sqlc.arg(team_id), sqlc.arg(goal_id), sqlc.arg(title), sqlc.arg(brief), sqlc.arg(acceptance), 'todo',
+  sqlc.arg(owner_id), sqlc.arg(reviewer_id), sqlc.arg(depends_on), sqlc.arg(created_by),
+  (SELECT COALESCE(MAX(i.position), 0) + 1 FROM items i WHERE i.goal_id = sqlc.arg(goal_id)),
+  sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetItem :one
+SELECT * FROM items WHERE id = ?;
+
+-- name: ListGoalItems :many
+SELECT * FROM items WHERE goal_id = ? ORDER BY position;
+
+-- name: UpdateItem :execrows
+UPDATE items
+SET state = sqlc.arg(state), owner_id = sqlc.arg(owner_id), reviewer_id = sqlc.arg(reviewer_id),
+    result = sqlc.arg(result), note = sqlc.arg(note), blocked_from = sqlc.arg(blocked_from),
+    review_rounds = sqlc.arg(review_rounds), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
+-- name: StartItem :execrows
+UPDATE items SET state = 'doing', updated_at = ?
+WHERE id = ? AND owner_id = ? AND state IN ('todo', 'doing');
+
+-- name: ListMemberItems :many
+SELECT i.* FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = sqlc.arg(team_id) AND (i.owner_id = sqlc.arg(bot_id) OR i.reviewer_id = sqlc.arg(bot_id))
+  AND i.state NOT IN ('done', 'dropped') AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid;
+
+-- name: CountReviewsBy :one
+SELECT COUNT(*) FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = ? AND i.reviewer_id = ? AND i.state = 'review' AND g.state IN ('active', 'delivered', 'paused');
+
+-- name: CancelQueuedTurnsOfBotInRoom :exec
+UPDATE turns SET status = 'interrupted', error = 'the bot left the team', finished_at = ?
+WHERE bot_id = ? AND room_id = ? AND status = 'queued';
+
+-- name: CountOpenGoalTurns :one
+SELECT COUNT(*) FROM turns WHERE goal_id = ? AND status IN ('queued', 'running');
+
+-- name: LastGoalTurnStatus :one
+SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running')
+ORDER BY created_at DESC, rowid DESC LIMIT 1;
+
+-- name: CountOpenTurnsOfBotInRoom :one
+SELECT COUNT(*) FROM turns WHERE bot_id = ? AND room_id = ? AND status IN ('queued', 'running');
+
+-- name: CancelTurn :exec
+UPDATE turns SET status = 'interrupted', error = ?, finished_at = ? WHERE id = ? AND status = 'queued';
+
+-- name: CancelQueuedItemTurns :exec
+UPDATE turns SET status = 'interrupted', error = 'the item changed', finished_at = ?
+WHERE item_id = ? AND status = 'queued';
+
+-- name: CountOpenItemTurns :one
+SELECT COUNT(*) FROM turns
+WHERE item_id = ? AND bot_id = ? AND status IN ('queued', 'running');
+
+-- name: CountQueuedLeadTurns :one
+SELECT COUNT(*) FROM turns
+WHERE bot_id = ? AND room_id = ? AND item_id = '' AND status = 'queued'
+  AND (goal_id = ? OR goal_id = '') AND board_role <> 'retro';
+
+-- name: ListTeamsWithPausedGoals :many
+SELECT team_id FROM goals WHERE state = 'paused';
+
+-- name: ListTeamRequests :many
+SELECT sqlc.embed(i), g.team_id AS from_team_id FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = sqlc.arg(team_id) AND g.team_id <> sqlc.arg(team_id) AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid;

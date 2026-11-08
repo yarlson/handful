@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Play, Trash2 } from "lucide-react"
-import { api, type Artifact, type Bot, type Memory, type Routine, type Skill } from "@/lib/api"
+import { api, type Artifact, type Bot, type Memory, type Routine, type Skill, type TeamSettings } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
 import { latestOnly } from "@/lib/latest"
 import { MarkdownText } from "@/components/chat"
@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { BoardTab } from "@/components/board"
 
 function when(ms: number | null) {
   return ms
@@ -35,7 +36,7 @@ function when(ms: number | null) {
 
 // useLoad fetches data and fetches it again whenever key changes. Only the
 // newest request's result applies, and a success clears an earlier error.
-function useLoad<T>(load: () => Promise<T>, key: string) {
+export function useLoad<T>(load: () => Promise<T>, key: string) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const loadRef = useRef(load)
@@ -60,9 +61,10 @@ function AddFactForm({ bot, onAdded, onError }: { bot: Bot; onAdded: () => void;
   const [fact, setFact] = useState("")
   const [shared, setShared] = useState(false)
   const [always, setAlways] = useState(true)
+  const own = bot.team ? "team" : "agent"
   const add = async () => {
     try {
-      await api.addMemory(bot.id, { scope: shared ? "user" : "agent", tier: always ? "profile" : "log", fact })
+      await api.addMemory(bot.id, { scope: shared ? "user" : own, tier: always ? "profile" : "log", fact })
       setFact("")
       onAdded()
     } catch (e) {
@@ -94,6 +96,8 @@ function AddFactForm({ bot, onAdded, onError }: { bot: Bot; onAdded: () => void;
   )
 }
 
+const scopeLabel: Record<Memory["scope"], string> = { agent: "this bot", team: "this team", user: "shared" }
+
 function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
   const { data, error, reload, setError } = useLoad(() => api.memory(bot.id), `${bot.id}:${version}`)
   const remove = async (id: string) => {
@@ -109,7 +113,10 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
       <AddFactForm bot={bot} onAdded={reload} onError={setError} />
       {error && <p className="text-destructive text-xs">{error}</p>}
       {data?.length === 0 && (
-        <p className="text-muted-foreground text-sm">Nothing remembered yet. {bot.name} saves facts as you talk.</p>
+        <p className="text-muted-foreground text-sm">
+          Nothing remembered yet.{" "}
+          {bot.team ? "The members save team facts as they work." : `${bot.name} saves facts as you talk.`}
+        </p>
       )}
       {data?.map((m: Memory) => (
         <div key={m.id} className="group flex items-start gap-2 rounded-md border p-2 text-sm">
@@ -119,7 +126,7 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
               <Badge variant={m.tier === "profile" ? "default" : "secondary"}>
                 {m.tier === "log" ? "journal" : m.tier}
               </Badge>
-              <Badge variant="outline">{m.scope === "user" ? "shared" : "this bot"}</Badge>
+              <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
               {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
               <span className="text-muted-foreground text-xs">{new Date(m.createdAt).toLocaleDateString()}</span>
             </div>
@@ -390,7 +397,9 @@ function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p className="text-muted-foreground text-xs">
-        Members take turns in the room. A post wakes the members it @mentions, or all members when it mentions none.
+        {room.team
+          ? "A post from you wakes the members it @mentions, or the lead when it mentions none. @here wakes every member."
+          : "Members take turns in the room. A post wakes the members it @mentions, or all members when it mentions none."}
       </p>
       {agents.map((a) => (
         <label key={a.id} className="flex items-center gap-2">
@@ -418,12 +427,95 @@ function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
   )
 }
 
+const deleteNote = {
+  bot: "This deletes its conversation, its own memory, its routines and its working directory. Shared memory and skills stay.",
+  room: "This deletes the room and its conversation. The member bots stay.",
+  team: "This deletes the team, its conversation, its team memory and its shared folder. The member bots stay.",
+}
+
+// TeamSettingsForm edits what a team adds to its room: the lead, the working
+// agreement and the turns per goal. Its key changes with the saved settings,
+// which resets it.
+function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSettings }) {
+  const [lead, setLead] = useState(settings.leadId)
+  const [agreement, setAgreement] = useState(settings.agreement)
+  const [budget, setBudget] = useState(String(settings.goalBudget))
+  const [message, setMessage] = useState<string | null>(null)
+  const save = async () => {
+    try {
+      const goalBudget = Number(budget)
+      if (!Number.isInteger(goalBudget) || goalBudget < 1 || goalBudget > 500) {
+        setMessage("Turns per goal must be a whole number from 1 to 500.")
+        return
+      }
+      // The lead goes only when it changed, so that a fallback lead does not replace the chosen one.
+      await api.updateTeam(team.id, { ...(lead !== settings.leadId && { leadId: lead }), agreement, goalBudget })
+      setMessage("Saved.")
+    } catch (e) {
+      setMessage((e as Error).message)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-3 border-t pt-3">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="team-settings-lead">Lead</Label>
+        <select
+          id="team-settings-lead"
+          className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
+          value={lead}
+          onChange={(e) => setLead(e.target.value)}
+        >
+          {(team.members ?? []).map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="team-settings-agreement">Working agreement</Label>
+        <Textarea
+          id="team-settings-agreement"
+          rows={5}
+          placeholder="How the team works and when work is done."
+          value={agreement}
+          onChange={(e) => setAgreement(e.target.value)}
+        />
+        <p className="text-muted-foreground text-xs">
+          In the team, it overrides each member's instructions on how work is done and checked.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="team-settings-budget">Turns per goal</Label>
+        <Input
+          id="team-settings-budget"
+          type="number"
+          min={1}
+          max={500}
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+        />
+        <p className="text-muted-foreground text-xs">
+          For the next goal. A goal pauses when its turns are used up; add turns above the chat.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={() => void save()}>
+          Save team
+        </Button>
+        {message && <span className="text-muted-foreground text-xs">{message}</span>}
+      </div>
+    </div>
+  )
+}
+
 function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
   const [name, setName] = useState(bot.name)
   const [instructions, setInstructions] = useState(bot.instructions)
   const [message, setMessage] = useState<string | null>(null)
   const [confirm, setConfirm] = useState(false)
   const isRoom = bot.kind === "room"
+  const what = bot.team ? "team" : isRoom ? "room" : "bot"
   const grants = useLoad(() => (isRoom ? Promise.resolve([]) : api.grants(bot.id)), `${bot.id}`)
   useEffect(() => {
     setName(bot.name)
@@ -466,6 +558,13 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
         </Button>
         {message && <span className="text-muted-foreground text-xs">{message}</span>}
       </div>
+      {bot.team && (
+        <TeamSettingsForm
+          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}`}
+          team={bot}
+          settings={bot.team}
+        />
+      )}
       <div className={isRoom ? "hidden" : "flex flex-col gap-1.5"}>
         <Label>Always allowed tools</Label>
         {grants.data?.length === 0 && (
@@ -488,18 +587,14 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
       </div>
       <div className="border-t pt-3">
         <Button size="sm" variant="destructive" onClick={() => setConfirm(true)}>
-          {isRoom ? "Delete room" : "Delete bot"}
+          Delete {what}
         </Button>
       </div>
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete {bot.name}?</DialogTitle>
-            <DialogDescription>
-              {isRoom
-                ? "This deletes the room and its conversation. The member bots stay."
-                : "This deletes its conversation, its own memory, its routines and its working directory. Shared memory and skills stay."}
-            </DialogDescription>
+            <DialogDescription>{deleteNote[what]}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirm(false)}>
@@ -532,15 +627,27 @@ export function BotPanel({
 }) {
   if (bot.kind === "room") {
     return (
-      <Tabs key={bot.id} defaultValue="members" className="flex h-full flex-col p-3">
+      <Tabs key={bot.id} defaultValue={bot.team ? "board" : "members"} className="flex h-full flex-col p-3">
         <TabsList className="w-full">
+          {bot.team && <TabsTrigger value="board">Board</TabsTrigger>}
           <TabsTrigger value="members">Members</TabsTrigger>
+          {bot.team && <TabsTrigger value="memory">Memory</TabsTrigger>}
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <div className="min-h-0 flex-1 overflow-y-auto pt-2">
           <TabsContent value="members">
             <MembersTab room={bot} agents={agents} />
           </TabsContent>
+          {bot.team && (
+            <TabsContent value="board">
+              <BoardTab team={bot} version={version} />
+            </TabsContent>
+          )}
+          {bot.team && (
+            <TabsContent value="memory">
+              <MemoryTab bot={bot} version={version} />
+            </TabsContent>
+          )}
           <TabsContent value="settings">
             <SettingsTab bot={bot} onDeleted={onDeleted} />
           </TabsContent>

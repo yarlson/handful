@@ -2,11 +2,15 @@ import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifac
 
 export type Member = { id: string; name: string }
 
+// TeamSettings is what a team adds to its room. leadId is the current lead.
+export type TeamSettings = { leadId: string; agreement: string; goalBudget: number }
+
 export type Bot = {
   id: string
   kind: "agent" | "room"
   members?: Member[]
-  attention?: "approval" | "question"
+  team?: TeamSettings
+  attention?: "approval" | "question" | "goal"
   name: string
   instructions: string
   createdAt: number
@@ -67,7 +71,7 @@ export type Entry =
 
 export type Memory = {
   id: string
-  scope: "agent" | "user"
+  scope: "agent" | "user" | "team"
   tier: "profile" | "log" | "note"
   fact: string
   learnedBy: string
@@ -100,6 +104,43 @@ export type Artifact = {
 }
 
 export type Skill = { id: string; name: string; description: string; body?: string }
+
+export type Goal = {
+  id: string
+  teamId: string
+  text: string
+  state: "active" | "delivered" | "paused" | "done" | "ended"
+  budget: number
+  used: number
+  createdAt: number
+}
+
+export type Item = {
+  id: string
+  teamId: string
+  goalId: string
+  title: string
+  brief: string
+  acceptance: string
+  state: "todo" | "doing" | "review" | "done" | "blocked" | "dropped"
+  ownerId: string
+  reviewerId: string
+  dependsOn: string[]
+  result: string
+  note: string
+  reviewRounds: number
+  updatedAt: number
+}
+
+// Board is a team's open goal, or its latest one, with the goal's items, and
+// the requests of other teams to it. An item of the goal with another teamId
+// is a request that the team asked of another team. teams names those teams.
+export type Board = {
+  goal: Goal | null
+  items: Item[]
+  requests: (Item & { fromTeamId: string })[]
+  teams: Record<string, string>
+}
 
 // Connector is an external MCP server. The API never returns its tokens or headers.
 export type Connector = {
@@ -143,6 +184,14 @@ export const api = {
   createRoom: (name: string, instructions: string, memberIds: string[]) =>
     request<Bot>("POST", "/api/rooms", { name, instructions, memberIds }),
   setRoomMembers: (id: string, memberIds: string[]) => request<Bot>("PUT", `/api/rooms/${id}/members`, { memberIds }),
+  createTeam: (team: { name: string; instructions: string; memberIds: string[]; leadId: string; agreement: string }) =>
+    request<Bot>("POST", "/api/teams", team),
+  updateTeam: (id: string, patch: Partial<TeamSettings>) => request<Bot>("PATCH", `/api/teams/${id}`, patch),
+  board: (id: string) => request<Board>("GET", `/api/teams/${id}/board`),
+  startGoal: (id: string, text: string) => request<Goal>("POST", `/api/teams/${id}/goals`, { text }),
+  extendGoal: (id: string, turns: number) => request<Goal>("POST", `/api/goals/${id}/extend`, { turns }),
+  endGoal: (id: string) => request<void>("POST", `/api/goals/${id}/end`, {}),
+  acceptGoal: (id: string) => request<Goal>("POST", `/api/goals/${id}/accept`, {}),
   updateBot: (id: string, patch: { name?: string; instructions?: string }) =>
     request<Bot>("PATCH", `/api/bots/${id}`, patch),
   deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),

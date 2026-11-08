@@ -50,6 +50,13 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger) ht
 	mux.HandleFunc("POST /api/bots/{id}/compact", s.compactContext)
 	mux.HandleFunc("POST /api/rooms", s.createRoom)
 	mux.HandleFunc("PUT /api/rooms/{id}/members", s.setRoomMembers)
+	mux.HandleFunc("POST /api/teams", s.createTeam)
+	mux.HandleFunc("PATCH /api/teams/{id}", s.updateTeam)
+	mux.HandleFunc("GET /api/teams/{id}/board", s.board)
+	mux.HandleFunc("POST /api/teams/{id}/goals", s.startGoal)
+	mux.HandleFunc("POST /api/goals/{id}/extend", s.extendGoal)
+	mux.HandleFunc("POST /api/goals/{id}/end", s.endGoal)
+	mux.HandleFunc("POST /api/goals/{id}/accept", s.acceptGoal)
 	mux.HandleFunc("GET /api/bots/{id}/memory", s.listMemory)
 	mux.HandleFunc("POST /api/bots/{id}/memory", s.addMemory)
 	mux.HandleFunc("DELETE /api/memory/{id}", s.deleteMemory)
@@ -216,7 +223,7 @@ func (s *server) createBot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, s.view(bot))
 }
 
-// reorderBots sets the order of one sidebar section (all bots or all rooms).
+// reorderBots sets the order of one sidebar section (all bots, teams or rooms).
 func (s *server) reorderBots(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		IDs []string `json:"ids"`
@@ -411,8 +418,110 @@ func (s *server) setRoomMembers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(room))
 }
 
+func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name         string   `json:"name"`
+		Instructions string   `json:"instructions"`
+		MemberIDs    []string `json:"memberIds"`
+		LeadID       string   `json:"leadId"`
+		Agreement    string   `json:"agreement"`
+		GoalBudget   int64    `json:"goalBudget"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	team, err := s.svc.CreateTeam(r.Context(), in.Name, in.Instructions, in.MemberIDs, core.TeamSettings{LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, s.view(team))
+}
+
+func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		LeadID     *string `json:"leadId"`
+		Agreement  *string `json:"agreement"`
+		GoalBudget *int64  `json:"goalBudget"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(team))
+}
+
+func (s *server) board(w http.ResponseWriter, r *http.Request) {
+	board, err := s.svc.Board(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, board)
+}
+
+func (s *server) startGoal(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Text string `json:"text"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	goal, err := s.svc.StartGoal(r.Context(), r.PathValue("id"), in.Text)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, goal)
+}
+
+// extendGoal adds turns to a goal's budget and resumes it when it is paused.
+func (s *server) extendGoal(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Turns int64 `json:"turns"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	goal, err := s.svc.ExtendGoal(r.Context(), r.PathValue("id"), in.Turns)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, goal)
+}
+
+// acceptGoal is the user's acceptance of a delivered goal.
+func (s *server) acceptGoal(w http.ResponseWriter, r *http.Request) {
+	goal, err := s.svc.AcceptGoal(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, goal)
+}
+
+// endGoal closes a goal and stops the turns that work for it, in every team.
+func (s *server) endGoal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.svc.EndGoal(r.Context(), id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.runner.CancelGoal(id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *server) listMemory(w http.ResponseWriter, r *http.Request) {
-	facts, err := s.svc.Memories(r.Context(), r.PathValue("id"))
+	facts, err := s.svc.PanelMemories(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.fail(w, r, err)
 		return

@@ -82,6 +82,7 @@ Bots remember facts across conversations. To see and edit them, open the bot pan
 
 - When you add a fact with **Always in mind**, the bot sees it on every turn. Without it, the fact goes to the bot's journal. The bot searches the journal when it needs to.
 - **Shared with all bots** gives the fact to every bot, not only this one.
+- A team has memory of its own too: see [Teams](#teams).
 - Bots also save facts on their own. They can also save short-term notes, which expire after 7 days.
 - Each fact shows who wrote it. A bot treats a standing rule as yours only when the fact is from you.
 
@@ -116,6 +117,50 @@ To create one, click **+** next to **Rooms**, then give the room a name and choo
 So bots can hand work to each other. In this room, four bots ship a change, and each one @mentions the next:
 
 ![A room in dark mode: Implementer, Reviewer, Fixer and Merger ship a change by mentioning each other](assets/screenshot-dev-dark.png)
+
+### Teams
+
+A team is a group of bots that work together for you, with a lead, a working agreement and a shared folder. Use a team for work that needs several bots, for example a change that one bot writes and another checks. For a conversation with several bots, use a room.
+
+To create one, click **+** next to **Teams**. Give the team a name and a purpose, choose its members and its lead, and write the working agreement.
+
+- Your message goes to the lead when it mentions no one. The lead answers it, or @mentions the member who should do the work. `@Name` wakes a member, and `@here` wakes every member.
+- The working agreement holds your rules for how the team works and when work is done, for example "Tests pass, and another member checks each change." In the team, it overrides each member's own instructions on how work is done and checked.
+- The members work in the team's shared folder, `~/.yargpt/teams/<team id>/workspace`.
+- The members save what the whole team needs in team memory. Open the team panel, then **Memory**, to see it or add to it. Team memory reaches the members only in the team's turns.
+- In a team turn, a member talks only to its team, in the team's channel. It does not message other bots.
+- To change the lead or the working agreement, open the team panel, then **Settings**. When the lead leaves the team, the first member leads.
+- A bot can be a member of several teams. It keeps a separate Claude Code session for each team.
+
+#### Goals and the board
+
+For work with several steps, give the team a goal: click **New goal** above the team's chat. When you ask the lead for such work in the chat, the lead can also start a goal.
+
+- The lead splits the goal into items. Each item has a brief, acceptance criteria and one owner. When the working agreement asks for a check, it also has a reviewer, who is another member.
+- An item starts when it is ready: an item that depends on others waits for them, and independent items run at the same time.
+- The owner submits the result. The reviewer passes it or asks for changes. Every third request for changes blocks the item, and the lead decides.
+- While a bot reviews an item, YarGPT denies it Edit and Write in the team, even when you always allow them. Bash can still change files, so do not always allow Bash for a bot that reviews.
+- When an owner or a reviewer cannot go on, it blocks the item with a question. The lead answers it, and the item goes back to its owner or reviewer, or the lead gives it to another member. The lead can also ask you in the chat.
+- When an owner or a reviewer stops without handing its item on, for example after a failed turn or a restart, the item is blocked, and the lead decides. When a goal has nothing in flight after such a stop, the lead wakes.
+- When a member leaves the team, or you delete it, its items wait for a new owner, and a review that it did not finish is blocked for the lead.
+- When every item is done or dropped, the lead delivers the result to you in the chat. Click **Accept** above the chat, or write what to change: the lead then adds items, and the goal goes on.
+- After you accept a goal, the lead looks back on it once. It is asked to save up to 5 lessons in team memory, and it can suggest a change to the working agreement; only you change the agreement.
+- The **Board** tab of the team panel shows the items by state. The bar above the chat shows the goal and the turns it used.
+- A goal can use 30 turns of the board: the lead's turns, the work and the reviews. Your chat with the team and the bots' @mentions do not count. Change the number for the next goals in the team panel, under **Settings**. At the limit, the goal pauses, and the team shows a pause icon. **Add 10 turns** goes on.
+- **End goal** stops the goal for good, with its turns in every team.
+- **Stop** in the team's chat pauses the goal and blocks the requests of other teams that the team works on. **Resume** goes on with the goal; the team's lead unblocks the requests when you ask it to.
+- With `-max-parallel` above 1, the board's turns leave one slot free, so your other bots still answer while a team works.
+- In a team's turns, a member does not see the direct messages that other bots sent it. They wait for its next turn outside the team.
+
+#### Teams that work together
+
+A lead can ask another team for work that its goal needs, for example a Release team that asks a Docs team for a guide. The other team's lead assigns the request to a member, or declines it with a reason.
+
+- The request is an item of the asking team's goal: its turns count against that goal, and the goal waits for it before the lead can deliver.
+- The asking lead makes the items that need the result depend on the request. They start when the request is done, and the result shows on the asking team's board.
+- Each team's **Board** tab shows the requests that other teams sent to it, and both teams' chats show each change of a request.
+- Only leads send requests, and a member talks only to its own team. The asking lead cannot take a request back; end the goal to stop it.
+- Deleting a team also deletes the requests that other teams sent to it.
 
 ### Bots that message each other
 
@@ -215,6 +260,7 @@ The data folder holds:
 |---|---|
 | `yargpt.db` | Bots, chats, memory, routines, artifacts (SQLite) |
 | `bots/<bot id>/` | Each bot's working folder |
+| `teams/<team id>/` | Each team's shared folder |
 | `skills/` | Skills that all bots share |
 | `media/` | Images and videos of messages |
 | `AGENTS.md`, `connectors.json`, `config.json` | Your optional settings |
@@ -240,6 +286,8 @@ YarGPT has no login. It is safe only on a computer that one person uses, and onl
 Bots run as your user. An approved command can do anything that you can do, so read each approval card before you allow it.
 
 Bots are not isolated from each other. Reading files needs no approval and has no path limit, so any bot can read `AGENTS.md`, `connectors.json`, the tokens in `oauth/`, and the per-turn tokens of other bots' running processes in `run/`.
+
+A team keeps its members' work focused on the team, but it is not a security boundary: a member can still read any file, including other teams' folders.
 
 ## Not built yet
 
@@ -309,7 +357,7 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 
 - **Turns.** A message, a routine or a bot's first start becomes a turn. A bot runs one turn at a time, and its turns share one Claude Code session, which each turn resumes. The prompt goes to the `claude` process on stdin as stream-json. Each send carries a `clientNonce`, so a retried send does not start a second turn.
 - **Delivery.** The model's plain text is private. The user sees what the bot sends with the `send_to_user` tool. When a turn ends without a message, the chat shows the model's final text, marked as a fallback.
-- **Tools.** Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a token that is valid only for its turn. The tools are `send_to_user`, `send_to_agent`, `read_room`, `recall_memory`, `update_memory`, `update_routine`, `update_skill`, `find_artifacts`, `read_artifact`, `update_artifact`, `update_profile` and `approve`. Tool calls that need approval reach `approve` through `--permission-prompt-tool`.
+- **Tools.** Each `claude` process connects to YarGPT's MCP endpoint, `/mcp`, with a token that is valid only for its turn. The tools are `send_to_user`, `send_to_agent`, `read_room`, `recall_memory`, `update_memory`, `update_routine`, `update_skill`, `find_artifacts`, `read_artifact`, `update_artifact`, `update_profile`, `update_board` and `approve`. Tool calls that need approval reach `approve` through `--permission-prompt-tool`.
 - **Isolation.** Workers run with `--setting-sources project`, `--strict-mcp-config`, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`. The built-in tools are limited to Task, Bash, Monitor, TaskStop, Read, Edit, Write, Glob, Grep, WebSearch and Skill. YarGPT writes each process's MCP config to a 0600 file in `<data>/run`, so no token shows in the process list, and removes the file when the process exits.
 - **Transcript.** Each chat is an ordered log of `user`, `bot`, `event`, `activity` and `approval` entries. Each change gets a new `rev`. Clients catch up with `GET /api/bots/{id}/entries?after=<rev>` and the `GET /api/events` stream.
 - **Schema.** The migrations in `internal/db/migrations` run in order at start, each in one transaction with its `PRAGMA user_version` update.
@@ -320,7 +368,7 @@ browser ──REST + SSE──▶ YarGPT server (Go) ──▶ SQLite (yargpt.db
 |---|---|
 | `cmd/yargpt` | Server entry point and flags |
 | `internal/db` | Schema, sqlc queries and generated code (`modernc.org/sqlite`, pure Go) |
-| `internal/core` | Domain state: bots, transcript, turns, memory, routines, skills, artifacts, approvals, event hub |
+| `internal/core` | Domain state: bots, teams, transcript, turns, memory, routines, skills, artifacts, approvals, event hub |
 | `internal/agent` | Claude Code runner, stream-json parsing, system prompt and MCP tools |
 | `internal/httpapi` | REST API, event stream, origin guard and UI hosting |
 | `internal/shellenv` | The environment of the user's login shell, for a server that launchd starts |

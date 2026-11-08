@@ -20,12 +20,14 @@ const MaxFactLen = 500
 const (
 	ScopeAgent = "agent"
 	ScopeUser  = "user"
+	ScopeTeam  = "team" // shared by the members of one team, in that team's turns
 
 	TierProfile = "profile"
 	TierLog     = "log"
 	TierNote    = "note"
 
 	userScopeKey   = "user"
+	teamScopeKey   = "team:" // + the team id
 	noteLifetime   = 7 * 24 * time.Hour
 	promptLogFacts = 20
 )
@@ -48,18 +50,39 @@ func toMemory(m db.Memory) Memory {
 	scope := ScopeAgent
 	if m.ScopeKey == userScopeKey {
 		scope = ScopeUser
+	} else if strings.HasPrefix(m.ScopeKey, teamScopeKey) {
+		scope = ScopeTeam
 	}
 	return Memory{ID: m.ID, Scope: scope, Tier: m.Tier, Fact: m.Fact, LearnedBy: m.LearnedBy, CreatedAt: m.CreatedAt}
 }
 
-func scopeKey(botID, scope string) (string, error) {
+// scopeKey returns the stored key of a scope for the bot. teamID is the team
+// the bot works in during this turn, or "" outside a team.
+func scopeKey(botID, teamID, scope string) (string, error) {
 	switch scope {
 	case "", ScopeAgent:
 		return botID, nil
 	case ScopeUser:
 		return userScopeKey, nil
+	case ScopeTeam:
+		if teamID == "" {
+			return "", invalid("scope %q works only in a turn in your team", ScopeTeam)
+		}
+		return teamScopeKey + teamID, nil
 	}
-	return "", invalid("scope must be %q or %q", ScopeAgent, ScopeUser)
+	return "", invalid("scope must be %q, %q or %q", ScopeAgent, ScopeUser, ScopeTeam)
+}
+
+// factTier returns the tier of a fact that a bot writes: tier, or TierLog
+// when it is empty.
+func factTier(tier string) (string, error) {
+	if tier == "" {
+		return TierLog, nil
+	}
+	if tier != TierProfile && tier != TierLog && tier != TierNote {
+		return "", invalid("tier must be profile, log or note")
+	}
+	return tier, nil
 }
 
 func normalizeFact(fact string) (string, error) {
@@ -73,17 +96,15 @@ func normalizeFact(fact string) (string, error) {
 	return fact, nil
 }
 
-// WriteFact saves a fact. It returns false when the same fact already exists in that scope.
-func (s *Service) WriteFact(ctx context.Context, botID, scope, tier, fact string) (bool, error) {
-	key, err := scopeKey(botID, scope)
+// WriteFact saves a fact. It returns false when the same fact already exists
+// in that scope. teamID is the team of the turn, or "".
+func (s *Service) WriteFact(ctx context.Context, botID, teamID, scope, tier, fact string) (bool, error) {
+	key, err := scopeKey(botID, teamID, scope)
 	if err != nil {
 		return false, err
 	}
-	if tier == "" {
-		tier = TierLog
-	}
-	if tier != TierProfile && tier != TierLog && tier != TierNote {
-		return false, invalid("tier must be profile, log or note")
+	if tier, err = factTier(tier); err != nil {
+		return false, err
 	}
 	fact, err = normalizeFact(fact)
 	if err != nil {
@@ -99,16 +120,13 @@ func (s *Service) WriteFact(ctx context.Context, botID, scope, tier, fact string
 // ReplaceFact swaps the fact with the exact text old for fact, in one
 // transaction. It fails with ErrInvalid and changes nothing when old does
 // not exist in that scope.
-func (s *Service) ReplaceFact(ctx context.Context, botID, scope, tier, old, fact string) error {
-	key, err := scopeKey(botID, scope)
+func (s *Service) ReplaceFact(ctx context.Context, botID, teamID, scope, tier, old, fact string) error {
+	key, err := scopeKey(botID, teamID, scope)
 	if err != nil {
 		return err
 	}
-	if tier == "" {
-		tier = TierLog
-	}
-	if tier != TierProfile && tier != TierLog && tier != TierNote {
-		return invalid("tier must be profile, log or note")
+	if tier, err = factTier(tier); err != nil {
+		return err
 	}
 	if old, err = normalizeFact(old); err != nil {
 		return err
@@ -138,17 +156,14 @@ func (s *Service) ReplaceFact(ctx context.Context, botID, scope, tier, old, fact
 	return nil
 }
 
-// AddUserFact saves a fact that the user added in the app for bot. A fact
-// with the same text that a bot wrote becomes the user's.
+// AddUserFact saves a fact that the user added in the app for a bot or a
+// team. A fact with the same text that a bot wrote becomes the user's.
 func (s *Service) AddUserFact(ctx context.Context, botID, scope, tier, fact string) error {
 	bot, err := s.GetBot(ctx, botID)
 	if err != nil {
 		return err
 	}
-	if bot.IsRoom() {
-		return invalid("%s is a room; rooms have no memory", bot.Name)
-	}
-	key, err := scopeKey(botID, scope)
+	key, err := userFactKey(bot, scope)
 	if err != nil {
 		return err
 	}
@@ -176,9 +191,24 @@ func (s *Service) AddUserFact(ctx context.Context, botID, scope, tier, fact stri
 	return nil
 }
 
+// userFactKey returns the stored scope key of a fact that the user adds for
+// bot: a team takes team and user facts, a plain room none.
+func userFactKey(bot Bot, scope string) (string, error) {
+	if bot.IsTeam() && (scope == "" || scope == ScopeAgent) {
+		return "", invalid("%s is a team; give its facts scope %q or %q", bot.Name, ScopeTeam, ScopeUser)
+	}
+	if bot.IsTeam() {
+		return scopeKey("", bot.ID, scope)
+	}
+	if bot.IsRoom() {
+		return "", invalid("%s is a room; rooms have no memory", bot.Name)
+	}
+	return scopeKey(bot.ID, "", scope)
+}
+
 // ForgetFact deletes a fact by its exact text. It returns false when no such fact exists.
-func (s *Service) ForgetFact(ctx context.Context, botID, scope, fact string) (bool, error) {
-	key, err := scopeKey(botID, scope)
+func (s *Service) ForgetFact(ctx context.Context, botID, teamID, scope, fact string) (bool, error) {
+	key, err := scopeKey(botID, teamID, scope)
 	if err != nil {
 		return false, err
 	}
@@ -204,10 +234,15 @@ func (s *Service) DeleteMemory(ctx context.Context, id string) error {
 	return nil
 }
 
-// Memories returns the bot's own facts and the shared user facts, newest first.
-// Notes older than their lifetime are left out.
-func (s *Service) Memories(ctx context.Context, botID string) ([]Memory, error) {
-	rows, err := s.q.ListMemoriesForBot(ctx, botID)
+// Memories returns the bot's own facts, the facts of team teamID (when not
+// "") and the shared user facts, newest first. Notes older than their
+// lifetime are left out.
+func (s *Service) Memories(ctx context.Context, botID, teamID string) ([]Memory, error) {
+	teamKey := ""
+	if teamID != "" {
+		teamKey = teamScopeKey + teamID
+	}
+	rows, err := s.q.ListMemoriesForBot(ctx, db.ListMemoriesForBotParams{BotID: botID, TeamKey: teamKey})
 	if err != nil {
 		return nil, fmt.Errorf("list memories of bot %s: %w", botID, err)
 	}
@@ -222,10 +257,23 @@ func (s *Service) Memories(ctx context.Context, botID string) ([]Memory, error) 
 	return out, nil
 }
 
+// PanelMemories returns the facts that the app shows for a bot or a team: a
+// bot's own facts, or a team's facts, and the shared user facts.
+func (s *Service) PanelMemories(ctx context.Context, id string) ([]Memory, error) {
+	teamID, err := s.TurnTeam(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if teamID != "" {
+		return s.Memories(ctx, "", teamID)
+	}
+	return s.Memories(ctx, id, "")
+}
+
 // PromptMemory returns the facts to show in every turn: all profile facts and
 // the most recent log and note facts.
-func (s *Service) PromptMemory(ctx context.Context, botID string) (profile, recent []Memory, err error) {
-	all, err := s.Memories(ctx, botID)
+func (s *Service) PromptMemory(ctx context.Context, botID, teamID string) (profile, recent []Memory, err error) {
+	all, err := s.Memories(ctx, botID, teamID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -241,18 +289,20 @@ func (s *Service) PromptMemory(ctx context.Context, botID string) (profile, rece
 
 // Recall searches memory. Facts that share more words with the query rank
 // first; when no fact shares a word, a case-insensitive substring match is used.
-func (s *Service) Recall(ctx context.Context, botID, query, scope string, limit int) ([]Memory, error) {
+func (s *Service) Recall(ctx context.Context, botID, teamID, query, scope string, limit int) ([]Memory, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, invalid("query is empty")
 	}
-	if scope != "" && scope != "all" && scope != ScopeAgent && scope != ScopeUser {
-		return nil, invalid("scope must be agent, user or all")
+	if scope != "" && scope != "all" {
+		if _, err := scopeKey(botID, teamID, scope); err != nil {
+			return nil, err
+		}
 	}
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
-	all, err := s.Memories(ctx, botID)
+	all, err := s.Memories(ctx, botID, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +312,14 @@ func (s *Service) Recall(ctx context.Context, botID, query, scope string, limit 
 			candidates = append(candidates, m)
 		}
 	}
+	hits := rankFacts(candidates, query)
+	return hits[:min(len(hits), limit)], nil
+}
 
+// rankFacts returns the facts that match query, best first: facts that share
+// more words with it, newer first among equals. When no fact shares a word,
+// it returns the facts that contain query, ignoring case.
+func rankFacts(candidates []Memory, query string) []Memory {
 	type scored struct {
 		m     Memory
 		score int
@@ -295,14 +352,11 @@ func (s *Service) Recall(ctx context.Context, botID, query, scope string, limit 
 		}
 		return hits[i].m.CreatedAt > hits[j].m.CreatedAt
 	})
-	if len(hits) > limit {
-		hits = hits[:limit]
-	}
 	out := make([]Memory, len(hits))
 	for i, h := range hits {
 		out[i] = h.m
 	}
-	return out, nil
+	return out
 }
 
 func words(text string) map[string]struct{} {

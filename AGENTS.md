@@ -20,4 +20,4 @@
 ## macOS app changes
 
 - For a change in `desktop/` or in `cmd/yargpt/tray_darwin.go`, run `make app`, quit YarGPT with ⌘Q, and open the built app, which replaces the running server. Check the window, a link, **Settings…**, the menu-bar icon and **Exit server**. `make check` covers only `desktop/app.js`.
-- For a change to `make app-universal` or `.github/workflows/release.yml`, run `make app-universal VERSION=0.0.0-test` and unzip the result with `ditto -x -k`: `codesign --verify --deep --strict` must pass, and `lipo -archs` must list x86_64 and arm64 for `Contents/MacOS/YarGPT` and `Contents/Resources/yargpt`.
+- For a change to `make app-universal` or `.github/workflows/release.yml`, run `make app-universal VERSION=0.0.0-test` and unzip the result with `ditto -x -k`: `codesign --verify --deep --strict` must pass, and `lipo -archs` must list x86_64 and arm64 for `Contents/MacOS/YarGPT` and `Contents/Resources/yargpt`. Without `CSC_LINK` the build is signed ad-hoc; only a release tag tests the Developer ID signature and notarization, so test such a change with a pre-release tag such as `v0.2.0-rc.1`.

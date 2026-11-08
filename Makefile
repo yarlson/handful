@@ -1,7 +1,7 @@
 MISE := mise exec --
 export BASE ?= origin/main
 
-.PHONY: build ui generate test run app app-universal icons fmt check fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check crap mutation mutation-diff ui-mutation
+.PHONY: build ui generate test run app app-universal app-universal-deps app-universal-package icons fmt check fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check crap mutation mutation-diff ui-mutation
 
 # app-universal leaves a universal binary in bin/yargpt, which go build does
 # not overwrite. The server needs no cgo on macOS. On other systems cgo keeps
@@ -23,20 +23,34 @@ test:
 run: build
 	./bin/yargpt
 
+# desktop/package.json signs the app ad-hoc. When CSC_LINK holds a Developer ID
+# certificate, as in the release workflow, electron-builder signs with it and
+# the hardened runtime instead, and notarizes the app when the APPLE_API_*
+# variables are set.
+MAC_SIGNING = $(if $(CSC_LINK),-c.mac.identity="Developer ID Application" -c.mac.hardenedRuntime=true)
+
 # Builds the app for this Mac, with the server inside it:
 # desktop/dist/mac-arm64/YarGPT.app, or desktop/dist/mac/YarGPT.app on an Intel Mac.
 app: build
-	cd desktop && $(MISE) npm ci && $(MISE) npm run build
+	cd desktop && $(MISE) npm ci && $(MISE) npm run build -- $(MAC_SIGNING)
 
 # Builds desktop/dist/YarGPT-<version>-universal-mac.zip, the app for Apple
 # silicon and Intel Macs. VERSION, if set, replaces the version in
 # desktop/package.json.
-app-universal: ui
+app-universal: app-universal-deps app-universal-package
+
+# Builds the UI and the universal server and installs the desktop packages.
+# The release workflow runs it before it hands the signing secrets to
+# app-universal-package, so that no package install script sees them.
+app-universal-deps: ui
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MISE) go build -o bin/yargpt-arm64 ./cmd/yargpt
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MISE) go build -o bin/yargpt-amd64 ./cmd/yargpt
 	lipo -create -output bin/yargpt bin/yargpt-arm64 bin/yargpt-amd64
-	cd desktop && $(MISE) npm ci && $(MISE) npm run build:universal -- $(if $(VERSION),-c.extraMetadata.version=$(VERSION))
+	cd desktop && $(MISE) npm ci
+
+app-universal-package:
+	cd desktop && $(MISE) npm run build:universal -- $(MAC_SIGNING) $(if $(VERSION),-c.extraMetadata.version=$(VERSION))
 
 # Regenerates the committed icons from their SVG sources. It needs
 # rsvg-convert (Homebrew librsvg), which mise does not have, and iconutil.

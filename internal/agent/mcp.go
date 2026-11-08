@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -153,7 +154,7 @@ type findArtifactsInput struct {
 	Author string `json:"author,omitempty" jsonschema:"me, user, or a bot id"`
 	Tag    string `json:"tag,omitempty" jsonschema:"one exact tag, such as a work-item id"`
 	Query  string `json:"query,omitempty" jsonschema:"text to find in the title or content, ignoring case"`
-	Limit  int    `json:"limit,omitempty" jsonschema:"maximum artifacts to return, 1 to 50 (default 20)"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"maximum artifacts to return, 1 to 50 (default 20; a larger limit returns at most 50)"`
 }
 
 type readArtifactInput struct {
@@ -546,7 +547,9 @@ func findArtifacts(ctx context.Context, svc *core.Service, rc runContext, in fin
 	}
 	var b strings.Builder
 	for _, a := range found {
-		fmt.Fprintf(&b, "- %s [%s] %s (from %s, updated %s%s)\n", a.ID, a.Kind, a.Title, artifactAuthor(a, authors), artifactTime(svc, a.UpdatedAt), joinedAfter(", tags ", a.Tags))
+		// The trusted fields come first and the title is quoted, so a title
+		// cannot read as another author label.
+		fmt.Fprintf(&b, "- %s [%s] from %s, updated %s%s: %q\n", a.ID, a.Kind, artifactAuthor(a, authors), artifactTime(svc, a.UpdatedAt), joinedAfter(", tags ", a.Tags), a.Title)
 	}
 	return textResult("%s", b.String()), nil, nil
 }
@@ -564,6 +567,14 @@ func joinedAfter(prefix string, items []string) string {
 	return prefix + strings.Join(items, ", ")
 }
 
+func quoted(items []string) []string {
+	out := make([]string, len(items))
+	for i, item := range items {
+		out[i] = strconv.Quote(item)
+	}
+	return out
+}
+
 // closeArtifactTag matches what could end the <artifact> wrapper early.
 var closeArtifactTag = regexp.MustCompile(`(?i)</artifact`)
 
@@ -579,7 +590,7 @@ func readArtifact(ctx context.Context, svc *core.Service, rc runContext, in read
 	content := closeArtifactTag.ReplaceAllStringFunc(a.Content, func(m string) string { return `<\/` + m[2:] })
 	return textResult("Artifact %s: %q [%s], from %s, created %s, updated %s%s%s\n<artifact id=%q kind=%q author=%q>\n%s\n</artifact>",
 		a.ID, a.Title, a.Kind, artifactAuthor(a, authors), artifactTime(svc, a.CreatedAt), artifactTime(svc, a.UpdatedAt),
-		joinedAfter("\ntags: ", a.Tags), joinedAfter("\nlinks: ", a.Links), a.ID, a.Kind, a.AuthorID, content), nil, nil
+		joinedAfter("\ntags: ", a.Tags), joinedAfter("\nlinks: ", quoted(a.Links)), a.ID, a.Kind, a.AuthorID, content), nil, nil
 }
 
 func nonEmpty(v string) *string {

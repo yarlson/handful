@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
-import Markdown from "react-markdown"
+import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
   AlertTriangle,
@@ -26,6 +26,7 @@ import { api, type BackgroundTask, type Bot, type Decision, type Entry, type Mem
 import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type MentionQuery } from "@/lib/completion"
 import { Popover } from "radix-ui"
 import { REACTIONS, toggled } from "@/lib/reactions"
+import { isExternalLink } from "@/lib/links"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,10 +39,27 @@ function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 }
 
-function MarkdownText({ text }: { text: string }) {
+// markdownComponents opens links to other sites in a new tab, so the app
+// stays open. The desktop app sends such links to the default browser.
+const markdownComponents: Components = {
+  a: ({ node: _node, href, children, ...props }) =>
+    isExternalLink(href, window.location.origin) ? (
+      <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+        {children}
+      </a>
+    ) : (
+      <a href={href} {...props}>
+        {children}
+      </a>
+    ),
+}
+
+export function MarkdownText({ text }: { text: string }) {
   return (
     <div className="markdown text-sm leading-relaxed">
-      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {text}
+      </Markdown>
     </div>
   )
 }

@@ -1,0 +1,62 @@
+@import "@fontsource-variable/geist";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --canvas: #ffffff;
+    --band: rgb(0 0 0 / 3.5%);
+    --ink: #000000;
+    --ink-2: rgb(0 0 0 / 64%);
+    --ink-3: rgb(0 0 0 / 56%);
+    --line: rgb(0 0 0 / 10%);
+    --line-strong: rgb(0 0 0 / 18%);
+    --hover: rgb(0 0 0 / 5%);
+    --pressed: rgb(0 0 0 / 9%);
+    --fill: rgb(0 0 0 / 2.5%);
+    --button: #000000;
+    --button-hover: rgb(0 0 0 / 80%);
+    --button-ink: #ffffff;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --canvas: #0a0a0a;
+      --band: rgb(255 255 255 / 3%);
+      --ink: #ffffff;
+      --ink-2: rgb(255 255 255 / 56%);
+      --ink-3: rgb(255 255 255 / 46%);
+      --line: rgb(255 255 255 / 11%);
+      --line-strong: rgb(255 255 255 / 20%);
+      --hover: rgb(255 255 255 / 9%);
+      --pressed: rgb(255 255 255 / 14%);
+      --fill: rgb(255 255 255 / 3%);
+      --button: #ffffff;
+      --button-hover: rgb(255 255 255 / 84%);
+      --button-ink: #0a0a0a;
+    }
+  }
+
+  html {
+    background: var(--canvas);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font-size: 1.0625rem;
+    line-height: 1.55;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+    border-radius: 0.375rem;
+  }
+}

@@ -3,7 +3,6 @@ import { api, type Bot, type Goal, type Item } from "@/lib/api"
 import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 
 const openStates: Goal["state"][] = ["active", "delivered", "paused"]
 
@@ -32,11 +31,11 @@ function memberName(team: Bot, id: string) {
   return team.members?.find((m) => m.id === id)?.name ?? "a former member"
 }
 
-// GoalBar shows a team's goal above its channel, with the controls of its budget.
+// GoalBar shows a team's goal above its channel, with the controls of its
+// budget. A goal starts with "/goal <text>" in the team's chat, which adds a
+// board event to the transcript: its new rev reloads the bar.
 export function GoalBar({ team, version }: { team: Bot; version: number }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
-  const [text, setText] = useState("")
-  const [asking, setAsking] = useState(false)
   const [ending, setEnding] = useState(false)
   const goal = board.data?.goal
   const act = async (action: () => Promise<unknown>) => {
@@ -98,41 +97,14 @@ export function GoalBar({ team, version }: { team: Bot; version: number }) {
             </Button>
           )}
         </>
-      ) : asking ? (
-        <form
-          className="flex flex-1 items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void act(async () => {
-              await api.startGoal(team.id, text)
-              setText("")
-              setAsking(false)
-            })
-          }}
-        >
-          <Input
-            aria-label="Goal"
-            placeholder="What should the team do?"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-          <Button size="xs" type="submit" disabled={!text.trim()}>
-            Start
-          </Button>
-          <Button size="xs" variant="ghost" type="button" onClick={() => setAsking(false)}>
-            Cancel
-          </Button>
-        </form>
       ) : (
         <>
-          <span className="text-muted-foreground min-w-0 flex-1 truncate">
-            {goal
-              ? `Last goal (${goal.state}): ${goal.text}`
-              : "No goal yet. Chat with the lead, or give the team a goal."}
+          <span className="text-muted-foreground min-w-0 flex-1 truncate" title={goal?.text}>
+            {goal ? `Last goal (${goal.state}): ${goal.text}` : "No goal yet."}
           </span>
-          <Button size="xs" variant="outline" onClick={() => setAsking(true)}>
-            New goal
-          </Button>
+          <span className="text-muted-foreground shrink-0 text-xs">
+            To start one, type <code className="font-mono">/goal &lt;what the team should do&gt;</code> in the chat.
+          </span>
         </>
       )}
       {board.error && <span className="text-destructive w-full text-xs">{board.error}</span>}

@@ -27,6 +27,7 @@ import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type Men
 import { Popover } from "radix-ui"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { isExternalLink } from "@/lib/links"
+import { goalCommand, parseGoalCommand } from "@/lib/goal"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -478,14 +479,25 @@ const commands: Suggestion[] = [
   },
 ]
 
+// teamCommands are the commands that only a team's chat offers.
+const teamCommands: Suggestion[] = [
+  {
+    token: goalCommand,
+    label: goalCommand,
+    detail: "Give the team a new goal: /goal <what the team should do>",
+    kind: "command",
+  },
+]
+
 // suggestionsFor returns what the typed query can complete to: bot names
 // after "@" (and "here" for everyone in a room), commands and skills after a
-// leading "/".
+// leading "/". A team's chat also offers the team commands.
 function suggestionsFor(
   query: MentionQuery & { mode: "mention" | "slash" },
   mentionables: Member[],
   skills: Skill[],
   inRoom: boolean,
+  inTeam: boolean,
 ): Suggestion[] {
   if (query.mode === "mention") {
     const names = matchNames(
@@ -498,6 +510,7 @@ function suggestionsFor(
       : names
   }
   const all = [
+    ...(inTeam ? teamCommands : []),
     ...commands,
     ...skills.map((sk) => ({ token: `/${sk.id}`, label: `/${sk.id}`, detail: sk.description, kind: "skill" as const })),
   ]
@@ -574,7 +587,7 @@ function Composer({
   }
   useEffect(loadSkills, [bot.id])
 
-  const suggestions = query ? suggestionsFor(query, mentionables, isRoom ? [] : skills, isRoom) : []
+  const suggestions = query ? suggestionsFor(query, mentionables, isRoom ? [] : skills, isRoom, Boolean(bot.team)) : []
   const open = suggestions.length > 0 && query !== null && query.start !== dismissedAt
 
   const trackCaret = (el: HTMLTextAreaElement) => {
@@ -604,10 +617,21 @@ function Composer({
   const send = async () => {
     const value = text.trim()
     if ((!value && media.length === 0) || sending) return
+    // In a team's chat, "/goal <text>" starts a goal instead of sending a message.
+    const goal = bot.team ? parseGoalCommand(value) : null
+    if (goal === "") {
+      setError("Write the goal after /goal, for example: /goal Add CSV export")
+      return
+    }
+    if (goal !== null && media.length > 0) {
+      setError("A goal is text only: remove the attachments, or send them in a message")
+      return
+    }
     setSending(true)
     setError(null)
     try {
-      if (media.length === 0 && value === "/clear") await api.clearContext(bot.id)
+      if (goal !== null) await api.startGoal(bot.id, goal)
+      else if (media.length === 0 && value === "/clear") await api.clearContext(bot.id)
       else if (media.length === 0 && value === "/compact") await api.compactContext(bot.id)
       else await api.send(bot.id, value, await Promise.all(media.map((m) => readBase64(m.file))))
       setText("")
@@ -766,7 +790,7 @@ function Composer({
               className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0"
               placeholder={
                 bot.team
-                  ? `Message ${bot.name}… (the lead answers; @Name asks one member, @here all)`
+                  ? `Message ${bot.name}… (the lead answers; @Name, @here, /goal)`
                   : isRoom
                     ? `Message ${bot.name}… (@Name asks one member, @here all, / for commands)`
                     : `Message ${bot.name}… (/ for commands and skills, @ for bots)`
@@ -774,6 +798,7 @@ function Composer({
               value={text}
               onChange={(e) => {
                 setText(e.target.value)
+                setError(null)
                 trackCaret(e.target)
               }}
               onPaste={(e) => {

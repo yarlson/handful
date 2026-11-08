@@ -148,7 +148,7 @@ To create one, click **+** next to **Teams**. Give the team a name and a purpose
 
 #### Goals and the board
 
-For work with several steps, give the team a goal: click **New goal** above the team's chat. When you ask the lead for such work in the chat, the lead can also start a goal.
+For work with several steps, give the team a goal: type `/goal` and what the team should do in the team's chat, for example `/goal Add CSV export`. When you ask the lead for such work in the chat, the lead can also start a goal.
 
 - The lead splits the goal into items. Each item has a brief, acceptance criteria and one owner. When the working agreement asks for a check, it also has a reviewer, who is another member.
 - An item starts when it is ready: an item that depends on others waits for them, and independent items run at the same time.

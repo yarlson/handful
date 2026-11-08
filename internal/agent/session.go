@@ -498,7 +498,7 @@ func (r *Runner) closeIfIdle(s *session) {
 	r.mu.Lock()
 	idle := s.open && len(s.pending) == 0 && !s.waking && len(s.tasks) == 0
 	if idle {
-		s.open = false
+		s.open, s.lastOutput = false, time.Now()
 	}
 	r.mu.Unlock()
 	if !idle {
@@ -509,8 +509,15 @@ func (r *Runner) closeIfIdle(s *session) {
 	}
 }
 
-// stopIfSilent stops the session when it has a pending command and the
-// process prints nothing for outputTimeout. It returns when quit closes.
+// awaited reports whether something waits for the process to print: a
+// pending command, a task turn, or, once stdin is closed, its exit, which
+// the next turn of the bot waits for. The caller holds r.mu.
+func (s *session) awaited() bool {
+	return len(s.pending) > 0 || s.waking || !s.open
+}
+
+// stopIfSilent stops the session when something waits for the process and it
+// prints nothing for outputTimeout. It returns when quit closes.
 func (r *Runner) stopIfSilent(s *session, quit <-chan struct{}) {
 	timer := time.NewTimer(r.outputTimeout)
 	defer timer.Stop()
@@ -522,7 +529,7 @@ func (r *Runner) stopIfSilent(s *session, quit <-chan struct{}) {
 		}
 		r.mu.Lock()
 		next := r.outputTimeout
-		if len(s.pending) > 0 {
+		if s.awaited() {
 			next -= time.Since(s.lastOutput)
 		}
 		s.silent = next <= 0

@@ -63,6 +63,8 @@ jobs:
           name: app
           path: desktop/dist/YarGPT-*-universal-mac.zip
           if-no-files-found: error
+          # The release keeps the zip; the artifact only carries it to the release job.
+          retention-days: 1
 
   release:
     needs: build

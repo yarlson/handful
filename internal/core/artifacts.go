@@ -146,8 +146,10 @@ func validateLinks(links []string) ([]string, error) {
 	out := []string{}
 	for _, link := range links {
 		u, err := url.Parse(link)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || len(link) > maxArtifactLinkLen {
-			return nil, invalid("link %q must be an absolute http or https URL of at most %d characters", link, maxArtifactLinkLen)
+		// A link must read as itself: u.String() escapes spaces, so a link
+		// cannot carry text that reads as a label beside it.
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.String() != link || len(link) > maxArtifactLinkLen {
+			return nil, invalid("link %q must be an absolute, escaped http or https URL of at most %d characters", link, maxArtifactLinkLen)
 		}
 		out = append(out, link)
 	}
@@ -268,20 +270,27 @@ func ownArtifact(ctx context.Context, q *db.Queries, actorID, id string) (Artifa
 	if err != nil || actorID == ArtifactAuthorUser || actorID == a.AuthorID {
 		return a, err
 	}
-	return Artifact{}, invalid("artifact %s belongs to %s; only its author or the user can change it", id, authorLabel(ctx, q, a.AuthorID))
+	label, err := authorLabel(ctx, q, a.AuthorID)
+	if err != nil {
+		return Artifact{}, err
+	}
+	return Artifact{}, invalid("artifact %s belongs to %s; only its author or the user can change it", id, label)
 }
 
 // authorLabel names an author in an error: the user, or a bot by its quoted
 // name and id, so that a bot's name cannot read as the user.
-func authorLabel(ctx context.Context, q *db.Queries, authorID string) string {
+func authorLabel(ctx context.Context, q *db.Queries, authorID string) (string, error) {
 	if authorID == ArtifactAuthorUser {
-		return "the user"
+		return "the user", nil
 	}
 	bot, err := q.GetBot(ctx, authorID)
-	if err != nil {
-		return fmt.Sprintf("a deleted bot (id %s)", authorID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Sprintf("a deleted bot (id %s)", authorID), nil
 	}
-	return fmt.Sprintf("bot %q (id %s)", bot.Name, authorID)
+	if err != nil {
+		return "", fmt.Errorf("get author %s of an artifact: %w", authorID, err)
+	}
+	return fmt.Sprintf("bot %q (id %s)", bot.Name, authorID), nil
 }
 
 func insertArtifactTags(ctx context.Context, q *db.Queries, id string, tags []string) error {
@@ -322,9 +331,10 @@ func (s *Service) SearchArtifacts(ctx context.Context, f ArtifactFilter) ([]Arti
 	if f.Kind != "" && !slices.Contains(ArtifactKinds, f.Kind) {
 		return nil, invalid("kind must be one of %s", strings.Join(ArtifactKinds, ", "))
 	}
-	if f.Limit <= 0 || f.Limit > maxArtifactResults {
+	if f.Limit <= 0 {
 		f.Limit = defaultArtifacts
 	}
+	f.Limit = min(f.Limit, maxArtifactResults)
 	rows, err := s.q.SearchArtifacts(ctx, db.SearchArtifactsParams{
 		Kind: nullable(f.Kind), AuthorID: nullable(f.AuthorID), Tag: nullable(normalizeTag(f.Tag)),
 		Query: nullable(strings.TrimSpace(f.Query)), MaxRows: int64(f.Limit),

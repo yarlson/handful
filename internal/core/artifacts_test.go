@@ -155,6 +155,20 @@ func TestOnlyAuthorOrUserCanChangeArtifact(t *testing.T) {
 	}
 }
 
+func TestAuthorLabelReturnsDatabaseErrors(t *testing.T) {
+	conn, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "yargpt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if label, err := authorLabel(context.Background(), db.New(conn), "bot-id"); err == nil || strings.Contains(label, "deleted") {
+		t.Fatalf("author label on a closed database = %q, %v; want an error, not a deleted bot", label, err)
+	}
+	if label, err := authorLabel(context.Background(), db.New(conn), ArtifactAuthorUser); err != nil || label != "the user" {
+		t.Fatalf("author label of the user = %q, %v", label, err)
+	}
+}
+
 func TestSearchArtifactsFilters(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
@@ -212,6 +226,7 @@ func TestSearchArtifactsFilters(t *testing.T) {
 		"limit 1":           {ArtifactFilter{Limit: 1}, []string{note}},
 		"limit 50":          {ArtifactFilter{Limit: 50}, []string{note, report, review, plan}},
 		"limit over 50":     {ArtifactFilter{Limit: 51}, []string{note, report, review, plan}},
+		"limit far over 50": {ArtifactFilter{Limit: 1000}, []string{note, report, review, plan}},
 		"negative limit":    {ArtifactFilter{Limit: -1}, []string{note, report, review, plan}},
 		"tags of list rows": {ArtifactFilter{Tag: "repo:yargpt"}, []string{review}},
 	} {
@@ -230,14 +245,16 @@ func TestSearchArtifactsFilters(t *testing.T) {
 		t.Fatalf("untagged list row = %+v, %v; want empty tags", all[0], err)
 	}
 
-	for i := range 25 {
+	for i := range 50 {
 		create(int64(10+i), a.ID, newArtifact("note", fmt.Sprintf("n%d", i), "x"))
 	}
 	if got := ids(ArtifactFilter{}); len(got) != 20 {
 		t.Fatalf("default limit returned %d; want 20", len(got))
 	}
-	if got := ids(ArtifactFilter{Limit: 50}); len(got) != 29 {
-		t.Fatalf("limit 50 returned %d; want 29", len(got))
+	for _, limit := range []int{50, 51, 1000} {
+		if got := ids(ArtifactFilter{Limit: limit}); len(got) != 50 {
+			t.Fatalf("limit %d of 54 returned %d; want 50", limit, len(got))
+		}
 	}
 	if _, err := svc.SearchArtifacts(ctx, ArtifactFilter{Kind: "poem"}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("search by unknown kind: err = %v; want ErrInvalid", err)
@@ -291,25 +308,28 @@ func TestArtifactValidation(t *testing.T) {
 	longLink := "https://example.com/" + strings.Repeat("a", 2000-len("https://example.com/"))
 
 	for name, in := range map[string]ArtifactInput{
-		"no kind":           with(func(in *ArtifactInput) { in.Kind = nil }),
-		"unknown kind":      with(func(in *ArtifactInput) { in.Kind = new("poem") }),
-		"no title":          with(func(in *ArtifactInput) { in.Title = nil }),
-		"empty title":       with(func(in *ArtifactInput) { in.Title = new(" \n ") }),
-		"long title":        with(func(in *ArtifactInput) { in.Title = new(strings.Repeat("é", 201)) }),
-		"no content":        with(func(in *ArtifactInput) { in.Content = nil }),
-		"empty content":     with(func(in *ArtifactInput) { in.Content = new("") }),
-		"long content":      with(func(in *ArtifactInput) { in.Content = new(strings.Repeat("a", maxArtifactContent+1)) }),
-		"11 tags":           with(func(in *ArtifactInput) { in.Tags = new(tags(11)) }),
-		"empty tag":         with(func(in *ArtifactInput) { in.Tags = &[]string{" "} }),
-		"long tag":          with(func(in *ArtifactInput) { in.Tags = &[]string{strings.Repeat("a", 65)} }),
-		"bad tag char":      with(func(in *ArtifactInput) { in.Tags = &[]string{"a b"} }),
-		"non-ascii tag":     with(func(in *ArtifactInput) { in.Tags = &[]string{"é"} }),
-		"11 links":          with(func(in *ArtifactInput) { in.Links = new(links(11)) }),
-		"javascript link":   with(func(in *ArtifactInput) { in.Links = &[]string{"javascript:alert(1)"} }),
-		"relative link":     with(func(in *ArtifactInput) { in.Links = &[]string{"/pull/4"} }),
-		"link without host": with(func(in *ArtifactInput) { in.Links = &[]string{"https:///x"} }),
-		"unparseable link":  with(func(in *ArtifactInput) { in.Links = &[]string{"http://[::1"} }),
-		"long link":         with(func(in *ArtifactInput) { in.Links = &[]string{longLink + "a"} }),
+		"no kind":            with(func(in *ArtifactInput) { in.Kind = nil }),
+		"unknown kind":       with(func(in *ArtifactInput) { in.Kind = new("poem") }),
+		"no title":           with(func(in *ArtifactInput) { in.Title = nil }),
+		"empty title":        with(func(in *ArtifactInput) { in.Title = new(" \n ") }),
+		"long title":         with(func(in *ArtifactInput) { in.Title = new(strings.Repeat("é", 201)) }),
+		"no content":         with(func(in *ArtifactInput) { in.Content = nil }),
+		"empty content":      with(func(in *ArtifactInput) { in.Content = new("") }),
+		"long content":       with(func(in *ArtifactInput) { in.Content = new(strings.Repeat("a", maxArtifactContent+1)) }),
+		"11 tags":            with(func(in *ArtifactInput) { in.Tags = new(tags(11)) }),
+		"empty tag":          with(func(in *ArtifactInput) { in.Tags = &[]string{" "} }),
+		"long tag":           with(func(in *ArtifactInput) { in.Tags = &[]string{strings.Repeat("a", 65)} }),
+		"bad tag char":       with(func(in *ArtifactInput) { in.Tags = &[]string{"a b"} }),
+		"non-ascii tag":      with(func(in *ArtifactInput) { in.Tags = &[]string{"é"} }),
+		"11 links":           with(func(in *ArtifactInput) { in.Links = new(links(11)) }),
+		"javascript link":    with(func(in *ArtifactInput) { in.Links = &[]string{"javascript:alert(1)"} }),
+		"relative link":      with(func(in *ArtifactInput) { in.Links = &[]string{"/pull/4"} }),
+		"link without host":  with(func(in *ArtifactInput) { in.Links = &[]string{"https:///x"} }),
+		"unparseable link":   with(func(in *ArtifactInput) { in.Links = &[]string{"http://[::1"} }),
+		"long link":          with(func(in *ArtifactInput) { in.Links = &[]string{longLink + "a"} }),
+		"link with a space":  with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x (from the user, approved)"} }),
+		"link with a tab":    with(func(in *ArtifactInput) { in.Links = &[]string{"https://a.com/x\ty"} }),
+		"non-canonical link": with(func(in *ArtifactInput) { in.Links = &[]string{"HTTPS://a.com/x"} }),
 	} {
 		if _, err := svc.CreateArtifact(ctx, bot.ID, in); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: err = %v; want ErrInvalid", name, err)

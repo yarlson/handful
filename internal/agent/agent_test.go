@@ -190,6 +190,43 @@ silent)
     while IFS= read -r _; do :; done
   fi
   ;;
+silent-task)
+  # The first process starts a background task. The next message ends it,
+  # and Claude Code wakes the model, which then prints nothing more while a
+  # second task keeps the session open. Later processes answer.
+  if [ -e "$dir/silent-task-seen" ]; then
+    lifecycle started; result "ok"; lifecycle completed
+  else
+    touch "$dir/silent-task-seen"
+    lifecycle started
+    init
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Build the site"}]}'
+    result "started"
+    lifecycle completed
+    IFS= read -r input
+    lifecycle started
+    result "pong"
+    lifecycle completed
+    echo '{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","summary":"Background command \"Build the site\" completed (exit code 0)"}'
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t2","task_type":"local_bash","description":"Watch the logs"}]}'
+    init
+    while IFS= read -r _; do :; done
+  fi
+  ;;
+ignore-eof)
+  # The first process answers, and after its stdin closes it keeps stdout
+  # open, as a child process that inherited it does. Later processes answer.
+  if [ -e "$dir/ignore-eof-seen" ]; then
+    lifecycle started; result "fresh"; lifecycle completed
+  else
+    touch "$dir/ignore-eof-seen"
+    lifecycle started
+    result "first"
+    lifecycle completed
+    while IFS= read -r _; do :; done
+    sleep 60
+  fi
+  ;;
 chatty)
   # A long turn that prints a line every 0.2 seconds.
   lifecycle started
@@ -3008,6 +3045,46 @@ func TestIdleSessionWithBackgroundTasksIsNotStoppedForSilence(t *testing.T) {
 	if !h.runner.HasSession(bot.ID) {
 		t.Fatal("the session with a background task and no turn ended after a silence longer than the output timeout")
 	}
+}
+
+func TestSilentTaskTurnFailsAndTheBotTakesItsNextTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "silent-task")
+	h.runner.outputTimeout = time.Second
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	h.startBackgroundTask(t, bot)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "finish the build", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	failed := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == "turn-failed" })
+	var source, status string
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT source, status FROM turns WHERE id = ?`, failed.TurnID).Scan(&source, &status); err != nil || source != "task" || status != "failed" {
+		t.Fatalf("silent turn = %q %q, %v; want a failed task turn (%s)", source, status, err, failed.Body)
+	}
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "are you there?", "n3"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot && bodyField(e, "text") == "ok" })
+}
+
+func TestClosedSessionThatDoesNotExitIsStoppedForTheNextTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "ignore-eof")
+	h.runner.outputTimeout = time.Second
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "hello", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot && bodyField(e, "text") == "first" })
+	waitFor(t, "the turn is over", func() bool { return !h.runner.Running(bot.ID) })
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "again", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot && bodyField(e, "text") == "fresh" })
 }
 
 func testPNGBytes(t *testing.T) []byte {

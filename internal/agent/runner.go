@@ -94,6 +94,7 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 // Run dispatches turns and fires due routines until ctx ends, then stops all
 // running turns and claude processes and waits for them.
 func (r *Runner) Run(ctx context.Context) {
+	r.stopLeftoverProcesses()
 	r.removeLeftoverRunFiles()
 	ticker := time.NewTicker(routineTick)
 	defer ticker.Stop()

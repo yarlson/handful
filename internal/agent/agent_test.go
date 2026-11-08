@@ -3447,3 +3447,55 @@ func TestUpdateRoutineToolEditsPausesResumesAndDeletesOwnRoutines(t *testing.T) 
 	call(map[string]any{"action": "list"}, false, "No routines.")
 	call(map[string]any{"action": "rename"}, true, "action must be create, update, pause, resume, delete, run_now or list")
 }
+
+func TestSystemPromptShowsAtMostMaxProfileFactsAndSaysHowManyMore(t *testing.T) {
+	t.Parallel()
+	var profile []core.Memory
+	for i := range maxPromptProfileFacts + 10 {
+		profile = append(profile, core.Memory{Scope: core.ScopeAgent, Tier: core.TierProfile, Fact: fmt.Sprintf("Fact number %d.", i), LearnedBy: core.LearnedByUser})
+	}
+	got := systemPrompt(promptContext{Bot: core.Bot{ID: "me", Name: "Fixer"}, Now: time.Date(2026, 11, 7, 8, 0, 0, 0, time.UTC), Profile: profile})
+	if !strings.Contains(got, fmt.Sprintf("Fact number %d.", maxPromptProfileFacts-1)) || strings.Contains(got, fmt.Sprintf("Fact number %d.", maxPromptProfileFacts)) {
+		t.Fatalf("prompt does not show exactly the first %d profile facts:\n%s", maxPromptProfileFacts, got)
+	}
+	if !strings.Contains(got, "- 10 more profile facts are not shown; use recall_memory to find them.\nRecent log:") {
+		t.Fatalf("prompt does not say how many profile facts were cut:\n%s", got)
+	}
+	exact := systemPrompt(promptContext{Bot: core.Bot{ID: "me", Name: "Fixer"}, Now: time.Date(2026, 11, 7, 8, 0, 0, 0, time.UTC), Profile: profile[:maxPromptProfileFacts]})
+	if strings.Contains(exact, "more profile facts") {
+		t.Fatal("prompt with exactly the most profile facts says some were cut")
+	}
+}
+
+func TestHeldMessagesBeyondTheByteCapWaitForALaterTurn(t *testing.T) {
+	t.Parallel()
+	msg := func(n int) core.InboxMessage {
+		return core.InboxMessage{FromID: "bot-a", FromName: "Ana", Text: strings.Repeat("x", n)}
+	}
+	for _, tc := range []struct {
+		name  string
+		sizes []int
+		shown int
+	}{
+		{"all fit", []int{100, 200}, 2},
+		{"exactly the cap", []int{maxHeldBytes / 2, maxHeldBytes / 2}, 2},
+		{"one byte over", []int{maxHeldBytes / 2, maxHeldBytes/2 + 1}, 1},
+		{"a first message over the cap still goes", []int{maxHeldBytes + 1, 10}, 1},
+		{"none", nil, 0},
+	} {
+		var msgs []core.InboxMessage
+		for _, n := range tc.sizes {
+			msgs = append(msgs, msg(n))
+		}
+		shown, more := capHeld(msgs)
+		if len(shown) != tc.shown || more != len(msgs)-tc.shown {
+			t.Errorf("%s: capHeld shows %d and holds %d; want %d and %d", tc.name, len(shown), more, tc.shown, len(msgs)-tc.shown)
+		}
+	}
+	if got := heldOverflow(3); got != "3 more held messages are kept for a later turn.\n\n" {
+		t.Errorf("heldOverflow(3) = %q", got)
+	}
+	if got := heldOverflow(0); got != "" {
+		t.Errorf("heldOverflow(0) = %q; want empty", got)
+	}
+}

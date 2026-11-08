@@ -115,8 +115,11 @@ Each fact says who wrote it. A fact "from the user" was added by the user in the
 	if len(pc.Profile) == 0 {
 		b.WriteString("- (none)\n")
 	}
-	for _, m := range pc.Profile {
+	for _, m := range pc.Profile[:min(len(pc.Profile), maxPromptProfileFacts)] {
 		b.WriteString(formatFact(m, loc, authors) + "\n")
+	}
+	if more := len(pc.Profile) - maxPromptProfileFacts; more > 0 {
+		fmt.Fprintf(&b, "- %d more profile facts are not shown; use recall_memory to find them.\n", more)
 	}
 	b.WriteString("Recent log:\n")
 	if len(pc.Recent) == 0 {
@@ -597,6 +600,36 @@ func inboxBlock(msgs []core.InboxMessage) string {
 func heldText(text string) string {
 	text = strings.ReplaceAll(text, "</", `<\/`)
 	return strings.ReplaceAll(text, "\n", "\n  ")
+}
+
+// maxPromptProfileFacts is the most profile facts the prompt shows, newest
+// first. A fact is at most core.MaxFactLen characters, so this bounds the
+// memory section.
+const maxPromptProfileFacts = 30
+
+// maxHeldBytes is the most held message text one turn delivers. Messages
+// past it stay held for a later turn.
+const maxHeldBytes = 32000
+
+// capHeld returns the oldest held messages that fit in maxHeldBytes, at
+// least one, and how many more stay held.
+func capHeld(msgs []core.InboxMessage) ([]core.InboxMessage, int) {
+	size := 0
+	for i, m := range msgs {
+		size += len(m.Text)
+		if i > 0 && size > maxHeldBytes {
+			return msgs[:i], len(msgs) - i
+		}
+	}
+	return msgs, 0
+}
+
+// heldOverflow tells the bot how many held messages wait for a later turn.
+func heldOverflow(more int) string {
+	if more == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d more held messages are kept for a later turn.\n\n", more)
 }
 
 // heldName puts a bot's name on one line, with closing tags escaped.

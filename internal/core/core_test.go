@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	_ "time/tzdata"
 
 	"yargpt/internal/db"
 )
@@ -421,6 +422,40 @@ func TestRoutineRecordsWhoRanItLast(t *testing.T) {
 		if got.LastRunBy != step.want {
 			t.Fatalf("last run by %q; want %q", got.LastRunBy, step.want)
 		}
+	}
+}
+
+func TestRoutineKeepsItsNextRunAcrossASpringForwardChange(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.loc = ny
+	// Accepted in January: 01:58 and 03:00 are an hour apart on most days.
+	svc.now = func() time.Time { return time.Date(2027, 1, 10, 12, 0, 0, 0, ny) }
+	bot := newTestBot(t, svc)
+	r, err := svc.CreateRoutine(ctx, bot.ID, "Night", "Check the backups.", "0,58 1,3 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// On March 14, 2027 clocks go from 02:00 EST to 03:00 EDT, so the run
+	// after 01:58 comes 2 real minutes later. The 01:00 run fires first.
+	at := time.Date(2027, 3, 14, 1, 0, 30, 0, ny)
+	svc.now = func() time.Time { return at }
+	if _, err := svc.sqlDB.ExecContext(ctx, `UPDATE routines SET next_run_at = ? WHERE id = ?`, at.Add(-30*time.Second).UnixMilli(), r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := svc.FireDueRoutines(ctx); err != nil || n != 1 {
+		t.Fatalf("fire: n=%d err=%v; want 1", n, err)
+	}
+	got, err := svc.GetRoutine(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2027, 3, 14, 1, 58, 0, 0, ny).UnixMilli(); got.NextRunAt == nil || *got.NextRunAt != want {
+		t.Fatalf("next run after the 01:00 run = %v; want 01:58 EST (%d)", got.NextRunAt, want)
 	}
 }
 

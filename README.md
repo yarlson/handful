@@ -28,16 +28,10 @@ Open <http://127.0.0.1:7777>. YarGPT keeps all its data in `~/.yargpt`.
 
 On a Mac, you can use an app instead. It keeps the server running in the background, from login on, with an icon in the menu bar. It runs on Apple silicon and Intel Macs.
 
-1. Download `YarGPT-<version>-universal-mac.zip` from the [releases](https://github.com/yarlson/yargpt/releases), unzip it, and move `YarGPT.app` to `/Applications`.
-2. The app has an ad-hoc signature, not an Apple Developer ID, so macOS blocks a downloaded copy. Before you open it the first time, run:
+1. Download `YarGPT-<version>-universal-mac.zip` from the [releases](https://github.com/yarlson/yargpt/releases), unzip it, and move `YarGPT.app` to `/Applications`. The app is signed with a Developer ID and notarized by Apple, so macOS opens it.
+2. Open the app. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
 
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/YarGPT.app
-   ```
-
-3. Open the app. If macOS asks, turn on YarGPT in System Settings › General › Login Items & Extensions.
-
-To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` (`desktop/dist/mac/YarGPT.app` on an Intel Mac) to `/Applications`. A copy that you build is not blocked.
+To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` (`desktop/dist/mac/YarGPT.app` on an Intel Mac) to `/Applications`. A copy that you build has an ad-hoc signature; macOS opens it because it was not downloaded.
 
 - The server keeps running when you quit the app, and starts at every login. It has no login of its own, so use the app only on a Mac that one person uses: see [Security](#security).
 - The icon in the menu bar has one item, **Exit server**. The server then stays stopped until you open the app again or log in again.
@@ -267,7 +261,7 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 ### Releases
 
-Push a tag such as `v0.2.0` to release. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner and creates a GitHub release with the zip. A tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release.
+Push a tag such as `v0.2.0` to release; the tag must be a version, such as `v0.2.0` or `v0.2.0-rc.1`. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner, which signs the app with a Developer ID and the hardened runtime and has Apple notarize it, and creates a GitHub release with the zip. A tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release.
 
 ### Checks
 

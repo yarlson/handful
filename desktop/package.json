@@ -9,7 +9,7 @@
   "main": "main.js",
   "scripts": {
     "build": "electron-builder --mac",
-    "build:universal": "electron-builder --mac zip --universal",
+    "build:universal": "electron-builder --mac zip --universal --publish never",
     "test": "node --test"
   },
   "devDependencies": {

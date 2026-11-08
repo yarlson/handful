@@ -4,9 +4,10 @@ import { Picture } from "astro:assets";
 import Layout from "../layouts/Layout.astro";
 import GlassMark from "../components/GlassMark.astro";
 import Install from "../components/Install.astro";
-import { macDownloadUrl, version } from "../release";
+import { macDownloadUrl } from "../release";
 import botScreenshot from "../../../assets/screenshot.png";
 import roomScreenshot from "../../../assets/screenshot-dev-dark.png";
+import teamScreenshot from "../../../assets/screenshot-team.png";
 
 const title = "YarGPT: open-source Claude Code agents on your computer";
 const description =
@@ -19,7 +20,6 @@ const softwareApplication = {
 	url: Astro.site?.href,
 	applicationCategory: "DeveloperApplication",
 	operatingSystem: "macOS, Linux",
-	softwareVersion: version,
 	downloadUrl: macDownloadUrl,
 	license: "https://opensource.org/licenses/MIT",
 	sameAs: "https://github.com/yarlson/yargpt",
@@ -45,6 +45,13 @@ const botFeatures = [
 	{ title: "Routines", text: "A prompt on a schedule, in your local time." },
 	{ title: "Skills", text: "Saved procedures that every bot can run." },
 	{ title: "Approvals", text: "A bot asks before it runs a command or changes a file." },
+];
+
+const teamFeatures = [
+	{ title: "A lead", text: "A message without an @mention goes to the lead. The lead plans the goal and unblocks the work." },
+	{ title: "A board", text: "Each item has an owner and acceptance criteria. Items that do not depend on each other run at the same time." },
+	{ title: "Review", text: "When the working agreement asks for a check, another member reviews each item before it is done." },
+	{ title: "A turn budget", text: "A goal can use 30 turns by default. Then it pauses until you add more." },
 ];
 
 const localFeatures = [
@@ -119,6 +126,30 @@ const localFeatures = [
 		<section class={`bg-band ${chapter}`}>
 			<div class={wrap}>
 				<h2 class={heading}>
+					Teams work toward a goal. <span class="text-ink-2">A lead splits it into items, and a board hands them out.</span>
+				</h2>
+				<p class="mt-5 max-w-[58ch] text-pretty text-lg text-ink-2">
+					Give a team a goal. Its members work on the items, and the lead delivers the result for you to accept. Here, the Web app team adds a CSV export and asks the Docs team for a guide.
+				</p>
+				<figure class={figure}>
+					<Picture src={teamScreenshot} alt="A team at work: the goal and its turns above the chat, the lead's plan and the board's updates in the chat, and the Board tab with the items by state" {...screenshot} />
+				</figure>
+				<ul class={featureGrid}>
+					{
+						teamFeatures.map((feature) => (
+							<li>
+								<h3 class="text-[1.0625rem] font-[550] tracking-[-0.01em]">{feature.title}</h3>
+								<p class="mt-1.5 text-pretty text-base text-ink-2">{feature.text}</p>
+							</li>
+						))
+					}
+				</ul>
+			</div>
+		</section>
+
+		<section class={chapter}>
+			<div class={wrap}>
+				<h2 class={heading}>
 					It all runs on your computer. <span class="text-ink-2">There is no YarGPT cloud service.</span>
 				</h2>
 				<ul class={featureGrid}>
@@ -134,27 +165,31 @@ const localFeatures = [
 			</div>
 		</section>
 
-		<section class={`${wrap} ${chapter} flex flex-col items-center gap-6 text-center`}>
-			<GlassMark id="closing-mark" size="4.5rem" />
-			<h2 class={heading}>Start your first bot.</h2>
-			<div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-				<a
-					href={macDownloadUrl}
-					class="inline-flex min-h-12 items-center justify-center gap-2 rounded-[0.625rem] border border-button bg-button px-5 text-[0.9375rem] font-[550] text-button-ink transition-colors hover:border-button-hover hover:bg-button-hover"
-				>
-					<svg viewBox="0 0 24 24" aria-hidden="true" class="size-[1.0625rem] fill-none stroke-current stroke-[1.75] [stroke-linecap:round] [stroke-linejoin:round]">
-						<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"></path>
-					</svg>
-					Download for macOS
-				</a>
-				<a
-					href="https://github.com/yarlson/yargpt#install-and-start"
-					class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line-strong px-5 text-[0.9375rem] font-[550] transition-colors hover:bg-hover active:bg-pressed"
-				>
-					Build from source
-				</a>
+		<section class={`bg-band ${chapter}`}>
+			<div class={`${wrap} flex flex-col items-center gap-6 text-center`}>
+				<GlassMark id="closing-mark" size="4.5rem" />
+				<h2 class={heading}>Start your first bot.</h2>
+				<div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+					<a
+						href={macDownloadUrl}
+						class="inline-flex min-h-12 items-center justify-center gap-2 rounded-[0.625rem] border border-button bg-button px-5 text-[0.9375rem] font-[550] text-button-ink transition-colors hover:border-button-hover hover:bg-button-hover"
+					>
+						<svg viewBox="0 0 24 24" aria-hidden="true" class="size-[1.0625rem] fill-none stroke-current stroke-[1.75] [stroke-linecap:round] [stroke-linejoin:round]">
+							<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"></path>
+						</svg>
+						Download for macOS
+					</a>
+					<a
+						href="https://github.com/yarlson/yargpt#install-and-start"
+						class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line-strong px-5 text-[0.9375rem] font-[550] transition-colors hover:bg-hover active:bg-pressed"
+					>
+						Build from source
+					</a>
+				</div>
+				<p class="text-sm text-ink-3">
+					<a href="https://github.com/yarlson/yargpt/releases/latest" class="underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink">Latest release</a> · MIT License
+				</p>
 			</div>
-			<p class="text-sm text-ink-3">Version {version} · MIT License</p>
 		</section>
 	</main>
 

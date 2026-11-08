@@ -76,13 +76,21 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app
-      - name: Create the release
+      - name: Publish the zip
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          # yargpt.com links releases/latest/download/YarGPT-universal-mac.zip,
+          # so the zip's name must not change between releases.
+          mv YarGPT-*-universal-mac.zip YarGPT-universal-mac.zip
+          # A release made on GitHub pushes its tag too; it keeps its title and notes.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null; then
+            gh release upload "$TAG" YarGPT-universal-mac.zip --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
           prerelease=()
           case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
-          gh release create "$TAG" YarGPT-*-universal-mac.zip \
+          gh release create "$TAG" YarGPT-universal-mac.zip \
             --repo "$GITHUB_REPOSITORY" --verify-tag --title "YarGPT $TAG" --generate-notes "${prerelease[@]}" \
-            --notes "Download YarGPT-${TAG#v}-universal-mac.zip, unzip it, move YarGPT.app to /Applications, and open it. The app is signed with a Developer ID and notarized by Apple."
+            --notes "Download YarGPT-universal-mac.zip, unzip it, move YarGPT.app to /Applications, and open it. The app is signed with a Developer ID and notarized by Apple."

@@ -3394,3 +3394,53 @@ func TestTaskTurnKeepsTheHopsOfTheTurnThatStartedTheTask(t *testing.T) {
 		t.Fatalf("wake turn = %q at hop %d, %v; want a task turn at hop 5, as the turn that started the task", source, hops, err)
 	}
 }
+
+func TestUpdateRoutineToolEditsPausesResumesAndDeletesOwnRoutines(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	bot, other := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo")
+	r, err := h.svc.CreateRoutine(ctx, bot.ID, "Joke", "Tell a joke.", "0 8 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs, err := h.svc.CreateRoutine(ctx, other.ID, "News", "Read the news.", "0 9 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	call := func(args map[string]any, wantErr bool, want string) {
+		t.Helper()
+		text, isErr := callText(t, cs, "update_routine", args)
+		if isErr != wantErr || !strings.Contains(text, want) {
+			t.Fatalf("update_routine %v = %q (error %v); want %q (error %v)", args, text, isErr, want, wantErr)
+		}
+	}
+	call(map[string]any{"action": "update", "id": r.ID, "name": "Pun", "prompt": "Tell a pun.", "schedule": "0 7 * * *"}, false, `Updated routine "Pun" (id `+r.ID+`, schedule "0 7 * * *", next run`)
+	got, err := h.svc.GetRoutine(ctx, r.ID)
+	if err != nil || got.Prompt != "Tell a pun." {
+		t.Fatalf("prompt after update = %q, %v; want %q", got.Prompt, err, "Tell a pun.")
+	}
+	call(map[string]any{"action": "update", "id": r.ID, "name": "Riddle"}, false, `"Riddle" (id `+r.ID+`, schedule "0 7 * * *"`)
+	call(map[string]any{"action": "update", "id": r.ID, "schedule": "* * * * *"}, true, "runs more often")
+	call(map[string]any{"action": "pause", "id": r.ID}, false, "paused)")
+	call(map[string]any{"action": "pause", "id": "missing"}, true, "")
+	call(map[string]any{"action": "resume", "id": r.ID}, false, "next run")
+	for _, action := range []string{"update", "pause", "resume", "delete", "run_now"} {
+		call(map[string]any{"action": action, "id": theirs.ID, "name": "Mine"}, true, "belongs to another bot")
+	}
+	call(map[string]any{"action": "delete", "id": r.ID}, false, "Deleted routine "+r.ID+".")
+	call(map[string]any{"action": "delete", "id": r.ID}, true, "")
+	call(map[string]any{"action": "list"}, false, "No routines.")
+	call(map[string]any{"action": "rename"}, true, "action must be create, update, pause, resume, delete, run_now or list")
+}

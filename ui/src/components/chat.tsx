@@ -28,6 +28,7 @@ import { Popover } from "radix-ui"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { isExternalLink } from "@/lib/links"
 import { goalCommand, parseGoalCommand } from "@/lib/goal"
+import { offeredSkills, teamSkillOf } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -407,11 +408,17 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
   )
 }
 
-function EntryView({ entry, botName }: { entry: Entry; botName: string }) {
+function EntryView({ entry, botName, skill }: { entry: Entry; botName: string; skill: string | null }) {
   switch (entry.kind) {
     case "user":
       return (
         <div className="group/message flex flex-col items-end">
+          {skill && (
+            <Badge variant="outline" className="mb-1 font-mono" title="This message invoked a skill">
+              <Sparkles className="size-3" />
+              skill: {skill}
+            </Badge>
+          )}
           {entry.body.media && entry.body.media.length > 0 && (
             <div className="mb-1 flex max-w-[75%] justify-end">
               <MediaGallery names={entry.body.media} />
@@ -580,14 +587,17 @@ function Composer({
   const filePicker = useRef<HTMLInputElement>(null)
   const isRoom = bot.kind === "room"
 
-  // Skills are invoked in a bot's own chat; a room offers only the commands.
+  // Skills are invoked in a bot's own chat and in a team's chat; a plain room
+  // offers only the commands.
   const loadSkills = () => {
-    if (isRoom) return
+    if (isRoom && !bot.team) return
     api.skills().then(setSkills, (e: Error) => setError(`Could not load skills: ${e.message}`))
   }
   useEffect(loadSkills, [bot.id])
 
-  const suggestions = query ? suggestionsFor(query, mentionables, isRoom ? [] : skills, isRoom, Boolean(bot.team)) : []
+  const suggestions = query
+    ? suggestionsFor(query, mentionables, offeredSkills(skills, bot), isRoom, Boolean(bot.team))
+    : []
   const open = suggestions.length > 0 && query !== null && query.start !== dismissedAt
 
   const trackCaret = (el: HTMLTextAreaElement) => {
@@ -790,7 +800,7 @@ function Composer({
               className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0"
               placeholder={
                 bot.team
-                  ? `Message ${bot.name}… (the lead answers; @Name, @here, /goal)`
+                  ? `Message ${bot.name}… (the lead answers; @Name, @here, / for commands)`
                   : isRoom
                     ? `Message ${bot.name}… (@Name asks one member, @here all, / for commands)`
                     : `Message ${bot.name}… (/ for commands and skills, @ for bots)`
@@ -850,6 +860,18 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
   const [attachError, setAttachError] = useState<string | null>(null)
   const [dropping, setDropping] = useState(false)
   useEffect(() => setAttachError(null), [bot.id])
+  // A user's post in a team's chat that invokes a skill shows it.
+  const [skillIds, setSkillIds] = useState<string[]>([])
+  const isTeam = Boolean(bot.team)
+  useEffect(() => {
+    if (!isTeam) return
+    api.skills().then(
+      (list) => setSkillIds(list.map((sk) => sk.id)),
+      () => setSkillIds([]),
+    )
+  }, [bot.id, isTeam])
+  const memberNames = (bot.members ?? []).map((m) => m.name)
+  const skillOf = (e: Entry) => (isTeam && e.kind === "user" ? teamSkillOf(e.body.text, skillIds, memberNames) : null)
   const updateMedia = (botId: string, update: (media: PendingMedia[]) => PendingMedia[]) =>
     setPending((m) => new Map(m).set(botId, update(m.get(botId) ?? [])))
   const attach = (files: File[]) => {
@@ -898,7 +920,7 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
         <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
           {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">No messages yet.</p>}
           {entries.map((e) => (
-            <EntryView key={e.id} entry={e} botName={bot.name} />
+            <EntryView key={e.id} entry={e} botName={bot.name} skill={skillOf(e)} />
           ))}
           {bot.running && (
             <div className="text-muted-foreground flex items-center gap-2 text-xs">

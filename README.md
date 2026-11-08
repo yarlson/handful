@@ -110,7 +110,7 @@ The **Routines** tab in the bot panel shows each routine and its next run. There
 
 A skill is a saved procedure that every bot can use. When you finish a process that you will repeat, a bot can save it as a skill.
 
-Skills are `SKILL.md` files in `~/.yargpt/skills`. The **Skills** tab lists them. To run a skill now, type `/<skill> <request>` in a bot's chat.
+Skills are `SKILL.md` files in `~/.yargpt/skills`. The **Skills** tab lists them. To run a skill now, type `/<skill> <request>` in a bot's chat or in a team's chat. In a team the lead runs it, or each member that the message @mentions, and the skill stays in their context until `/clear`. A plain room does not run skills: there `/<skill>` is text.
 
 ### Artifacts
 

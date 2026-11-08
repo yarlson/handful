@@ -75,17 +75,17 @@ const localFeatures = [
 	</div>
 
 	<main>
-		<section class={`${wrap} flex flex-col items-center gap-[clamp(1.5rem,3.4vh,2.25rem)] pb-[clamp(4rem,10vh,7rem)] pt-[clamp(1.5rem,6vh,4.5rem)] text-center`}>
-			<GlassMark id="hero-mark" size="clamp(6.5rem, 17vmin, 8.75rem)" intro />
-			<div class="flex flex-col items-center gap-4">
-				<h1 class="max-w-[14ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
-					Your bots. Your computer.
-				</h1>
-				<p class="max-w-[44ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
-					YarGPT is an open-source app that runs personal AI agents on your Mac or Linux machine. Each bot keeps its own chat, memory, routines and folder, and works through Claude Code with your Claude account.
-				</p>
+		<section class={`${wrap} flex flex-col items-center pb-[clamp(3.5rem,11vh,7rem)] pt-[clamp(1.5rem,6vh,4.5rem)] text-center`}>
+			<GlassMark id="hero-mark" size="clamp(5.5rem, 14vmin, 7.5rem)" intro />
+			<h1 class="mt-[clamp(1.25rem,3vh,1.75rem)] max-w-[14ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
+				Your bots. Your computer.
+			</h1>
+			<p class="mt-5 max-w-[44ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
+				YarGPT is an open-source app that runs personal AI agents on your Mac or Linux machine, through Claude Code and your own Claude account.
+			</p>
+			<div class="mt-10 flex w-full justify-center">
+				<Install />
 			</div>
-			<Install />
 		</section>
 
 		<section class={`bg-band ${chapter}`}>

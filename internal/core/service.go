@@ -620,14 +620,15 @@ func (s *Service) queueTurn(ctx context.Context, q *db.Queries, t Turn) (string,
 }
 
 // StartTaskTurn records a running task turn: Claude Code woke the bot because
-// one of its background tasks reported.
-func (s *Service) StartTaskTurn(ctx context.Context, botID, roomID, prompt string) (Turn, error) {
+// one of its background tasks reported. hops is the depth of the turn that
+// started the task, so a chain of bots cannot restart at zero through a task.
+func (s *Service) StartTaskTurn(ctx context.Context, botID, roomID, prompt string, hops int64) (Turn, error) {
 	now := s.nowMs()
-	row, err := s.q.InsertRunningTurn(ctx, db.InsertRunningTurnParams{ID: uuid.NewString(), BotID: botID, Source: SourceTask, Prompt: prompt, RoomID: roomID, CreatedAt: now, StartedAt: sql.NullInt64{Int64: now, Valid: true}})
+	row, err := s.q.InsertRunningTurn(ctx, db.InsertRunningTurnParams{ID: uuid.NewString(), BotID: botID, Source: SourceTask, Prompt: prompt, RoomID: roomID, Hops: hops, CreatedAt: now, StartedAt: sql.NullInt64{Int64: now, Valid: true}})
 	if err != nil {
 		return Turn{}, fmt.Errorf("record task turn for bot %s: %w", botID, err)
 	}
-	return Turn{ID: row.ID, BotID: row.BotID, Source: row.Source, Prompt: row.Prompt, RoomID: row.RoomID}, nil
+	return Turn{ID: row.ID, BotID: row.BotID, Source: row.Source, Prompt: row.Prompt, RoomID: row.RoomID, Hops: row.Hops}, nil
 }
 
 // QueuedTurns returns queued turns, oldest first.

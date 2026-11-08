@@ -535,7 +535,7 @@ func routineAction(ctx context.Context, svc *core.Service, rc runContext, in rou
 		if _, err := owned(); err != nil {
 			return nil, nil, err
 		}
-		if _, err := svc.RunRoutineNow(ctx, in.ID, rc.BotName); err != nil {
+		if _, err := svc.RunRoutineNow(ctx, in.ID, rc.BotName, rc.Hops); err != nil {
 			return nil, nil, err
 		}
 		return textResult("Queued a run of routine %s; it starts after this turn.", in.ID), nil, nil

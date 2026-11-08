@@ -61,8 +61,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: InsertRunningTurn :one
-INSERT INTO turns (id, bot_id, source, prompt, status, room_id, created_at, started_at)
-VALUES (?, ?, ?, ?, 'running', ?, ?, ?)
+INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, created_at, started_at)
+VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetTurnByNonce :one

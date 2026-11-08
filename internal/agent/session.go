@@ -54,6 +54,9 @@ type session struct {
 	waking  bool                // a task turn runs
 	pending map[string]*command // turn id -> message on stdin that has not completed
 	tasks   []core.BackgroundTask
+	// taskHops is the most hops of a turn that changed the background tasks.
+	// A task turn starts at it, as the turn that started the task.
+	taskHops int64
 
 	// lastOutput is when the process last printed a stream line, or when a
 	// command came to a session that had none pending. Guarded by Runner.mu.
@@ -417,12 +420,15 @@ func (r *Runner) recorder(s *session, turnID string) *activityRecorder {
 // startTask records the task turn that Claude Code started on its own. It
 // returns nil when the turn cannot be recorded; its events are then dropped.
 func (r *Runner) startTask(s *session) *activeTurn {
-	t, err := r.svc.StartTaskTurn(context.Background(), s.key.botID, s.key.roomID, taskTurnPrompt)
+	r.mu.Lock()
+	hops := s.taskHops
+	r.mu.Unlock()
+	t, err := r.svc.StartTaskTurn(context.Background(), s.key.botID, s.key.roomID, taskTurnPrompt, hops)
 	if err != nil {
 		r.log.Error("record task turn", "bot", s.key.botID, "err", err)
 		return nil
 	}
-	r.tokens.set(s.token, runContext{BotID: s.bot.ID, BotName: s.bot.Name, TurnID: t.ID, RoomID: s.key.roomID})
+	r.tokens.set(s.token, runContext{BotID: s.bot.ID, BotName: s.bot.Name, TurnID: t.ID, RoomID: s.key.roomID, Hops: t.Hops})
 	r.mu.Lock()
 	s.waking = true
 	r.mu.Unlock()
@@ -485,8 +491,11 @@ func (r *Runner) setTasks(s *session, list []streamTask) {
 		}
 		tasks = append(tasks, task)
 	}
+	// The token holds the turn whose run reported the change.
+	rc, _ := r.tokens.get(s.token)
 	r.mu.Lock()
 	s.tasks = tasks
+	s.taskHops = max(s.taskHops, rc.Hops)
 	r.mu.Unlock()
 	r.svc.PublishTasks(s.key.transcript(), r.Tasks(s.key.transcript()))
 	r.closeIfIdle(s)

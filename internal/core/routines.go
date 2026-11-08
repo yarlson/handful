@@ -258,11 +258,19 @@ func (s *Service) DeleteRoutine(ctx context.Context, id, byBot string) error {
 
 // RunRoutineNow queues one on-demand run of the routine and records it as
 // the routine's last run. byBot names the bot that asked for the run; empty
-// means the user.
-func (s *Service) RunRoutineNow(ctx context.Context, id, byBot string) (string, error) {
+// means the user. A bot's run counts as a hop after hops, the depth of the
+// bot's turn, so a routine that runs itself stops at the hop limit.
+func (s *Service) RunRoutineNow(ctx context.Context, id, byBot string, hops int64) (string, error) {
 	r, err := s.GetRoutine(ctx, id)
 	if err != nil {
 		return "", err
+	}
+	turnHops := int64(0)
+	if byBot != "" {
+		turnHops = hops + 1
+	}
+	if turnHops > maxAgentHops {
+		return "", invalid("routine %s was not run: this turn comes from a chain of %d bot-to-bot steps, the most allowed", r.ID, maxAgentHops)
 	}
 	now := s.now().In(s.loc)
 	by, trigger := "the user", "the user"
@@ -272,7 +280,7 @@ func (s *Service) RunRoutineNow(ctx context.Context, id, byBot string) (string, 
 	if err := s.q.SetRoutineLastRun(ctx, db.SetRoutineLastRunParams{LastRunAt: sql.NullInt64{Int64: now.UnixMilli(), Valid: true}, LastRunBy: sql.NullString{String: trigger, Valid: true}, ID: r.ID}); err != nil {
 		return "", fmt.Errorf("record the run of routine %s: %w", r.ID, err)
 	}
-	return s.EnqueueTurn(ctx, r.BotID, SourceRoutine, routinePrompt(r, "was run on demand by "+by, now))
+	return s.enqueueTurn(ctx, Turn{BotID: r.BotID, Source: SourceRoutine, Hops: turnHops, Prompt: routinePrompt(r, "was run on demand by "+by, now)})
 }
 
 // FireDueRoutines queues a turn for each enabled routine whose time has come

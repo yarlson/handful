@@ -971,8 +971,8 @@ func (q *Queries) InsertMemory(ctx context.Context, arg InsertMemoryParams) (int
 }
 
 const insertRunningTurn = `-- name: InsertRunningTurn :one
-INSERT INTO turns (id, bot_id, source, prompt, status, room_id, created_at, started_at)
-VALUES (?, ?, ?, ?, 'running', ?, ?, ?)
+INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, created_at, started_at)
+VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)
 RETURNING id, bot_id, source, client_nonce, prompt, status, error, room_id, hops, created_at, started_at, finished_at, goal_id, item_id, board_role
 `
 
@@ -982,6 +982,7 @@ type InsertRunningTurnParams struct {
 	Source    string        `json:"source"`
 	Prompt    string        `json:"prompt"`
 	RoomID    string        `json:"room_id"`
+	Hops      int64         `json:"hops"`
 	CreatedAt int64         `json:"created_at"`
 	StartedAt sql.NullInt64 `json:"started_at"`
 }
@@ -993,6 +994,7 @@ func (q *Queries) InsertRunningTurn(ctx context.Context, arg InsertRunningTurnPa
 		arg.Source,
 		arg.Prompt,
 		arg.RoomID,
+		arg.Hops,
 		arg.CreatedAt,
 		arg.StartedAt,
 	)

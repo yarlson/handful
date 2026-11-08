@@ -307,7 +307,7 @@ func TestRunRoutineNowNamesWhoRanItAndRecordsTheRun(t *testing.T) {
 		{"Scout", "was run on demand by Scout"},
 		{"", "was run on demand by the user"},
 	} {
-		turnID, err := svc.RunRoutineNow(ctx, r.ID, tc.by)
+		turnID, err := svc.RunRoutineNow(ctx, r.ID, tc.by, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -404,8 +404,8 @@ func TestRoutineRecordsWhoRanItLast(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, "Scout"); return err }, `bot "Scout"`},
-		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, ""); return err }, "the user"},
+		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, "Scout", 0); return err }, `bot "Scout"`},
+		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, "", 0); return err }, "the user"},
 		{func() error {
 			svc.now = func() time.Time { return start.Add(2 * time.Minute) }
 			_, err := svc.FireDueRoutines(ctx)

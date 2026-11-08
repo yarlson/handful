@@ -31,6 +31,8 @@
   - `/clear` starts a fresh conversation context. The chat stays visible.
   - `/compact` shortens the context and shows the token counts before and after.
   - `/<skill> <request>` runs a skill now.
+- You can react to any message, yours or a bot's, in a chat or a room. Hover over the message, click the smiley, and choose 👍, 👎, ❤️, 😂, 👀 or ✅. Each reaction shows under the message with a count. Click it to remove it. Reactions stay after a restart.
+- Reactions are for you only. A reaction never wakes a bot, never starts a turn, and does not count toward the hop limit. Bots do not see reactions.
 
 ## Approvals
 
@@ -271,6 +273,7 @@ Chats:
   - `media` is a list of base64-encoded files.
   - The response is 202 with `{"turnId", "duplicate": false}`. A repeated `clientNonce` starts no second turn: it returns 200 with the first turn's id and `"duplicate": true`.
 - `GET /api/media/{name}`: a file of a message.
+- `POST /api/entries/{entry id}/reactions` with `{"emoji", "on"}`: put a reaction on a `user`, `bot` or `agent` entry (`"on": true`) or take it off (`"on": false`). `emoji` is one of 👍 👎 ❤️ 😂 👀 ✅. Returns 200 and the entry. Setting a reaction that is already on, or removing one that is off, changes nothing. Returns 400 for another emoji or another kind of entry, and 404 for an unknown entry. A reaction wakes no bot.
 - `POST /api/bots/{id}/interrupt`: stop the running turn. Returns `{"stopped": true|false}`.
 - `POST /api/bots/{id}/clear`: start a fresh context. Returns 204, or 409 while the bot works or has background tasks.
 - `POST /api/bots/{id}/compact`: queue a compaction after the current turn. Returns 202 with `{"queued"}`.
@@ -283,6 +286,7 @@ Entries:
   - `user`: your message. `body` has `text` and `media` (file names for `GET /api/media/{name}`).
   - `bot`: a bot's message. `body` has `text`, `fallback`, `needsReply` and `media`. In a room, it also has `speakerId` and `speakerName`.
   - `agent`: a direct message between bots. `body` has `direction` (`in` or `out`), `peerId`, `peerName`, `text`, `priority`, and for `in`, `held`.
+  - The bodies of `user`, `bot` and `agent` entries can also have `reactions`, your emoji on the message, in the order 👍 👎 ❤️ 😂 👀 ✅. The key is absent when the message has no reactions.
   - `approval`: an approval card. `body` has `tool`, `input`, `status` (`pending`, `allowed`, `denied` or `expired`), `decision`, and in a room `bot`.
   - `event` and `activity`: turn events and the tools that a bot used.
 

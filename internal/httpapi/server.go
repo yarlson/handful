@@ -65,6 +65,11 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger) ht
 	mux.HandleFunc("GET /api/skills", s.listSkills)
 	mux.HandleFunc("GET /api/skills/{id}", s.getSkill)
 	mux.HandleFunc("DELETE /api/skills/{id}", s.deleteSkill)
+	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
+	mux.HandleFunc("POST /api/artifacts", s.createArtifact)
+	mux.HandleFunc("GET /api/artifacts/{id}", s.getArtifact)
+	mux.HandleFunc("PATCH /api/artifacts/{id}", s.updateArtifact)
+	mux.HandleFunc("DELETE /api/artifacts/{id}", s.deleteArtifact)
 	mux.HandleFunc("GET /api/connectors", s.listConnectors)
 	mux.HandleFunc("POST /api/connectors/{name}/connect", s.connectConnector)
 	mux.HandleFunc("DELETE /api/connectors/{name}/token", s.disconnectConnector)
@@ -578,6 +583,75 @@ func (s *server) getSkill(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteSkill(w http.ResponseWriter, r *http.Request) {
 	if err := s.svc.DeleteSkill(r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listArtifacts returns the artifacts that match the kind, author, tag, q and
+// limit query parameters, without their content.
+func (s *server) listArtifacts(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	f := core.ArtifactFilter{Kind: q.Get("kind"), AuthorID: q.Get("author"), Tag: q.Get("tag"), Query: q.Get("q")}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			s.fail(w, r, fmt.Errorf("%w: limit must be a number", core.ErrInvalid))
+			return
+		}
+		f.Limit = n
+	}
+	list, err := s.svc.SearchArtifacts(r.Context(), f)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// The user creates, changes and deletes artifacts through these handlers,
+// so the actor is always the user, who may change any artifact.
+
+func (s *server) createArtifact(w http.ResponseWriter, r *http.Request) {
+	var in core.ArtifactInput
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	a, err := s.svc.CreateArtifact(r.Context(), core.ArtifactAuthorUser, in)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, a)
+}
+
+func (s *server) getArtifact(w http.ResponseWriter, r *http.Request) {
+	a, err := s.svc.GetArtifact(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *server) updateArtifact(w http.ResponseWriter, r *http.Request) {
+	var in core.ArtifactInput
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	a, err := s.svc.UpdateArtifact(r.Context(), core.ArtifactAuthorUser, r.PathValue("id"), in)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *server) deleteArtifact(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.DeleteArtifact(r.Context(), core.ArtifactAuthorUser, r.PathValue("id")); err != nil {
 		s.fail(w, r, err)
 		return
 	}

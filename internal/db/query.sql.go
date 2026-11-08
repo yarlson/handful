@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const abandonRunningTurns = `-- name: AbandonRunningTurns :many
@@ -246,6 +247,27 @@ func (q *Queries) DeleteAgentMemories(ctx context.Context, scopeKey string) erro
 	return err
 }
 
+const deleteArtifact = `-- name: DeleteArtifact :execrows
+DELETE FROM artifacts WHERE id = ?
+`
+
+func (q *Queries) DeleteArtifact(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteArtifact, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteArtifactTags = `-- name: DeleteArtifactTags :exec
+DELETE FROM artifact_tags WHERE artifact_id = ?
+`
+
+func (q *Queries) DeleteArtifactTags(ctx context.Context, artifactID string) error {
+	_, err := q.db.ExecContext(ctx, deleteArtifactTags, artifactID)
+	return err
+}
+
 const deleteBot = `-- name: DeleteBot :exec
 DELETE FROM bots WHERE id = ?
 `
@@ -341,6 +363,26 @@ func (q *Queries) FinishTurn(ctx context.Context, arg FinishTurnParams) error {
 		arg.ID,
 	)
 	return err
+}
+
+const getArtifact = `-- name: GetArtifact :one
+SELECT id, kind, title, content, links, author_id, created_at, updated_at FROM artifacts WHERE id = ?
+`
+
+func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) {
+	row := q.db.QueryRowContext(ctx, getArtifact, id)
+	var i Artifact
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Title,
+		&i.Content,
+		&i.Links,
+		&i.AuthorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getBot = `-- name: GetBot :one
@@ -449,6 +491,62 @@ func (q *Queries) GetTurnUserEntryBody(ctx context.Context, arg GetTurnUserEntry
 	var body string
 	err := row.Scan(&body)
 	return body, err
+}
+
+const insertArtifact = `-- name: InsertArtifact :one
+INSERT INTO artifacts (id, kind, title, content, links, author_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, kind, title, content, links, author_id, created_at, updated_at
+`
+
+type InsertArtifactParams struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+	Links     string `json:"links"`
+	AuthorID  string `json:"author_id"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+func (q *Queries) InsertArtifact(ctx context.Context, arg InsertArtifactParams) (Artifact, error) {
+	row := q.db.QueryRowContext(ctx, insertArtifact,
+		arg.ID,
+		arg.Kind,
+		arg.Title,
+		arg.Content,
+		arg.Links,
+		arg.AuthorID,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i Artifact
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Title,
+		&i.Content,
+		&i.Links,
+		&i.AuthorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertArtifactTag = `-- name: InsertArtifactTag :exec
+INSERT INTO artifact_tags (artifact_id, tag) VALUES (?, ?)
+`
+
+type InsertArtifactTagParams struct {
+	ArtifactID string `json:"artifact_id"`
+	Tag        string `json:"tag"`
+}
+
+func (q *Queries) InsertArtifactTag(ctx context.Context, arg InsertArtifactTagParams) error {
+	_, err := q.db.ExecContext(ctx, insertArtifactTag, arg.ArtifactID, arg.Tag)
+	return err
 }
 
 const insertInboxMessage = `-- name: InsertInboxMessage :exec
@@ -624,6 +722,33 @@ func (q *Queries) ListAllRoomMembers(ctx context.Context) ([]ListAllRoomMembersR
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listArtifactTags = `-- name: ListArtifactTags :many
+SELECT tag FROM artifact_tags WHERE artifact_id = ? ORDER BY tag
+`
+
+func (q *Queries) ListArtifactTags(ctx context.Context, artifactID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listArtifactTags, artifactID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		items = append(items, tag)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1171,6 +1296,45 @@ func (q *Queries) ListRoutines(ctx context.Context, botID string) ([]Routine, er
 	return items, nil
 }
 
+const listTagsForArtifacts = `-- name: ListTagsForArtifacts :many
+SELECT artifact_id, tag FROM artifact_tags
+WHERE artifact_id IN (/*SLICE:ids*/?)
+ORDER BY artifact_id, tag
+`
+
+func (q *Queries) ListTagsForArtifacts(ctx context.Context, ids []string) ([]ArtifactTag, error) {
+	query := listTagsForArtifacts
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ArtifactTag
+	for rows.Next() {
+		var i ArtifactTag
+		if err := rows.Scan(&i.ArtifactID, &i.Tag); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listToolGrants = `-- name: ListToolGrants :many
 SELECT tool_name FROM tool_grants WHERE bot_id = ? ORDER BY tool_name
 `
@@ -1243,6 +1407,71 @@ type RemoveRoomMemberParams struct {
 func (q *Queries) RemoveRoomMember(ctx context.Context, arg RemoveRoomMemberParams) error {
 	_, err := q.db.ExecContext(ctx, removeRoomMember, arg.RoomID, arg.BotID)
 	return err
+}
+
+const searchArtifacts = `-- name: SearchArtifacts :many
+SELECT id, kind, title, links, author_id, created_at, updated_at FROM artifacts a
+WHERE (?1 IS NULL OR a.kind = ?1)
+  AND (?2 IS NULL OR a.author_id = ?2)
+  AND (?3 IS NULL OR EXISTS (SELECT 1 FROM artifact_tags t WHERE t.artifact_id = a.id AND t.tag = ?3))
+  AND (?4 IS NULL OR instr(lower(a.title), lower(?4)) > 0 OR instr(lower(a.content), lower(?4)) > 0)
+ORDER BY a.updated_at DESC, a.rowid DESC
+LIMIT ?5
+`
+
+type SearchArtifactsParams struct {
+	Kind     interface{} `json:"kind"`
+	AuthorID interface{} `json:"author_id"`
+	Tag      interface{} `json:"tag"`
+	Query    interface{} `json:"query"`
+	MaxRows  int64       `json:"max_rows"`
+}
+
+type SearchArtifactsRow struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Links     string `json:"links"`
+	AuthorID  string `json:"author_id"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+func (q *Queries) SearchArtifacts(ctx context.Context, arg SearchArtifactsParams) ([]SearchArtifactsRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchArtifacts,
+		arg.Kind,
+		arg.AuthorID,
+		arg.Tag,
+		arg.Query,
+		arg.MaxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchArtifactsRow
+	for rows.Next() {
+		var i SearchArtifactsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Title,
+			&i.Links,
+			&i.AuthorID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setBotPosition = `-- name: SetBotPosition :exec
@@ -1331,6 +1560,45 @@ type StartTurnParams struct {
 func (q *Queries) StartTurn(ctx context.Context, arg StartTurnParams) error {
 	_, err := q.db.ExecContext(ctx, startTurn, arg.StartedAt, arg.ID)
 	return err
+}
+
+const updateArtifact = `-- name: UpdateArtifact :one
+UPDATE artifacts
+SET kind = ?, title = ?, content = ?, links = ?, updated_at = ?
+WHERE id = ?
+RETURNING id, kind, title, content, links, author_id, created_at, updated_at
+`
+
+type UpdateArtifactParams struct {
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+	Links     string `json:"links"`
+	UpdatedAt int64  `json:"updated_at"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) UpdateArtifact(ctx context.Context, arg UpdateArtifactParams) (Artifact, error) {
+	row := q.db.QueryRowContext(ctx, updateArtifact,
+		arg.Kind,
+		arg.Title,
+		arg.Content,
+		arg.Links,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i Artifact
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Title,
+		&i.Content,
+		&i.Links,
+		&i.AuthorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateBotProfile = `-- name: UpdateBotProfile :one

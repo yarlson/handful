@@ -212,3 +212,43 @@ WHERE e.kind = 'bot'
 
 -- name: SetBotPosition :exec
 UPDATE bots SET position = ? WHERE id = ?;
+
+-- name: InsertArtifact :one
+INSERT INTO artifacts (id, kind, title, content, links, author_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: GetArtifact :one
+SELECT * FROM artifacts WHERE id = ?;
+
+-- name: UpdateArtifact :one
+UPDATE artifacts
+SET kind = ?, title = ?, content = ?, links = ?, updated_at = ?
+WHERE id = ?
+RETURNING *;
+
+-- name: DeleteArtifact :execrows
+DELETE FROM artifacts WHERE id = ?;
+
+-- name: ListArtifactTags :many
+SELECT tag FROM artifact_tags WHERE artifact_id = ? ORDER BY tag;
+
+-- name: DeleteArtifactTags :exec
+DELETE FROM artifact_tags WHERE artifact_id = ?;
+
+-- name: InsertArtifactTag :exec
+INSERT INTO artifact_tags (artifact_id, tag) VALUES (?, ?);
+
+-- name: SearchArtifacts :many
+SELECT id, kind, title, links, author_id, created_at, updated_at FROM artifacts a
+WHERE (sqlc.narg(kind) IS NULL OR a.kind = sqlc.narg(kind))
+  AND (sqlc.narg(author_id) IS NULL OR a.author_id = sqlc.narg(author_id))
+  AND (sqlc.narg(tag) IS NULL OR EXISTS (SELECT 1 FROM artifact_tags t WHERE t.artifact_id = a.id AND t.tag = sqlc.narg(tag)))
+  AND (sqlc.narg(query) IS NULL OR instr(lower(a.title), lower(sqlc.narg(query))) > 0 OR instr(lower(a.content), lower(sqlc.narg(query))) > 0)
+ORDER BY a.updated_at DESC, a.rowid DESC
+LIMIT sqlc.arg(max_rows);
+
+-- name: ListTagsForArtifacts :many
+SELECT artifact_id, tag FROM artifact_tags
+WHERE artifact_id IN (sqlc.slice(ids))
+ORDER BY artifact_id, tag;

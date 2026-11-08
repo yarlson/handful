@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Play, Trash2 } from "lucide-react"
-import { api, type Bot, type Memory, type Routine, type Skill } from "@/lib/api"
+import { api, type Artifact, type Bot, type Memory, type Routine, type Skill } from "@/lib/api"
+import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
+import { latestOnly } from "@/lib/latest"
+import { MarkdownText } from "@/components/chat"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
@@ -30,15 +33,24 @@ function when(ms: number | null) {
     : "—"
 }
 
-// useLoad fetches data and fetches it again whenever key changes.
+// useLoad fetches data and fetches it again whenever key changes. Only the
+// newest request's result applies, and a success clears an earlier error.
 function useLoad<T>(load: () => Promise<T>, key: string) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const loadRef = useRef(load)
   loadRef.current = load
+  const [run] = useState(latestOnly)
   const reload = useCallback(() => {
-    loadRef.current().then(setData, (e: Error) => setError(e.message))
-  }, [])
+    run(
+      loadRef.current(),
+      (d) => {
+        setData(d)
+        setError(null)
+      },
+      (e) => setError(e.message),
+    )
+  }, [run])
   useEffect(reload, [reload, key])
   return { data, error, reload, setError }
 }
@@ -237,6 +249,132 @@ function SkillsTab({ version }: { version: number }) {
   )
 }
 
+// ArtifactsTab lists the documents that all bots share. Bots write them; the
+// user reads and deletes them here.
+function ArtifactsTab({ agents, version }: { agents: Bot[]; version: number }) {
+  const [kind, setKind] = useState("")
+  const [query, setQuery] = useState("")
+  const { data, error, reload, setError } = useLoad(() => api.artifacts({ kind, query }), `${version}:${kind}:${query}`)
+  const [open, setOpen] = useState<Artifact | null>(null)
+  const [confirm, setConfirm] = useState(false)
+  const show = async (id: string) => {
+    try {
+      setConfirm(false)
+      setOpen(await api.artifact(id))
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  const remove = async (id: string) => {
+    try {
+      await api.deleteArtifact(id)
+      setOpen(null)
+      reload()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <select
+          aria-label="Kind"
+          className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+        >
+          <option value="">All kinds</option>
+          {ARTIFACT_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+        <Input
+          aria-label="Search artifacts"
+          placeholder="Search"
+          className="h-8"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      {error && <p className="text-destructive text-xs">{error}</p>}
+      {data?.length === 0 && (
+        <p className="text-muted-foreground text-sm">
+          {kind || query.trim()
+            ? "No artifacts match."
+            : "No artifacts yet. Bots save plans, reviews and reports here for each other."}
+        </p>
+      )}
+      {data?.map((a) => (
+        <button
+          key={a.id}
+          type="button"
+          className="hover:bg-muted rounded-md border p-2 text-left text-sm"
+          onClick={() => void show(a.id)}
+        >
+          <span className="font-medium">{a.title}</span>
+          <div className="mt-1 flex items-center gap-1 text-xs">
+            <Badge variant="secondary">{a.kind}</Badge>
+            <span className="text-muted-foreground">
+              {artifactAuthor(a.authorId, agents)} · {when(a.updatedAt)}
+            </span>
+          </div>
+        </button>
+      ))}
+      <Dialog open={open !== null} onOpenChange={(v) => !v && setOpen(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{open?.title}</DialogTitle>
+            <DialogDescription>
+              {open && `${open.kind} from ${artifactAuthor(open.authorId, agents)}, updated ${when(open.updatedAt)}`}
+            </DialogDescription>
+          </DialogHeader>
+          {(open?.tags.length ?? 0) > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {open?.tags.map((t) => (
+                <Badge key={t} variant="outline">
+                  {t}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {open?.links.map((l) => (
+            <a
+              key={l}
+              href={l}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="truncate text-xs text-blue-600 underline"
+            >
+              {l}
+            </a>
+          ))}
+          <div className="max-h-[60vh] overflow-auto rounded-md border p-3 text-sm">
+            <MarkdownText text={open?.content ?? ""} />
+          </div>
+          <DialogFooter>
+            {confirm ? (
+              <>
+                <Button variant="ghost" onClick={() => setConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={() => open && void remove(open.id)}>
+                  Delete for all bots
+                </Button>
+              </>
+            ) : (
+              <Button variant="destructive" onClick={() => setConfirm(true)}>
+                Delete
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
 function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
   const [members, setMembers] = useState<Set<string>>(new Set((room.members ?? []).map((m) => m.id)))
   const [message, setMessage] = useState<string | null>(null)
@@ -377,7 +515,8 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
   )
 }
 
-// BotPanel shows what the bot keeps: memory, routines, shared skills and settings.
+// BotPanel shows what the bot keeps: memory, routines, shared skills, shared
+// artifacts and settings.
 // For a room it shows the members and settings. version changes whenever the
 // transcript changes, which refreshes the lists.
 export function BotPanel({
@@ -412,10 +551,22 @@ export function BotPanel({
   return (
     <Tabs key={bot.id} defaultValue="memory" className="flex h-full flex-col p-3">
       <TabsList className="w-full">
-        <TabsTrigger value="memory">Memory</TabsTrigger>
-        <TabsTrigger value="routines">Routines</TabsTrigger>
-        <TabsTrigger value="skills">Skills</TabsTrigger>
-        <TabsTrigger value="settings">Settings</TabsTrigger>
+        {/* text-xs fits five tabs into the panel's width. */}
+        <TabsTrigger value="memory" className="text-xs">
+          Memory
+        </TabsTrigger>
+        <TabsTrigger value="routines" className="text-xs">
+          Routines
+        </TabsTrigger>
+        <TabsTrigger value="skills" className="text-xs">
+          Skills
+        </TabsTrigger>
+        <TabsTrigger value="artifacts" className="text-xs">
+          Artifacts
+        </TabsTrigger>
+        <TabsTrigger value="settings" className="text-xs">
+          Settings
+        </TabsTrigger>
       </TabsList>
       <div className="min-h-0 flex-1 overflow-y-auto pt-2">
         <TabsContent value="memory">
@@ -426,6 +577,9 @@ export function BotPanel({
         </TabsContent>
         <TabsContent value="skills">
           <SkillsTab version={version} />
+        </TabsContent>
+        <TabsContent value="artifacts">
+          <ArtifactsTab agents={agents} version={version} />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab bot={bot} onDeleted={onDeleted} />

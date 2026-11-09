@@ -172,6 +172,9 @@ type PostMeta struct {
 	Model   string
 	ModelID string
 	Effort  string
+	// Question is the one-line summary of a question (a post with needsReply)
+	// that the user's list of open questions shows.
+	Question string
 }
 
 // modelFlags is the set of bots with a model problem; it lives in memory.

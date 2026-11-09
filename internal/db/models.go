@@ -96,6 +96,17 @@ type Item struct {
 	ForItemID    string `json:"for_item_id"`
 }
 
+type ItemEvent struct {
+	ID        string `json:"id"`
+	ItemID    string `json:"item_id"`
+	Kind      string `json:"kind"`
+	ActorID   string `json:"actor_id"`
+	ActorName string `json:"actor_name"`
+	Round     int64  `json:"round"`
+	Text      string `json:"text"`
+	CreatedAt int64  `json:"created_at"`
+}
+
 type Memory struct {
 	ID        string `json:"id"`
 	ScopeKey  string `json:"scope_key"`

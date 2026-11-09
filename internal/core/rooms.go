@@ -290,12 +290,18 @@ func nameRune(r rune) bool {
 }
 
 // wakeRoomMembers queues room turns after the user's post in the room. It
-// wakes the members the post @mentions; when it mentions none, it wakes the
-// lead of a team, or all members of a plain room.
+// wakes the members the post @mentions and the askers of the questions it
+// answers; when there are none, it wakes the lead of a team, or all members
+// of a plain room.
 // Members take their turns one at a time, in order (the runner runs one turn
 // per room at a time), so each sees the replies before it.
-func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string) error {
+func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string, askers ...string) error {
 	targets := mentioned(text, room.Members, "")
+	for _, m := range room.Members {
+		if slices.Contains(askers, m.ID) && !slices.Contains(targets, m) {
+			targets = append(targets, m)
+		}
+	}
 	if len(targets) == 0 {
 		targets = room.Members
 		if lead, ok := room.Lead(); ok {
@@ -334,6 +340,10 @@ func (s *Service) PostToRoomWithMeta(ctx context.Context, roomID, botID, turnID,
 	if err != nil {
 		return nil, err
 	}
+	question, err := s.questionLine(ctx, roomID, botID, needsReply, meta.Question)
+	if err != nil {
+		return nil, err
+	}
 	text = withoutSelfIntro(text, speaker.Name)
 	workspace := s.Workspace(botID)
 	if room.IsTeam() {
@@ -348,6 +358,7 @@ func (s *Service) PostToRoomWithMeta(ctx context.Context, roomID, botID, turnID,
 		body["media"] = media
 	}
 	meta.addTo(body)
+	addQuestion(body, needsReply, question)
 	if _, err := s.AppendEntry(ctx, roomID, KindBot, turnID, body); err != nil {
 		return nil, errors.Join(err, s.removeMedia(media))
 	}

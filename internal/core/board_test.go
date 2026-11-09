@@ -421,7 +421,7 @@ func TestUnblockingAnItemWithoutAnOwnerLeavesItToTheLead(t *testing.T) {
 	if _, err := f.svc.AssignItem(ctx, f.lead, idea.ID, f.ana.ID, f.ana.ID, ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("assign the owner as reviewer: err = %v; want ErrInvalid", err)
 	}
-	if _, err := f.svc.moveItem(ctx, f.lead, idea.ID, func(_ Bot, it *Item) error { return block(it, "Unclear.") }); err != nil {
+	if _, err := f.svc.moveItem(ctx, f.lead, idea.ID, leaving(EventBlocked, fixed("Unclear."), func(_ Bot, it *Item) error { return block(it, "Unclear.") })); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.svc.UnblockItem(ctx, f.lead, idea.ID, "Now clear.")

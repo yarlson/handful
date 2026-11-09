@@ -54,8 +54,9 @@ type Bot struct {
 	Effort          string   `json:"effort"`         // the bot's own effort; "" inherits
 	ClaudeSessionID string   `json:"-"`
 	Members         []Member `json:"members,omitempty"`
-	Team            *Team    `json:"team,omitempty"`      // set for a room that is a team
-	Attention       string   `json:"attention,omitempty"` // set by ListBots: AttentionApproval or AttentionQuestion
+	Team            *Team    `json:"team,omitempty"`          // set for a room that is a team
+	Attention       string   `json:"attention,omitempty"`     // set by ListBots: AttentionApproval or AttentionQuestion
+	OpenQuestions   int64    `json:"openQuestions,omitempty"` // set by ListBots: the open questions in the chat
 	CreatedAt       int64    `json:"createdAt"`
 	UpdatedAt       int64    `json:"updatedAt"`
 }
@@ -66,7 +67,7 @@ func (b Bot) IsRoom() bool { return b.Kind == KindRoom }
 // and a question outranks a model problem and a paused goal.
 const (
 	AttentionApproval = "approval" // a tool approval card is pending
-	AttentionQuestion = "question" // the latest message asks the user and is unanswered
+	AttentionQuestion = "question" // a question in the chat is open
 	AttentionGoal     = "goal"     // the team's goal is paused
 	AttentionModel    = "model"    // Claude Code could not run the bot's model, or ran another one
 )
@@ -306,7 +307,7 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	for _, m := range members {
 		byRoom[m.RoomID] = append(byRoom[m.RoomID], Member{ID: m.BotID, Name: m.Name, Model: m.Model, Effort: m.Effort})
 	}
-	attention, err := s.attention(ctx)
+	attention, open, err := s.attention(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -317,18 +318,19 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 		if row, ok := teamRows[b.ID]; ok {
 			b.Team = toTeam(row, b.Members)
 		}
-		b.Attention = attention[b.ID]
+		b.Attention, b.OpenQuestions = attention[b.ID], open[b.ID]
 		bots = append(bots, b)
 	}
 	return bots, nil
 }
 
-// attention maps each bot or room that waits on the user to the reason.
-func (s *Service) attention(ctx context.Context) (map[string]string, error) {
+// attention maps each bot or room that waits on the user to the reason, and
+// each to its number of open questions.
+func (s *Service) attention(ctx context.Context) (map[string]string, map[string]int64, error) {
 	out := map[string]string{}
 	paused, err := s.q.ListTeamsWithPausedGoals(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list teams with paused goals: %w", err)
+		return nil, nil, fmt.Errorf("list teams with paused goals: %w", err)
 	}
 	for _, id := range paused {
 		out[id] = AttentionGoal
@@ -336,21 +338,22 @@ func (s *Service) attention(ctx context.Context) (map[string]string, error) {
 	for _, id := range s.modelAttention.list() {
 		out[id] = AttentionModel
 	}
-	asking, err := s.q.ListBotsAwaitingReply(ctx)
+	counts, err := s.q.CountOpenQuestions(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list bots awaiting a reply: %w", err)
+		return nil, nil, fmt.Errorf("count open questions: %w", err)
 	}
-	for _, id := range asking {
-		out[id] = AttentionQuestion
+	open := map[string]int64{}
+	for _, c := range counts {
+		out[c.BotID], open[c.BotID] = AttentionQuestion, c.N
 	}
 	pending, err := s.q.ListBotsWithPendingApprovals(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list pending approvals: %w", err)
+		return nil, nil, fmt.Errorf("list pending approvals: %w", err)
 	}
 	for _, id := range pending {
 		out[id] = AttentionApproval
 	}
-	return out, nil
+	return out, open, nil
 }
 
 func (s *Service) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -538,8 +541,8 @@ func (s *Service) Entries(ctx context.Context, botID string, afterRev int64, lim
 }
 
 // AppendBotMessage delivers a message from the bot to the user. needsReply
-// marks a question the bot cannot continue without; it shows as attention
-// until the user writes again.
+// marks a question the bot cannot continue without; it stays open until the
+// user answers or dismisses it, or the bot withdraws it.
 func (s *Service) AppendBotMessage(ctx context.Context, botID, turnID, text string, files []string, fallback, needsReply bool) (Entry, error) {
 	return s.AppendBotMessageWith(ctx, botID, turnID, text, files, fallback, needsReply, PostMeta{})
 }
@@ -555,6 +558,10 @@ func (s *Service) AppendBotMessageWith(ctx context.Context, botID, turnID, text 
 	if err != nil {
 		return Entry{}, err
 	}
+	question, err := s.questionLine(ctx, botID, botID, needsReply, meta.Question)
+	if err != nil {
+		return Entry{}, err
+	}
 	media, err := s.saveBotFiles(s.Workspace(botID), files)
 	if err != nil {
 		return Entry{}, err
@@ -564,6 +571,7 @@ func (s *Service) AppendBotMessageWith(ctx context.Context, botID, turnID, text 
 		body["media"] = media
 	}
 	meta.addTo(body)
+	addQuestion(body, needsReply, question)
 	e, err := s.AppendEntry(ctx, botID, KindBot, turnID, body)
 	if err != nil {
 		return Entry{}, errors.Join(err, s.removeMedia(media))
@@ -597,6 +605,14 @@ func checkUserMessage(text, clientNonce string, files int) error {
 // SubmitUserMessage records a user message and queues a turn for it.
 // A repeated clientNonce returns the original turn and duplicate=true.
 func (s *Service) SubmitUserMessage(ctx context.Context, botID, text, clientNonce string, media ...[]byte) (turnID string, duplicate bool, err error) {
+	return s.SubmitAnswer(ctx, botID, text, clientNonce, nil, media...)
+}
+
+// SubmitAnswer records a user message that answers the open questions
+// answers (entry ids), and queues a turn for it, as SubmitUserMessage does.
+// In a direct chat with one open question, a message with no answers
+// answers it. In a room, each answered question wakes the member who asked.
+func (s *Service) SubmitAnswer(ctx context.Context, botID, text, clientNonce string, answers []string, media ...[]byte) (turnID string, duplicate bool, err error) {
 	text = strings.TrimSpace(text)
 	if err := checkUserMessage(text, clientNonce, len(media)); err != nil {
 		return "", false, err
@@ -615,52 +631,67 @@ func (s *Service) SubmitUserMessage(ctx context.Context, botID, text, clientNonc
 	if err != nil {
 		return "", false, err
 	}
-	turnID, e, err := s.insertUserMessage(ctx, bot, text, nonce, names)
+	msg, err := s.insertUserMessage(ctx, bot, text, nonce, names, answers)
 	if err != nil {
 		// Until the entry that refers to the files is committed, a failure must remove them.
 		return "", false, errors.Join(err, s.removeMedia(names))
 	}
-	s.hub.Publish(Event{Type: "entry", BotID: botID, Entry: &e})
+	s.hub.Publish(Event{Type: "entry", BotID: botID, Entry: &msg.entry})
+	s.publishQuestions(msg.closed)
 	if bot.IsRoom() {
-		if err := s.wakeRoomMembers(ctx, bot, text); err != nil {
+		if err := s.wakeRoomMembers(ctx, bot, text, msg.askers...); err != nil {
 			return "", false, err
 		}
 	}
+	turnID = msg.turnID
 	s.signalTurns()
 	return turnID, false, nil
 }
 
+// userMessage is a stored user message: its turn and entry, the questions
+// it closed and the members who asked them.
+type userMessage struct {
+	turnID string
+	entry  Entry
+	closed []Entry
+	askers []string
+}
+
 // insertUserMessage stores the user's message to bot and its turn in one
-// transaction. In a room the turn row only anchors the nonce; members get
-// their own turns.
-func (s *Service) insertUserMessage(ctx context.Context, bot Bot, text string, nonce sql.NullString, media []string) (string, Entry, error) {
-	tx, err := s.sqlDB.BeginTx(ctx, nil)
+// transaction, and closes the questions it answers. In a room the turn row
+// only anchors the nonce; members get their own turns.
+func (s *Service) insertUserMessage(ctx context.Context, bot Bot, text string, nonce sql.NullString, media, answers []string) (userMessage, error) {
+	var msg userMessage
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		a, err := answersOf(ctx, q, bot, answers)
+		if err != nil {
+			return err
+		}
+		now := s.nowMs()
+		source, status, roomID := SourceUser, "queued", ""
+		if bot.IsRoom() {
+			source, status, roomID = SourceRoom, "done", bot.ID
+		}
+		turn, err := q.InsertTurn(ctx, db.InsertTurnParams{ID: uuid.NewString(), BotID: bot.ID, Source: source, ClientNonce: nonce, Prompt: text, Status: status, RoomID: roomID, CreatedAt: now})
+		if err != nil {
+			return fmt.Errorf("insert turn for bot %s: %w", bot.ID, err)
+		}
+		body, err := json.Marshal(userBody{Text: text, Media: media, Answers: a.ids})
+		if err != nil {
+			return fmt.Errorf("encode user entry: %w", err)
+		}
+		row, err := q.AppendEntry(ctx, db.AppendEntryParams{BotID: bot.ID, ID: uuid.NewString(), Kind: KindUser, TurnID: turn.ID, Body: string(body), CreatedAt: now})
+		if err != nil {
+			return fmt.Errorf("append user entry to bot %s: %w", bot.ID, err)
+		}
+		msg = userMessage{turnID: turn.ID, entry: toEntry(row), askers: a.askers}
+		msg.closed, err = s.closeAnswered(ctx, q, a, row.ID)
+		return err
+	})
 	if err != nil {
-		return "", Entry{}, fmt.Errorf("begin transaction: %w", err)
+		return userMessage{}, err
 	}
-	defer tx.Rollback()
-	qtx := s.q.WithTx(tx)
-	now := s.nowMs()
-	source, status, roomID := SourceUser, "queued", ""
-	if bot.IsRoom() {
-		source, status, roomID = SourceRoom, "done", bot.ID
-	}
-	turn, err := qtx.InsertTurn(ctx, db.InsertTurnParams{ID: uuid.NewString(), BotID: bot.ID, Source: source, ClientNonce: nonce, Prompt: text, Status: status, RoomID: roomID, CreatedAt: now})
-	if err != nil {
-		return "", Entry{}, fmt.Errorf("insert turn for bot %s: %w", bot.ID, err)
-	}
-	body, err := json.Marshal(userBody{Text: text, Media: media})
-	if err != nil {
-		return "", Entry{}, fmt.Errorf("encode user entry: %w", err)
-	}
-	row, err := qtx.AppendEntry(ctx, db.AppendEntryParams{BotID: bot.ID, ID: uuid.NewString(), Kind: KindUser, TurnID: turn.ID, Body: string(body), CreatedAt: now})
-	if err != nil {
-		return "", Entry{}, fmt.Errorf("append user entry to bot %s: %w", bot.ID, err)
-	}
-	if err := tx.Commit(); err != nil {
-		return "", Entry{}, fmt.Errorf("commit user message for bot %s: %w", bot.ID, err)
-	}
-	return turn.ID, toEntry(row), nil
+	return msg, nil
 }
 
 // EnqueueTurn queues a hidden turn (a routine run or a system cue) for the bot.

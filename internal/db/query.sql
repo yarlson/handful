@@ -207,11 +207,35 @@ DELETE FROM agent_inbox WHERE id = ?;
 SELECT DISTINCT bot_id FROM entries
 WHERE kind = 'approval' AND json_extract(body, '$.status') = 'pending';
 
--- name: ListBotsAwaitingReply :many
-SELECT e.bot_id FROM entries e
-WHERE e.kind = 'bot'
-  AND json_extract(e.body, '$.needsReply') = 1
-  AND e.seq = (SELECT MAX(x.seq) FROM entries x WHERE x.bot_id = e.bot_id AND x.kind IN ('user', 'bot'));
+-- name: CountOpenQuestions :many
+-- How many open questions each bot or room has.
+SELECT bot_id, COUNT(*) AS n FROM entries
+WHERE kind = 'bot' AND json_extract(body, '$.questionState') = 'open'
+GROUP BY bot_id;
+
+-- name: ListOpenQuestionEntries :many
+SELECT * FROM entries
+WHERE bot_id = ? AND kind = 'bot' AND json_extract(body, '$.questionState') = 'open'
+ORDER BY seq;
+
+-- name: ListAllOpenQuestionEntries :many
+SELECT * FROM entries
+WHERE kind = 'bot' AND json_extract(body, '$.questionState') = 'open'
+ORDER BY bot_id, seq;
+
+-- name: ListClosedQuestionEntries :many
+-- The questions of a chat that closed in the given way after a time (ms).
+SELECT * FROM entries
+WHERE bot_id = sqlc.arg(bot_id) AND kind = 'bot'
+  AND json_extract(body, '$.questionState') = sqlc.arg(state)
+  AND json_extract(body, '$.closedAt') > CAST(sqlc.arg(after) AS INTEGER)
+ORDER BY seq;
+
+-- name: CountClosedQuestionsSince :one
+SELECT COUNT(*) FROM entries
+WHERE kind = 'bot'
+  AND json_extract(body, '$.questionState') IN ('answered', 'dismissed', 'withdrawn')
+  AND json_extract(body, '$.closedAt') >= CAST(sqlc.arg(since) AS INTEGER);
 
 -- name: SetBotPosition :exec
 UPDATE bots SET position = ? WHERE id = ?;
@@ -433,3 +457,10 @@ WHERE NOT EXISTS (
   WHERE bot_id = sqlc.arg(bot_id) AND room_id = sqlc.arg(room_id) AND source = 'room' AND status = 'queued'
     AND hops = 0 AND item_id = '' AND board_role = ''
 );
+
+-- name: InsertItemEvent :exec
+INSERT INTO item_events (id, item_id, kind, actor_id, actor_name, round, text, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListItemEvents :many
+SELECT * FROM item_events WHERE item_id = ? ORDER BY created_at, rowid;

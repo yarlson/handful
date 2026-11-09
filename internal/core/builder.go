@@ -62,7 +62,7 @@ func insertBuilder(ctx context.Context, q *db.Queries, id string, now int64) err
 	if err := q.SetBotRole(ctx, db.SetBotRoleParams{Role: RoleBuilder, ID: id}); err != nil {
 		return fmt.Errorf("mark %s as the builder: %w", builderName, err)
 	}
-	body, err := json.Marshal(map[string]any{"text": BuilderWelcome, "fallback": false, "needsReply": true})
+	body, err := json.Marshal(map[string]any{"text": BuilderWelcome, "fallback": false, "needsReply": true, "questionState": QuestionOpen})
 	if err != nil {
 		return fmt.Errorf("encode the welcome of %s: %w", builderName, err)
 	}

@@ -101,6 +101,12 @@ type Item struct {
 	JumpedAt int64 `json:"jumpedAt,omitempty"`
 	// ForItemID is the request of another goal that a chained request serves.
 	ForItemID string `json:"forItemId,omitempty"`
+	// LatestChange is the change request that the owner works on: the latest
+	// one, while no submission came after it. EventCount counts the item's
+	// history, which starts at HistoryFrom (ms) for items older than it.
+	LatestChange *ItemChange `json:"latestChange,omitempty"`
+	EventCount   int64       `json:"eventCount"`
+	HistoryFrom  int64       `json:"historyFrom,omitempty"`
 }
 
 // Board is the open goal of a team, or its latest goal, with the goal's
@@ -243,7 +249,27 @@ func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
 	if err := s.fillLane(ctx, teamID, &board); err != nil {
 		return Board{}, err
 	}
+	if err := s.boardHistory(ctx, &board); err != nil {
+		return Board{}, err
+	}
 	return board, s.nameTeams(ctx, teamID, &board)
+}
+
+// boardHistory fills in the history of every item that a board shows.
+func (s *Service) boardHistory(ctx context.Context, board *Board) error {
+	if err := s.withHistory(ctx, board.Items); err != nil {
+		return err
+	}
+	for _, list := range [][]Request{board.Requests, board.Asked} {
+		for i := range list {
+			items := []Item{list[i].Item}
+			if err := s.withHistory(ctx, items); err != nil {
+				return err
+			}
+			list[i].Item = items[0]
+		}
+	}
+	return nil
 }
 
 // nameTeams fills in the names of the other teams that a board involves.
@@ -493,6 +519,12 @@ func (s *Service) CreateItem(ctx context.Context, a Actor, n NewItem) (Item, err
 		return Item{}, err
 	}
 	s.signalTurns()
+	if g.State == GoalDelivered {
+		// The user asked for changes to the delivered goal.
+		if err := s.closeDelivery(ctx, team.ID, g.ID); err != nil {
+			return Item{}, err
+		}
+	}
 	return it, s.boardNote(ctx, team.ID, itemEvent(team, a, "", it))
 }
 
@@ -522,6 +554,9 @@ func (s *Service) insertItem(ctx context.Context, q *db.Queries, team Bot, g Goa
 	if err != nil {
 		return Item{}, err
 	}
+	if err := s.recordEvent(ctx, q, a, it, eventDraft{Kind: EventCreated}); err != nil {
+		return Item{}, err
+	}
 	return it, s.wake(ctx, q, team, g, a, it)
 }
 
@@ -541,10 +576,26 @@ func checkCreator(a Actor, team Bot, g Goal, n NewItem) error {
 	return nil
 }
 
+// leaving makes a change of moveItem that leaves an event of kind, with the
+// text that text gives for the changed item.
+func leaving(kind string, text func(Item) string, change func(team Bot, it *Item) error) func(Bot, *Item) (eventDraft, error) {
+	return func(team Bot, it *Item) (eventDraft, error) {
+		if err := change(team, it); err != nil {
+			return eventDraft{}, err
+		}
+		return eventDraft{Kind: kind, Text: text(*it)}, nil
+	}
+}
+
+// fixed is the text of an event that is note, whatever the item.
+func fixed(note string) func(Item) string {
+	return func(Item) string { return strings.TrimSpace(note) }
+}
+
 // moveItem applies a board action to an item. change checks the actor and the
 // item, and changes the item; then the new state wakes whoever must act next.
 // The item changes only if no other action changed it meanwhile.
-func (s *Service) moveItem(ctx context.Context, a Actor, itemID string, change func(team Bot, it *Item) error) (Item, error) {
+func (s *Service) moveItem(ctx context.Context, a Actor, itemID string, change func(team Bot, it *Item) (eventDraft, error)) (Item, error) {
 	row, err := s.q.GetItem(ctx, itemID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, notFound("item", itemID)
@@ -561,7 +612,8 @@ func (s *Service) moveItem(ctx context.Context, a Actor, itemID string, change f
 		return Item{}, err
 	}
 	from, fromIntake := it.State, it.Intake
-	if err := change(team, &it); err != nil {
+	event, err := change(team, &it)
+	if err != nil {
 		return Item{}, err
 	}
 	it.UpdatedAt = s.nowMs()
@@ -573,6 +625,9 @@ func (s *Service) moveItem(ctx context.Context, a Actor, itemID string, change f
 		}
 		if n == 0 {
 			return invalid("item %q changed meanwhile; list the board and try again", it.Title)
+		}
+		if err := s.recordEvent(ctx, q, a, it, event); err != nil {
+			return err
 		}
 		if err := releaseSlot(ctx, q, &it); err != nil {
 			return err
@@ -957,7 +1012,7 @@ func (s *Service) AssignItem(ctx context.Context, a Actor, itemID, ownerID, revi
 		return Item{}, err
 	}
 	now := s.nowMs()
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventAssigned, fixed(note), func(team Bot, it *Item) error {
 		if err := a.mustLead(team); err != nil {
 			return err
 		}
@@ -980,13 +1035,13 @@ func (s *Service) AssignItem(ctx context.Context, a Actor, itemID, ownerID, revi
 		}
 		it.OwnerID, it.ReviewerID, it.State, it.BlockedFrom = ownerID, reviewerID, ItemTodo, ""
 		return nil
-	})
+	}))
 }
 
 // SubmitItem hands the owner's result on: to the reviewer, or as done when
 // the item has no reviewer.
 func (s *Service) SubmitItem(ctx context.Context, a Actor, itemID, result string) (Item, error) {
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventSubmitted, func(it Item) string { return cut(it.Result, maxResultInEvent) }, func(team Bot, it *Item) error {
 		if a.BotID != it.OwnerID || it.State != ItemDoing {
 			return invalid("only the owner submits an item that is being done")
 		}
@@ -999,20 +1054,20 @@ func (s *Service) SubmitItem(ctx context.Context, a Actor, itemID, result string
 			it.State = ItemReview
 		}
 		return nil
-	})
+	}))
 }
 
 // BlockItem stops an item until the lead answers note: the owner blocks the
 // item it works on, the reviewer the item it reviews.
 func (s *Service) BlockItem(ctx context.Context, a Actor, itemID, note string) (Item, error) {
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventBlocked, fixed(note), func(team Bot, it *Item) error {
 		owner := a.BotID == it.OwnerID && it.State == ItemDoing
 		reviewer := a.BotID == it.ReviewerID && it.State == ItemReview
 		if !owner && !reviewer {
 			return invalid("only the owner of an item that is being done, or its reviewer during a review, blocks it")
 		}
 		return block(it, note)
-	})
+	}))
 }
 
 // block stops an item with a note, and remembers its state to go back to.
@@ -1029,7 +1084,7 @@ func block(it *Item, note string) error {
 // the state it was blocked in, so that its owner or its reviewer gets the
 // answer, or it waits for an owner.
 func (s *Service) UnblockItem(ctx context.Context, a Actor, itemID, note string) (Item, error) {
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventUnblocked, fixed(note), func(team Bot, it *Item) error {
 		if err := a.mustLead(team); err != nil {
 			return err
 		}
@@ -1042,7 +1097,7 @@ func (s *Service) UnblockItem(ctx context.Context, a Actor, itemID, note string)
 		}
 		it.Note, it.State, it.BlockedFrom = text, unblockedState(*it), ""
 		return nil
-	})
+	}))
 }
 
 // unblockedState is the state that a blocked item goes back to: the state it
@@ -1060,7 +1115,7 @@ func unblockedState(it Item) string {
 
 // DropItem takes an item that is no longer needed off the goal.
 func (s *Service) DropItem(ctx context.Context, a Actor, itemID, note string) (Item, error) {
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventDropped, fixed(note), func(team Bot, it *Item) error {
 		if err := a.mustLead(team); err != nil {
 			return err
 		}
@@ -1076,12 +1131,12 @@ func (s *Service) DropItem(ctx context.Context, a Actor, itemID, note string) (I
 			it.Intake, it.IntakeNote = IntakeDeclined, text
 		}
 		return nil
-	})
+	}))
 }
 
 // PassItem is the reviewer's verdict that an item is done.
 func (s *Service) PassItem(ctx context.Context, a Actor, itemID, note string) (Item, error) {
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventPassed, fixed(note), func(team Bot, it *Item) error {
 		if a.BotID != it.ReviewerID || it.State != ItemReview {
 			return invalid("only the reviewer passes an item in review")
 		}
@@ -1091,14 +1146,14 @@ func (s *Service) PassItem(ctx context.Context, a Actor, itemID, note string) (I
 		}
 		it.Note, it.State = text, ItemDone
 		return nil
-	})
+	}))
 }
 
 // RequestChanges sends an item in review back to its owner with what must
 // change. Every maxReviewRounds rounds without a pass, the item is blocked
 // for the lead; after the lead unblocks it, it gets that many rounds again.
 func (s *Service) RequestChanges(ctx context.Context, a Actor, itemID, note string) (Item, error) {
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventChanges, fixed(note), func(team Bot, it *Item) error {
 		if a.BotID != it.ReviewerID || it.State != ItemReview {
 			return invalid("only the reviewer asks for changes to an item in review")
 		}
@@ -1112,7 +1167,7 @@ func (s *Service) RequestChanges(ctx context.Context, a Actor, itemID, note stri
 			return block(it, fmt.Sprintf("%d review rounds without a pass. The last review: %s", it.ReviewRounds, text))
 		}
 		return nil
-	})
+	}))
 }
 
 // StartItemWork marks an item as being done when its owner's work turn
@@ -1353,7 +1408,10 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 		return Goal{}, err
 	}
 	lead, _ := team.Lead()
-	body, err := json.Marshal(map[string]any{"text": summary, "fallback": false, "needsReply": true, "speakerId": lead.ID, "speakerName": lead.Name})
+	body, err := json.Marshal(map[string]any{
+		"text": summary, "fallback": false, "needsReply": true, "speakerId": lead.ID, "speakerName": lead.Name,
+		"questionState": QuestionOpen, "goalId": g.ID,
+	})
 	if err != nil {
 		return Goal{}, fmt.Errorf("encode the delivery: %w", err)
 	}
@@ -1454,6 +1512,9 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool)
 	g.State = GoalDone
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
+	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+		return Goal{}, err
+	}
 	if _, err = s.AppendEntry(ctx, team.ID, KindUser, "", userBody{Text: "Accepted the goal."}); err != nil {
 		return Goal{}, err
 	}
@@ -1534,6 +1595,9 @@ func (s *Service) EndGoal(ctx context.Context, goalID string, startNext bool) er
 	}
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
+	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+		return err
+	}
 	if err := s.boardNote(ctx, g.TeamID, "The goal ended."); err != nil {
 		return err
 	}
@@ -1599,12 +1663,12 @@ var errMoved = errors.New("the item moved since it was read")
 // moveSettled blocks an item with note, but only if it is still as it was
 // read: a member may have handed it on meanwhile.
 func (s *Service) moveSettled(ctx context.Context, a Actor, read Item, note string) error {
-	_, err := s.moveItem(ctx, a, read.ID, func(_ Bot, it *Item) error {
+	_, err := s.moveItem(ctx, a, read.ID, leaving(EventBlocked, fixed(note), func(_ Bot, it *Item) error {
 		if it.State != read.State || it.OwnerID != read.OwnerID || it.ReviewerID != read.ReviewerID {
 			return errMoved
 		}
 		return block(it, note)
-	})
+	}))
 	if errors.Is(err, errMoved) {
 		return nil
 	}
@@ -1672,6 +1736,9 @@ func (s *Service) GoalBoard(ctx context.Context, goalID string) (Board, error) {
 		return Board{}, err
 	}
 	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Teams: map[string]string{}}
+	if err := s.withHistory(ctx, board.Items); err != nil {
+		return Board{}, err
+	}
 	return board, s.nameTeams(ctx, g.TeamID, &board)
 }
 
@@ -1688,7 +1755,7 @@ func (s *Service) releaseMember(ctx context.Context, teamID, botID, name string)
 		return fmt.Errorf("list the items of bot %s in team %s: %w", botID, teamID, err)
 	}
 	for _, row := range rows {
-		_, err := s.moveItem(ctx, Actor{}, row.ID, func(_ Bot, it *Item) error { return release(it, botID, name) })
+		_, err := s.moveItem(ctx, Actor{}, row.ID, func(_ Bot, it *Item) (eventDraft, error) { return release(it, botID, name) })
 		if err != nil {
 			return err
 		}
@@ -1696,17 +1763,19 @@ func (s *Service) releaseMember(ctx context.Context, teamID, botID, name string)
 	return nil
 }
 
-// release frees one item from a bot that left its team.
-func release(it *Item, botID, name string) error {
+// release frees one item from a bot that left its team. Only a review that
+// it did not finish leaves an event: the item is blocked for the lead.
+func release(it *Item, botID, name string) (eventDraft, error) {
 	if it.OwnerID == botID {
 		it.OwnerID, it.ReviewerID, it.State, it.BlockedFrom = "", "", ItemTodo, ""
 		it.Note = name + " left the team; the item waits for a new owner."
-		return nil
+		return eventDraft{}, nil
 	}
 	it.ReviewerID = ""
 	if it.State != ItemReview {
-		return nil
+		return eventDraft{}, nil
 	}
 	it.State = ItemDoing
-	return block(it, name+" left the team before reviewing it.")
+	err := block(it, name+" left the team before reviewing it.")
+	return eventDraft{Kind: EventBlocked, Text: it.Note}, err
 }

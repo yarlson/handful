@@ -48,3 +48,88 @@ export class ScrollMemory {
 export function anchorIndex(rects: { bottom: number }[], viewTop: number): number {
   return rects.findIndex((r) => r.bottom > viewTop)
 }
+
+// Box is the part of an element that ScrollFollower measures.
+export type Box = { getBoundingClientRect(): { top: number; bottom: number }; readonly isConnected: boolean }
+export type ScrollBox = Box & ScrollMetrics
+// Item is an entry of the transcript: its id and its element.
+export type Item = { key: string; box: Box }
+
+// ScrollFollower keeps a chat's transcript where the user wants it whenever its content or its
+// view changes size: a pinned chat stays at the bottom, and an unpinned one keeps the entry at
+// the top of the view where it was. Browsers anchor scrolling differently (Safari not at
+// all), so the transcript turns native anchoring off and this does it in every browser.
+// It also remembers that entry per chat, so a chat reopens on the entry the user left it at
+// even when images above it have not loaded yet.
+export class ScrollFollower {
+  // anchor is the entry at the top of the view on screen and its offset from the view's top.
+  private anchor: { box: Box; offset: number } | null = null
+  // left is, per unpinned chat, the entry at the top of its view and its offset.
+  private left = new Map<string, { key: string; offset: number }>()
+  // moved is the scrollTop this follower last scrolled the view to. The browser reports that
+  // scroll later, when more content may have grown below, so its event is not the user's.
+  private moved: number | null = null
+
+  constructor(readonly memory: ScrollMemory) {}
+
+  // scrolled notes a scroll of chat id's view over its items and returns whether the chat
+  // is pinned now.
+  scrolled(id: string, view: ScrollBox, items: Item[]): boolean {
+    const ours = view.scrollTop === this.moved
+    this.moved = null
+    if (ours && this.memory.pinned(id)) return true
+    const pinned = this.memory.record(id, view)
+    if (!pinned) {
+      this.capture(id, view, items)
+      return false
+    }
+    this.anchor = null
+    this.left.delete(id)
+    return true
+  }
+
+  // capture remembers the item at the top of chat id's view and how far below the view's top
+  // it is.
+  capture(id: string, view: Box, items: Item[]) {
+    const viewTop = view.getBoundingClientRect().top
+    const rects = items.map((it) => it.box.getBoundingClientRect())
+    const i = anchorIndex(rects, viewTop)
+    if (i < 0) {
+      this.anchor = null
+      this.left.delete(id)
+      return
+    }
+    const offset = rects[i].top - viewTop
+    this.anchor = { box: items[i].box, offset }
+    this.left.set(id, { key: items[i].key, offset })
+  }
+
+  // restore scrolls chat id's view back to the item it was left at, and returns false when
+  // that item is not among items.
+  restore(id: string, view: ScrollBox, items: Item[]): boolean {
+    const at = this.left.get(id)
+    const item = at && items.find((it) => it.key === at.key)
+    if (!at || !item) return false
+    this.anchor = { box: item.box, offset: at.offset }
+    this.settle(id, view)
+    return true
+  }
+
+  // scrollTo scrolls the view to top.
+  scrollTo(view: ScrollBox, top: number) {
+    view.scrollTop = top
+    this.moved = view.scrollTop
+  }
+
+  // settle puts chat id's view back after its content or its size changed.
+  settle(id: string, view: ScrollBox) {
+    if (this.memory.pinned(id)) {
+      this.scrollTo(view, view.scrollHeight)
+      return
+    }
+    const a = this.anchor
+    if (!a?.box.isConnected) return
+    const moved = a.box.getBoundingClientRect().top - view.getBoundingClientRect().top - a.offset
+    this.scrollTo(view, view.scrollTop + moved)
+  }
+}

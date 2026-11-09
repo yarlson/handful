@@ -82,6 +82,11 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("POST /api/teams/{id}/goal-queue/start", s.startNextGoal)
 	mux.HandleFunc("POST /api/items/{id}/withdraw", s.withdrawItem)
 	mux.HandleFunc("POST /api/items/{id}/undefer", s.undeferItem)
+	mux.HandleFunc("POST /api/teams/{id}/handoffs", s.handOver)
+	mux.HandleFunc("POST /api/goals/{id}/accept-handoff", s.handoffAction(acceptHandoff, false))
+	mux.HandleFunc("POST /api/goals/{id}/answer-handoff", s.handoffAction(answerHandoff, true))
+	mux.HandleFunc("POST /api/goals/{id}/decline-handoff", s.handoffAction(declineHandoff, true))
+	mux.HandleFunc("POST /api/goals/{id}/withdraw-handoff", s.handoffAction(withdrawHandoff, false))
 	mux.HandleFunc("GET /api/items/{id}/events", s.itemEvents)
 	mux.HandleFunc("GET /api/questions", s.waiting)
 	mux.HandleFunc("GET /api/bots/{id}/questions", s.chatQuestions)
@@ -507,6 +512,7 @@ func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
 		GoalBudget    int64    `json:"goalBudget"`
 		DefaultModel  string   `json:"defaultModel"`
 		DefaultEffort string   `json:"defaultEffort"`
+		StartHandoffs string   `json:"startHandoffs"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
@@ -514,6 +520,7 @@ func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	team, err := s.svc.CreateTeam(r.Context(), in.Name, in.Instructions, in.MemberIDs, core.TeamSettings{
 		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
+		StartHandoffs: in.StartHandoffs,
 	})
 	if err != nil {
 		s.fail(w, r, err)
@@ -530,6 +537,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 		DefaultModel  *string `json:"defaultModel"`
 		DefaultEffort *string `json:"defaultEffort"`
 		RequestSlots  *int64  `json:"requestSlots"`
+		StartHandoffs *string `json:"startHandoffs"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
@@ -537,7 +545,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{
 		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
-		RequestSlots: in.RequestSlots,
+		RequestSlots: in.RequestSlots, StartHandoffs: in.StartHandoffs,
 	})
 	if err != nil {
 		s.fail(w, r, err)

@@ -158,11 +158,15 @@ func TestRequestEndpointsWithdrawUndeferAndSetSlots(t *testing.T) {
 	}
 	shipLead := core.Actor{BotID: bots[0].ID, TeamID: ship.ID, Role: core.RoleLead}
 	docsLead := core.Actor{BotID: bots[1].ID, TeamID: docs.ID, Role: core.RoleLead}
-	guide, err := svc.RequestWork(ctx, shipLead, docs.ID, core.NewItem{Title: "Guide", Brief: "Write it.", Acceptance: "Written."})
+	waits, err := svc.CreateItem(ctx, shipLead, core.NewItem{Title: "Publish", Brief: "Publish the docs.", Acceptance: "Published."})
 	if err != nil {
 		t.Fatal(err)
 	}
-	faq, err := svc.RequestWork(ctx, shipLead, docs.ID, core.NewItem{Title: "FAQ", Brief: "Write it.", Acceptance: "Written."})
+	guide, err := svc.RequestWork(ctx, shipLead, docs.ID, core.NewItem{Title: "Guide", Brief: "Write it.", Acceptance: "Written.", NeededBy: []string{waits.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	faq, err := svc.RequestWork(ctx, shipLead, docs.ID, core.NewItem{Title: "FAQ", Brief: "Write it.", Acceptance: "Written.", NeededBy: []string{waits.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}

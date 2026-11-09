@@ -251,6 +251,9 @@ type noteTo struct{ teamID, text string }
 
 func (s *Service) postNotes(ctx context.Context, notes []noteTo) error {
 	for _, n := range notes {
+		if n.teamID == "" {
+			continue // a handoff that the user made for no team
+		}
 		if err := s.boardNote(ctx, n.teamID, n.text); err != nil {
 			return err
 		}

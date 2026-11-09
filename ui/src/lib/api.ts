@@ -1,5 +1,6 @@
 import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifacts"
 import { errorMessage } from "./errors"
+import type { ServerVersion } from "./updates"
 import type { Intake, Slots } from "./queue"
 import type { ItemEvent, OpenQuestion, QuestionState, Waiting } from "./questions"
 import type { Defaults, Effective } from "./model"
@@ -221,6 +222,7 @@ export type ServerEvent =
   | { type: "tasks"; botId: string; tasks: BackgroundTask[] }
   | { type: "bots" }
   | { type: "pause"; pausedUntil?: string }
+  | { type: "drain"; draining: boolean }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -244,6 +246,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   listBots: () => request<Bot[]>("GET", "/api/bots"),
+  version: () => request<ServerVersion>("GET", "/api/version"),
   reorderBots: (ids: string[]) => request<void>("PUT", "/api/bots/order", { ids }),
   createBot: (name: string, instructions: string, values: { model?: string; effort?: string } = {}) =>
     request<Bot>("POST", "/api/bots", { name, instructions, ...values }),

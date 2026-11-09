@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -977,10 +977,16 @@ export function Chat({
   mentionables,
   answering = null,
   onAnswer = () => {},
+  pill = null,
+  draining = false,
 }: {
   bot: Bot
   entries: Entry[]
   mentionables: Member[]
+  // pill is the update pill, shown above the message box; draining says the server waits
+  // to restart for an update.
+  pill?: ReactNode
+  draining?: boolean
   // answering is the question the next message in this chat answers.
   answering?: Asked | null
   onAnswer?: (q: Asked | null) => void
@@ -1138,7 +1144,7 @@ export function Chat({
       )}
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+        className={cn("min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]", pill && "pb-11")}
         onScroll={(e) => onScroll(e.currentTarget)}
       >
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
@@ -1149,7 +1155,11 @@ export function Chat({
           {bot.running && (
             <div className="text-muted-foreground flex items-center gap-2 text-xs">
               <Loader2 className="size-3 animate-spin" />{" "}
-              {bot.kind === "room" ? "Members are working…" : `${bot.name} is working…`}
+              {draining
+                ? `${bot.kind === "room" ? "Members are" : `${bot.name} is`} finishing. Paused for update: new turns wait.`
+                : bot.kind === "room"
+                  ? "Members are working…"
+                  : `${bot.name} is working…`}
             </div>
           )}
         </div>
@@ -1159,7 +1169,10 @@ export function Chat({
           <Button
             size="icon"
             variant="outline"
-            className="pointer-events-auto absolute right-4 bottom-3 z-10 rounded-full shadow-md"
+            className={cn(
+              "pointer-events-auto absolute right-4 z-10 rounded-full shadow-md",
+              pill ? "bottom-12" : "bottom-3",
+            )}
             aria-label="Jump to latest"
             title="Jump to latest"
             onClick={() => pin(bot.id)}
@@ -1168,7 +1181,8 @@ export function Chat({
           </Button>
         </div>
       )}
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="@container relative mx-auto w-full max-w-3xl">
+        {pill}
         <QuestionStrip
           questions={questions}
           room={bot.kind === "room"}

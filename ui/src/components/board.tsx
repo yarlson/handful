@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, X } from "lucide-react"
 import { api, type Board, type Bot, type Goal, type Item, type Request } from "@/lib/api"
+import { PausedForUpdate } from "@/components/update-pill"
 import { HandedOverSection, HandOverDialog, IncomingSection } from "@/components/handoff"
 import { fromLabel } from "@/lib/handoff"
 import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@/lib/questions"
@@ -83,12 +84,15 @@ export function GoalBar({
   version,
   onShowBoard,
   teams = [],
+  draining = false,
 }: {
   team: Bot
   version: number
   onShowBoard?: () => void
   // teams are the app's teams, to hand work over to.
   teams?: Bot[]
+  // draining: the server starts no new turns until it restarts for an update.
+  draining?: boolean
 }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
   const [handing, setHanding] = useState(false)
@@ -119,6 +123,7 @@ export function GoalBar({
         <>
           <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{goalBadge[goal.state]}</Badge>
           <FromChip goal={goal} name={name} />
+          {draining && goal.state === "active" && <PausedForUpdate />}
           <span className="min-w-0 flex-1 truncate" title={goal.text}>
             {goal.text}
           </span>

@@ -11,7 +11,7 @@ import (
 func TestVersionReportsTheBuildDrainModeAndAnEmptyRunningList(t *testing.T) {
 	h, svc := newModelHandler(t, core.Defaults{})
 	rec := do(h, "GET", "/api/version", "", nil)
-	want := `{"version":"dev","draining":false,"drainingSince":0,"running":[],"sourceBuild":true}` + "\n"
+	want := `{"version":"dev","draining":false,"running":[],"sourceBuild":true}` + "\n"
 	if rec.Code != http.StatusOK || rec.Body.String() != want {
 		t.Fatalf("version = %d %s; want %s", rec.Code, rec.Body, want)
 	}
@@ -47,7 +47,7 @@ func TestVersionNamesANewerReleaseOfASourceBuild(t *testing.T) {
 	}
 	latest = "1.4.0"
 	rec := do(h, "GET", "/api/version", "", nil)
-	if !strings.Contains(rec.Body.String(), `"latest":"1.4.0","latestUrl":"`+LatestReleaseURL+`"`) {
+	if !strings.Contains(rec.Body.String(), `"latest":"1.4.0","releaseUrl":"`+LatestReleaseURL+`"`) {
 		t.Fatalf("version with a newer release = %s; want latest and its page", rec.Body)
 	}
 	rec = do(h, "GET", "/api/settings/updates", "", nil)

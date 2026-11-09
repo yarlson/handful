@@ -76,6 +76,7 @@ type runningTurn struct {
 	roomID string
 	itemID string // set for a work or review turn on a team's item
 	goalID string // set for a board turn: the goal it works for
+	since  time.Time
 }
 
 func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
@@ -318,7 +319,7 @@ func (r *Runner) dispatch(ctx context.Context) {
 			continue
 		}
 		turnCtx, cancel := context.WithCancel(ctx)
-		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, itemID: t.ItemID, goalID: t.GoalID}
+		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, itemID: t.ItemID, goalID: t.GoalID, since: time.Now()}
 		r.publish(t.BotID, true)
 		if t.RoomID != "" {
 			r.publish(t.RoomID, true)

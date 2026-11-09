@@ -40,10 +40,10 @@ func WithUpdates(u Updates) Option {
 type versionInfo struct {
 	Version       string      `json:"version"`
 	Draining      bool        `json:"draining"`
-	DrainingSince int64       `json:"drainingSince"`
+	DrainingSince int64       `json:"drainingSince,omitempty"`
 	Running       []core.Busy `json:"running"`
 	Latest        string      `json:"latest,omitempty"`
-	LatestURL     string      `json:"latestUrl,omitempty"`
+	ReleaseURL    string      `json:"releaseUrl,omitempty"`
 	SourceBuild   bool        `json:"sourceBuild"`
 }
 
@@ -60,7 +60,7 @@ func (s *server) versionInfo(r *http.Request) versionInfo {
 		v.Latest = s.updates.Latest()
 	}
 	if v.Latest != "" {
-		v.LatestURL = LatestReleaseURL
+		v.ReleaseURL = LatestReleaseURL
 	}
 	return v
 }

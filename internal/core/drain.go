@@ -7,7 +7,8 @@ import "sync"
 type Busy struct {
 	BotID string `json:"botId"`
 	Name  string `json:"name"`
-	Kind  string `json:"kind"` // BusyTurn or BusyTask
+	Kind  string `json:"kind"`  // BusyTurn or BusyTask
+	Since int64  `json:"since"` // ms: when the turn started, or when the process became busy with tasks
 }
 
 const (

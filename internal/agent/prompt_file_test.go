@@ -77,7 +77,9 @@ func TestRunFilesAreReadableOnlyByTheUser(t *testing.T) {
 
 func TestKilledByNamesTheSignal(t *testing.T) {
 	t.Parallel()
-	run := func(script string) error { return exec.CommandContext(context.Background(), "/bin/sh", "-c", script).Run() }
+	run := func(script string) error {
+		return exec.CommandContext(context.Background(), "/bin/sh", "-c", script).Run()
+	}
 	for _, c := range []struct {
 		err  error
 		name string

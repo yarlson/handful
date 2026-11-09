@@ -135,10 +135,7 @@ func (s *Service) SetRoomMembers(ctx context.Context, roomID string, memberIDs [
 			}
 		}
 	}
-	if room, err = s.GetBot(ctx, roomID); err != nil {
-		return Bot{}, err
-	}
-	if err := s.keepSlots(ctx, room); err != nil {
+	if room, err = s.keepSlots(ctx, roomID); err != nil {
 		return Bot{}, err
 	}
 	if _, err := s.AppendEntry(ctx, roomID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
@@ -488,14 +485,16 @@ func (s *Service) Teammates(ctx context.Context, botID string) ([]Bot, error) {
 	return out, nil
 }
 
-// keepSlots stores the request slots of a team that lost members, so that
-// they stay within its number of members.
-func (s *Service) keepSlots(ctx context.Context, room Bot) error {
-	if !room.IsTeam() {
-		return nil
+// keepSlots loads a room after its members changed, and stores the request
+// slots of a team that lost members, so that they stay within its number of
+// members.
+func (s *Service) keepSlots(ctx context.Context, roomID string) (Bot, error) {
+	room, err := s.GetBot(ctx, roomID)
+	if err != nil || !room.IsTeam() {
+		return room, err
 	}
 	if err := s.q.SetRequestSlots(ctx, db.SetRequestSlotsParams{RequestSlots: room.Team.RequestSlots, TeamID: room.ID}); err != nil {
-		return fmt.Errorf("set the request slots of team %s: %w", room.ID, err)
+		return Bot{}, fmt.Errorf("set the request slots of team %s: %w", room.ID, err)
 	}
-	return nil
+	return room, nil
 }

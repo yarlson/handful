@@ -595,11 +595,18 @@ func (s *Service) withdrawWith(ctx context.Context, q *db.Queries, team Bot, it 
 	if err := s.grantSlots(ctx, q, team.ID); err != nil {
 		return nil, err
 	}
-	notes := []noteTo{{team.ID, servingText}}
+	more, err := s.withdrawChain(ctx, q, team, it)
+	return append([]noteTo{{team.ID, servingText}}, more...), err
+}
+
+// withdrawChain withdraws, with q, the open requests that serving team
+// chained for request it.
+func (s *Service) withdrawChain(ctx context.Context, q *db.Queries, team Bot, it Item) ([]noteTo, error) {
 	chained, err := q.ListChainedItems(ctx, it.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list the requests chained to item %s: %w", it.ID, err)
 	}
+	var notes []noteTo
 	for _, row := range chained {
 		child, err := toItem(row)
 		if err != nil {

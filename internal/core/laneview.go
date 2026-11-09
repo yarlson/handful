@@ -162,10 +162,20 @@ func (v *laneViewer) waitsOn(l lane, r laneRequest) (string, error) {
 	if closed(r.Item) {
 		return "", nil
 	}
+	parts, err := v.thirdTeams(r)
+	if err != nil {
+		return "", err
+	}
+	mutual, err := v.mutual(l, r)
+	return strings.Join(append(parts, mutual...), " "), err
+}
+
+// thirdTeams says which teams the open requests that r depends on wait on.
+func (v *laneViewer) thirdTeams(r laneRequest) ([]string, error) {
 	var parts []string
 	items, err := v.goalItems(r.GoalID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, dep := range items {
 		if !slices.Contains(r.DependsOn, dep.ID) || dep.Intake == "" || dep.TeamID == r.TeamID || satisfies(dep) {
@@ -173,28 +183,35 @@ func (v *laneViewer) waitsOn(l lane, r laneRequest) (string, error) {
 		}
 		name, err := v.name(dep.TeamID)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		parts = append(parts, fmt.Sprintf("… waiting on team %s.", name))
 	}
+	return parts, nil
+}
+
+// mutual says which open requests of the serving team's own goal the asking
+// team of r works on, so that the two teams wait on each other.
+func (v *laneViewer) mutual(l lane, r laneRequest) ([]string, error) {
 	if l.ownGoal == "" {
-		return strings.Join(parts, " "), nil
+		return nil, nil
 	}
 	own, err := v.goalItems(l.ownGoal)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+	var parts []string
 	for _, it := range own {
 		if it.TeamID != r.from || closed(it) {
 			continue
 		}
 		name, err := v.name(r.from)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		parts = append(parts, fmt.Sprintf("Team %s is also waiting on your request %q.", name, it.Title))
 	}
-	return strings.Join(parts, " "), nil
+	return parts, nil
 }
 
 // reasonContext is what the reason line of a lane's requests needs.

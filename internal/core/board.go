@@ -711,6 +711,11 @@ func itemTurns(g Goal, it Item, items []Item) []Turn {
 	if !mayRun(it) && !closed(it) {
 		return nil // a request without a slot waits for one
 	}
+	return stateTurns(g, it, items)
+}
+
+// stateTurns returns the turns that the state of it needs, as itemTurns.
+func stateTurns(g Goal, it Item, items []Item) []Turn {
 	switch it.State {
 	case ItemTodo:
 		if it.OwnerID != "" && ready(it, items) {

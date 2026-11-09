@@ -198,7 +198,7 @@ type skillInput struct {
 
 type boardInput struct {
 	Action     string   `json:"action" jsonschema:"list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver or request"`
-	ItemID     string   `json:"item_id,omitempty" jsonschema:"the item to act on; required except for list, start_goal, create, deliver and request"`
+	ItemID     string   `json:"item_id,omitempty" jsonschema:"the item to act on; required except for list, start_goal, create, deliver and request; for request, the other team's request that this work is for, when your team serves requests of several goals"`
 	TeamID     string   `json:"team_id,omitempty" jsonschema:"request: the team to ask for work"`
 	Text       string   `json:"text,omitempty" jsonschema:"start_goal: the goal in the user's words; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; drop and pass: an optional note; deliver: the result for the user"`
 	Title      string   `json:"title,omitempty" jsonschema:"create and request: a short title, unique in the goal"`
@@ -826,7 +826,7 @@ func (t tools) boardAssign(ctx context.Context, a core.Actor, in boardInput) (st
 }
 
 func (t tools) boardRequest(ctx context.Context, a core.Actor, in boardInput) (string, error) {
-	it, err := t.svc.RequestWork(ctx, a, in.TeamID, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance})
+	it, err := t.svc.RequestWork(ctx, a, in.TeamID, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance, ForItemID: in.ItemID})
 	if err != nil {
 		return "", err
 	}

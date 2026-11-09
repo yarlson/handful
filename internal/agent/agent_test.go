@@ -1431,6 +1431,72 @@ func TestBoardTableNamesReviewRounds(t *testing.T) {
 	}
 }
 
+// A lead whose team serves requests of two goals passes work on to a third
+// team by naming, with item_id, the request that the work is for.
+func TestALeadServingTwoGoalsPassesWorkOnForTheRequestItNames(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	ship, ana, _, cy := h.newTeam(t)
+	ola, dan := h.newNamedBot(t, "Ola"), h.newNamedBot(t, "Dan")
+	ops, err := h.svc.CreateTeam(ctx, "Ops", "Run things.", []string{ola.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := h.svc.CreateTeam(ctx, "Docs", "Write docs.", []string{cy.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := h.svc.CreateTeam(ctx, "Dev", "Build things.", []string{dan.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.newGoal(t, ship)
+	h.newGoal(t, ops)
+	request := func(lead core.Bot, team core.Bot, title string) core.Item {
+		t.Helper()
+		it, err := h.svc.RequestWork(ctx, core.Actor{BotID: lead.ID, TeamID: team.ID, Role: core.RoleLead}, docs.ID, core.NewItem{Title: title, Brief: "Write it.", Acceptance: "It exists."})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return it
+	}
+	request(ana, ship, "Guide")
+	runbook := request(ola, ops, "Runbook")
+
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: cy.ID, BotName: "Cy", TurnID: "t1", RoomID: docs.ID, BoardRole: core.RoleLead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+
+	args := map[string]any{"action": "request", "team_id": dev.ID, "title": "Build", "brief": "Build the tool.", "acceptance": "It runs."}
+	if text, isErr := callText(t, cs, "update_board", args); !isErr || !strings.Contains(text, runbook.ID) {
+		t.Fatalf("request without item_id = %q (error %v); want an error that lists the requests", text, isErr)
+	}
+	args["item_id"] = runbook.ID
+	if text, isErr := callText(t, cs, "update_board", args); isErr || !strings.HasPrefix(text, "Asked for \"Build\" (id ") {
+		t.Fatalf("request with item_id = %q (error %v)", text, isErr)
+	}
+	board, err := h.svc.Board(ctx, ops.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, it := range board.Items {
+		found = found || it.Title == "Build"
+	}
+	if !found {
+		t.Fatalf("Ops's board = %+v; want the Build request on it", board.Items)
+	}
+}
+
 func TestALeadAsksAnotherTeamWhoseLeadSeesTheRequest(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")

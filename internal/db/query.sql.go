@@ -224,20 +224,6 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 	return err
 }
 
-const countClosedQuestionsSince = `-- name: CountClosedQuestionsSince :one
-SELECT COUNT(*) FROM entries
-WHERE kind = 'bot'
-  AND json_extract(body, '$.questionState') IN ('answered', 'dismissed', 'withdrawn')
-  AND json_extract(body, '$.closedAt') >= CAST(?1 AS INTEGER)
-`
-
-func (q *Queries) CountClosedQuestionsSince(ctx context.Context, since int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countClosedQuestionsSince, since)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countGoalTurns = `-- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns
 WHERE goal_id = ? AND started_at IS NOT NULL AND board_role <> 'retro'
@@ -1472,6 +1458,47 @@ type ListClosedQuestionEntriesParams struct {
 // The questions of a chat that closed in the given way after a time (ms).
 func (q *Queries) ListClosedQuestionEntries(ctx context.Context, arg ListClosedQuestionEntriesParams) ([]Entry, error) {
 	rows, err := q.db.QueryContext(ctx, listClosedQuestionEntries, arg.BotID, arg.State, arg.After)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Entry
+	for rows.Next() {
+		var i Entry
+		if err := rows.Scan(
+			&i.BotID,
+			&i.Seq,
+			&i.Rev,
+			&i.ID,
+			&i.Kind,
+			&i.TurnID,
+			&i.Body,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClosedQuestionsSince = `-- name: ListClosedQuestionsSince :many
+SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
+WHERE kind = 'bot'
+  AND json_extract(body, '$.questionState') IN ('answered', 'dismissed', 'withdrawn')
+  AND json_extract(body, '$.closedAt') >= CAST(?1 AS INTEGER)
+ORDER BY json_extract(body, '$.closedAt') DESC, seq DESC
+`
+
+// The questions of every chat that closed at or after a time (ms), newest first.
+func (q *Queries) ListClosedQuestionsSince(ctx context.Context, since int64) ([]Entry, error) {
+	rows, err := q.db.QueryContext(ctx, listClosedQuestionsSince, since)
 	if err != nil {
 		return nil, err
 	}

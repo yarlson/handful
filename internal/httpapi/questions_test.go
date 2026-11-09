@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"yargpt/internal/core"
@@ -104,6 +105,10 @@ func TestQuestionEndpointsListAnswerDismissAndReopen(t *testing.T) {
 	var w core.Waiting
 	if err := json.Unmarshal(rec.Body.Bytes(), &w); rec.Code != http.StatusOK || err != nil || len(w.Questions) != 0 || w.ClosedRecently != 2 {
 		t.Fatalf("waiting: %d %s; want nothing open and 2 closed", rec.Code, rec.Body)
+	}
+	if len(w.Closed) != 2 || w.Closed[0].State != core.QuestionDismissed || w.Closed[0].EntryID != second.ID || w.Closed[1].State != core.QuestionAnswered ||
+		!strings.Contains(rec.Body.String(), `"closed":[{`) || !strings.Contains(rec.Body.String(), `"closedAt":`) {
+		t.Fatalf("waiting closed list: %s; want the dismissed one, then the answered one", rec.Body)
 	}
 	if rec := do(h, "POST", "/api/entries/"+second.ID+"/reopen", "", jsonHeader); rec.Code != http.StatusOK {
 		t.Fatalf("reopen: %d %s", rec.Code, rec.Body)

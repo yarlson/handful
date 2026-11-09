@@ -408,7 +408,7 @@ func TestWaitingListsWhatWaitsForTheUser(t *testing.T) {
 	svc := newTestService(t)
 	bots := newAgents(t, svc, "Ana", "Bo")
 	empty, err := svc.Waiting(ctx)
-	if err != nil || len(empty.Questions) != 0 || empty.Approvals != 0 || empty.PausedGoals != 0 || empty.ClosedRecently != 0 {
+	if err != nil || len(empty.Questions) != 0 || empty.Approvals != 0 || empty.PausedGoals != 0 || empty.ClosedRecently != 0 || empty.Closed == nil || len(empty.Closed) != 0 {
 		t.Fatalf("waiting with nothing = %+v, %v", empty, err)
 	}
 	ask(t, svc, bots["Ana"].ID, "First?", "")
@@ -432,9 +432,22 @@ func TestWaitingListsWhatWaitsForTheUser(t *testing.T) {
 	if err != nil || len(w.Questions) != 2 || w.ClosedRecently != 1 {
 		t.Fatalf("waiting = %+v, %v; want 2 questions and 1 closed", w, err)
 	}
-	svc.now = func() time.Time { return time.Now().Add(7*24*time.Hour + time.Minute) }
-	if w, _ := svc.Waiting(ctx); w.ClosedRecently != 0 {
-		t.Fatalf("closed a week later = %d; want 0", w.ClosedRecently)
+	if len(w.Closed) != 1 || w.Closed[0].EntryID != old.ID || w.Closed[0].Question != "Second?" || w.Closed[0].AskerName != "Ana" ||
+		w.Closed[0].State != QuestionDismissed || w.Closed[0].ClosedAt == 0 || w.Questions[0].State != "" {
+		t.Fatalf("closed = %+v; want the dismissed question with its state and time, and no state on open ones", w.Closed)
+	}
+	later := svc.now().Add(time.Minute)
+	svc.now = func() time.Time { return later }
+	first := byChatEntry(t, all, "Bo's?")
+	if _, err := svc.DismissQuestion(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := svc.Waiting(ctx); len(w.Closed) != 2 || w.Closed[0].EntryID != first || w.Closed[1].EntryID != old.ID {
+		t.Fatalf("closed = %+v; want the newest first", w.Closed)
+	}
+	svc.now = func() time.Time { return later.Add(7*24*time.Hour + time.Minute) }
+	if w, _ := svc.Waiting(ctx); w.ClosedRecently != 0 || len(w.Closed) != 0 {
+		t.Fatalf("closed a week later = %d, %+v; want none", w.ClosedRecently, w.Closed)
 	}
 
 	f := newBoardFixture(t, 1)
@@ -521,4 +534,16 @@ func TestEndingAGoalShowsItsDeliveryClosed(t *testing.T) {
 	if len(open) != 1 || !slices.Contains(entries, open[0].EntryID) {
 		t.Fatalf("published %q; want the delivery %+v closed", entries, open)
 	}
+}
+
+// byChatEntry returns the entry id of the question with summary q.
+func byChatEntry(t *testing.T, qs []OpenQuestion, q string) string {
+	t.Helper()
+	for _, x := range qs {
+		if x.Question == q {
+			return x.EntryID
+		}
+	}
+	t.Fatalf("no question %q in %+v", q, qs)
+	return ""
 }

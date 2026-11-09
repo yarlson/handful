@@ -231,11 +231,13 @@ WHERE bot_id = sqlc.arg(bot_id) AND kind = 'bot'
   AND json_extract(body, '$.closedAt') > CAST(sqlc.arg(after) AS INTEGER)
 ORDER BY seq;
 
--- name: CountClosedQuestionsSince :one
-SELECT COUNT(*) FROM entries
+-- name: ListClosedQuestionsSince :many
+-- The questions of every chat that closed at or after a time (ms), newest first.
+SELECT * FROM entries
 WHERE kind = 'bot'
   AND json_extract(body, '$.questionState') IN ('answered', 'dismissed', 'withdrawn')
-  AND json_extract(body, '$.closedAt') >= CAST(sqlc.arg(since) AS INTEGER);
+  AND json_extract(body, '$.closedAt') >= CAST(sqlc.arg(since) AS INTEGER)
+ORDER BY json_extract(body, '$.closedAt') DESC, seq DESC;
 
 -- name: SetBotPosition :exec
 UPDATE bots SET position = ? WHERE id = ?;

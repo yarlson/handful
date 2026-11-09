@@ -111,3 +111,18 @@ test("a post that records its model makes the speaker a focusable button for its
     '<button type="button" class="cursor-default',
   )
 })
+
+test("a post loads the app's own images, and shows other sites' images as links", () => {
+  vi.stubGlobal("window", { location: { origin: "http://localhost:4317" } })
+  const html = renderToStaticMarkup(
+    <MarkdownText
+      text={"![chart](/api/media/c.png) ![logo](https://example.com/l.png?t=1) ![](https://cdn.example.org/x.png)"}
+    />,
+  )
+  assert.include(html, '<img src="/api/media/c.png" alt="chart"/>')
+  assert.notInclude(html, 'src="https://example.com')
+  assert.notInclude(html, '<img src="https://cdn')
+  assert.include(html, 'href="https://example.com/l.png?t=1" target="_blank" rel="noopener noreferrer"')
+  assert.include(html, "logo (example.com)")
+  assert.include(html, "Image (cdn.example.org)")
+})

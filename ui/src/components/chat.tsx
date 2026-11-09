@@ -27,7 +27,7 @@ import { api, type BackgroundTask, type Bot, type Decision, type Entry, type Mem
 import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type MentionQuery } from "@/lib/completion"
 import { Popover } from "radix-ui"
 import { REACTIONS, toggled } from "@/lib/reactions"
-import { isExternalLink } from "@/lib/links"
+import { imageHost, isExternalLink, isLocalImage } from "@/lib/links"
 import { goalCommand, parseGoalCommand } from "@/lib/goal"
 import { offeredSkills, teamSkillOf } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
@@ -47,8 +47,20 @@ function time(ms: number) {
 }
 
 // markdownComponents opens links to other sites in a new tab, so the app
-// stays open. The desktop app sends such links to the default browser.
+// stays open. The desktop app sends such links to the default browser. An
+// image from another site doesn't load: it shows as a link to it, which the
+// user can open.
 const markdownComponents: Components = {
+  img: ({ node: _node, src, alt, ...props }) => {
+    const url = typeof src === "string" ? src : undefined
+    if (isLocalImage(url, window.location.origin)) return <img src={url} alt={alt} {...props} />
+    if (!url) return alt ? <span>{alt}</span> : null
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" title={url}>
+        {alt ? `${alt} ` : "Image "}({imageHost(url, window.location.origin)})
+      </a>
+    )
+  },
   a: ({ node: _node, href, children, ...props }) =>
     isExternalLink(href, window.location.origin) ? (
       <a href={href} target="_blank" rel="noopener noreferrer" {...props}>

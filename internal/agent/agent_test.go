@@ -30,8 +30,8 @@ import (
 	"yargpt/internal/db"
 )
 
-// fakeClaude is a stand-in for the claude CLI. It appends its arguments and
-// the first stdin line (the prompt message) to args.log, writes the
+// fakeClaude is a stand-in for the claude CLI. It appends its arguments, the
+// text of its system prompt file and the first stdin line (the prompt message) to args.log, writes the
 // CLAUDE_CODE_* variables that tests check (never the whole environment,
 // which can hold tokens) to env.log and prints a
 // stream-json script chosen by the FAKE_MODE variable. Like Claude Code, it
@@ -45,7 +45,14 @@ IFS= read -r input
 tries=0
 until mkdir "$dir/args.lock" 2>/dev/null || [ $tries -ge 1000 ]; do tries=$((tries + 1)); sleep 0.01; done
 trap 'rmdir "$dir/args.lock" 2>/dev/null' EXIT
-printf '%s\n<<STDIN>>%s\n<<END>>\n' "$*" "$input" >> "$dir/args.log"
+# The system prompt comes in a file, which YarGPT removes when the process
+# exits; the log keeps its text after the arguments.
+prev=; system=
+for a in "$@"; do
+  [ "$prev" = --append-system-prompt-file ] && system=$(cat "$a")
+  prev=$a
+done
+printf '%s\n<<SYSTEM>>%s\n<<STDIN>>%s\n<<END>>\n' "$*" "$system" "$input" >> "$dir/args.log"
 rmdir "$dir/args.lock"
 trap - EXIT
 env | grep -E '^CLAUDE_CODE_(SILENT_TURN_REMINDER|DISABLE_CLAUDE_MDS)=' | sort > "$dir/env.log"
@@ -2942,16 +2949,16 @@ func TestStartRemovesMCPConfigFilesLeftByAnEarlierRun(t *testing.T) {
 	if err := os.MkdirAll(run, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	stale, other := filepath.Join(run, "mcp-123.json"), filepath.Join(run, "notes.txt")
-	for _, path := range []string{stale, other} {
+	stale, stalePrompt, other := filepath.Join(run, "mcp-123.json"), filepath.Join(run, "prompt-123.md"), filepath.Join(run, "notes.txt")
+	for _, path := range []string{stale, stalePrompt, other} {
 		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	h.start(t)
-	waitFor(t, "the stale MCP config file is removed", func() bool { return !fileExists(stale) })
+	waitFor(t, "the stale run files are removed", func() bool { return !fileExists(stale) && !fileExists(stalePrompt) })
 	if !fileExists(other) {
-		t.Errorf("%s was removed; want only mcp-*.json files removed", other)
+		t.Errorf("%s was removed; want only mcp-*.json and prompt-*.md files removed", other)
 	}
 }
 

@@ -143,43 +143,62 @@ func (r *Runner) writeMCPConfig(ctx context.Context, botID, token string) (strin
 	if err != nil {
 		return "", nil, fmt.Errorf("encode MCP config: %w", err)
 	}
+	path, err := r.writeRunFile("mcp-*.json", data)
+	if err != nil {
+		return "", nil, fmt.Errorf("MCP config file: %w", err)
+	}
+	return path, signIn, nil
+}
+
+// runFilePatterns are the files of claude processes in runDir: MCP configs
+// and system prompts. Only the user can read them.
+var runFilePatterns = []string{"mcp-*.json", "prompt-*.md"}
+
+// writeRunFile writes data to a new private file in runDir, named by pattern.
+func (r *Runner) writeRunFile(pattern string, data []byte) (string, error) {
 	dir := r.runDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", nil, fmt.Errorf("create %s: %w", dir, err)
+		return "", fmt.Errorf("create %s: %w", dir, err)
 	}
-	f, err := os.CreateTemp(dir, "mcp-*.json")
+	f, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return "", nil, fmt.Errorf("create MCP config file: %w", err)
+		return "", fmt.Errorf("create: %w", err)
 	}
 	_, err = f.Write(data)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
-		r.removeMCPConfig(f.Name())
-		return "", nil, fmt.Errorf("write MCP config file %s: %w", f.Name(), err)
+		r.removeRunFile(f.Name())
+		return "", fmt.Errorf("write %s: %w", f.Name(), err)
 	}
-	return f.Name(), signIn, nil
+	return f.Name(), nil
 }
 
-func (r *Runner) removeMCPConfig(path string) {
+func (r *Runner) removeRunFile(path string) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		r.log.Warn("remove MCP config file", "path", path, "err", err)
+		r.log.Warn("remove run file", "path", path, "err", err)
+	}
+}
+
+func (r *Runner) removeRunFiles(paths []string) {
+	for _, p := range paths {
+		r.removeRunFile(p)
 	}
 }
 
 func (r *Runner) runDir() string { return filepath.Join(r.svc.DataDir(), "run") }
 
-// removeLeftoverMCPConfigs removes MCP config files of claude processes from
-// an earlier run, for example after a hard kill. No such process survives a
+// removeLeftoverRunFiles removes the files of claude processes from an
+// earlier run, for example after a hard kill. No such process survives a
 // restart, so none of these files is in use.
-func (r *Runner) removeLeftoverMCPConfigs() {
-	paths, err := filepath.Glob(filepath.Join(r.runDir(), "mcp-*.json"))
-	if err != nil {
-		r.log.Warn("find leftover MCP config files", "err", err)
-		return
-	}
-	for _, path := range paths {
-		r.removeMCPConfig(path)
+func (r *Runner) removeLeftoverRunFiles() {
+	for _, pattern := range runFilePatterns {
+		paths, err := filepath.Glob(filepath.Join(r.runDir(), pattern))
+		if err != nil {
+			r.log.Warn("find leftover run files", "err", err)
+			continue
+		}
+		r.removeRunFiles(paths)
 	}
 }

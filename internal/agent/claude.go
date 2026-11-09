@@ -27,7 +27,11 @@ func yargptTool(name string) string { return "mcp__" + mcpServerName + "__" + na
 
 type claudeRun struct {
 	Prompt       string
-	SystemPrompt string
+	SystemPrompt string // goes in the SystemPromptFile file, never in argv
+	// SystemPromptFile is the path of the file that holds SystemPrompt.
+	// Argv is visible to ps and matched by pkill -f, so text from a bot's
+	// memory there would let a pattern kill stop the bot.
+	SystemPromptFile string
 	SessionID    string
 	Resume       bool
 	MCPConfig    string // path of the file that writeMCPConfig wrote
@@ -67,7 +71,7 @@ func (r claudeRun) args() ([]string, error) {
 		"--mcp-config", r.MCPConfig,
 		"--settings", isolatedSettings,
 		"--system-prompt-snapshot", "off",
-		"--append-system-prompt", r.SystemPrompt,
+		"--append-system-prompt-file", r.SystemPromptFile,
 		"--agents", string(agents),
 		"--tools", strings.Join(builtinTools, ","),
 		"--allowedTools", strings.Join(allowed, ","),

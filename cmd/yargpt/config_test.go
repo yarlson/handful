@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"yargpt/internal/core"
 )
 
 func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
@@ -22,6 +24,8 @@ func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
 		{name: "flag wins over file", file: `{"model": "sonnet", "maxParallel": 5}`, set: map[string]bool{"model": true}, want: settings{Claude: "claude", Model: "", MaxParallel: 5}},
 		{name: "unknown field", file: `{"modle": "sonnet"}`, wantErr: `unknown field "modle"`}, //nolint:misspell // the misspelled field name is the input under test
 		{name: "trailing data", file: `{"model": "sonnet"} {}`, wantErr: "after the JSON object"},
+		{name: "file sets effort", file: `{"effort": "max"}`, want: settings{Claude: "claude", Effort: "max", MaxParallel: 3}},
+		{name: "effort flag wins over file", file: `{"effort": "max", "model": "opus"}`, set: map[string]bool{"effort": true}, want: settings{Claude: "claude", Model: "opus", MaxParallel: 3}},
 		{name: "bad maxParallel", file: `{"maxParallel": 0}`, wantErr: "maxParallel"},
 	}
 	for _, tc := range cases {
@@ -44,5 +48,34 @@ func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
 				t.Fatalf("settings = %+v, %v; want %+v", got, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestGlobalDefaultsCheckTheModelAndEffortAndNameTheirSource(t *testing.T) {
+	noEnv := func(string) string { return "" }
+	s := settings{Model: " Opus ", Effort: "MAX"}
+	d, err := globalDefaults(&s, map[string]bool{"effort": true}, noEnv)
+	if err != nil || s.Model != "opus" || s.Effort != "max" ||
+		d.Model != "opus" || d.ModelSource != core.DefaultFromConfig || d.Effort != "max" || d.EffortSource != core.DefaultFromFlag {
+		t.Fatalf("globalDefaults = %+v, %+v, %v", d, s, err)
+	}
+	env := map[string]string{core.EnvModel: "haiku", core.EnvEffort: "low"}
+	d, err = globalDefaults(&settings{}, nil, func(k string) string { return env[k] })
+	if err != nil || d.Model != "haiku" || d.ModelSource != core.SourceEnv || d.Effort != "low" || d.EffortSource != core.SourceEnv || len(d.EnvOverrides) != 1 {
+		t.Fatalf("globalDefaults from the environment = %+v, %v", d, err)
+	}
+	for _, c := range []struct {
+		s    settings
+		set  map[string]bool
+		want string
+	}{
+		{settings{Effort: "huge"}, nil, `config.json: "effort" must be one of low, medium, high, xhigh, max`},
+		{settings{Effort: "huge"}, map[string]bool{"effort": true}, `-effort: Effort must be one of low, medium, high, xhigh, max.`},
+		{settings{Model: "a b"}, nil, `config.json: "model": A model ID can't contain spaces or start with '-'.`},
+		{settings{Model: "inherit"}, map[string]bool{"model": true}, `-model: Choose Default instead.`},
+	} {
+		if _, err := globalDefaults(&c.s, c.set, noEnv); err == nil || err.Error() != c.want {
+			t.Errorf("globalDefaults(%+v) err = %v; want %q", c.s, err, c.want)
+		}
 	}
 }

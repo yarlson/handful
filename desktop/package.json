@@ -12,13 +12,16 @@
     "build:universal": "electron-builder --mac zip --universal --publish never",
     "test": "node --test"
   },
+  "dependencies": {
+    "electron-updater": "6.8.11"
+  },
   "devDependencies": {
     "electron": "45.2.1",
     "electron-builder": "26.18.0"
   },
   "build": {
     "appId": "dev.yarlson.yargpt",
-    "files": ["main.js", "app.js"],
+    "files": ["main.js", "app.js", "preload.js", "updater.js", "updater-state.js", "updater-io.js"],
     "extraResources": [{ "from": "../bin/yargpt", "to": "yargpt" }],
     "extraFiles": [
       {
@@ -26,6 +29,8 @@
         "to": "Library/LaunchAgents/dev.yarlson.yargpt.server.plist"
       }
     ],
+    "protocols": [{ "name": "YarGPT", "schemes": ["yargpt"] }],
+    "publish": [{ "provider": "generic", "url": "https://github.com/yarlson/yargpt/releases/latest/download/", "channel": "latest" }],
     "mac": {
       "target": "dir",
       "category": "public.app-category.productivity",

@@ -1,8 +1,25 @@
+# Never change the Developer ID certificate (team ID) used to sign the app without first shipping a bridge release signed with both. Squirrel.Mac rejects an update whose signature doesn't satisfy the running app's designated requirement, and every user would stop getting updates.
+#
+# A tag push builds, signs and notarizes the app and publishes three files:
+# YarGPT-universal-mac.zip, its blockmap and latest-mac.yml, the feed that the
+# app's updater reads from releases/latest/download/. Run the workflow by hand
+# to stage or stop a release: it re-uploads only latest-mac.yml of an existing
+# release, with stagingPercentage set. docs/releasing.md explains both.
 name: release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, such as v1.4.0"
+        required: true
+        type: string
+      staging_percentage:
+        description: "Percentage of users who get the update, 0 to 100; 0 stops the release, empty releases to everyone"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -10,6 +27,7 @@ permissions:
 jobs:
   # The build runs npm packages and downloads, so it gets no write token.
   build:
+    if: github.event_name == 'push'
     runs-on: macos-latest
     # Notarization can wait several minutes for Apple.
     timeout-minutes: 45
@@ -29,7 +47,7 @@ jobs:
         with:
           install_args: go node
       - name: Build the UI and the server, and install the desktop packages
-        run: make app-universal-deps
+        run: make app-universal-deps VERSION="${TAG#v}"
       # Only this step gets the signing secrets, and it installs no packages.
       - name: Sign and notarize the universal app
         env:
@@ -58,12 +76,30 @@ jobs:
             archs=" $(lipo -archs "$binary") "
             [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]] || { echo "::error::$binary has the architectures$archs, not arm64 and x86_64"; exit 1; }
           done
+      # yargpt.com links releases/latest/download/YarGPT-universal-mac.zip,
+      # and the updater reads the zip's name from latest-mac.yml, so the zip
+      # gets a fixed name, and the feed names it with its sha512 and size.
+      # The zip holds the stapled app: electron-builder zips after it
+      # notarizes, so the zip is uploaded as it was built.
+      - name: Prepare the update feed
+        run: mise exec -- node desktop/scripts/release-feed.js prepare desktop/dist "${TAG#v}"
+      # The gate: the files to upload must match the feed, and the app in the
+      # exact zip to upload must keep a valid signature.
+      - name: Check the update feed
+        run: |
+          mise exec -- node desktop/scripts/release-feed.js verify desktop/dist
+          ditto -x -k desktop/dist/YarGPT-universal-mac.zip "$RUNNER_TEMP/feed-app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/feed-app/YarGPT.app"
+          grep -qx 'provider: generic' "$RUNNER_TEMP/feed-app/YarGPT.app/Contents/Resources/app-update.yml" || { echo "::error::The app has no generic update feed"; exit 1; }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app
-          path: desktop/dist/YarGPT-*-universal-mac.zip
+          path: |
+            desktop/dist/YarGPT-universal-mac.zip
+            desktop/dist/YarGPT-universal-mac.zip.blockmap
+            desktop/dist/latest-mac.yml
           if-no-files-found: error
-          # The release keeps the zip; the artifact only carries it to the release job.
+          # The release keeps the files; the artifact only carries them to the release job.
           retention-days: 1
 
   release:
@@ -76,21 +112,51 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app
-      - name: Publish the zip
+      - name: Publish the zip and the update feed
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # yargpt.com links releases/latest/download/YarGPT-universal-mac.zip,
-          # so the zip's name must not change between releases.
-          mv YarGPT-*-universal-mac.zip YarGPT-universal-mac.zip
+          # One command uploads all three files, so the feed never names a zip
+          # that is not there yet.
+          files=(YarGPT-universal-mac.zip YarGPT-universal-mac.zip.blockmap latest-mac.yml)
           # A release made on GitHub pushes its tag too; it keeps its title and notes.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null; then
-            gh release upload "$TAG" YarGPT-universal-mac.zip --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
             exit 0
           fi
           prerelease=()
           case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
-          gh release create "$TAG" YarGPT-universal-mac.zip \
+          gh release create "$TAG" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" --verify-tag --title "YarGPT $TAG" --generate-notes "${prerelease[@]}" \
             --notes "Download YarGPT-universal-mac.zip, unzip it, move YarGPT.app to /Applications, and open it. The app is signed with a Developer ID and notarized by Apple."
+
+  # Run by hand: re-uploads latest-mac.yml of an existing release with
+  # stagingPercentage, so that only that share of users gets the update. 0
+  # stops a bad release; an empty percentage releases to everyone. It runs no
+  # packages: the script uses only node.
+  stage:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+      PERCENTAGE: ${{ inputs.staging_percentage }}
+    steps:
+      - name: Check the inputs
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::Tag $TAG is not a version such as v1.2.3 or v1.2.3-rc.1"; exit 1; }
+          [[ -z "$PERCENTAGE" || "$PERCENTAGE" =~ ^([0-9]|[1-9][0-9]|100)$ ]] || { echo "::error::staging_percentage $PERCENTAGE is not a whole number from 0 to 100"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Re-publish latest-mac.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest-mac.yml --dir "$RUNNER_TEMP/feed"
+          node desktop/scripts/release-feed.js stage "$RUNNER_TEMP/feed/latest-mac.yml" "$PERCENTAGE"
+          cat "$RUNNER_TEMP/feed/latest-mac.yml"
+          gh release upload "$TAG" "$RUNNER_TEMP/feed/latest-mac.yml" --repo "$GITHUB_REPOSITORY" --clobber

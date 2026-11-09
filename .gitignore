@@ -2,7 +2,8 @@
 /ui/node_modules/
 /ui/dist/*
 !/ui/dist/.keep
-/docs/
+/docs/*
+!/docs/releasing.md
 /target/
 /ui/.stryker-tmp/
 /desktop/node_modules/

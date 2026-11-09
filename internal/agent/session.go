@@ -516,9 +516,7 @@ func (r *Runner) setTasks(s *session, list []streamTask) {
 	// The token holds the turn whose run reported the change.
 	rc, _ := r.tokens.get(s.token)
 	r.mu.Lock()
-	if len(tasks) > 0 {
-		markBusy(s)
-	}
+	markBusy(s) // an idle process that gets no tasks stays idle and unlisted
 	s.tasks = tasks
 	s.taskHops = max(s.taskHops, rc.Hops)
 	r.mu.Unlock()

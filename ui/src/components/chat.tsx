@@ -38,7 +38,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { cn } from "@/lib/utils"
 import { botColor, colorId } from "@/lib/bot-color"
-import { ScrollFollower, ScrollMemory, type Item } from "@/lib/scroll"
+import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 
 function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -899,6 +899,34 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
     return () => observer.disconnect()
   }, [follower])
   const onScroll = (el: HTMLDivElement) => setFollowing(follower.scrolled(bot.id, el, items()))
+  // A wheel, key or touch input that scrolls up unpins the chat before its scroll arrives,
+  // even a trackpad step too small to leave the bottom.
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const intent = (input: Intent) => setFollowing(follower.intent(bot.id, el, itemsOf(column.current, entries), input))
+    let touchY: number | null = null
+    const onWheel = (e: WheelEvent) => intent({ kind: "wheel", deltaY: e.deltaY })
+    const onKey = (e: globalThis.KeyboardEvent) => intent({ kind: "key", key: e.key })
+    const onTouchStart = (e: TouchEvent) => (touchY = e.touches[0]?.clientY ?? null)
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY
+      if (y === undefined) return
+      if (touchY !== null) intent({ kind: "touch", dy: y - touchY })
+      touchY = y
+    }
+    const opts = { passive: true }
+    el.addEventListener("wheel", onWheel, opts)
+    el.addEventListener("keydown", onKey)
+    el.addEventListener("touchstart", onTouchStart, opts)
+    el.addEventListener("touchmove", onTouchMove, opts)
+    return () => {
+      el.removeEventListener("wheel", onWheel)
+      el.removeEventListener("keydown", onKey)
+      el.removeEventListener("touchstart", onTouchStart)
+      el.removeEventListener("touchmove", onTouchMove)
+    }
+  }, [follower, bot.id, entries])
   // pin makes a chat follow the bottom again: on "Jump to latest" or the user's own send.
   // A send that finishes after a switch to another chat holds the old render's bot id, so
   // compare with the chat on screen now, which shown holds.

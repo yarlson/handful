@@ -1,5 +1,13 @@
 import { assert, test } from "vitest"
-import { anchorIndex, atBottom, PIN_THRESHOLD, ScrollFollower, ScrollMemory } from "./scroll.ts"
+import {
+  anchorIndex,
+  atBottom,
+  PIN_THRESHOLD,
+  REPIN_THRESHOLD,
+  ScrollFollower,
+  ScrollMemory,
+  scrollsUp,
+} from "./scroll.ts"
 
 // view returns the metrics of a 1000px transcript in a 200px viewport, scrolled to top.
 const view = (scrollTop: number) => ({ scrollTop, scrollHeight: 1000, clientHeight: 200 })
@@ -41,7 +49,10 @@ test("scrolling up unpins the chat, and new content does not move the view", () 
 test("scrolling back to the bottom pins the chat again and forgets its position", () => {
   const m = new ScrollMemory()
   m.record("a", view(300))
-  assert.isTrue(m.record("a", view(bottom - 10)))
+  // Near the bottom is not enough once unpinned: the user has to reach it.
+  assert.isFalse(m.record("a", view(bottom - 10)))
+  assert.isFalse(m.record("a", view(bottom - REPIN_THRESHOLD - 1)))
+  assert.isTrue(m.record("a", view(bottom - REPIN_THRESHOLD)))
   assert.isTrue(m.pinned("a"))
   assert.equal(m.target("a", true, 1000), 1000)
 })
@@ -311,4 +322,88 @@ test("a chat left at its first entry reopens there", () => {
   l.scrollTop = 500
   assert.isTrue(f.restore("a", l.view, l.entries()))
   assert.equal(l.scrollTop, 30)
+})
+
+test("inputs that ask for older messages scroll up, and others do not", () => {
+  assert.isTrue(scrollsUp({ kind: "wheel", deltaY: -1 }))
+  assert.isFalse(scrollsUp({ kind: "wheel", deltaY: 0 }))
+  assert.isFalse(scrollsUp({ kind: "wheel", deltaY: 40 }))
+  for (const key of ["ArrowUp", "PageUp", "Home"]) assert.isTrue(scrollsUp({ kind: "key", key }))
+  for (const key of ["ArrowDown", "PageDown", "End", "a"]) assert.isFalse(scrollsUp({ kind: "key", key }))
+  assert.isTrue(scrollsUp({ kind: "touch", dy: 1 }))
+  assert.isFalse(scrollsUp({ kind: "touch", dy: 0 }))
+  assert.isFalse(scrollsUp({ kind: "touch", dy: -5 }))
+})
+
+test("a pinned chat stays pinned within the threshold when nothing says the user scrolled up", () => {
+  const m = new ScrollMemory()
+  assert.isTrue(m.record("a", view(bottom - PIN_THRESHOLD)))
+  assert.isFalse(m.record("a", view(bottom - PIN_THRESHOLD - 1)))
+})
+
+test("a small step up unpins a streaming chat, and the stream does not pull it back", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  f.settle("a", l.view)
+  // The wheel event comes before its 20px scroll.
+  assert.isFalse(f.intent("a", l.view, l.entries(), { kind: "wheel", deltaY: -20 }))
+  l.scrollTop -= 20
+  assert.isFalse(f.scrolled("a", l.view, l.entries()))
+  const top = l.scrollTop
+  // The last entry streams and grows below the view.
+  l.heights[19] += 40
+  f.settle("a", l.view)
+  assert.equal(l.scrollTop, top)
+  // A stream update between the wheel event and its scroll does not move the view either.
+  f.intent("a", l.view, l.entries(), { kind: "wheel", deltaY: -20 })
+  l.heights[19] += 40
+  f.settle("a", l.view)
+  assert.equal(l.scrollTop, top)
+})
+
+test("an input that does not scroll up keeps the chat as it is", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  f.settle("a", l.view)
+  assert.isTrue(f.intent("a", l.view, l.entries(), { kind: "wheel", deltaY: 40 }))
+  assert.isTrue(f.memory.pinned("a"))
+  l.scrollTop = 500
+  f.scrolled("a", l.view, l.entries())
+  assert.isFalse(f.intent("a", l.view, l.entries(), { kind: "key", key: "End" }))
+  assert.isFalse(f.memory.pinned("a"))
+})
+
+test("scrolling back down to the very bottom after a small step pins the chat again", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  f.settle("a", l.view)
+  f.intent("a", l.view, l.entries(), { kind: "key", key: "ArrowUp" })
+  l.scrollTop -= 40
+  f.scrolled("a", l.view, l.entries())
+  l.scrollTop += 30
+  assert.isFalse(f.scrolled("a", l.view, l.entries()))
+  l.scrollTop += 10
+  assert.isTrue(f.scrolled("a", l.view, l.entries()))
+  l.heights.push(100)
+  f.settle("a", l.view)
+  assert.equal(l.scrollTop, l.scrollHeight - l.viewHeight)
+})
+
+test("an unpin keeps the position the user left the chat at", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  l.scrollTop = 1690
+  f.intent("a", l.view, l.entries(), { kind: "touch", dy: 12 })
+  assert.equal(f.memory.target("a", true, 2000), 1690)
+})
+
+test("an entry above that grows between a step up and its scroll does not move the view", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  f.settle("a", l.view)
+  const before = l.topOf(18)
+  f.intent("a", l.view, l.entries(), { kind: "wheel", deltaY: -20 })
+  l.heights[2] += 108
+  f.settle("a", l.view)
+  assert.equal(l.topOf(18), before)
 })

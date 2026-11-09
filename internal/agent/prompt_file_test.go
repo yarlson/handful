@@ -119,3 +119,25 @@ func TestATurnStoppedFromOutsideNamesTheSignal(t *testing.T) {
 		t.Fatalf("failure = %q; want the signal in plain words", text)
 	}
 }
+
+func TestExitReasonKeepsYarGPTsOwnStopsAndPlainExits(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	s := &session{key: sessionKey{"b", ""}}
+	term := exec.Command("/bin/sh", "-c", "kill -TERM $$").Run()
+	for _, c := range []struct {
+		err            error
+		stopped, quiet bool
+		want, stderr   string
+	}{
+		{term, false, false, "stopped by SIGTERM from outside YarGPT", ""},
+		{term, true, false, term.Error(), "err"},
+		{term, false, true, "no output from Claude for 30 minutes", ""},
+		{errors.New("exit status 1"), false, false, "exit status 1", "err"},
+	} {
+		got, stderr := h.runner.exitReason(s, c.err, "err", c.stopped, c.quiet)
+		if got.Error() != c.want || stderr != c.stderr {
+			t.Errorf("exitReason(%v, stopped %v, silent %v) = %v, %q; want %q, %q", c.err, c.stopped, c.quiet, got, stderr, c.want, c.stderr)
+		}
+	}
+}

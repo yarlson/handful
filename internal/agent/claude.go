@@ -32,11 +32,11 @@ type claudeRun struct {
 	// Argv is visible to ps and matched by pkill -f, so text from a bot's
 	// memory there would let a pattern kill stop the bot.
 	SystemPromptFile string
-	SessionID    string
-	Resume       bool
-	MCPConfig    string // path of the file that writeMCPConfig wrote
-	BotName      string
-	Model        string
+	SessionID        string
+	Resume           bool
+	MCPConfig        string // path of the file that writeMCPConfig wrote
+	BotName          string
+	Model            string
 }
 
 // isolatedSettings is the --settings value for every claude run. It turns

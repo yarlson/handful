@@ -378,16 +378,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 	r.mu.Unlock()
 	r.tokens.revoke(s.token)
 	stderrText := stderr.String()
-	switch {
-	case silent:
-		exitErr, stderrText = fmt.Errorf("no output from Claude for %.0f minutes", r.outputTimeout.Minutes()), ""
-	case !stopped:
-		if sig, ok := killedBy(exitErr); ok {
-			// Something outside YarGPT stopped the process, such as a pattern kill.
-			r.log.Warn("claude stopped by a signal", "bot", s.key.botID, "signal", sig, "stderr", truncate(stderrText, 500))
-			exitErr, stderrText = fmt.Errorf("stopped by %s from outside YarGPT", sig), ""
-		}
-	}
+	exitErr, stderrText = r.exitReason(s, exitErr, stderrText, stopped, silent)
 	if cur != nil && cur.cmd == nil {
 		status, errText := "failed", outcome{exitErr: exitErr, stderr: stderrText}.errorText()
 		if stopped && !silent {
@@ -592,6 +583,20 @@ func (r *Runner) HasSession(id string) bool {
 		}
 	}
 	return false
+}
+
+// exitReason is how a process's end reads in its turns: a stop for silence,
+// a signal from outside YarGPT, such as a pattern kill, or the exit error and
+// stderr as they are.
+func (r *Runner) exitReason(s *session, exitErr error, stderr string, stopped, silent bool) (error, string) {
+	if silent {
+		return fmt.Errorf("no output from Claude for %.0f minutes", r.outputTimeout.Minutes()), ""
+	}
+	if sig, ok := killedBy(exitErr); ok && !stopped {
+		r.log.Warn("claude stopped by a signal", "bot", s.key.botID, "signal", sig, "stderr", truncate(stderr, 500))
+		return fmt.Errorf("stopped by %s from outside YarGPT", sig), ""
+	}
+	return exitErr, stderr
 }
 
 // killedBy reports the signal that ended a process, by its name, when a

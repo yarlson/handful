@@ -394,7 +394,9 @@ type answered struct {
 }
 
 // answersOf finds, with q, the questions of chat bot that a user's message
-// answers: the named ones, or in a direct chat its one open question.
+// answers: the named ones that are still open, or in a direct chat its one
+// open question. A named question that closed meanwhile, or that is not of
+// this chat, is skipped, so the message still goes out.
 func answersOf(ctx context.Context, q *db.Queries, bot Bot, answers []string) (answered, error) {
 	rows, err := q.ListOpenQuestionEntries(ctx, bot.ID)
 	if err != nil {
@@ -407,7 +409,7 @@ func answersOf(ctx context.Context, q *db.Queries, bot Bot, answers []string) (a
 	for _, id := range slices.Compact(slices.Sorted(slices.Values(answers))) {
 		i := slices.IndexFunc(rows, func(r db.Entry) bool { return r.ID == id })
 		if i < 0 {
-			return answered{}, invalid("%s is not an open question in this chat", id)
+			continue
 		}
 		b, err := parseQuestion(rows[i])
 		if err != nil {

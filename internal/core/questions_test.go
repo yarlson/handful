@@ -148,8 +148,19 @@ func TestAnAnswerClosesTheNamedQuestionAndWakesItsAskerInARoom(t *testing.T) {
 	bots := newAgents(t, svc, "Ana", "Bo", "Cy")
 	ana := bots["Ana"]
 	first, second := ask(t, svc, ana.ID, "Which branch?", ""), ask(t, svc, ana.ID, "Which name?", "")
-	if _, _, err := svc.SubmitAnswer(ctx, ana.ID, "x", "n0", []string{"missing"}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("answer a missing question: err = %v; want ErrInvalid", err)
+	// An answer to a question that is gone or closed is skipped: the message
+	// goes out, answers nothing, and closes no other open question.
+	if _, _, err := svc.SubmitAnswer(ctx, ana.ID, "x", "n0", []string{"missing"}); err != nil {
+		t.Fatalf("answer a missing question: %v; want the message sent", err)
+	}
+	if n := openCount(t, svc, ana.ID); n != 2 {
+		t.Fatalf("open questions after answering a missing one = %d; want 2", n)
+	}
+	var skipped struct {
+		Answers []string `json:"answers"`
+	}
+	if err := json.Unmarshal(lastUserEntry(t, svc, ana.ID).Body, &skipped); err != nil || len(skipped.Answers) != 0 {
+		t.Fatalf("answers of a message to a missing question = %v, %v; want none", skipped.Answers, err)
 	}
 	if _, _, err := svc.SubmitAnswer(ctx, ana.ID, "Call it yarstack.", "n1", []string{second.ID, second.ID}); err != nil {
 		t.Fatal(err)
@@ -161,8 +172,12 @@ func TestAnAnswerClosesTheNamedQuestionAndWakesItsAskerInARoom(t *testing.T) {
 	if state, by, _ := questionOf(t, svc, second.ID); state != QuestionAnswered || by != reply.ID {
 		t.Fatalf("the answered question = %s by %s; want answered by %s", state, by, reply.ID)
 	}
-	if _, _, err := svc.SubmitAnswer(ctx, ana.ID, "Again.", "n2", []string{second.ID}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("answer a closed question: err = %v; want ErrInvalid", err)
+	_, _, err := svc.SubmitAnswer(ctx, ana.ID, "Again.", "n2", []string{second.ID})
+	if err != nil {
+		t.Fatalf("answer a closed question: %v; want the message sent", err)
+	}
+	if state, by, _ := questionOf(t, svc, second.ID); state != QuestionAnswered || by != reply.ID || lastUserEntry(t, svc, ana.ID).ID == reply.ID {
+		t.Fatalf("the closed question = %s by %s; want it still answered by the first reply %s", state, by, reply.ID)
 	}
 	drainQueue(t, svc)
 

@@ -85,8 +85,12 @@ func TestQuestionEndpointsListAnswerDismissAndReopen(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("answer: %d %s", rec.Code, rec.Body)
 	}
-	if rec := do(h, "POST", "/api/bots/"+ana.ID+"/messages", `{"text":"x","clientNonce":"n2","answers":["`+first.ID+`"]}`, jsonHeader); rec.Code != http.StatusBadRequest {
+	// A question that closed meanwhile is skipped; the message still goes out.
+	if rec := do(h, "POST", "/api/bots/"+ana.ID+"/messages", `{"text":"x","clientNonce":"n2","answers":["`+first.ID+`"]}`, jsonHeader); rec.Code != http.StatusAccepted {
 		t.Fatalf("answer a closed question: %d %s", rec.Code, rec.Body)
+	}
+	if open, _ := svc.OpenQuestions(ctx, ana.ID); len(open) != 1 || open[0].EntryID != second.ID {
+		t.Fatalf("open after answering a closed question = %+v; want the second still open", open)
 	}
 	rec = do(h, "POST", "/api/entries/"+second.ID+"/dismiss", "", jsonHeader)
 	var e core.Entry

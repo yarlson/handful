@@ -185,7 +185,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	}
 
 	base := "http://" + ln.Addr().String()
-	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", Model: o.Model, MaxParallel: o.MaxParallel}, log)
+	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", MaxParallel: o.MaxParallel}, log)
 	assets, err := ui.Assets()
 	if err != nil {
 		log.Warn("web UI not available", "err", err)
@@ -193,7 +193,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	}
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           httpapi.New(svc, runner, assets, log),
+		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner)),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Requests end with the server: event streams and pending approvals stop on shutdown.
 		BaseContext: func(net.Listener) context.Context { return ctx },

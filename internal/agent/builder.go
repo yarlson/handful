@@ -22,6 +22,8 @@ type setupInput struct {
 type setupBotInput struct {
 	Name         string `json:"name" jsonschema:"a short name that no bot, team or room of the user has"`
 	Instructions string `json:"instructions" jsonschema:"the bot's standing instructions: a first sentence that names its role, then what it does and how"`
+	Model        string `json:"model,omitempty" jsonschema:"the bot's model, only when the user asked for one: fable, opus, sonnet, haiku or a full model ID; empty inherits"`
+	Effort       string `json:"effort,omitempty" jsonschema:"the bot's reasoning effort, only when the user asked for one: low, medium, high, xhigh or max; empty inherits"`
 }
 
 type setupTeamInput struct {
@@ -31,6 +33,9 @@ type setupTeamInput struct {
 	Lead       string   `json:"lead,omitempty" jsonschema:"the name of the member who leads; the first member when empty"`
 	Agreement  string   `json:"agreement,omitempty" jsonschema:"the working agreement: how the team works and when work is done"`
 	GoalBudget int64    `json:"goal_budget,omitempty" jsonschema:"the turns that a goal may use; 30 when empty"`
+	// The defaults of members without their own model or effort, in this team.
+	DefaultModel  string `json:"default_model,omitempty" jsonschema:"the model of members without their own, in this team, only when the user asked for one; empty inherits"`
+	DefaultEffort string `json:"default_effort,omitempty" jsonschema:"the effort of members without their own, in this team, only when the user asked for one; empty inherits"`
 }
 
 type setupRoomInput struct {
@@ -43,10 +48,10 @@ type setupRoomInput struct {
 func inputOf(s core.Setup) setupInput {
 	var in setupInput
 	for _, b := range s.Bots {
-		in.Bots = append(in.Bots, setupBotInput{Name: b.Name, Instructions: b.Instructions})
+		in.Bots = append(in.Bots, setupBotInput{Name: b.Name, Instructions: b.Instructions, Model: b.Model, Effort: b.Effort})
 	}
 	for _, t := range s.Teams {
-		in.Teams = append(in.Teams, setupTeamInput{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, GoalBudget: t.GoalBudget})
+		in.Teams = append(in.Teams, setupTeamInput{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, GoalBudget: t.GoalBudget, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort})
 	}
 	for _, r := range s.Rooms {
 		in.Rooms = append(in.Rooms, setupRoomInput{Name: r.Name, Purpose: r.Purpose, Members: r.Members})
@@ -57,10 +62,10 @@ func inputOf(s core.Setup) setupInput {
 func (in setupInput) setup() core.Setup {
 	var s core.Setup
 	for _, b := range in.Bots {
-		s.Bots = append(s.Bots, core.SetupBot{Name: b.Name, Instructions: b.Instructions})
+		s.Bots = append(s.Bots, core.SetupBot{Name: b.Name, Instructions: b.Instructions, Model: b.Model, Effort: b.Effort})
 	}
 	for _, t := range in.Teams {
-		s.Teams = append(s.Teams, core.SetupTeam{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, GoalBudget: t.GoalBudget})
+		s.Teams = append(s.Teams, core.SetupTeam{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, GoalBudget: t.GoalBudget, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort})
 	}
 	for _, r := range in.Rooms {
 		s.Rooms = append(s.Rooms, core.SetupRoom{Name: r.Name, Purpose: r.Purpose, Members: r.Members})

@@ -257,7 +257,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -266,18 +266,31 @@ SELECT * FROM teams WHERE team_id = ?;
 SELECT * FROM teams;
 
 -- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ? WHERE team_id = ?;
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ? WHERE team_id = ?;
+
+-- name: SetRequestSlots :exec
+UPDATE teams SET request_slots = ? WHERE team_id = ?;
 
 -- name: InsertGoal :one
-INSERT INTO goals (id, team_id, text, state, budget, created_at)
-VALUES (?, ?, ?, 'active', ?, ?)
+INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: ListQueuedGoals :many
+SELECT * FROM goals WHERE team_id = ? AND state = 'queued' ORDER BY queue_pos, rowid;
+
+-- name: ActivateGoal :execrows
+UPDATE goals SET state = 'active', budget = sqlc.arg(budget), queue_pos = 0
+WHERE id = sqlc.arg(id) AND state = 'queued';
+
+-- name: SetQueuePos :exec
+UPDATE goals SET queue_pos = ? WHERE id = ? AND state = 'queued';
 
 -- name: GetGoal :one
 SELECT * FROM goals WHERE id = ?;
 
 -- name: GetLatestGoal :one
-SELECT * FROM goals WHERE team_id = ?
+SELECT * FROM goals WHERE team_id = ? AND state <> 'queued'
 ORDER BY state IN ('active', 'delivered', 'paused') DESC, created_at DESC, rowid DESC
 LIMIT 1;
 
@@ -285,7 +298,7 @@ LIMIT 1;
 SELECT * FROM goals WHERE state IN ('active', 'delivered', 'paused') ORDER BY created_at, rowid;
 
 -- name: SetGoalState :execrows
-UPDATE goals SET state = sqlc.arg(state)
+UPDATE goals SET state = sqlc.arg(state), queue_pos = 0
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: SetGoalBudget :exec
@@ -304,10 +317,10 @@ UPDATE turns SET status = 'interrupted', error = 'the goal ended', finished_at =
 WHERE goal_id = ? AND status = 'queued';
 
 -- name: InsertItem :one
-INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, position, created_at, updated_at)
+INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, intake, for_item_id, position, created_at, updated_at)
 VALUES (
   sqlc.arg(id), sqlc.arg(team_id), sqlc.arg(goal_id), sqlc.arg(title), sqlc.arg(brief), sqlc.arg(acceptance), 'todo',
-  sqlc.arg(owner_id), sqlc.arg(reviewer_id), sqlc.arg(depends_on), sqlc.arg(created_by),
+  sqlc.arg(owner_id), sqlc.arg(reviewer_id), sqlc.arg(depends_on), sqlc.arg(created_by), sqlc.arg(intake), sqlc.arg(for_item_id),
   (SELECT COALESCE(MAX(i.position), 0) + 1 FROM items i WHERE i.goal_id = sqlc.arg(goal_id)),
   sqlc.arg(created_at), sqlc.arg(updated_at)
 )
@@ -323,8 +336,31 @@ SELECT * FROM items WHERE goal_id = ? ORDER BY position;
 UPDATE items
 SET state = sqlc.arg(state), owner_id = sqlc.arg(owner_id), reviewer_id = sqlc.arg(reviewer_id),
     result = sqlc.arg(result), note = sqlc.arg(note), blocked_from = sqlc.arg(blocked_from),
-    review_rounds = sqlc.arg(review_rounds), updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+    review_rounds = sqlc.arg(review_rounds), updated_at = sqlc.arg(updated_at),
+    intake = sqlc.arg(intake), intake_note = sqlc.arg(intake_note), defer_revisit = sqlc.arg(defer_revisit),
+    defer_until = sqlc.arg(defer_until), jumped_at = sqlc.arg(jumped_at)
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state) AND intake = sqlc.arg(from_intake);
+
+-- name: SetItemSlot :exec
+UPDATE items SET slot_at = ? WHERE id = ?;
+
+-- name: ReleaseGoalSlots :exec
+UPDATE items SET slot_at = 0 WHERE goal_id = ? AND slot_at > 0;
+
+-- name: ListChainedItems :many
+SELECT * FROM items WHERE for_item_id = ? ORDER BY created_at, rowid;
+
+-- name: ListDueDeferrals :many
+SELECT i.* FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.intake = 'deferred' AND i.defer_revisit = 'date' AND i.defer_until <= sqlc.arg(now)
+  AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid;
+
+-- name: ListGoalEndDeferrals :many
+SELECT i.* FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = sqlc.arg(team_id) AND g.team_id <> sqlc.arg(team_id) AND i.intake = 'deferred'
+  AND i.defer_revisit = 'goal_end' AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid;
 
 -- name: StartItem :execrows
 UPDATE items SET state = 'doing', updated_at = ?
@@ -374,8 +410,17 @@ WHERE bot_id = ? AND room_id = ? AND item_id = '' AND status = 'queued'
 SELECT team_id FROM goals WHERE state = 'paused';
 
 -- name: ListTeamRequests :many
-SELECT sqlc.embed(i), g.team_id AS from_team_id FROM items i JOIN goals g ON g.id = i.goal_id
+-- The requests of other teams' open goals to a team, in arrival order.
+SELECT sqlc.embed(i), g.team_id AS from_team_id, g.state AS goal_state FROM items i JOIN goals g ON g.id = i.goal_id
 WHERE i.team_id = sqlc.arg(team_id) AND g.team_id <> sqlc.arg(team_id) AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid;
+
+-- name: ListClosedTeamRequests :many
+-- The requests to a team that were declined or withdrawn since a time, also
+-- of goals that are over.
+SELECT sqlc.embed(i), g.team_id AS from_team_id, g.state AS goal_state FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = sqlc.arg(team_id) AND g.team_id <> sqlc.arg(team_id) AND i.intake IN ('declined', 'withdrawn')
+  AND i.updated_at >= sqlc.arg(since) AND g.state NOT IN ('active', 'delivered', 'paused')
 ORDER BY i.created_at, i.rowid;
 
 -- name: QueueUserPostTurn :execrows

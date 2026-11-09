@@ -64,6 +64,7 @@ type Goal struct {
 	Text      string `json:"text"`
 	State     string `json:"state"`
 	Budget    int64  `json:"budget"`
+	QueuePos  int64  `json:"queue_pos"`
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -86,6 +87,13 @@ type Item struct {
 	Position     int64  `json:"position"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
+	Intake       string `json:"intake"`
+	IntakeNote   string `json:"intake_note"`
+	DeferRevisit string `json:"defer_revisit"`
+	DeferUntil   int64  `json:"defer_until"`
+	SlotAt       int64  `json:"slot_at"`
+	JumpedAt     int64  `json:"jumped_at"`
+	ForItemID    string `json:"for_item_id"`
 }
 
 type Memory struct {
@@ -125,6 +133,7 @@ type Team struct {
 	GoalBudget    int64  `json:"goal_budget"`
 	DefaultModel  string `json:"default_model"`
 	DefaultEffort string `json:"default_effort"`
+	RequestSlots  int64  `json:"request_slots"`
 }
 
 type ToolGrant struct {

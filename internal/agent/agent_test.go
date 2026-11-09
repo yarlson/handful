@@ -1152,7 +1152,6 @@ func TestMCPUpdateBoardTakesAnItemFromStartToDone(t *testing.T) {
 	}{
 		"an unknown action":   {lead, map[string]any{"action": "merge"}, "action must be list, start_goal"},
 		"a refused action":    {owner, map[string]any{"action": "drop", "item_id": itemID}, "only the lead"},
-		"a second goal":       {lead, map[string]any{"action": "start_goal", "text": "More."}, "already works on a goal"},
 		"a create without it": {lead, map[string]any{"action": "create", "title": "X"}, "the brief is required"},
 		"an assign of a done": {lead, map[string]any{"action": "assign", "item_id": itemID, "owner_id": bo.ID}, "waits to start"},
 	} {
@@ -1405,7 +1404,7 @@ func TestTheLeadDeliversAndAnAcceptedGoalGetsARetroTurn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := h.svc.AcceptGoal(ctx, board.Goal.ID); err != nil {
+	if _, err := h.svc.AcceptGoal(ctx, board.Goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -1571,7 +1570,7 @@ func TestAnEndedGoalLeavesTheTeamsPrompts(t *testing.T) {
 	team, _, bo, _ := h.newTeam(t)
 	h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
 	board, _ := h.svc.Board(ctx, team.ID)
-	if err := h.svc.EndGoal(ctx, board.Goal.ID); err != nil {
+	if err := h.svc.EndGoal(ctx, board.Goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -1647,7 +1646,7 @@ func TestEndingAGoalStopsItsRunningTurns(t *testing.T) {
 	h.start(t)
 	waitFor(t, "Bo's work to run", func() bool { return h.runner.Running(bo.ID) })
 	board, _ := h.svc.Board(ctx, team.ID)
-	if err := h.svc.EndGoal(ctx, board.Goal.ID); err != nil {
+	if err := h.svc.EndGoal(ctx, board.Goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if n := h.runner.CancelGoal("another goal"); n != 0 {
@@ -1676,7 +1675,7 @@ func TestARetroTurnLooksBackOnItsOwnGoal(t *testing.T) {
 		t.Fatal(err)
 	}
 	board, _ := h.svc.Board(ctx, team.ID)
-	if _, err := h.svc.AcceptGoal(ctx, board.Goal.ID); err != nil {
+	if _, err := h.svc.AcceptGoal(ctx, board.Goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.svc.StartGoal(ctx, team.ID, "Next: JSON export."); err != nil {

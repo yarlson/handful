@@ -56,6 +56,24 @@ func (q *Queries) AbandonRunningTurns(ctx context.Context, finishedAt sql.NullIn
 	return items, nil
 }
 
+const activateGoal = `-- name: ActivateGoal :execrows
+UPDATE goals SET state = 'active', budget = ?1, queue_pos = 0
+WHERE id = ?2 AND state = 'queued'
+`
+
+type ActivateGoalParams struct {
+	Budget int64  `json:"budget"`
+	ID     string `json:"id"`
+}
+
+func (q *Queries) ActivateGoal(ctx context.Context, arg ActivateGoalParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, activateGoal, arg.Budget, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addRoomMember = `-- name: AddRoomMember :exec
 INSERT INTO room_members (room_id, bot_id) VALUES (?, ?)
 ON CONFLICT (room_id, bot_id) DO NOTHING
@@ -402,7 +420,7 @@ func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (R
 }
 
 const createTeam = `-- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTeamParams struct {
@@ -412,6 +430,7 @@ type CreateTeamParams struct {
 	GoalBudget    int64  `json:"goal_budget"`
 	DefaultModel  string `json:"default_model"`
 	DefaultEffort string `json:"default_effort"`
+	RequestSlots  int64  `json:"request_slots"`
 }
 
 func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
@@ -422,6 +441,7 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
 		arg.GoalBudget,
 		arg.DefaultModel,
 		arg.DefaultEffort,
+		arg.RequestSlots,
 	)
 	return err
 }
@@ -617,7 +637,7 @@ func (q *Queries) GetEntry(ctx context.Context, id string) (Entry, error) {
 }
 
 const getGoal = `-- name: GetGoal :one
-SELECT id, team_id, text, state, budget, created_at FROM goals WHERE id = ?
+SELECT id, team_id, text, state, budget, queue_pos, created_at FROM goals WHERE id = ?
 `
 
 func (q *Queries) GetGoal(ctx context.Context, id string) (Goal, error) {
@@ -629,13 +649,14 @@ func (q *Queries) GetGoal(ctx context.Context, id string) (Goal, error) {
 		&i.Text,
 		&i.State,
 		&i.Budget,
+		&i.QueuePos,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getItem = `-- name: GetItem :one
-SELECT id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at FROM items WHERE id = ?
+SELECT id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at, intake, intake_note, defer_revisit, defer_until, slot_at, jumped_at, for_item_id FROM items WHERE id = ?
 `
 
 func (q *Queries) GetItem(ctx context.Context, id string) (Item, error) {
@@ -660,12 +681,19 @@ func (q *Queries) GetItem(ctx context.Context, id string) (Item, error) {
 		&i.Position,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Intake,
+		&i.IntakeNote,
+		&i.DeferRevisit,
+		&i.DeferUntil,
+		&i.SlotAt,
+		&i.JumpedAt,
+		&i.ForItemID,
 	)
 	return i, err
 }
 
 const getLatestGoal = `-- name: GetLatestGoal :one
-SELECT id, team_id, text, state, budget, created_at FROM goals WHERE team_id = ?
+SELECT id, team_id, text, state, budget, queue_pos, created_at FROM goals WHERE team_id = ? AND state <> 'queued'
 ORDER BY state IN ('active', 'delivered', 'paused') DESC, created_at DESC, rowid DESC
 LIMIT 1
 `
@@ -679,6 +707,7 @@ func (q *Queries) GetLatestGoal(ctx context.Context, teamID string) (Goal, error
 		&i.Text,
 		&i.State,
 		&i.Budget,
+		&i.QueuePos,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -708,7 +737,7 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 }
 
 const getTeam = `-- name: GetTeam :one
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort FROM teams WHERE team_id = ?
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots FROM teams WHERE team_id = ?
 `
 
 func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
@@ -721,6 +750,7 @@ func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
 		&i.GoalBudget,
 		&i.DefaultModel,
 		&i.DefaultEffort,
+		&i.RequestSlots,
 	)
 	return i, err
 }
@@ -830,16 +860,18 @@ func (q *Queries) InsertArtifactTag(ctx context.Context, arg InsertArtifactTagPa
 }
 
 const insertGoal = `-- name: InsertGoal :one
-INSERT INTO goals (id, team_id, text, state, budget, created_at)
-VALUES (?, ?, ?, 'active', ?, ?)
-RETURNING id, team_id, text, state, budget, created_at
+INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, team_id, text, state, budget, queue_pos, created_at
 `
 
 type InsertGoalParams struct {
 	ID        string `json:"id"`
 	TeamID    string `json:"team_id"`
 	Text      string `json:"text"`
+	State     string `json:"state"`
 	Budget    int64  `json:"budget"`
+	QueuePos  int64  `json:"queue_pos"`
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -848,7 +880,9 @@ func (q *Queries) InsertGoal(ctx context.Context, arg InsertGoalParams) (Goal, e
 		arg.ID,
 		arg.TeamID,
 		arg.Text,
+		arg.State,
 		arg.Budget,
+		arg.QueuePos,
 		arg.CreatedAt,
 	)
 	var i Goal
@@ -858,6 +892,7 @@ func (q *Queries) InsertGoal(ctx context.Context, arg InsertGoalParams) (Goal, e
 		&i.Text,
 		&i.State,
 		&i.Budget,
+		&i.QueuePos,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -890,14 +925,14 @@ func (q *Queries) InsertInboxMessage(ctx context.Context, arg InsertInboxMessage
 }
 
 const insertItem = `-- name: InsertItem :one
-INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, position, created_at, updated_at)
+INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, intake, for_item_id, position, created_at, updated_at)
 VALUES (
   ?1, ?2, ?3, ?4, ?5, ?6, 'todo',
-  ?7, ?8, ?9, ?10,
+  ?7, ?8, ?9, ?10, ?11, ?12,
   (SELECT COALESCE(MAX(i.position), 0) + 1 FROM items i WHERE i.goal_id = ?3),
-  ?11, ?12
+  ?13, ?14
 )
-RETURNING id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at
+RETURNING id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at, intake, intake_note, defer_revisit, defer_until, slot_at, jumped_at, for_item_id
 `
 
 type InsertItemParams struct {
@@ -911,6 +946,8 @@ type InsertItemParams struct {
 	ReviewerID string `json:"reviewer_id"`
 	DependsOn  string `json:"depends_on"`
 	CreatedBy  string `json:"created_by"`
+	Intake     string `json:"intake"`
+	ForItemID  string `json:"for_item_id"`
 	CreatedAt  int64  `json:"created_at"`
 	UpdatedAt  int64  `json:"updated_at"`
 }
@@ -927,6 +964,8 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (Item, e
 		arg.ReviewerID,
 		arg.DependsOn,
 		arg.CreatedBy,
+		arg.Intake,
+		arg.ForItemID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -950,6 +989,13 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (Item, e
 		&i.Position,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Intake,
+		&i.IntakeNote,
+		&i.DeferRevisit,
+		&i.DeferUntil,
+		&i.SlotAt,
+		&i.JumpedAt,
+		&i.ForItemID,
 	)
 	return i, err
 }
@@ -1269,6 +1315,130 @@ func (q *Queries) ListBotsWithPendingApprovals(ctx context.Context) ([]string, e
 	return items, nil
 }
 
+const listChainedItems = `-- name: ListChainedItems :many
+SELECT id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at, intake, intake_note, defer_revisit, defer_until, slot_at, jumped_at, for_item_id FROM items WHERE for_item_id = ? ORDER BY created_at, rowid
+`
+
+func (q *Queries) ListChainedItems(ctx context.Context, forItemID string) ([]Item, error) {
+	rows, err := q.db.QueryContext(ctx, listChainedItems, forItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		var i Item
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.GoalID,
+			&i.Title,
+			&i.Brief,
+			&i.Acceptance,
+			&i.State,
+			&i.OwnerID,
+			&i.ReviewerID,
+			&i.DependsOn,
+			&i.Result,
+			&i.Note,
+			&i.BlockedFrom,
+			&i.ReviewRounds,
+			&i.CreatedBy,
+			&i.Position,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Intake,
+			&i.IntakeNote,
+			&i.DeferRevisit,
+			&i.DeferUntil,
+			&i.SlotAt,
+			&i.JumpedAt,
+			&i.ForItemID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClosedTeamRequests = `-- name: ListClosedTeamRequests :many
+SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id, g.team_id AS from_team_id, g.state AS goal_state FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = ?1 AND g.team_id <> ?1 AND i.intake IN ('declined', 'withdrawn')
+  AND i.updated_at >= ?2 AND g.state NOT IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid
+`
+
+type ListClosedTeamRequestsParams struct {
+	TeamID string `json:"team_id"`
+	Since  int64  `json:"since"`
+}
+
+type ListClosedTeamRequestsRow struct {
+	Item       Item   `json:"item"`
+	FromTeamID string `json:"from_team_id"`
+	GoalState  string `json:"goal_state"`
+}
+
+// The requests to a team that were declined or withdrawn since a time, also
+// of goals that are over.
+func (q *Queries) ListClosedTeamRequests(ctx context.Context, arg ListClosedTeamRequestsParams) ([]ListClosedTeamRequestsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listClosedTeamRequests, arg.TeamID, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListClosedTeamRequestsRow
+	for rows.Next() {
+		var i ListClosedTeamRequestsRow
+		if err := rows.Scan(
+			&i.Item.ID,
+			&i.Item.TeamID,
+			&i.Item.GoalID,
+			&i.Item.Title,
+			&i.Item.Brief,
+			&i.Item.Acceptance,
+			&i.Item.State,
+			&i.Item.OwnerID,
+			&i.Item.ReviewerID,
+			&i.Item.DependsOn,
+			&i.Item.Result,
+			&i.Item.Note,
+			&i.Item.BlockedFrom,
+			&i.Item.ReviewRounds,
+			&i.Item.CreatedBy,
+			&i.Item.Position,
+			&i.Item.CreatedAt,
+			&i.Item.UpdatedAt,
+			&i.Item.Intake,
+			&i.Item.IntakeNote,
+			&i.Item.DeferRevisit,
+			&i.Item.DeferUntil,
+			&i.Item.SlotAt,
+			&i.Item.JumpedAt,
+			&i.Item.ForItemID,
+			&i.FromTeamID,
+			&i.GoalState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConversationAfterSeq = `-- name: ListConversationAfterSeq :many
 SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
 WHERE bot_id = ? AND seq > ? AND kind IN ('user', 'bot', 'agent')
@@ -1300,6 +1470,62 @@ func (q *Queries) ListConversationAfterSeq(ctx context.Context, arg ListConversa
 			&i.TurnID,
 			&i.Body,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDueDeferrals = `-- name: ListDueDeferrals :many
+SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.intake = 'deferred' AND i.defer_revisit = 'date' AND i.defer_until <= ?1
+  AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid
+`
+
+func (q *Queries) ListDueDeferrals(ctx context.Context, now int64) ([]Item, error) {
+	rows, err := q.db.QueryContext(ctx, listDueDeferrals, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		var i Item
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.GoalID,
+			&i.Title,
+			&i.Brief,
+			&i.Acceptance,
+			&i.State,
+			&i.OwnerID,
+			&i.ReviewerID,
+			&i.DependsOn,
+			&i.Result,
+			&i.Note,
+			&i.BlockedFrom,
+			&i.ReviewRounds,
+			&i.CreatedBy,
+			&i.Position,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Intake,
+			&i.IntakeNote,
+			&i.DeferRevisit,
+			&i.DeferUntil,
+			&i.SlotAt,
+			&i.JumpedAt,
+			&i.ForItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -1398,8 +1624,64 @@ func (q *Queries) ListEntriesAfterRev(ctx context.Context, arg ListEntriesAfterR
 	return items, nil
 }
 
+const listGoalEndDeferrals = `-- name: ListGoalEndDeferrals :many
+SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = ?1 AND g.team_id <> ?1 AND i.intake = 'deferred'
+  AND i.defer_revisit = 'goal_end' AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.created_at, i.rowid
+`
+
+func (q *Queries) ListGoalEndDeferrals(ctx context.Context, teamID string) ([]Item, error) {
+	rows, err := q.db.QueryContext(ctx, listGoalEndDeferrals, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		var i Item
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.GoalID,
+			&i.Title,
+			&i.Brief,
+			&i.Acceptance,
+			&i.State,
+			&i.OwnerID,
+			&i.ReviewerID,
+			&i.DependsOn,
+			&i.Result,
+			&i.Note,
+			&i.BlockedFrom,
+			&i.ReviewRounds,
+			&i.CreatedBy,
+			&i.Position,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Intake,
+			&i.IntakeNote,
+			&i.DeferRevisit,
+			&i.DeferUntil,
+			&i.SlotAt,
+			&i.JumpedAt,
+			&i.ForItemID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGoalItems = `-- name: ListGoalItems :many
-SELECT id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at FROM items WHERE goal_id = ? ORDER BY position
+SELECT id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at, intake, intake_note, defer_revisit, defer_until, slot_at, jumped_at, for_item_id FROM items WHERE goal_id = ? ORDER BY position
 `
 
 func (q *Queries) ListGoalItems(ctx context.Context, goalID string) ([]Item, error) {
@@ -1430,6 +1712,13 @@ func (q *Queries) ListGoalItems(ctx context.Context, goalID string) ([]Item, err
 			&i.Position,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Intake,
+			&i.IntakeNote,
+			&i.DeferRevisit,
+			&i.DeferUntil,
+			&i.SlotAt,
+			&i.JumpedAt,
+			&i.ForItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -1524,7 +1813,7 @@ func (q *Queries) ListLatestConversation(ctx context.Context, arg ListLatestConv
 }
 
 const listMemberItems = `-- name: ListMemberItems :many
-SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at FROM items i JOIN goals g ON g.id = i.goal_id
+SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id FROM items i JOIN goals g ON g.id = i.goal_id
 WHERE i.team_id = ?1 AND (i.owner_id = ?2 OR i.reviewer_id = ?2)
   AND i.state NOT IN ('done', 'dropped') AND g.state IN ('active', 'delivered', 'paused')
 ORDER BY i.created_at, i.rowid
@@ -1563,6 +1852,13 @@ func (q *Queries) ListMemberItems(ctx context.Context, arg ListMemberItemsParams
 			&i.Position,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Intake,
+			&i.IntakeNote,
+			&i.DeferRevisit,
+			&i.DeferUntil,
+			&i.SlotAt,
+			&i.JumpedAt,
+			&i.ForItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -1657,7 +1953,7 @@ func (q *Queries) ListOpenEntries(ctx context.Context) ([]Entry, error) {
 }
 
 const listOpenGoals = `-- name: ListOpenGoals :many
-SELECT id, team_id, text, state, budget, created_at FROM goals WHERE state IN ('active', 'delivered', 'paused') ORDER BY created_at, rowid
+SELECT id, team_id, text, state, budget, queue_pos, created_at FROM goals WHERE state IN ('active', 'delivered', 'paused') ORDER BY created_at, rowid
 `
 
 func (q *Queries) ListOpenGoals(ctx context.Context) ([]Goal, error) {
@@ -1675,6 +1971,42 @@ func (q *Queries) ListOpenGoals(ctx context.Context) ([]Goal, error) {
 			&i.Text,
 			&i.State,
 			&i.Budget,
+			&i.QueuePos,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listQueuedGoals = `-- name: ListQueuedGoals :many
+SELECT id, team_id, text, state, budget, queue_pos, created_at FROM goals WHERE team_id = ? AND state = 'queued' ORDER BY queue_pos, rowid
+`
+
+func (q *Queries) ListQueuedGoals(ctx context.Context, teamID string) ([]Goal, error) {
+	rows, err := q.db.QueryContext(ctx, listQueuedGoals, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Goal
+	for rows.Next() {
+		var i Goal
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.Text,
+			&i.State,
+			&i.Budget,
+			&i.QueuePos,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -1901,7 +2233,7 @@ func (q *Queries) ListTagsForArtifacts(ctx context.Context, ids []string) ([]Art
 }
 
 const listTeamRequests = `-- name: ListTeamRequests :many
-SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, g.team_id AS from_team_id FROM items i JOIN goals g ON g.id = i.goal_id
+SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id, g.team_id AS from_team_id, g.state AS goal_state FROM items i JOIN goals g ON g.id = i.goal_id
 WHERE i.team_id = ?1 AND g.team_id <> ?1 AND g.state IN ('active', 'delivered', 'paused')
 ORDER BY i.created_at, i.rowid
 `
@@ -1909,8 +2241,10 @@ ORDER BY i.created_at, i.rowid
 type ListTeamRequestsRow struct {
 	Item       Item   `json:"item"`
 	FromTeamID string `json:"from_team_id"`
+	GoalState  string `json:"goal_state"`
 }
 
+// The requests of other teams' open goals to a team, in arrival order.
 func (q *Queries) ListTeamRequests(ctx context.Context, teamID string) ([]ListTeamRequestsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTeamRequests, teamID)
 	if err != nil {
@@ -1939,7 +2273,15 @@ func (q *Queries) ListTeamRequests(ctx context.Context, teamID string) ([]ListTe
 			&i.Item.Position,
 			&i.Item.CreatedAt,
 			&i.Item.UpdatedAt,
+			&i.Item.Intake,
+			&i.Item.IntakeNote,
+			&i.Item.DeferRevisit,
+			&i.Item.DeferUntil,
+			&i.Item.SlotAt,
+			&i.Item.JumpedAt,
+			&i.Item.ForItemID,
 			&i.FromTeamID,
+			&i.GoalState,
 		); err != nil {
 			return nil, err
 		}
@@ -1955,7 +2297,7 @@ func (q *Queries) ListTeamRequests(ctx context.Context, teamID string) ([]ListTe
 }
 
 const listTeams = `-- name: ListTeams :many
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort FROM teams
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots FROM teams
 `
 
 func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
@@ -1974,6 +2316,7 @@ func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
 			&i.GoalBudget,
 			&i.DefaultModel,
 			&i.DefaultEffort,
+			&i.RequestSlots,
 		); err != nil {
 			return nil, err
 		}
@@ -2127,6 +2470,15 @@ func (q *Queries) QueueUserPostTurn(ctx context.Context, arg QueueUserPostTurnPa
 	return result.RowsAffected()
 }
 
+const releaseGoalSlots = `-- name: ReleaseGoalSlots :exec
+UPDATE items SET slot_at = 0 WHERE goal_id = ? AND slot_at > 0
+`
+
+func (q *Queries) ReleaseGoalSlots(ctx context.Context, goalID string) error {
+	_, err := q.db.ExecContext(ctx, releaseGoalSlots, goalID)
+	return err
+}
+
 const removeRoomMember = `-- name: RemoveRoomMember :exec
 DELETE FROM room_members WHERE room_id = ? AND bot_id = ?
 `
@@ -2264,7 +2616,7 @@ func (q *Queries) SetGoalBudget(ctx context.Context, arg SetGoalBudgetParams) er
 }
 
 const setGoalState = `-- name: SetGoalState :execrows
-UPDATE goals SET state = ?1
+UPDATE goals SET state = ?1, queue_pos = 0
 WHERE id = ?2 AND state = ?3
 `
 
@@ -2280,6 +2632,48 @@ func (q *Queries) SetGoalState(ctx context.Context, arg SetGoalStateParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setItemSlot = `-- name: SetItemSlot :exec
+UPDATE items SET slot_at = ? WHERE id = ?
+`
+
+type SetItemSlotParams struct {
+	SlotAt int64  `json:"slot_at"`
+	ID     string `json:"id"`
+}
+
+func (q *Queries) SetItemSlot(ctx context.Context, arg SetItemSlotParams) error {
+	_, err := q.db.ExecContext(ctx, setItemSlot, arg.SlotAt, arg.ID)
+	return err
+}
+
+const setQueuePos = `-- name: SetQueuePos :exec
+UPDATE goals SET queue_pos = ? WHERE id = ? AND state = 'queued'
+`
+
+type SetQueuePosParams struct {
+	QueuePos int64  `json:"queue_pos"`
+	ID       string `json:"id"`
+}
+
+func (q *Queries) SetQueuePos(ctx context.Context, arg SetQueuePosParams) error {
+	_, err := q.db.ExecContext(ctx, setQueuePos, arg.QueuePos, arg.ID)
+	return err
+}
+
+const setRequestSlots = `-- name: SetRequestSlots :exec
+UPDATE teams SET request_slots = ? WHERE team_id = ?
+`
+
+type SetRequestSlotsParams struct {
+	RequestSlots int64  `json:"request_slots"`
+	TeamID       string `json:"team_id"`
+}
+
+func (q *Queries) SetRequestSlots(ctx context.Context, arg SetRequestSlotsParams) error {
+	_, err := q.db.ExecContext(ctx, setRequestSlots, arg.RequestSlots, arg.TeamID)
+	return err
 }
 
 const setRoomMemberSeen = `-- name: SetRoomMemberSeen :exec
@@ -2476,8 +2870,10 @@ const updateItem = `-- name: UpdateItem :execrows
 UPDATE items
 SET state = ?1, owner_id = ?2, reviewer_id = ?3,
     result = ?4, note = ?5, blocked_from = ?6,
-    review_rounds = ?7, updated_at = ?8
-WHERE id = ?9 AND state = ?10
+    review_rounds = ?7, updated_at = ?8,
+    intake = ?9, intake_note = ?10, defer_revisit = ?11,
+    defer_until = ?12, jumped_at = ?13
+WHERE id = ?14 AND state = ?15 AND intake = ?16
 `
 
 type UpdateItemParams struct {
@@ -2489,8 +2885,14 @@ type UpdateItemParams struct {
 	BlockedFrom  string `json:"blocked_from"`
 	ReviewRounds int64  `json:"review_rounds"`
 	UpdatedAt    int64  `json:"updated_at"`
+	Intake       string `json:"intake"`
+	IntakeNote   string `json:"intake_note"`
+	DeferRevisit string `json:"defer_revisit"`
+	DeferUntil   int64  `json:"defer_until"`
+	JumpedAt     int64  `json:"jumped_at"`
 	ID           string `json:"id"`
 	FromState    string `json:"from_state"`
+	FromIntake   string `json:"from_intake"`
 }
 
 func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (int64, error) {
@@ -2503,8 +2905,14 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (int64, 
 		arg.BlockedFrom,
 		arg.ReviewRounds,
 		arg.UpdatedAt,
+		arg.Intake,
+		arg.IntakeNote,
+		arg.DeferRevisit,
+		arg.DeferUntil,
+		arg.JumpedAt,
 		arg.ID,
 		arg.FromState,
+		arg.FromIntake,
 	)
 	if err != nil {
 		return 0, err
@@ -2557,7 +2965,7 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 }
 
 const updateTeam = `-- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ? WHERE team_id = ?
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ? WHERE team_id = ?
 `
 
 type UpdateTeamParams struct {
@@ -2566,6 +2974,7 @@ type UpdateTeamParams struct {
 	GoalBudget    int64  `json:"goal_budget"`
 	DefaultModel  string `json:"default_model"`
 	DefaultEffort string `json:"default_effort"`
+	RequestSlots  int64  `json:"request_slots"`
 	TeamID        string `json:"team_id"`
 }
 
@@ -2576,6 +2985,7 @@ func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
 		arg.GoalBudget,
 		arg.DefaultModel,
 		arg.DefaultEffort,
+		arg.RequestSlots,
 		arg.TeamID,
 	)
 	return err

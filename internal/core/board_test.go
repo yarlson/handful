@@ -133,8 +133,8 @@ func TestStartGoalWakesTheLeadToPlanIt(t *testing.T) {
 	if err != nil || board.Goal == nil || board.Goal.ID != goal.ID || len(board.Items) != 0 {
 		t.Fatalf("Board = %+v, %v; want the goal without items", board, err)
 	}
-	if _, err := svc.StartGoal(ctx, team.ID, "Another goal."); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("a second open goal: err = %v; want ErrInvalid", err)
+	if next, err := svc.StartGoal(ctx, team.ID, "Another goal."); err != nil || next.State != GoalQueued || next.QueuePos != 1 {
+		t.Fatalf("a second goal = %+v, %v; want it queued", next, err)
 	}
 }
 
@@ -323,8 +323,8 @@ func TestOnlyTheRightMemberActsOnAnItem(t *testing.T) {
 			_, err := f.svc.RequestChanges(ctx, f.as(f.cy, RoleReview), parse.ID, "No.")
 			return err
 		},
-		"a member assigns":     func() error { _, err := f.svc.AssignItem(ctx, ana, parse.ID, f.ana.ID, ""); return err },
-		"assign while doing":   func() error { _, err := f.svc.AssignItem(ctx, f.lead, parse.ID, f.ana.ID, ""); return err },
+		"a member assigns":     func() error { _, err := f.svc.AssignItem(ctx, ana, parse.ID, f.ana.ID, "", ""); return err },
+		"assign while doing":   func() error { _, err := f.svc.AssignItem(ctx, f.lead, parse.ID, f.ana.ID, "", ""); return err },
 		"a member unblocks":    func() error { _, err := f.svc.UnblockItem(ctx, ana, parse.ID, "Go on."); return err },
 		"unblock while doing":  func() error { _, err := f.svc.UnblockItem(ctx, f.lead, parse.ID, "Go on."); return err },
 		"a member drops":       func() error { _, err := f.svc.DropItem(ctx, ana, parse.ID, ""); return err },
@@ -369,7 +369,7 @@ func TestProposalsBlocksAndUnblocksWakeTheLeadOrTheOwner(t *testing.T) {
 		t.Fatalf("channel event = %q", text)
 	}
 	finishQueued(t, f.svc)
-	if _, err := f.svc.AssignItem(ctx, f.lead, idea.ID, f.ana.ID, f.cy.ID); err != nil {
+	if _, err := f.svc.AssignItem(ctx, f.lead, idea.ID, f.ana.ID, f.cy.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	f.wantQueued(t, "the lead assigned Idea", "Ana work Idea")
@@ -415,10 +415,10 @@ func TestUnblockingAnItemWithoutAnOwnerLeavesItToTheLead(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
 	idea := f.create(t, f.lead, item("Idea", "", ""))
-	if _, err := f.svc.AssignItem(ctx, f.lead, idea.ID, "", ""); !errors.Is(err, ErrInvalid) {
+	if _, err := f.svc.AssignItem(ctx, f.lead, idea.ID, "", "", ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("assign without an owner: err = %v; want ErrInvalid", err)
 	}
-	if _, err := f.svc.AssignItem(ctx, f.lead, idea.ID, f.ana.ID, f.ana.ID); !errors.Is(err, ErrInvalid) {
+	if _, err := f.svc.AssignItem(ctx, f.lead, idea.ID, f.ana.ID, f.ana.ID, ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("assign the owner as reviewer: err = %v; want ErrInvalid", err)
 	}
 	if _, err := f.svc.moveItem(ctx, f.lead, idea.ID, func(_ Bot, it *Item) error { return block(it, "Unclear.") }); err != nil {
@@ -627,7 +627,7 @@ func TestEndGoalDropsItsTurnsAndKeepsItsBoard(t *testing.T) {
 	ctx := context.Background()
 	parse := f.create(t, f.lead, item("Parse", f.ana.ID, ""))
 
-	if err := f.svc.EndGoal(ctx, f.goal.ID); err != nil {
+	if err := f.svc.EndGoal(ctx, f.goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	f.wantQueued(t, "the goal ended")
@@ -638,7 +638,7 @@ func TestEndGoalDropsItsTurnsAndKeepsItsBoard(t *testing.T) {
 	if err != nil || board.Goal.State != GoalEnded || len(board.Items) != 1 {
 		t.Fatalf("board after the end = %+v, %v; want the ended goal with its item", board, err)
 	}
-	if err := f.svc.EndGoal(ctx, f.goal.ID); !errors.Is(err, ErrInvalid) {
+	if err := f.svc.EndGoal(ctx, f.goal.ID, true); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("end an ended goal: err = %v; want ErrInvalid", err)
 	}
 	if _, err := f.svc.DropItem(ctx, f.lead, parse.ID, ""); !errors.Is(err, ErrInvalid) {
@@ -656,7 +656,7 @@ func TestEndGoalDropsItsTurnsAndKeepsItsBoard(t *testing.T) {
 	if _, err := f.svc.StartGoal(ctx, f.team.ID, "Next goal."); err != nil {
 		t.Fatalf("a new goal after the end: %v", err)
 	}
-	if err := f.svc.EndGoal(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+	if err := f.svc.EndGoal(ctx, "missing", true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("end a missing goal: err = %v; want ErrNotFound", err)
 	}
 }
@@ -845,7 +845,7 @@ func TestAChangeAfterDeliveryOpensTheGoalAgain(t *testing.T) {
 func TestAcceptMakesTheGoalDoneAndGivesTheLeadOneRetroTurn(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
-	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID); !errors.Is(err, ErrInvalid) {
+	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID, true); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("accept an active goal: err = %v; want ErrInvalid", err)
 	}
 	f.finish(t, f.create(t, f.lead, item("Parse", f.ana.ID, "")), f.ana)
@@ -854,7 +854,7 @@ func TestAcceptMakesTheGoalDoneAndGivesTheLeadOneRetroTurn(t *testing.T) {
 	}
 	finishQueued(t, f.svc)
 
-	g, err := f.svc.AcceptGoal(ctx, f.goal.ID)
+	g, err := f.svc.AcceptGoal(ctx, f.goal.ID, true)
 	if err != nil || g.State != GoalDone {
 		t.Fatalf("accept = %+v, %v; want a done goal", g, err)
 	}
@@ -877,10 +877,10 @@ func TestAcceptMakesTheGoalDoneAndGivesTheLeadOneRetroTurn(t *testing.T) {
 	if after.Goal.Used != before.Goal.Used {
 		t.Fatalf("turns used after the retro started = %d; want %d: a retro turn is free", after.Goal.Used, before.Goal.Used)
 	}
-	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID); !errors.Is(err, ErrInvalid) {
+	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID, true); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("accept a done goal: err = %v; want ErrInvalid", err)
 	}
-	if _, err := f.svc.AcceptGoal(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+	if _, err := f.svc.AcceptGoal(ctx, "missing", true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("accept a missing goal: err = %v; want ErrNotFound", err)
 	}
 }
@@ -956,11 +956,11 @@ func TestALeadAsksAnotherTeamAndItsResultUnblocksTheWaitingItems(t *testing.T) {
 
 	publish := f.create(t, f.lead, item("Publish", f.ana.ID, "", req.ID))
 	finishQueued(t, f.svc)
-	if _, err := f.svc.AssignItem(ctx, f.lead, req.ID, f.ana.ID, ""); !errors.Is(err, ErrInvalid) {
+	if _, err := f.svc.AssignItem(ctx, f.lead, req.ID, f.ana.ID, "", ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("the asking lead assigns the request: err = %v; want ErrInvalid", err)
 	}
 	docsLead := Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}
-	if _, err := f.svc.AssignItem(ctx, docsLead, req.ID, eve.ID, ""); err != nil {
+	if _, err := f.svc.AssignItem(ctx, docsLead, req.ID, eve.ID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.queuedAll(t, teams); !slices.Equal(got, []string{"Eve work Guide @Docs"}) {
@@ -1026,7 +1026,7 @@ func TestOnlyALeadAsksAnotherTeamWithMembersForAnActiveGoal(t *testing.T) {
 	if _, err := f.svc.RequestWork(ctx, f.lead, docs.ID, NewItem{Title: "Guide"}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("request without a brief: err = %v; want ErrInvalid", err)
 	}
-	if err := f.svc.EndGoal(ctx, f.goal.ID); err != nil {
+	if err := f.svc.EndGoal(ctx, f.goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.svc.RequestWork(ctx, f.lead, docs.ID, guide); !errors.Is(err, ErrInvalid) {
@@ -1061,7 +1061,7 @@ func TestABlockedRequestWakesBothLeadsWhenNothingElseRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.items[req.ID] = req.Title
-	if _, err := f.svc.AssignItem(ctx, Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}, req.ID, eve.ID, ""); err != nil {
+	if _, err := f.svc.AssignItem(ctx, Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}, req.ID, eve.ID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	finishQueued(t, f.svc)
@@ -1105,7 +1105,7 @@ func TestALeftoverTurnOfAFinishedGoalDoesNotHoldBackTheNextGoal(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.wantQueued(t, "the lead delivered: a delivered goal drops its queued turns")
-	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID); err != nil {
+	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.svc.StartGoal(ctx, f.team.ID, "The next goal."); err != nil {
@@ -1126,7 +1126,7 @@ func TestALeftoverTurnOfAFinishedGoalDoesNotHoldBackTheNextGoal(t *testing.T) {
 func TestATurnOfAGoalThatIsOverIsCancelled(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
-	if err := f.svc.EndGoal(ctx, f.goal.ID); err != nil {
+	if err := f.svc.EndGoal(ctx, f.goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	// A turn of a goal that is over can still be queued, for example by a
@@ -1173,7 +1173,7 @@ func TestStopBlocksTheRequestsATeamWorksOnWithoutWakingItsLead(t *testing.T) {
 	f.items[faq.ID] = faq.Title
 	docsLead := Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}
 	for _, it := range []Item{guide, faq} {
-		if _, err := f.svc.AssignItem(ctx, docsLead, it.ID, eve.ID, ""); err != nil {
+		if _, err := f.svc.AssignItem(ctx, docsLead, it.ID, eve.ID, "", "Spare can wait."); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1232,7 +1232,7 @@ func TestAMemberWhoLeavesFreesItsItems(t *testing.T) {
 	}
 
 	finishQueued(t, f.svc)
-	if _, err := f.svc.AssignItem(ctx, f.lead, docs.ID, f.cy.ID, f.bo.ID); err != nil {
+	if _, err := f.svc.AssignItem(ctx, f.lead, docs.ID, f.cy.ID, f.bo.ID, ""); err != nil {
 		t.Fatalf("assign the blocked item again: %v", err)
 	}
 	f.wantQueued(t, "the lead assigned the blocked item", "Cy work Docs")
@@ -1332,7 +1332,7 @@ func TestWorkStartsOnlyForTheCurrentOwner(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
 	parse := f.create(t, f.lead, item("Parse", f.ana.ID, ""))
-	if _, err := f.svc.AssignItem(ctx, f.lead, parse.ID, f.cy.ID, ""); err != nil {
+	if _, err := f.svc.AssignItem(ctx, f.lead, parse.ID, f.cy.ID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.svc.StartItemWork(ctx, parse.ID, f.ana.ID); !errors.Is(err, ErrInvalid) {
@@ -1458,17 +1458,6 @@ func TestOnlyTheLeadReopensADeliveredGoalAndDroppedItemsLeaveRoom(t *testing.T) 
 	}
 	if _, err := g.svc.CreateItem(ctx, g.lead, item("One more", "", "")); err != nil {
 		t.Fatalf("item %d with one dropped: %v; want it accepted", maxGoalItems+1, err)
-	}
-}
-
-func TestAGoalThatStartsAtTheSameMomentIsReportedAsOpen(t *testing.T) {
-	f := newBoardFixture(t, 30)
-	if err := f.svc.goalStartFailed(context.Background(), f.team, errors.New("UNIQUE constraint failed")); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("goalStartFailed with an open goal = %v; want ErrInvalid", err)
-	}
-	other := errors.New("disk full")
-	if err := f.svc.goalStartFailed(context.Background(), f.ana, other); !errors.Is(err, other) {
-		t.Fatalf("goalStartFailed without an open goal = %v; want the error", err)
 	}
 }
 
@@ -1609,7 +1598,7 @@ func TestATeamServingARequestPassesWorkOnToAThirdTeamUnderTheAskingGoal(t *testi
 	}
 	f.items[spec.ID] = spec.Title
 	docsLead := Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}
-	if _, err := f.svc.AssignItem(ctx, docsLead, spec.ID, eve.ID, ""); err != nil {
+	if _, err := f.svc.AssignItem(ctx, docsLead, spec.ID, eve.ID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	finishQueued(t, f.svc)
@@ -1629,7 +1618,7 @@ func TestATeamServingARequestPassesWorkOnToAThirdTeamUnderTheAskingGoal(t *testi
 		t.Fatalf("chained request: %v", err)
 	}
 	f.items[build.ID] = build.Title
-	if build.GoalID != f.goal.ID || build.TeamID != dev.ID || build.CreatedBy != dee.ID || !slices.Equal(build.DependsOn, []string{spec.ID}) {
+	if build.GoalID != f.goal.ID || build.TeamID != dev.ID || build.CreatedBy != dee.ID || build.ForItemID != spec.ID || !slices.Equal(build.DependsOn, []string{spec.ID}) {
 		t.Fatalf("chained request = %+v; want an item of Ship's goal in Dev, by Dee, after Spec", build)
 	}
 	// Nothing of Ship's goal is in flight, so Ship's lead hears of the new item too.
@@ -1654,7 +1643,7 @@ func TestATeamServingARequestPassesWorkOnToAThirdTeamUnderTheAskingGoal(t *testi
 	}
 
 	release := f.create(t, f.lead, item("Release", f.ana.ID, "", build.ID))
-	if _, err := f.svc.AssignItem(ctx, Actor{BotID: cal.ID, TeamID: dev.ID, Role: RoleLead}, build.ID, cal.ID, ""); err != nil {
+	if _, err := f.svc.AssignItem(ctx, Actor{BotID: cal.ID, TeamID: dev.ID, Role: RoleLead}, build.ID, cal.ID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	finishQueued(t, f.svc)
@@ -1695,7 +1684,7 @@ func TestARequestWithoutAGoalSaysHowToGoOn(t *testing.T) {
 	if _, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec 2", "", "")); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.EndGoal(ctx, f.goal.ID); err != nil {
+	if err := f.svc.EndGoal(ctx, f.goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Build", "", "")); !errors.Is(err, ErrInvalid) {

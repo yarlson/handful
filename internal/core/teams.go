@@ -36,6 +36,9 @@ type Team struct {
 	// without their own, for their turns in the team. "" inherits.
 	DefaultModel  string `json:"defaultModel"`
 	DefaultEffort string `json:"defaultEffort"`
+	// RequestSlots is how many requests of other teams the team works on at
+	// once while its own goal is active: 1 to the number of members.
+	RequestSlots int64 `json:"requestSlots"`
 }
 
 func (b Bot) IsTeam() bool { return b.Team != nil }
@@ -54,13 +57,15 @@ func (b Bot) Lead() (Member, bool) {
 }
 
 // TeamSettings are what the user sets on a team. An empty LeadID means the
-// first member; a zero GoalBudget means DefaultGoalBudget.
+// first member; a zero GoalBudget means DefaultGoalBudget; zero RequestSlots
+// means 1.
 type TeamSettings struct {
 	LeadID        string
 	Agreement     string
 	GoalBudget    int64
 	DefaultModel  string
 	DefaultEffort string
+	RequestSlots  int64
 }
 
 // TeamPatch changes the settings of a team. A nil field keeps its value.
@@ -70,6 +75,7 @@ type TeamPatch struct {
 	GoalBudget    *int64
 	DefaultModel  *string
 	DefaultEffort *string
+	RequestSlots  *int64
 }
 
 // TeamWorkspace is the shared folder of a team. Every turn in the team runs there.
@@ -100,16 +106,26 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	if !team.IsTeam() {
 		return Bot{}, invalid("%s is not a team", team.Name)
 	}
+	if p.RequestSlots != nil && *p.RequestSlots == 0 {
+		return Bot{}, invalid("Requests in progress at once must be from 1 to %d.", len(team.Members))
+	}
 	updated, err := validTeam(p.apply(*team.Team), team.Members)
 	if err != nil {
 		return Bot{}, err
 	}
-	if err := s.q.UpdateTeam(ctx, db.UpdateTeamParams{
-		LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
-		DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, TeamID: id,
-	}); err != nil {
-		return Bot{}, fmt.Errorf("update team %s: %w", id, err)
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		if err := q.UpdateTeam(ctx, db.UpdateTeamParams{
+			LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
+			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots, TeamID: id,
+		}); err != nil {
+			return fmt.Errorf("update team %s: %w", id, err)
+		}
+		return s.grantSlots(ctx, q, id)
+	})
+	if err != nil {
+		return Bot{}, err
 	}
+	s.signalTurns()
 	newLead := updated.LeadID != team.Team.LeadID
 	team.Team = updated
 	if newLead {
@@ -129,6 +145,7 @@ func (p TeamPatch) apply(t Team) TeamSettings {
 	setIf(&set.GoalBudget, p.GoalBudget)
 	setIf(&set.DefaultModel, p.DefaultModel)
 	setIf(&set.DefaultEffort, p.DefaultEffort)
+	setIf(&set.RequestSlots, p.RequestSlots)
 	return set
 }
 
@@ -163,7 +180,14 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Team{LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort}, nil
+	slots := set.RequestSlots
+	if slots == 0 {
+		slots = 1
+	}
+	if slots < 1 || slots > int64(len(members)) {
+		return nil, invalid("Requests in progress at once must be from 1 to %d.", len(members))
+	}
+	return &Team{LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots}, nil
 }
 
 // teamOf returns the team settings of a room, or nil when the room is no team.
@@ -186,7 +210,15 @@ func toTeam(row db.Team, members []Member) *Team {
 			lead = members[0].ID
 		}
 	}
-	return &Team{LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort}
+	return &Team{
+		LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
+		RequestSlots: clampSlots(row.RequestSlots, len(members)),
+	}
+}
+
+// clampSlots keeps a team's request slots within its number of members.
+func clampSlots(slots int64, members int) int64 {
+	return max(1, min(slots, int64(members)))
 }
 
 // TurnTeam returns roomID when it is a team, and "" when it is a plain room

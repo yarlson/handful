@@ -21,7 +21,7 @@ export type Bot = {
 }
 
 // A background shell, monitor or subagent that a bot runs between turns.
-export type BackgroundTask = { id: string; description: string; bot?: string }
+export type BackgroundTask = { id: string; description: string; bot?: string; botId?: string }
 
 // reactions are the user's emoji on a message, in the order of REACTIONS.
 export type UserBody = { text: string; media?: string[]; reactions?: string[] }
@@ -46,6 +46,7 @@ export type AgentBody = {
 export type EventBody = { type: string; text?: string; from?: string; to?: string }
 export type ActivityBody = {
   bot?: string
+  botId?: string
   tool: string
   summary: string
   status: "running" | "done" | "error"
@@ -54,6 +55,7 @@ export type ActivityBody = {
 }
 export type ApprovalBody = {
   bot?: string
+  botId?: string
   tool: string
   input: unknown
   status: "pending" | "allowed" | "denied" | "expired"

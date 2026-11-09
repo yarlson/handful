@@ -37,7 +37,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { cn } from "@/lib/utils"
-import { botColor } from "@/lib/bot-color"
+import { botColor, colorId } from "@/lib/bot-color"
 import { anchorIndex, ScrollMemory } from "@/lib/scroll"
 
 function time(ms: number) {
@@ -69,7 +69,7 @@ export function MarkdownText({ text }: { text: string }) {
   )
 }
 
-function ActivityRow({ entry }: { entry: Extract<Entry, { kind: "activity" }> }) {
+function ActivityRow({ entry, chat }: { entry: Extract<Entry, { kind: "activity" }>; chat: Bot }) {
   const [open, setOpen] = useState(false)
   const b = entry.body
   return (
@@ -90,7 +90,7 @@ function ActivityRow({ entry }: { entry: Extract<Entry, { kind: "activity" }> })
         ) : (
           <Wrench className="size-3 shrink-0" />
         )}
-        {b.bot && <span className={cn("shrink-0 font-medium", botColor(b.bot).text)}>{b.bot}</span>}
+        {b.bot && <span className={cn("shrink-0 font-medium", botColor(colorId(b, chat)).text)}>{b.bot}</span>}
         <span className="text-foreground/80 shrink-0 font-medium">{b.subagent ? `↳ ${b.tool}` : b.tool}</span>
         <span className="truncate font-mono">{b.summary}</span>
       </button>
@@ -410,7 +410,7 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
   )
 }
 
-function EntryView({ entry, botName, skill }: { entry: Entry; botName: string; skill: string | null }) {
+export function EntryView({ entry, chat, skill }: { entry: Entry; chat: Bot; skill: string | null }) {
   switch (entry.kind) {
     case "user":
       return (
@@ -437,7 +437,7 @@ function EntryView({ entry, botName, skill }: { entry: Entry; botName: string; s
         </div>
       )
     case "bot": {
-      const speaker = entry.body.speakerName ?? botName
+      const speaker = entry.body.speakerName ?? chat.name
       const color = botColor(entry.body.speakerId ?? entry.botId)
       return (
         <div className="group/message flex max-w-[85%] gap-2.5">
@@ -466,7 +466,7 @@ function EntryView({ entry, botName, skill }: { entry: Entry; botName: string; s
       )
     }
     case "activity":
-      return <ActivityRow entry={entry} />
+      return <ActivityRow entry={entry} chat={chat} />
     case "approval":
       return <ApprovalCard entry={entry} />
     case "event":
@@ -969,7 +969,7 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
           {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">No messages yet.</p>}
           {entries.map((e) => (
-            <EntryView key={e.id} entry={e} botName={bot.name} skill={skillOf(e)} />
+            <EntryView key={e.id} entry={e} chat={bot} skill={skillOf(e)} />
           ))}
           {bot.running && (
             <div className="text-muted-foreground flex items-center gap-2 text-xs">

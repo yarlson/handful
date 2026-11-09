@@ -108,6 +108,8 @@ func TestBusyNamesEachBotOnceAndSortsByNameThenID(t *testing.T) {
 	r.sessions[sessionKey{amy1.ID, ""}] = &session{key: sessionKey{amy1.ID, ""}, waking: true}
 	r.sessions[sessionKey{"gone", ""}] = &session{key: sessionKey{"gone", ""}, tasks: []core.BackgroundTask{{ID: "t2"}}}
 	r.sessions[sessionKey{zed.ID, ""}] = &session{key: sessionKey{zed.ID, ""}, bot: zed}
+	// An idle process, with no turn and no task, keeps nothing waiting.
+	r.sessions[sessionKey{"idle", ""}] = &session{key: sessionKey{"idle", ""}, tasks: []core.BackgroundTask{}}
 	r.mu.Unlock()
 
 	want := []core.Busy{

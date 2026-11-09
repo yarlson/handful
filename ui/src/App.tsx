@@ -671,7 +671,9 @@ export function App() {
                 <PanelRight />
               </Button>
             </header>
-            {bot.team && <GoalBar key={bot.id} team={bot} version={transcript?.rev ?? 0} />}
+            {bot.team && (
+              <GoalBar key={bot.id} team={bot} version={transcript?.rev ?? 0} onShowBoard={() => showTab("board")} />
+            )}
             <div className="flex min-h-0 flex-1">
               <Chat
                 bot={bot}

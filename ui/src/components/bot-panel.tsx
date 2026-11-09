@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { slotsError } from "@/lib/queue"
 import { BoardTab } from "@/components/board"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
@@ -461,6 +462,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
   const [lead, setLead] = useState(settings.leadId)
   const [agreement, setAgreement] = useState(settings.agreement)
   const [budget, setBudget] = useState(String(settings.goalBudget))
+  const [slots, setSlots] = useState(String(settings.requestSlots ?? 1))
+  const [slotsInvalid, setSlotsInvalid] = useState<string | null>(null)
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
   const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
   const [message, setMessage] = useState<string | null>(null)
@@ -473,11 +476,18 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         setMessage("Turns per goal must be a whole number from 1 to 500.")
         return
       }
+      const bad = slotsError(slots, members.length)
+      setSlotsInvalid(bad)
+      if (bad) {
+        setMessage(bad)
+        return
+      }
       // The lead goes only when it changed, so that a fallback lead does not replace the chosen one.
       await api.updateTeam(team.id, {
         ...(lead !== settings.leadId && { leadId: lead }),
         agreement,
         goalBudget,
+        requestSlots: Number(slots),
         defaultModel,
         defaultEffort,
       })
@@ -529,6 +539,30 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         <p className="text-muted-foreground text-xs">
           For the next goal. A goal pauses when its turns are used up; add turns above the chat.
         </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="team-settings-slots">Requests in progress at once</Label>
+        <Input
+          id="team-settings-slots"
+          type="number"
+          min={1}
+          max={Math.max(1, members.length)}
+          value={slots}
+          aria-invalid={slotsInvalid ? true : undefined}
+          aria-describedby={
+            slotsInvalid ? "team-settings-slots-help team-settings-slots-error" : "team-settings-slots-help"
+          }
+          onChange={(e) => setSlots(e.target.value)}
+        />
+        <p id="team-settings-slots-help" className="text-muted-foreground text-xs">
+          While your team works on its own goal, it works on at most this many requests from other teams. Without a goal
+          of its own, it takes them all.
+        </p>
+        {slotsInvalid && (
+          <p id="team-settings-slots-error" className="text-destructive text-xs">
+            {slotsInvalid}
+          </p>
+        )}
       </div>
       <fieldset className="flex flex-col gap-3">
         <legend className="mb-1 text-sm font-medium">Member defaults</legend>
@@ -654,7 +688,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
       </div>
       {bot.team && (
         <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}`}
+          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}`}
           team={bot}
           settings={bot.team}
         />

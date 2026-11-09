@@ -66,6 +66,9 @@ func TestTheBoardShowsHandoffsAndTheReceivingLeadsBrief(t *testing.T) {
 			t.Errorf("board lacks %q:\n%s", want, got)
 		}
 	}
+	if strings.Count(got, "Brief: ") != 1 || strings.Count(got, "Artifacts: ") != 1 {
+		t.Errorf("only the handoff with a brief and artifacts shows those lines:\n%s", got)
+	}
 	if member := boardPrompt(core.Bot{ID: "other"}, dev, board, core.Turn{}, nil); strings.Contains(member, "accept each with accept_handoff") {
 		t.Error("a member's board has the lead's handoff brief")
 	}

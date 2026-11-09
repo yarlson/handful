@@ -11,6 +11,7 @@ import {
   type LinkEvent,
 } from "./connection"
 import { loadEntriesAfter } from "./entries"
+import { transcriptStep, type TranscriptEvent, type TranscriptStatus } from "./transcript"
 
 type Transcript = { byId: Map<string, Entry>; rev: number }
 
@@ -41,6 +42,15 @@ export function useYarGPT() {
     setLink(step.state)
   }, [])
   const loaded = useRef<Map<string, number>>(new Map()) // bot id -> highest rev fetched
+  // status is each chat's load state; transcript.ts holds its transitions.
+  const [status, setStatus] = useState<Map<string, TranscriptStatus>>(new Map())
+  const statusRef = useRef<Map<string, TranscriptStatus>>(new Map())
+  const onTranscript = useCallback((botId: string, event: TranscriptEvent) => {
+    const step = transcriptStep(statusRef.current.get(botId) ?? "unloaded", event)
+    if (!step.ok) console.warn(step.error)
+    statusRef.current = new Map(statusRef.current).set(botId, step.status)
+    setStatus(statusRef.current)
+  }, [])
   const selectedRef = useRef<string | null>(null)
 
   const refreshBots = useCallback(async () => {
@@ -71,6 +81,7 @@ export function useYarGPT() {
 
   const loadTranscript = useCallback(
     async (botId: string) => {
+      onTranscript(botId, "fetch")
       try {
         const after = loaded.current.get(botId) ?? 0
         loaded.current.set(botId, after)
@@ -79,11 +90,13 @@ export function useYarGPT() {
           after,
           (entries) => merge(botId, entries),
         )
+        onTranscript(botId, "loaded")
       } catch (e) {
+        onTranscript(botId, "failed")
         setError((e as Error).message)
       }
     },
-    [merge],
+    [merge, onTranscript],
   )
 
   const select = useCallback(
@@ -167,7 +180,20 @@ export function useYarGPT() {
     [refreshBots],
   )
 
-  return { bots, transcripts, unread, link, error, setError, pausedUntil, draining, select, refreshBots, reorder }
+  return {
+    bots,
+    transcripts,
+    transcriptStatus: status,
+    unread,
+    link,
+    error,
+    setError,
+    pausedUntil,
+    draining,
+    select,
+    refreshBots,
+    reorder,
+  }
 }
 
 export function orderedEntries(t: Transcript | undefined): Entry[] {

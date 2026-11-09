@@ -43,6 +43,7 @@ import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
 import { AnswerChip, QuestionStrip } from "@/components/questions"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
+import { emptyText, type TranscriptStatus } from "@/lib/transcript"
 
 function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -974,6 +975,7 @@ function itemsOf(column: HTMLElement | null, entries: Entry[]): Item[] {
 export function Chat({
   bot,
   entries,
+  status = "ready",
   mentionables,
   answering = null,
   onAnswer = () => {},
@@ -982,6 +984,8 @@ export function Chat({
 }: {
   bot: Bot
   entries: Entry[]
+  // status is the transcript's load state, so an empty chat can say it is still loading.
+  status?: TranscriptStatus
   mentionables: Member[]
   // pill is the update pill, shown above the message box; draining says the server waits
   // to restart for an update.
@@ -1144,11 +1148,12 @@ export function Chat({
       )}
       <div
         ref={scroller}
+        data-transcript={status}
         className={cn("min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]", pill && "pb-11")}
         onScroll={(e) => onScroll(e.currentTarget)}
       >
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
-          {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">No messages yet.</p>}
+          {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">{emptyText(status)}</p>}
           {entries.map((e) => (
             <EntryView key={e.id} entry={e} chat={bot} skill={skillOf(e)} onAnswer={answer} />
           ))}

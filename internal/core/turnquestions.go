@@ -27,6 +27,9 @@ func (s *Service) TurnAnswers(ctx context.Context, botID, turnID string) ([]Open
 	var rows []db.Entry
 	for _, id := range body.Answers {
 		row, err := s.q.GetEntry(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue // deleted since; the turn goes on without it
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read question %s: %w", id, err)
 		}

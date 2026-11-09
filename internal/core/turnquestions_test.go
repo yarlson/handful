@@ -35,11 +35,11 @@ func TestTurnAnswersNamesTheQuestionsAUserMessageAnswers(t *testing.T) {
 	if _, err := svc.TurnAnswers(ctx, ana.ID, turnID); err == nil {
 		t.Fatal("an unreadable user message gave no error")
 	}
-	if _, err := svc.sqlDB.ExecContext(ctx, `UPDATE entries SET body = '{"answers":["gone"]}' WHERE turn_id = ? AND kind = 'user'`, turnID); err != nil {
+	if _, err := svc.sqlDB.ExecContext(ctx, `UPDATE entries SET body = ? WHERE turn_id = ? AND kind = 'user'`, `{"answers":["gone","`+crm.ID+`"]}`, turnID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.TurnAnswers(ctx, ana.ID, turnID); err == nil {
-		t.Fatal("an answer to a missing question gave no error")
+	if got, err := svc.TurnAnswers(ctx, ana.ID, turnID); err != nil || len(got) != 1 || got[0].EntryID != crm.ID {
+		t.Fatalf("an answer to a missing question = %+v, %v; want it skipped and the rest kept", got, err)
 	}
 	svc.sqlDB.Close()
 	if _, err := svc.TurnAnswers(ctx, ana.ID, turnID); err == nil {

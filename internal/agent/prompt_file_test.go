@@ -77,7 +77,7 @@ func TestRunFilesAreReadableOnlyByTheUser(t *testing.T) {
 
 func TestKilledByNamesTheSignal(t *testing.T) {
 	t.Parallel()
-	run := func(script string) error { return exec.Command("/bin/sh", "-c", script).Run() }
+	run := func(script string) error { return exec.CommandContext(context.Background(), "/bin/sh", "-c", script).Run() }
 	for _, c := range []struct {
 		err  error
 		name string
@@ -124,7 +124,7 @@ func TestExitReasonKeepsYarGPTsOwnStopsAndPlainExits(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
 	s := &session{key: sessionKey{"b", ""}}
-	term := exec.Command("/bin/sh", "-c", "kill -TERM $$").Run()
+	term := exec.CommandContext(context.Background(), "/bin/sh", "-c", "kill -TERM $$").Run()
 	for _, c := range []struct {
 		err            error
 		stopped, quiet bool
@@ -135,7 +135,7 @@ func TestExitReasonKeepsYarGPTsOwnStopsAndPlainExits(t *testing.T) {
 		{term, false, true, "no output from Claude for 30 minutes", ""},
 		{errors.New("exit status 1"), false, false, "exit status 1", "err"},
 	} {
-		got, stderr := h.runner.exitReason(s, c.err, "err", c.stopped, c.quiet)
+		stderr, got := h.runner.exitReason(s, c.err, "err", c.stopped, c.quiet)
 		if got.Error() != c.want || stderr != c.stderr {
 			t.Errorf("exitReason(%v, stopped %v, silent %v) = %v, %q; want %q, %q", c.err, c.stopped, c.quiet, got, stderr, c.want, c.stderr)
 		}

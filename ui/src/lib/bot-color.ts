@@ -21,3 +21,17 @@ export function botColor(id: string) {
   for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) >>> 0
   return palette[h % palette.length]
 }
+
+// colorId returns the id to color a row that names a bot, such as a tool call, so it gets the
+// same color as that bot's posts. A row carries the bot's name and, from newer servers, its
+// id. Without the id the name is looked up among the chat's members; a row in a bot's own
+// chat, or one without a name, belongs to the chat's bot. A name that matches no one, as
+// after a rename, is colored by the name itself.
+export function colorId(
+  row: { botId?: string; bot?: string },
+  chat: { id: string; name: string; members?: { id: string; name: string }[] },
+): string {
+  if (row.botId) return row.botId
+  if (!row.bot || row.bot === chat.name) return chat.id
+  return chat.members?.find((m) => m.name === row.bot)?.id ?? row.bot
+}

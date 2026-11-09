@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -863,5 +864,42 @@ func TestApprovalOutsideATurnIsDeniedAtOnceUnlessGranted(t *testing.T) {
 	entries, err := svc.Entries(ctx, bot.ID, 0, 0)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("entries = %d, %v; want no approval card", len(entries), err)
+	}
+}
+
+func TestConcurrentRoutineCreatesStayWithinTheLimit(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	for i := range maxRoutinesPerBot - 1 {
+		if _, err := svc.CreateRoutine(ctx, bot.ID, fmt.Sprint("R", i), "Do it.", "0 8 * * *"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for i := range 2 {
+		wg.Go(func() {
+			_, err := svc.CreateRoutine(ctx, bot.ID, fmt.Sprint("Last", i), "Do it.", "0 9 * * *")
+			errs <- err
+		})
+	}
+	wg.Wait()
+	close(errs)
+	refused := 0
+	for err := range errs {
+		if err != nil {
+			if !strings.Contains(err.Error(), "at most") {
+				t.Fatalf("create: %v; want the limit error", err)
+			}
+			refused++
+		}
+	}
+	got, err := svc.ListRoutines(ctx, bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != maxRoutinesPerBot || refused != 1 {
+		t.Fatalf("routines = %d, refused = %d; want %d and 1: the last two creates passed the check together", len(got), refused, maxRoutinesPerBot)
 	}
 }

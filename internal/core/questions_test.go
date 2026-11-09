@@ -243,8 +243,8 @@ func TestTheUserDismissesAQuestionAndCanUndoItBriefly(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.now = func() time.Time { return frozen.Add(20*time.Second + time.Millisecond) }
-	if _, err := svc.ReopenQuestion(ctx, q.ID); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("reopen after 10 s: err = %v; want ErrInvalid", err)
+	if _, err := svc.ReopenQuestion(ctx, q.ID); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "within 10 seconds") {
+		t.Fatalf("reopen after 10 s: err = %v; want ErrInvalid that names 10 seconds", err)
 	}
 	plain, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Done.", nil, false, false)
 	if err != nil {

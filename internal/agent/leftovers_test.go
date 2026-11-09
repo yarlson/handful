@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -267,7 +268,9 @@ func TestStopProcessGroupEndsTheWholeGroup(t *testing.T) {
 	t.Parallel()
 	pgid, child, exited := groupWithChild(t, false)
 	start := time.Now()
-	stopProcessGroup(pgid)
+	if err := stopProcessGroup(pgid, syscall.Kill); err != nil {
+		t.Fatal(err)
+	}
 	if took := time.Since(start); took >= groupStopWait {
 		t.Fatalf("a group that takes SIGTERM stopped after %v; want before the SIGKILL wait", took)
 	}
@@ -279,7 +282,9 @@ func TestStopProcessGroupKillsAGroupThatIgnoresSIGTERM(t *testing.T) {
 	t.Parallel()
 	pgid, child, exited := groupWithChild(t, true)
 	start := time.Now()
-	stopProcessGroup(pgid)
+	if err := stopProcessGroup(pgid, syscall.Kill); err != nil {
+		t.Fatal(err)
+	}
 	if took := time.Since(start); took < groupStopWait {
 		t.Fatalf("stopProcessGroup returned after %v while the group ignored SIGTERM; want it to wait, then SIGKILL", took)
 	}
@@ -328,6 +333,41 @@ func TestStopProcessGroupKillsWhatALeaderThatExitedLeft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stopProcessGroup(pgid)
+	if err := stopProcessGroup(pgid, syscall.Kill); err != nil {
+		t.Fatal(err)
+	}
 	waitFor(t, "the child that ignores SIGTERM ends", func() bool { return syscall.Kill(child, 0) != nil })
+}
+
+func TestStopProcessGroupReportsSignalErrorsButNotAGoneGroup(t *testing.T) {
+	t.Parallel()
+	gone := func(int, syscall.Signal) error { return syscall.ESRCH }
+	if err := stopProcessGroup(4242, gone); err != nil {
+		t.Fatalf("a group that is gone = %v; want no error", err)
+	}
+	var sent []syscall.Signal
+	denied := func(pid int, sig syscall.Signal) error {
+		sent = append(sent, sig)
+		if pid != -4242 {
+			t.Errorf("signal to %d; want the group -4242", pid)
+		}
+		return syscall.EPERM
+	}
+	err := stopProcessGroup(4242, denied)
+	if !errors.Is(err, syscall.EPERM) || !strings.Contains(err.Error(), "process group 4242") {
+		t.Fatalf("a denied SIGTERM = %v; want EPERM naming the group", err)
+	}
+	if len(sent) != 1 || sent[0] != syscall.SIGTERM {
+		t.Fatalf("signals = %v; want only the SIGTERM", sent)
+	}
+	// SIGTERM goes through, the group stays, and SIGKILL is denied.
+	stays := func(_ int, sig syscall.Signal) error {
+		if sig == syscall.SIGKILL {
+			return syscall.EPERM
+		}
+		return nil
+	}
+	if err := stopProcessGroup(4242, stays); !errors.Is(err, syscall.EPERM) || !strings.Contains(err.Error(), "killed") {
+		t.Fatalf("a denied SIGKILL = %v; want EPERM for the kill", err)
+	}
 }

@@ -113,7 +113,9 @@ func (r *Runner) sweepRecord(path string) {
 		return
 	case stopGroup:
 		r.log.Warn("stop claude process left by an earlier server", "pid", rec.PID)
-		stopProcessGroup(rec.PID)
+		if err := stopProcessGroup(rec.PID, syscall.Kill); err != nil {
+			r.log.Warn("stop claude process group", "pid", rec.PID, "err", err)
+		}
 	}
 	r.removeRecord(path)
 }
@@ -158,17 +160,30 @@ func leftoverAction(rec procRecord) sweepAction {
 }
 
 // stopProcessGroup sends SIGTERM to the group, and SIGKILL if it is still
-// there after groupStopWait.
-func stopProcessGroup(pgid int) {
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+// there after groupStopWait. kill is syscall.Kill. A group that is gone
+// already is no error.
+func stopProcessGroup(pgid int, kill func(int, syscall.Signal) error) error {
+	if err := signalGroup(pgid, syscall.SIGTERM, kill); err != nil {
+		return err
+	}
 	deadline := time.Now().Add(groupStopWait)
 	for time.Now().Before(deadline) {
-		if syscall.Kill(-pgid, 0) != nil {
-			return
+		if kill(-pgid, 0) != nil {
+			return nil
 		}
 		time.Sleep(groupPoll)
 	}
-	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	return signalGroup(pgid, syscall.SIGKILL, kill)
+}
+
+// signalGroup sends sig to the process group; ESRCH, a group that has
+// ended, counts as done.
+func signalGroup(pgid int, sig syscall.Signal, kill func(int, syscall.Signal) error) error {
+	err := kill(-pgid, sig)
+	if err == nil || errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return fmt.Errorf("send %v to process group %d: %w", sig, pgid, err)
 }
 
 // groupPoll is how often stopProcessGroup checks whether the group is gone.

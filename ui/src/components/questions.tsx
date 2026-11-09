@@ -287,7 +287,12 @@ function ClosedList({
               <span className="text-muted-foreground">
                 {stateLabel(q.state)} · {name(q.chatId)} · {time(q.closedAt ?? q.createdAt)}
               </span>
-              <Button size="xs" variant="ghost" onClick={() => onOpen(q.chatId)}>
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-label={`Open chat: ${q.question}`}
+                onClick={() => onOpen(q.chatId)}
+              >
                 Open chat
               </Button>
             </li>

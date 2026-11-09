@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, X } from "lucide-react"
 import { api, type Board, type Bot, type Goal, type Item, type Request } from "@/lib/api"
+import { HandedOverSection, HandOverDialog, IncomingSection } from "@/components/handoff"
+import { fromLabel } from "@/lib/handoff"
 import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@/lib/questions"
 import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
@@ -36,6 +38,8 @@ const goalBadge: Record<Goal["state"], string> = {
   done: "Done",
   ended: "Ended",
   queued: "Queued",
+  incoming: "Incoming",
+  declined: "Declined",
 }
 
 // stateOrder lists item states in the order the board shows them: what needs
@@ -51,6 +55,21 @@ const stateLabel: Record<Item["state"], string> = {
   dropped: "Dropped",
 }
 
+// teamNamer names other teams from the board's names, then from the app's teams.
+function teamNamer(board: { teams: Record<string, string> } | null | undefined, teams: Bot[]) {
+  return (id: string) => board?.teams[id] ?? teams.find((t) => t.id === id)?.name ?? "a deleted team"
+}
+
+// FromChip marks a goal that another team, or the user, handed over.
+function FromChip({ goal, name }: { goal: Goal; name: (id: string) => string }) {
+  const label = fromLabel(goal, name)
+  return label ? (
+    <Badge variant="outline" className="shrink-0 border-sky-500/50 text-sky-700 dark:text-sky-400">
+      {label}
+    </Badge>
+  ) : null
+}
+
 function memberName(team: Bot, id: string) {
   return team.members?.find((m) => m.id === id)?.name ?? "a former member"
 }
@@ -59,8 +78,21 @@ function memberName(team: Bot, id: string) {
 // budget and of the goals queued after it. A goal starts with "/goal <text>" in
 // the team's chat, which adds a board event to the transcript: its new rev
 // reloads the bar. onShowBoard opens the board tab, where the queue is.
-export function GoalBar({ team, version, onShowBoard }: { team: Bot; version: number; onShowBoard?: () => void }) {
+export function GoalBar({
+  team,
+  version,
+  onShowBoard,
+  teams = [],
+}: {
+  team: Bot
+  version: number
+  onShowBoard?: () => void
+  // teams are the app's teams, to hand work over to.
+  teams?: Bot[]
+}) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
+  const [handing, setHanding] = useState(false)
+  const name = teamNamer(board.data, teams)
   const [ending, setEnding] = useState(false)
   const [startNext, setStartNext] = useState(true)
   const [accepting, setAccepting] = useState(false)
@@ -86,6 +118,7 @@ export function GoalBar({ team, version, onShowBoard }: { team: Bot; version: nu
       {open ? (
         <>
           <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{goalBadge[goal.state]}</Badge>
+          <FromChip goal={goal} name={name} />
           <span className="min-w-0 flex-1 truncate" title={goal.text}>
             {goal.text}
           </span>
@@ -174,13 +207,19 @@ export function GoalBar({ team, version, onShowBoard }: { team: Bot; version: nu
       ) : (
         <>
           <span className="text-muted-foreground min-w-0 flex-1 truncate" title={goal?.text}>
-            {goal ? `Last goal (${goal.state}): ${goal.text}` : "No goal yet."}
+            {goal ? `Last goal (${goal.state}): ${goal.text}` : "No goal running. Handing over doesn't need one."}
           </span>
           <span className="text-muted-foreground shrink-0 text-xs">
             To start one, type <code className="font-mono">/goal &lt;what the team should do&gt;</code> in the chat.
           </span>
         </>
       )}
+      {teams.length > 1 && (
+        <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setHanding(true)}>
+          Hand over…
+        </Button>
+      )}
+      <HandOverDialog open={handing} onOpenChange={setHanding} from={team} teams={teams} onDone={board.reload} />
       {board.error && <span className="text-destructive w-full text-xs">{board.error}</span>}
       {goal && next && (
         <Dialog open={accepting} onOpenChange={setAccepting}>
@@ -328,7 +367,19 @@ export function HistoryList({ id, item, events }: { id: string; item: Item; even
 }
 
 // QueueList shows a team's queued goals, which only the user orders, starts or cancels.
-function QueueList({ team, board, held, act }: { team: Bot; board: Board; held: boolean; act: Act }) {
+function QueueList({
+  team,
+  board,
+  held,
+  act,
+  name,
+}: {
+  team: Bot
+  board: Board
+  held: boolean
+  act: Act
+  name: (id: string) => string
+}) {
   const [note, setNote] = useState("")
   // focus is the goal whose move button keeps the keyboard once the list shows the new order.
   const focus = useRef<{ id: string; step: -1 | 1; to: number } | null>(null)
@@ -364,6 +415,7 @@ function QueueList({ team, board, held, act }: { team: Bot; board: Board; held: 
         {board.queue.map((g, i) => (
           <li key={g.id} className="flex flex-wrap items-start gap-2 rounded-md border p-2 text-sm">
             <span className="text-muted-foreground w-4 shrink-0 text-xs">{i + 1}</span>
+            <FromChip goal={g} name={name} />
             <span className="line-clamp-2 flex-1" title={g.text}>
               {g.text}
             </span>
@@ -504,7 +556,7 @@ function AskedCard({ r, teams, act }: { r: Request; teams: Record<string, string
 
 // BoardTab lists a team's goal and its items, the goals queued after it, the
 // requests of other teams to it and what it asked of other teams.
-export function BoardTab({ team, version }: { team: Bot; version: number }) {
+export function BoardTab({ team, version, teams = [] }: { team: Bot; version: number; teams?: Bot[] }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
   const act: Act = async (action) => {
     try {
@@ -518,12 +570,25 @@ export function BoardTab({ team, version }: { team: Bot; version: number }) {
     }
   }
   if (!board.data) return board.error ? <p className="text-destructive text-xs">{board.error}</p> : null
-  return <BoardView team={team} data={board.data} error={board.error} act={act} />
+  return <BoardView team={team} data={board.data} error={board.error} act={act} teams={teams} />
 }
 
 // BoardView draws a loaded board; act runs a change and reloads it.
-export function BoardView({ team, data, error, act }: { team: Bot; data: Board; error: string | null; act: Act }) {
+export function BoardView({
+  team,
+  data,
+  error,
+  act,
+  teams: allTeams = [],
+}: {
+  team: Bot
+  data: Board
+  error: string | null
+  act: Act
+  teams?: Bot[]
+}) {
   const { goal, items, requests, teams } = data
+  const name = teamNamer(data, allTeams)
   const queue = data.queue ?? []
   const asked = data.asked ?? []
   const groups = grouped(requests)
@@ -531,6 +596,7 @@ export function BoardView({ team, data, error, act }: { team: Bot; data: Board; 
   return (
     <div className="flex flex-col gap-3">
       {error && <p className="text-destructive text-xs">{error}</p>}
+      <IncomingSection incoming={data.incoming ?? []} name={name} act={act} />
       {goal ? (
         <p className="text-sm">{goal.text}</p>
       ) : (
@@ -552,13 +618,20 @@ export function BoardView({ team, data, error, act }: { team: Bot; data: Board; 
         )
       })}
       {queue.length > 0 && (
-        <QueueList team={team} board={{ ...data, queue }} held={onHold(goal?.state, queue.length)} act={act} />
+        <QueueList
+          team={team}
+          board={{ ...data, queue }}
+          held={onHold(goal?.state, queue.length)}
+          act={act}
+          name={name}
+        />
       )}
       {requests.length > 0 && data.slots && (
         <section className="flex flex-col gap-2" aria-labelledby="requests-heading">
           <h3 id="requests-heading" className="text-muted-foreground text-xs font-medium uppercase">
             {slotHeader(data.slots, requests)}
           </h3>
+          <p className="text-muted-foreground text-xs">Parts that another team's running goal waits on.</p>
           {groups.map((g) =>
             g.group === "closed" ? (
               <details key={g.group} className="text-xs">
@@ -594,6 +667,7 @@ export function BoardView({ team, data, error, act }: { team: Bot; data: Board; 
           ))}
         </section>
       )}
+      <HandedOverSection goals={data.handedOver ?? []} name={name} act={act} />
     </div>
   )
 }

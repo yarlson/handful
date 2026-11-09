@@ -86,7 +86,7 @@ test("with no open goal the queue is on hold and can start now", () => {
 test("no queue, no requests and no asks hide their sections", () => {
   const html = render(board({}))
   assert.notInclude(html, "Next up")
-  assert.notInclude(html, "Requests ·")
+  assert.notInclude(html, "Requests for other teams")
   assert.notInclude(html, "Asked of other teams")
 })
 
@@ -125,7 +125,7 @@ test("requests are grouped under the slot header with positions and reason lines
       ],
     }),
   )
-  assert.include(html, "Requests · 1 of 1 slot in use · 1 waiting")
+  assert.include(html, "Requests for other teams&#x27; goals · 1 of 1 slot in use · 1 waiting")
   const order = [
     "In progress (1)",
     "Waiting for a slot (1)",
@@ -250,4 +250,26 @@ test("the history lists every event with its round, author and whole text", () =
   assert.include(html, "Changes asked · round 2")
   assert.include(html, "Passed")
   assert.include(html, "History starts on")
+})
+
+test("a handed-over goal in the queue says where it came from, and incoming and handed-over sections show", () => {
+  const html = renderToStaticMarkup(
+    <BoardView
+      team={team}
+      data={board({
+        queue: [{ ...goal("q1", "Build the spec", "queued", 1), origin: "handoff", fromTeamId: "p1" }],
+        incoming: [{ ...goal("i1", "Fix a bug", "incoming"), origin: "handoff", fromTeamId: "t2" }],
+        handedOver: [{ ...goal("h1", "Write docs", "queued", 1), teamId: "t3", origin: "handoff", fromTeamId: "t1" }],
+      })}
+      error={null}
+      act={async () => true}
+      teams={[{ ...team, id: "p1", name: "Product" }]}
+    />,
+  )
+  assert.include(html, "From Product")
+  assert.include(html, "Incoming from other teams (1)")
+  assert.include(html, "From Support")
+  assert.include(html, "Handed over (1)")
+  assert.include(html, "To Ops")
+  assert.isBelow(html.indexOf("Incoming from other teams"), html.indexOf("Ship CSV export"))
 })

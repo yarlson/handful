@@ -47,9 +47,10 @@ export type Slots = { limit: number; used: number; applies: boolean }
 // many accepted requests wait for one.
 export function slotHeader(slots: Slots, requests: RequestLike[]): string {
   const waiting = requests.filter((r) => requestGroup(r) === "waiting").length
-  if (!slots.applies) return "Requests · no slot limit while the team has no active goal"
+  const head = "Requests for other teams' goals"
+  if (!slots.applies) return `${head} · no slot limit while the team has no active goal`
   const unit = slots.limit === 1 ? "slot" : "slots"
-  return `Requests · ${slots.used} of ${slots.limit} ${unit} in use · ${waiting} waiting`
+  return `${head} · ${slots.used} of ${slots.limit} ${unit} in use · ${waiting} waiting`
 }
 
 // intakeLabel names a request's state for the asking team's board, as text, never color

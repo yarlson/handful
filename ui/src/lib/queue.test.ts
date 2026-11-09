@@ -53,11 +53,17 @@ test("groups come in the board's order, keep the requests' order and skip empty 
 
 test("the slot header counts slots in use and accepted requests that wait", () => {
   const reqs = [r("accepted", "doing", 1), r("accepted"), r("accepted"), r("requested")]
-  assert.equal(slotHeader({ limit: 1, used: 1, applies: true }, reqs), "Requests · 1 of 1 slot in use · 2 waiting")
-  assert.equal(slotHeader({ limit: 2, used: 1, applies: true }, []), "Requests · 1 of 2 slots in use · 0 waiting")
+  assert.equal(
+    slotHeader({ limit: 1, used: 1, applies: true }, reqs),
+    "Requests for other teams' goals · 1 of 1 slot in use · 2 waiting",
+  )
+  assert.equal(
+    slotHeader({ limit: 2, used: 1, applies: true }, []),
+    "Requests for other teams' goals · 1 of 2 slots in use · 0 waiting",
+  )
   assert.equal(
     slotHeader({ limit: 1, used: 3, applies: false }, reqs),
-    "Requests · no slot limit while the team has no active goal",
+    "Requests for other teams' goals · no slot limit while the team has no active goal",
   )
 })
 

@@ -342,6 +342,14 @@ function SidebarItem({
           <title>Waiting for your reply</title>
         </MessageCircleQuestion>
       )}
+      {(bot.incomingHandoffs ?? 0) > 0 && (
+        <span
+          className="rounded-full bg-sky-500/15 px-1.5 text-xs text-sky-700 dark:text-sky-400"
+          aria-label={`${bot.incomingHandoffs} incoming ${bot.incomingHandoffs === 1 ? "handoff" : "handoffs"}`}
+        >
+          {bot.incomingHandoffs}
+        </span>
+      )}
       {countBadge(bot.openQuestions) && (
         <span
           className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
@@ -728,7 +736,13 @@ export function App() {
               </Button>
             </header>
             {bot.team && (
-              <GoalBar key={bot.id} team={bot} version={transcript?.rev ?? 0} onShowBoard={() => showTab("board")} />
+              <GoalBar
+                key={bot.id}
+                team={bot}
+                version={transcript?.rev ?? 0}
+                onShowBoard={() => showTab("board")}
+                teams={teams}
+              />
             )}
             <div className="flex min-h-0 flex-1">
               <Chat
@@ -750,6 +764,7 @@ export function App() {
                     version={transcript?.rev ?? 0}
                     onDeleted={() => setSelected(null)}
                     show={show}
+                    teams={teams}
                   />
                 </aside>
               )}

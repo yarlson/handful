@@ -867,7 +867,7 @@ func TestApprovalOutsideATurnIsDeniedAtOnceUnlessGranted(t *testing.T) {
 	}
 }
 
-func TestConcurrentRoutineCreatesStayWithinTheLimit(t *testing.T) {
+func TestARoutineCreatedBetweenTheLimitCheckAndTheInsertDoesNotPassTheLimit(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 	bot := newTestBot(t, svc)
@@ -876,30 +876,26 @@ func TestConcurrentRoutineCreatesStayWithinTheLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var wg sync.WaitGroup
-	errs := make(chan error, 2)
-	for i := range 2 {
-		wg.Go(func() {
-			_, err := svc.CreateRoutine(ctx, bot.ID, fmt.Sprint("Last", i), "Do it.", "0 9 * * *")
-			errs <- err
-		})
-	}
-	wg.Wait()
-	close(errs)
-	refused := 0
-	for err := range errs {
-		if err != nil {
-			if !strings.Contains(err.Error(), "at most") {
-				t.Fatalf("create: %v; want the limit error", err)
+	// Another create lands while this one runs: CreateRoutine reads the clock
+	// once to check the schedule and again just before it stores the
+	// routine, so the second read is where a concurrent insert can slip in
+	// after a separate count would already have passed.
+	clock, calls := svc.now, 0
+	svc.now = func() time.Time {
+		calls++
+		if calls == 2 {
+			if _, err := svc.sqlDB.ExecContext(ctx, `INSERT INTO routines (id, bot_id, name, prompt, schedule, enabled, created_at, updated_at) VALUES ('other', ?, 'Other', 'Do it.', '0 9 * * *', 1, 0, 0)`, bot.ID); err != nil {
+				t.Fatal(err)
 			}
-			refused++
 		}
+		return clock()
+	}
+	_, err := svc.CreateRoutine(ctx, bot.ID, "Last", "Do it.", "0 9 * * *")
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "at most") {
+		t.Fatalf("create at the limit: err = %v; want the limit error", err)
 	}
 	got, err := svc.ListRoutines(ctx, bot.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != maxRoutinesPerBot || refused != 1 {
-		t.Fatalf("routines = %d, refused = %d; want %d and 1: the last two creates passed the check together", len(got), refused, maxRoutinesPerBot)
+	if err != nil || len(got) != maxRoutinesPerBot {
+		t.Fatalf("routines = %d, %v; want %d: the create passed the limit with the concurrent one", len(got), err, maxRoutinesPerBot)
 	}
 }

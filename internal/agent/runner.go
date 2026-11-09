@@ -575,13 +575,17 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 		return claudeRun{}, delivery{}, err
 	}
 	inbox, more := capHeld(held)
+	questions, err := r.questionNotes(ctx, bot, t)
+	if err != nil {
+		return claudeRun{}, delivery{}, err
+	}
 	delivered := delivery{inbox: inbox, roomSeq: update.LastSeq}
 	sessionID := bot.ClaudeSessionID
 	if t.RoomID != "" {
 		sessionID = update.Seat.ClaudeSessionID
 	}
 	run := claudeRun{
-		Prompt:       timestampLine(now) + inboxBlock(inbox) + heldOverflow(more) + prompt,
+		Prompt:       timestampLine(now) + questions + inboxBlock(inbox) + heldOverflow(more) + prompt,
 		SystemPrompt: systemPrompt(pc),
 		SessionID:    sessionID,
 		Resume:       sessionID != "",
@@ -626,7 +630,11 @@ func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (str
 		if err != nil {
 			return "", core.RoomUpdate{}, err
 		}
-		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t)
+		changes, err := r.itemChanges(ctx, t)
+		if err != nil {
+			return "", core.RoomUpdate{}, err
+		}
+		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes)
 		if skill, args, ok := r.teamSkill(update, t); ok {
 			prompt += "\n\n" + skillPrompt(skill, args)
 		}
@@ -644,6 +652,42 @@ func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (str
 		prompt += mediaNote(r.svc.MediaDir(), media)
 	}
 	return prompt, core.RoomUpdate{}, nil
+}
+
+// itemChanges returns the change requests of the item of a work or review
+// turn, oldest first.
+func (r *Runner) itemChanges(ctx context.Context, t core.Turn) ([]core.ItemEvent, error) {
+	if t.BoardRole != core.RoleWork && t.BoardRole != core.RoleReview {
+		return nil, nil
+	}
+	return r.svc.ChangeRequests(ctx, t.ItemID)
+}
+
+// questionNotes says what the bot needs to know about its questions in the
+// chat of turn t: what the user's message answers (in a direct chat), what
+// the user dismissed since its previous turn there, and what is still open.
+func (r *Runner) questionNotes(ctx context.Context, bot core.Bot, t core.Turn) (string, error) {
+	chat := turnTranscript(t)
+	var answered []core.OpenQuestion
+	if t.RoomID == "" && t.Source == core.SourceUser {
+		var err error
+		if answered, err = r.svc.TurnAnswers(ctx, bot.ID, t.ID); err != nil {
+			return "", err
+		}
+	}
+	since, err := r.svc.PreviousTurnStart(ctx, bot.ID, t.RoomID, t.ID)
+	if err != nil {
+		return "", err
+	}
+	dismissed, err := r.svc.DismissalsSince(ctx, chat, bot.ID, since)
+	if err != nil {
+		return "", err
+	}
+	open, err := r.svc.OpenQuestionsOf(ctx, chat, bot.ID)
+	if err != nil {
+		return "", err
+	}
+	return questionNotes(answered, dismissed, open, r.svc.Location()), nil
 }
 
 // heldMessages returns the messages held for the bot that its turn delivers.

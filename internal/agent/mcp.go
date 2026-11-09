@@ -130,6 +130,9 @@ type sendInput struct {
 	Text       string   `json:"text,omitempty" jsonschema:"the message for the user, in markdown; it can be empty when files are attached"`
 	Files      []string `json:"files,omitempty" jsonschema:"paths of images (PNG, JPEG, GIF, WebP) or videos (MP4, WebM, QuickTime) to show with the message, at most 4; a relative path is in your working directory; a file must be in your working directory, the media folder or a temp folder such as /tmp"`
 	NeedsReply bool     `json:"needs_reply,omitempty" jsonschema:"true when the message asks the user a question or for a decision and you cannot continue without the answer; the app then shows that you are waiting for the user"`
+	Question   string   `json:"question,omitempty" jsonschema:"with needs_reply: the question in one line, shown in the user's list of open questions; at most 140 characters"`
+	// ClosesQuestions are seqs of the bot's own open questions in this chat.
+	ClosesQuestions []int64 `json:"closes_questions,omitempty" jsonschema:"the #seq numbers of your own open questions here that are answered or no longer needed; they close as no longer needed. With no text and no files, the call only closes them"`
 }
 
 type agentMessageInput struct {
@@ -270,8 +273,18 @@ type tools struct {
 }
 
 func (t tools) sendToUser(ctx context.Context, rc runContext, in sendInput) (*mcp.CallToolResult, any, error) {
+	if len(in.ClosesQuestions) > 0 {
+		if err := t.svc.WithdrawQuestions(ctx, rc.BotID, rc.transcript(), in.ClosesQuestions); err != nil {
+			return nil, nil, err
+		}
+		if strings.TrimSpace(in.Text) == "" && len(in.Files) == 0 {
+			return textResult("Closed %d question(s).", len(in.ClosesQuestions)), nil, nil
+		}
+	}
+	meta := t.meta(rc)
+	meta.Question = in.Question
 	if rc.RoomID != "" {
-		woken, err := t.svc.PostToRoomWithMeta(ctx, rc.RoomID, rc.BotID, rc.TurnID, in.Text, in.Files, rc.Hops, in.NeedsReply, t.meta(rc))
+		woken, err := t.svc.PostToRoomWithMeta(ctx, rc.RoomID, rc.BotID, rc.TurnID, in.Text, in.Files, rc.Hops, in.NeedsReply, meta)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -285,7 +298,7 @@ func (t tools) sendToUser(ctx context.Context, rc runContext, in sendInput) (*mc
 		}
 		return textResult("%s", posted), nil, nil
 	}
-	if _, err := t.svc.AppendBotMessageWith(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply, t.meta(rc)); err != nil {
+	if _, err := t.svc.AppendBotMessageWith(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply, meta); err != nil {
 		return nil, nil, err
 	}
 	return textResult("Delivered."), nil, nil

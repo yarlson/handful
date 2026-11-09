@@ -1612,7 +1612,7 @@ func TestALeadAsksAnotherTeamWhoseLeadSeesTheRequest(t *testing.T) {
 	member := session(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t2", RoomID: ship.ID})
 
 	waits := waitingItem(t, h, core.Actor{BotID: ana.ID, TeamID: ship.ID, Role: core.RoleLead}, "Guide")
-	args := map[string]any{"action": "request", "team_id": docs.ID, "title": "Guide", "brief": "Write the export guide.", "acceptance": "guide.md exists.", "depends_on": []string{waits}}
+	args := map[string]any{"action": "request", "team_id": docs.ID, "title": "Guide", "brief": "Write the export guide.", "acceptance": "guide.md exists.", "needed_by": []string{waits}}
 	if text, isErr := callText(t, member, "update_board", args); !isErr || !strings.Contains(text, "only the lead") {
 		t.Fatalf("a member's request = %q (error %v); want an error", text, isErr)
 	}

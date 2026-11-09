@@ -201,13 +201,16 @@ type skillInput struct {
 }
 
 type boardInput struct {
-	Action     string   `json:"action" jsonschema:"list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer or withdraw"`
+	Action     string   `json:"action" jsonschema:"list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer, withdraw, hand_over, accept_handoff, ask_sender, answer_handoff, decline_handoff or withdraw_handoff"`
 	ItemID     string   `json:"item_id,omitempty" jsonschema:"the item to act on; required except for list, start_goal, create, deliver and request; for request, the other team's request that this work is for, when your team serves requests of several goals"`
 	Revisit    string   `json:"revisit,omitempty" jsonschema:"defer: when the request comes back: goal_end (when your team's current goal ends), manual (when you undefer it) or an RFC 3339 date-time"`
-	TeamID     string   `json:"team_id,omitempty" jsonschema:"request: the team to ask for work"`
-	Text       string   `json:"text,omitempty" jsonschema:"start_goal: the goal in the user's words; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; assign: a note, required when you take a request out of order; drop: a note, required on another team's request; pass: an optional note; defer: why the request waits; deliver: the result for the user"`
+	TeamID     string   `json:"team_id,omitempty" jsonschema:"request and hand_over: the other team"`
+	GoalID     string   `json:"goal_id,omitempty" jsonschema:"accept_handoff, ask_sender, answer_handoff, decline_handoff and withdraw_handoff: the handed-over goal"`
+	NeededBy   []string `json:"needed_by,omitempty" jsonschema:"request: ids of todo or blocked items of your active goal that wait on the request; they then depend on it"`
+	Artifacts  []string `json:"artifact_ids,omitempty" jsonschema:"hand_over: ids of artifacts the other team needs"`
+	Text       string   `json:"text,omitempty" jsonschema:"start_goal and hand_over: the goal in the user's words; ask_sender: your question; answer_handoff: your answer; decline_handoff: why; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; assign: a note, required when you take a request out of order; drop: a note, required on another team's request; pass: an optional note; defer: why the request waits; deliver: the result for the user"`
 	Title      string   `json:"title,omitempty" jsonschema:"create and request: a short title, unique in the goal"`
-	Brief      string   `json:"brief,omitempty" jsonschema:"create and request: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
+	Brief      string   `json:"brief,omitempty" jsonschema:"create, request and hand_over: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
 	Acceptance string   `json:"acceptance,omitempty" jsonschema:"create and request: how a reviewer can tell that the item is done"`
 	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the item"`
 	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the item; optional"`
@@ -244,7 +247,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
 	if inTeam(svc, current) {
-		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: the user's goal and its items. list shows the board. The lead starts a goal (start_goal, in a turn that the user's post started), adds items (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop); another member's create is a proposal for the lead. An item's owner hands it on with submit, or stops it with block and a question. Its reviewer passes it or asks for changes. When every item is done or dropped, the lead delivers the result to the user (deliver). A start_goal while the team works on a goal queues the new goal; the user orders the queue. A lead asks another team for work with request, and withdraws a request it no longer needs with withdraw. The lead of the asked team accepts it with assign, declines it with drop and a note, or defers it with defer, a note and when to revisit; undefer brings a deferred request back."}, h.updateBoard)
+		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: the user's goal and its items. list shows the board. The lead starts a goal (start_goal, in a turn that the user's post started), adds items (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop); another member's create is a proposal for the lead. An item's owner hands it on with submit, or stops it with block and a question. Its reviewer passes it or asks for changes. When every item is done or dropped, the lead delivers the result to the user (deliver). A start_goal while the team works on a goal queues the new goal; the user orders the queue. A lead gives another team work that its goal does not wait on with hand_over; that team's lead accepts it, asks its sender (ask_sender, answered with answer_handoff) or declines it, and the sender can withdraw it until it starts. A lead asks another team for a part that items of its goal wait on with request and needed_by, and withdraws a request it no longer needs with withdraw. The lead of the asked team accepts it with assign, declines it with drop and a note, or defers it with defer, a note and when to revisit; undefer brings a deferred request back."}, h.updateBoard)
 	}
 	if isBuilder(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: core.ToolCreateSetup, Description: createSetupDescription}, h.createSetup)
@@ -783,12 +786,23 @@ var boardActions = map[string]boardAction{
 	"defer":      tools.boardDefer,
 	"undefer":    requestAction((*core.Service).UndeferItem),
 	"withdraw":   requestAction((*core.Service).WithdrawItem),
+	"hand_over":  tools.boardHandOver,
+	// The receiving lead's actions on a handoff, and the sender's.
+	"accept_handoff": goalAction(func(s *core.Service, ctx context.Context, a core.Actor, id, _ string) (core.Goal, error) {
+		return s.AcceptHandoff(ctx, a, id)
+	}),
+	"ask_sender":      goalAction((*core.Service).AskSender),
+	"answer_handoff":  goalAction((*core.Service).AnswerHandoff),
+	"decline_handoff": goalAction((*core.Service).DeclineHandoff),
+	"withdraw_handoff": goalAction(func(s *core.Service, ctx context.Context, a core.Actor, id, _ string) (core.Goal, error) {
+		return s.WithdrawHandoff(ctx, a, id)
+	}),
 }
 
 func (t tools) updateBoard(ctx context.Context, rc runContext, in boardInput) (*mcp.CallToolResult, any, error) {
 	act, ok := boardActions[in.Action]
 	if !ok {
-		return nil, nil, errors.New("action must be list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer or withdraw")
+		return nil, nil, errors.New("action must be list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer, withdraw, hand_over, accept_handoff, ask_sender, answer_handoff, decline_handoff or withdraw_handoff")
 	}
 	teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
 	if err != nil {
@@ -813,7 +827,7 @@ func (t tools) boardList(ctx context.Context, a core.Actor, _ boardInput) (strin
 	if err != nil {
 		return "", err
 	}
-	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 {
+	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 && len(board.Incoming) == 0 && len(board.HandedOver) == 0 {
 		return "The team has had no goal yet, and no request.", nil
 	}
 	return boardTable(team, board), nil
@@ -850,11 +864,11 @@ func (t tools) boardAssign(ctx context.Context, a core.Actor, in boardInput) (st
 }
 
 func (t tools) boardRequest(ctx context.Context, a core.Actor, in boardInput) (string, error) {
-	it, err := t.svc.RequestWork(ctx, a, in.TeamID, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance, ForItemID: in.ItemID, NeededBy: in.DependsOn})
+	it, err := t.svc.RequestWork(ctx, a, in.TeamID, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance, ForItemID: in.ItemID, NeededBy: in.NeededBy})
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Asked for %q (id %s). That team's lead assigns it. Make your items that need its result depend on it with depends_on.", it.Title, it.ID), nil
+	return fmt.Sprintf("Asked for %q (id %s). That team's lead assigns it; the items in needed_by now wait on it.", it.Title, it.ID), nil
 }
 
 func (t tools) boardDeliver(ctx context.Context, a core.Actor, in boardInput) (string, error) {
@@ -907,6 +921,27 @@ func parseRevisit(s string) (string, int64, error) {
 		return "", 0, fmt.Errorf("revisit must be %s, %s or an RFC 3339 date-time such as 2026-11-10T09:00:00+02:00", core.RevisitGoalEnd, core.RevisitManual)
 	}
 	return core.RevisitDate, at.UnixMilli(), nil
+}
+
+// boardHandOver gives another team work as a goal of its own.
+func (t tools) boardHandOver(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	g, err := t.svc.HandOver(ctx, a, "", in.TeamID, core.NewHandoff{Text: in.Text, Brief: in.Brief, ArtifactIDs: in.Artifacts})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Handed over %q (goal id %s). That team's lead accepts, asks you or declines it; you hear back in this channel. It costs your team nothing.", g.Text, g.ID), nil
+}
+
+// goalAction makes a boardAction of a change of a handed-over goal that
+// takes a text.
+func goalAction(change func(*core.Service, context.Context, core.Actor, string, string) (core.Goal, error)) boardAction {
+	return func(t tools, ctx context.Context, a core.Actor, in boardInput) (string, error) {
+		g, err := change(t.svc, ctx, a, in.GoalID, in.Text)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%q is %s now.", g.Text, g.State), nil
+	}
 }
 
 // requestAction makes a boardAction of a change of a request that takes no text.

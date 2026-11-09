@@ -13,9 +13,9 @@ import (
 )
 
 // boardSession opens an MCP session for a run of bot in team.
-func boardSession(t *testing.T, h *harness, srv *httptest.Server, bot core.Bot, team core.Bot, role string, userPost bool) *mcp.ClientSession {
+func boardSession(t *testing.T, h *harness, srv *httptest.Server, bot, team core.Bot, userPost bool) *mcp.ClientSession {
 	t.Helper()
-	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "t-" + bot.ID, RoomID: team.ID, BoardRole: role, UserPost: userPost})
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "t-" + bot.ID, RoomID: team.ID, BoardRole: core.RoleLead, UserPost: userPost})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestASecondStartGoalIsQueuedAndTheLeadPlansNothing(t *testing.T) {
 	h.newGoal(t, ship)
 	srv := httptest.NewServer(h.runner.MCPHandler())
 	t.Cleanup(srv.Close)
-	lead := boardSession(t, h, srv, ana, ship, core.RoleLead, true)
+	lead := boardSession(t, h, srv, ana, ship, true)
 	text, isErr := callText(t, lead, "update_board", map[string]any{"action": "start_goal", "text": "Ship PDF export."})
 	want := `Queued as #1 for Ship; it starts when the user accepts or ends "Ship CSV export.". Don't plan it now.`
 	if isErr || text != want {
@@ -77,8 +77,8 @@ func TestLeadsDeferUndeferWithdrawAndTakeRequestsOutOfOrder(t *testing.T) {
 	}
 	srv := httptest.NewServer(h.runner.MCPHandler())
 	t.Cleanup(srv.Close)
-	serving := boardSession(t, h, srv, cy, docs, core.RoleLead, false)
-	asking := boardSession(t, h, srv, ana, ship, core.RoleLead, false)
+	serving := boardSession(t, h, srv, cy, docs, false)
+	asking := boardSession(t, h, srv, ana, ship, false)
 	call := func(cs *mcp.ClientSession, args map[string]any) (string, bool) {
 		t.Helper()
 		return callText(t, cs, "update_board", args)

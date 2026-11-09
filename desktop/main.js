@@ -7,7 +7,10 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { setTimeout: sleep } = require("node:timers/promises")
-const { serverURL, isAppURL, isWebURL, ensureSettingsFile } = require("./app")
+const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
+const { createUpdater } = require("./updater")
+const { bundleChangeAction, finishingTurnsText, serverVersionAction } = require("./updater-state")
+const { runningOf, serverAPI } = require("./updater-io")
 
 const agentLabel = "dev.yarlson.yargpt.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
@@ -19,18 +22,44 @@ const logFile = path.join(os.homedir(), "Library", "Logs", "YarGPT", "server.log
 // Electron grants every other permission too, unless a handler refuses it.
 const pagePermissions = new Set(["clipboard-sanitized-write", "fullscreen"])
 
+const api = serverAPI(serverURL)
+
 let window = null
 let opening = null
+let serverVersionChecked = false
+
+const updater = createUpdater({
+  serverURL,
+  dataDir,
+  isAppURL,
+  isTrusted: (event) => isTrustedFrame(event.senderFrame?.url, !!event.senderFrame && event.senderFrame.parent === null),
+  onStateChange: () => {
+    if (app.isReady()) Menu.setApplicationMenu(buildMenu())
+  },
+  getWindow: () => window,
+})
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on("second-instance", () => void showWindow())
+  app.on("second-instance", (_event, argv) => {
+    if (argv.some(isCheckForUpdatesURL)) openAppURL(argv.find(isCheckForUpdatesURL))
+    else void showWindow()
+  })
   app.on("activate", () => void showWindow())
+  // The menu-bar icon's Check for updates… opens yargpt://check-for-updates.
+  // macOS sends it before ready when the URL launches the app.
+  app.on("open-url", (event, url) => {
+    event.preventDefault()
+    openAppURL(url)
+  })
   // Keep running without windows, as macOS apps do; activate opens a new one.
   app.on("window-all-closed", () => {})
+  // ⌘Q asks about a downloaded update first.
+  app.on("before-quit", (event) => updater.handleBeforeQuit(event))
   app.whenReady().then(() => {
     Menu.setApplicationMenu(buildMenu())
+    void updater.start().catch((err) => console.error("start the updater:", err))
     session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
       callback(pagePermissions.has(permission) && isAppURL(details.requestingUrl)),
     )
@@ -116,6 +145,61 @@ async function waitForServer(ms) {
   return false
 }
 
+// openAppURL handles a yargpt: address: it shows the window and checks for
+// updates.
+function openAppURL(url) {
+  if (!isCheckForUpdatesURL(url)) return
+  void app.whenReady().then(async () => {
+    await showWindow()
+    await updater.check()
+  })
+}
+
+// drainOldServer lets the running server finish its turns before the agent
+// is registered again for a new server, which stops the old one. A server
+// without /api/version answers 404 and is replaced at once, as before.
+async function drainOldServer() {
+  const first = await api.version(1000)
+  if (bundleChangeAction(first) !== "drain") return
+  await api.drain()
+  const abort = new AbortController()
+  let startNow = false
+  const box = dialog
+    .showMessageBox({
+      type: "info",
+      message: finishingTurnsText(runningOf(first)),
+      detail: "Start now stops them.",
+      buttons: ["Start now"],
+      signal: abort.signal,
+    })
+    .then(() => {
+      startNow = true
+    })
+  try {
+    while (!startNow) {
+      await Promise.race([sleep(5_000), box])
+      if (startNow || runningOf(await api.version()).length === 0) break
+    }
+  } finally {
+    abort.abort()
+  }
+}
+
+// checkServerVersion compares the server's version with the app's, once per
+// launch. The server of an old app can still run after an update; then the
+// agent is registered again once. A dev server, or one without
+// /api/version, is not checked.
+async function checkServerVersion() {
+  if (serverVersionChecked || !app.isPackaged) return
+  serverVersionChecked = true
+  if (serverVersionAction(app.getVersion(), await api.version()) !== "mismatch") return
+  await drainOldServer()
+  await registerAgent()
+  if (agentStatus() === "enabled") await startServer(serverDigest(), true)
+  const again = await api.version()
+  if (serverVersionAction(app.getVersion(), again) === "mismatch") updater.serverMismatch(again.body.version)
+}
+
 // ensureServer makes the server of this app run. It registers the agent when
 // the server binary changed since the last registration, and starts the
 // server when it does not answer, for example after Exit server. It returns
@@ -127,10 +211,18 @@ async function ensureServer() {
   if (agentStatus() === "requires-approval") return false
   let registerAgain = false
   if (!registered || agentStatus() !== "enabled") {
+    // A new server replaces the old one: let the old one finish its turns.
+    if (!registered) await drainOldServer()
     await registerAgent()
     if (agentStatus() !== "enabled") return false
     registerAgain = true
   }
+  return startServer(digest, registerAgain)
+}
+
+// startServer starts the registered agent's server and waits until it
+// answers. It saves the digest of the server that started.
+async function startServer(digest, registerAgain) {
   // kickstart starts a stopped job and leaves a running one alone, which can
   // still be starting, or stopping after Exit server. So ask again until the
   // server answers.
@@ -168,13 +260,21 @@ async function openWindow() {
     showServerError()
     return
   }
+  await checkServerVersion()
   if (window) {
     window.show()
     window.focus()
     return
   }
   // Hidden until the page paints, so a dark-mode window does not flash white.
-  window = new BrowserWindow({ width: 1280, height: 860, title: "YarGPT", show: false })
+  // The preload script gives the page window.yargptUpdater.
+  window = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    title: "YarGPT",
+    show: false,
+    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, sandbox: true },
+  })
   window.once("ready-to-show", () => window?.show())
   window.on("closed", () => {
     window = null
@@ -270,6 +370,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: "about" },
+        updater.menuItem(),
         { type: "separator" },
         { id: "settings", label: "Settings…", accelerator: "Command+,", click: () => void openSettings() },
         { type: "separator" },

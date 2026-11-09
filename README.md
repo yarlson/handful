@@ -34,12 +34,29 @@ On a Mac, you can use an app instead. It keeps the server running in the backgro
 To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGPT.app` (`desktop/dist/mac/YarGPT.app` on an Intel Mac) to `/Applications`. A copy that you build has an ad-hoc signature; macOS opens it because it was not downloaded.
 
 - The server keeps running when you quit the app, and starts at every login. It has no login of its own, so use the app only on a Mac that one person uses: see [Security](#security).
-- The icon in the menu bar has one item, **Exit server**. The server then stays stopped until you open the app again or log in again.
+- The icon in the menu bar has two items. **Check for updates…** opens the app and checks for a new version. **Exit server** stops the server, which then stays stopped until you open the app again or log in again.
 - **YarGPT › Settings…** (⌘,) opens `~/.yargpt/config.json` in your default editor. A change applies when the server starts again: choose **Exit server**, then open the app.
 - Links in chats open in your default browser.
 - The server writes its log to `~/Library/Logs/YarGPT/server.log`.
-- After you install or build a new version, quit YarGPT with ⌘Q, then open the new app. It replaces the running server, which stops the turns that run. The new server takes up to half a minute to start.
 - To remove the app, turn off YarGPT in System Settings › General › Login Items & Extensions, then delete `YarGPT.app`. Your bots and chats stay in `~/.yargpt`. The app also leaves `~/Library/Logs/YarGPT` and `~/Library/Application Support/YarGPT`; delete them too to remove everything.
+
+#### Updates
+
+The app keeps itself up to date.
+
+- Once a day it checks the latest release on GitHub, and downloads a new version in the background. A pill in the window then shows it. **Later** hides the pill until the next launch or for a day; **Skip this version** hides it until a newer version comes out.
+- It installs an update only when you ask: **Restart to update** in the pill or in the **YarGPT** menu, or ⌘Q. Then the app and its server restart, in about half a minute.
+- A restart of the server stops the turns that run. So when bots work, the app asks first. **Update when they finish** waits for their running turns, then restarts. After 30 minutes it asks you again, to restart now or to wait longer; it never restarts on its own while bots work.
+- **YarGPT › Check for updates…** and **Check for updates…** in the menu-bar icon check at once.
+- To turn off the daily check, put `"updates": {"autoCheck": false}` in `~/.yargpt/config.json`. **Check for updates…** still works. `drainMinutes`, from 5 to 240, sets how long the app waits for running turns, for example `"updates": {"drainMinutes": 60}`. The app reads these settings at each check, so they need no restart.
+- A copy that you build yourself has an ad-hoc signature, so it can't update itself: macOS installs an update only when its signature matches the running app's. It only shows that a new release is out.
+
+##### Go back to an older version
+
+1. Put `"updates": {"autoCheck": false}` in `~/.yargpt/config.json`, so that the app doesn't update itself again. A version without updates doesn't know this setting and doesn't start with it; to go back to such a version, remove `updates` instead.
+2. Download `YarGPT-universal-mac.zip` of the version you want from [Releases](https://github.com/yarlson/yargpt/releases), and unzip it.
+3. Quit YarGPT with ⌘Q, and replace `/Applications/YarGPT.app` with the older app.
+4. Open it. When bots work, it waits for their running turns before it starts its own server.
 
 ## Use YarGPT
 
@@ -282,7 +299,7 @@ For example, Slack's MCP server works with Slack's public client for Claude Code
 | `-effort` | the model's own | Reasoning effort for every bot without its own: `low`, `medium`, `high`, `xhigh` or `max` |
 | `-max-parallel` | `3` | Turns that can run at the same time, across all bots |
 | `-login-env` | off | Take the environment, such as `PATH`, from your login shell. The macOS app uses it, because launchd starts the server with a minimal `PATH`. |
-| `-tray` | off | Show an icon in the macOS menu bar with one item, **Exit server**, which stops the server. The macOS app uses it. |
+| `-tray` | off | Show an icon in the macOS menu bar with two items: **Check for updates…**, which opens the app and checks for a new version, and **Exit server**, which stops the server. The macOS app uses it. |
 | `-log` | none | Append the log and all other error output to this file. `~/` is your home folder. Without it, they go to stderr. |
 
 To set these without flags, put `claude`, `model`, `effort` or `maxParallel` in `~/.yargpt/config.json`, for example `{"model": "sonnet", "effort": "high", "maxParallel": 4}`.
@@ -350,7 +367,7 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 `make build` builds the UI into `ui/dist` and embeds it in `bin/yargpt`. To work on the UI, start `./bin/yargpt`, then run `cd ui && npm run dev`. Vite sends `/api` requests to port 7777.
 
-`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it for this Mac, and `make app-universal` builds the zip for Apple silicon and Intel Macs. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
+`desktop/` holds the macOS app: the Electron window (`main.js` and `app.js`), the updater (`updater.js`, `preload.js`, and `updater-state.js` and `updater-io.js`, which have no Electron code and their own tests) and the launch agent that runs the server (`build/dev.yarlson.yargpt.server.plist`). `make app` builds it for this Mac, and `make app-universal` builds the zip for Apple silicon and Intel Macs. Its server also listens on port 7777, so choose **Exit server** before you start `./bin/yargpt`. `make icons` regenerates the icons from their SVG sources; it needs `rsvg-convert` (Homebrew `librsvg`).
 
 `mise.toml` pins Go, Node.js and every check tool, and the Makefile runs them through `mise exec`. `make app-universal` and `make icons` also use macOS tools that mise does not install: `lipo`, `sips` and `iconutil`, and `rsvg-convert` from Homebrew `librsvg`. Coding agents get their working rules from `AGENTS.md`.
 
@@ -360,7 +377,7 @@ Routines that start on events (only schedules work now), per-bot Claude Code plu
 
 ### Releases
 
-Push a tag such as `v0.2.0` to release; the tag must be a version, such as `v0.2.0` or `v0.2.0-rc.1`. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner, which signs the app with a Developer ID and the hardened runtime and has Apple notarize it, and uploads the zip as `YarGPT-universal-mac.zip` to the release of the tag. When no such release exists, it creates one; a tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release. When you publish a release on GitHub, which also pushes its tag, the release keeps your title and notes. yargpt.com links `releases/latest/download/YarGPT-universal-mac.zip`, so it needs no change for a new release.
+Push a tag such as `v0.2.0` to release; the tag must be a version, such as `v0.2.0` or `v0.2.0-rc.1`. `.github/workflows/release.yml` then runs `make app-universal VERSION=0.2.0` on a macOS runner, which signs the app with a Developer ID and the hardened runtime and has Apple notarize it, and uploads the zip as `YarGPT-universal-mac.zip` to the release of the tag. When no such release exists, it creates one; a tag with a hyphen, such as `v0.2.0-rc.1`, makes a pre-release. When you publish a release on GitHub, which also pushes its tag, the release keeps your title and notes. yargpt.com links `releases/latest/download/YarGPT-universal-mac.zip`, so it needs no change for a new release. The release also gets `latest-mac.yml` and the zip's blockmap, which the app's updater reads. [docs/releasing.md](docs/releasing.md) explains the release, staged rollouts, how to stop a bad release, and why the signing certificate must not change.
 
 ### Checks
 
@@ -384,7 +401,7 @@ The agent tests replace Claude Code with a fake CLI script and run a real MCP cl
 | `vuln` | govulncheck finds a known vulnerability in code that YarGPT calls |
 | `ui-check` | The UI is not formatted with oxfmt, oxlint reports an error, the type check or a vitest test fails, or the build fails. oxlint warnings do not fail it. |
 | `web-check` | `astro check` finds an error in the website, or its build fails |
-| `desktop-check` | A unit test of the macOS app fails |
+| `desktop-check` | A unit test of the macOS app, its updater or `desktop/scripts/release-feed.js` fails |
 | `workflow-check` | actionlint finds a problem in a GitHub Actions workflow |
 
 Slower analyses have their own targets. They write their reports to `target/`.

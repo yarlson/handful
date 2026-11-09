@@ -24,6 +24,26 @@ function isWebURL(url) {
   }
 }
 
+// The menu-bar icon of the server opens this address for Check for updates….
+const checkForUpdatesURL = "yargpt://check-for-updates"
+
+// isCheckForUpdatesURL reports whether url asks the app to check for updates.
+function isCheckForUpdatesURL(url) {
+  try {
+    const u = new URL(url)
+    return u.protocol === "yargpt:" && u.host === "check-for-updates" && (u.pathname === "" || u.pathname === "/")
+  } catch {
+    return false
+  }
+}
+
+// isTrustedFrame reports whether an IPC call may reach the updater: only the
+// main frame of a server page may call it, not an embedded frame or another
+// site.
+function isTrustedFrame(frameURL, isMainFrame) {
+  return isMainFrame === true && isAppURL(frameURL)
+}
+
 // ensureSettingsFile creates dataDir/config.json with an empty object when it
 // is missing, and returns its path.
 function ensureSettingsFile(dataDir) {
@@ -37,4 +57,4 @@ function ensureSettingsFile(dataDir) {
   return file
 }
 
-module.exports = { serverURL, isAppURL, isWebURL, ensureSettingsFile }
+module.exports = { serverURL, checkForUpdatesURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile }

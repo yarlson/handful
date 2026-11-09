@@ -3,7 +3,7 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
-const { isAppURL, isWebURL, ensureSettingsFile } = require("./app")
+const { checkForUpdatesURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
 
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yargpt-desktop-"))
@@ -44,4 +44,23 @@ test("an existing settings file is kept as it is", (t) => {
   fs.writeFileSync(path.join(dataDir, "config.json"), '{"model": "sonnet"}\n')
   const file = ensureSettingsFile(dataDir)
   assert.equal(fs.readFileSync(file, "utf8"), '{"model": "sonnet"}\n')
+})
+
+test("only yargpt://check-for-updates asks for a check", () => {
+  assert.equal(checkForUpdatesURL, "yargpt://check-for-updates")
+  assert.equal(isCheckForUpdatesURL("yargpt://check-for-updates"), true)
+  assert.equal(isCheckForUpdatesURL("yargpt://check-for-updates/"), true)
+  assert.equal(isCheckForUpdatesURL("yargpt://check-for-updates/x"), false)
+  assert.equal(isCheckForUpdatesURL("yargpt://other"), false)
+  assert.equal(isCheckForUpdatesURL("https://check-for-updates/"), false)
+  assert.equal(isCheckForUpdatesURL("--inspect"), false)
+  assert.equal(isCheckForUpdatesURL(undefined), false)
+})
+
+test("only the main frame of a server page may call the updater", () => {
+  assert.equal(isTrustedFrame("http://127.0.0.1:7777/chat/abc", true), true)
+  assert.equal(isTrustedFrame("http://127.0.0.1:7777/chat/abc", false), false)
+  assert.equal(isTrustedFrame("https://example.com/", true), false)
+  assert.equal(isTrustedFrame("about:blank", true), false)
+  assert.equal(isTrustedFrame(undefined, true), false)
 })

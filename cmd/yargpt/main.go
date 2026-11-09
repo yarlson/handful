@@ -121,7 +121,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.Effort, "effort", "", "reasoning effort for every bot: low, medium, high, xhigh or max (default: the model's own)")
 	fs.IntVar(&o.MaxParallel, "max-parallel", 3, "turns that may run at once across all bots")
 	fs.BoolVar(&o.loginEnv, "login-env", false, "take the environment, such as PATH, from the user's login shell (launchd starts the server with a minimal PATH)")
-	fs.BoolVar(&o.tray, "tray", false, "show a menu-bar icon whose Exit server item stops the server (macOS)")
+	fs.BoolVar(&o.tray, "tray", false, "show a menu-bar icon with Check for updates…, which opens the app, and Exit server, which stops the server (macOS)")
 	fs.StringVar(&o.logFile, "log", "", "append the log and all other error output to this file; ~/ is the home directory")
 	// ExitOnError: Parse exits on -h or a bad flag, as flag.Parse does.
 	_ = fs.Parse(args)

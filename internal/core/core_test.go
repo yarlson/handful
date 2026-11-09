@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -863,5 +864,38 @@ func TestApprovalOutsideATurnIsDeniedAtOnceUnlessGranted(t *testing.T) {
 	entries, err := svc.Entries(ctx, bot.ID, 0, 0)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("entries = %d, %v; want no approval card", len(entries), err)
+	}
+}
+
+func TestARoutineCreatedBetweenTheLimitCheckAndTheInsertDoesNotPassTheLimit(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	for i := range maxRoutinesPerBot - 1 {
+		if _, err := svc.CreateRoutine(ctx, bot.ID, fmt.Sprint("R", i), "Do it.", "0 8 * * *"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Another create lands while this one runs: CreateRoutine reads the clock
+	// once to check the schedule and again just before it stores the
+	// routine, so the second read is where a concurrent insert can slip in
+	// after a separate count would already have passed.
+	clock, calls := svc.now, 0
+	svc.now = func() time.Time {
+		calls++
+		if calls == 2 {
+			if _, err := svc.sqlDB.ExecContext(ctx, `INSERT INTO routines (id, bot_id, name, prompt, schedule, enabled, created_at, updated_at) VALUES ('other', ?, 'Other', 'Do it.', '0 9 * * *', 1, 0, 0)`, bot.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return clock()
+	}
+	_, err := svc.CreateRoutine(ctx, bot.ID, "Last", "Do it.", "0 9 * * *")
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "at most") {
+		t.Fatalf("create at the limit: err = %v; want the limit error", err)
+	}
+	got, err := svc.ListRoutines(ctx, bot.ID)
+	if err != nil || len(got) != maxRoutinesPerBot {
+		t.Fatalf("routines = %d, %v; want %d: the create passed the limit with the concurrent one", len(got), err, maxRoutinesPerBot)
 	}
 }

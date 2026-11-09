@@ -512,22 +512,26 @@ func (q *Queries) CreateBot(ctx context.Context, arg CreateBotParams) (Bot, erro
 
 const createRoutine = `-- name: CreateRoutine :one
 INSERT INTO routines (id, bot_id, name, prompt, schedule, enabled, next_run_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+WHERE (SELECT COUNT(*) FROM routines AS r WHERE r.bot_id = ?2) < CAST(?10 AS INTEGER)
 RETURNING id, bot_id, name, prompt, schedule, enabled, next_run_at, last_run_at, created_at, updated_at, last_run_by
 `
 
 type CreateRoutineParams struct {
-	ID        string        `json:"id"`
-	BotID     string        `json:"bot_id"`
-	Name      string        `json:"name"`
-	Prompt    string        `json:"prompt"`
-	Schedule  string        `json:"schedule"`
-	Enabled   int64         `json:"enabled"`
-	NextRunAt sql.NullInt64 `json:"next_run_at"`
-	CreatedAt int64         `json:"created_at"`
-	UpdatedAt int64         `json:"updated_at"`
+	ID          string        `json:"id"`
+	BotID       string        `json:"bot_id"`
+	Name        string        `json:"name"`
+	Prompt      string        `json:"prompt"`
+	Schedule    string        `json:"schedule"`
+	Enabled     int64         `json:"enabled"`
+	NextRunAt   sql.NullInt64 `json:"next_run_at"`
+	CreatedAt   int64         `json:"created_at"`
+	UpdatedAt   int64         `json:"updated_at"`
+	MaxRoutines int64         `json:"max_routines"`
 }
 
+// The count and the insert are one statement, so concurrent creates cannot
+// pass the limit together. No row comes back when the bot is at the limit.
 func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (Routine, error) {
 	row := q.db.QueryRowContext(ctx, createRoutine,
 		arg.ID,
@@ -539,6 +543,7 @@ func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (R
 		arg.NextRunAt,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.MaxRoutines,
 	)
 	var i Routine
 	err := row.Scan(

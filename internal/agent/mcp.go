@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -48,22 +49,29 @@ func (rc runContext) transcript() string {
 
 // tokenRegistry maps each running worker's bearer token to its run.
 type tokenRegistry struct {
-	mu sync.Mutex
-	m  map[string]runContext
+	log *slog.Logger
+	mu  sync.Mutex
+	m   map[string]runContext
 	// servers are the MCP servers made for each token. The SDK never closes
 	// an idle session, so revoke closes their sessions.
 	servers map[string][]*mcp.Server
 }
 
-func newTokenRegistry() *tokenRegistry {
-	return &tokenRegistry{m: make(map[string]runContext), servers: make(map[string][]*mcp.Server)}
+func newTokenRegistry(log *slog.Logger) *tokenRegistry {
+	return &tokenRegistry{log: log, m: make(map[string]runContext), servers: make(map[string][]*mcp.Server)}
 }
 
-// addServer records an MCP server that serves the token's sessions.
-func (t *tokenRegistry) addServer(token string, s *mcp.Server) {
+// addServer records an MCP server that serves the token's sessions, and
+// reports whether the token is live. It checks under the same lock as
+// revoke, so a server is never kept for a token that revoke has ended.
+func (t *tokenRegistry) addServer(token string, s *mcp.Server) bool {
 	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, live := t.m[token]; !live {
+		return false
+	}
 	t.servers[token] = append(t.servers[token], s)
-	t.mu.Unlock()
+	return true
 }
 
 func (t *tokenRegistry) issue(rc runContext) (string, error) {
@@ -95,7 +103,11 @@ func (t *tokenRegistry) revoke(token string) {
 	t.mu.Unlock()
 	for _, s := range servers {
 		for ss := range s.Sessions() {
-			_ = ss.Close()
+			// The run is over either way; a session that fails to close
+			// only matters for finding a leak.
+			if err := ss.Close(); err != nil {
+				t.log.Debug("close an MCP session of a revoked token", "err", err)
+			}
 		}
 	}
 }
@@ -124,15 +136,8 @@ func bearerToken(r *http.Request) (string, bool) {
 // the bearer token of a live run; the tools act on that run's bot.
 func (r *Runner) MCPHandler() http.Handler {
 	h := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
-		token, ok := bearerToken(req)
-		if _, live := r.tokens.get(token); !ok || !live {
-			return nil
-		}
-		current := func() (runContext, bool) { return r.tokens.get(token) }
-		s := newToolServer(r.svc, current, r.postMeta)
-		addArtifactTools(s, r.svc, current)
-		r.tokens.addServer(token, s)
-		return s
+		token, _ := bearerToken(req)
+		return r.toolServerFor(token)
 	}, nil)
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if _, ok := r.tokens.lookup(req); !ok {
@@ -141,6 +146,18 @@ func (r *Runner) MCPHandler() http.Handler {
 		}
 		h.ServeHTTP(w, req)
 	})
+}
+
+// toolServerFor makes the MCP server of a run's token, or returns nil when
+// the token is not live, also when its run ended while the server was made.
+func (r *Runner) toolServerFor(token string) *mcp.Server {
+	current := func() (runContext, bool) { return r.tokens.get(token) }
+	s := newToolServer(r.svc, current, r.postMeta)
+	addArtifactTools(s, r.svc, current)
+	if !r.tokens.addServer(token, s) {
+		return nil
+	}
+	return s
 }
 
 func textResult(format string, args ...any) *mcp.CallToolResult {

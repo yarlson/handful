@@ -3852,3 +3852,31 @@ func TestRevokingATokenClosesItsMCPSessions(t *testing.T) {
 		t.Fatalf("server sessions kept for the revoked token = %d; want 0", n)
 	}
 }
+
+// A token revoked while its MCP server is being made gets no server, so
+// nothing is kept that revoke would never close.
+func TestAServerForARevokedTokenIsNeitherServedNorKept(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := h.runner.toolServerFor(token); s == nil {
+		t.Fatal("no server for a live token")
+	}
+	h.runner.tokens.revoke(token)
+	if s := h.runner.toolServerFor(token); s != nil {
+		t.Fatal("a server for a revoked token")
+	}
+	if h.runner.tokens.addServer(token, mcp.NewServer(&mcp.Implementation{Name: "x", Version: "1"}, nil)) {
+		t.Fatal("addServer accepted a revoked token")
+	}
+	h.runner.tokens.mu.Lock()
+	kept := len(h.runner.tokens.servers[token])
+	h.runner.tokens.mu.Unlock()
+	if kept != 0 {
+		t.Fatalf("servers kept for the revoked token = %d; want 0", kept)
+	}
+}

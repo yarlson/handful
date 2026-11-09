@@ -50,9 +50,21 @@ func (rc runContext) transcript() string {
 type tokenRegistry struct {
 	mu sync.Mutex
 	m  map[string]runContext
+	// servers are the MCP servers made for each token. The SDK never closes
+	// an idle session, so revoke closes their sessions.
+	servers map[string][]*mcp.Server
 }
 
-func newTokenRegistry() *tokenRegistry { return &tokenRegistry{m: make(map[string]runContext)} }
+func newTokenRegistry() *tokenRegistry {
+	return &tokenRegistry{m: make(map[string]runContext), servers: make(map[string][]*mcp.Server)}
+}
+
+// addServer records an MCP server that serves the token's sessions.
+func (t *tokenRegistry) addServer(token string, s *mcp.Server) {
+	t.mu.Lock()
+	t.servers[token] = append(t.servers[token], s)
+	t.mu.Unlock()
+}
 
 func (t *tokenRegistry) issue(rc runContext) (string, error) {
 	buf := make([]byte, 32)
@@ -74,10 +86,18 @@ func (t *tokenRegistry) set(token string, rc runContext) {
 	t.mu.Unlock()
 }
 
+// revoke ends the token and closes the MCP sessions that it opened.
 func (t *tokenRegistry) revoke(token string) {
 	t.mu.Lock()
 	delete(t.m, token)
+	servers := t.servers[token]
+	delete(t.servers, token)
 	t.mu.Unlock()
+	for _, s := range servers {
+		for ss := range s.Sessions() {
+			_ = ss.Close()
+		}
+	}
 }
 
 func (t *tokenRegistry) get(token string) (runContext, bool) {
@@ -111,6 +131,7 @@ func (r *Runner) MCPHandler() http.Handler {
 		current := func() (runContext, bool) { return r.tokens.get(token) }
 		s := newToolServer(r.svc, current, r.postMeta)
 		addArtifactTools(s, r.svc, current)
+		r.tokens.addServer(token, s)
 		return s
 	}, nil)
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

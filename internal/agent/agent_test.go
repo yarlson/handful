@@ -3807,3 +3807,48 @@ func TestALateCallAfterATaskTurnEndsActsOnNoTurn(t *testing.T) {
 		t.Fatalf("late approval = %s; want an immediate denial: no turn is running", text)
 	}
 }
+
+func TestRevokingATokenClosesItsMCPSessions(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	callText(t, cs, "update_routine", map[string]any{"action": "list"})
+	sessions := func() int {
+		n := 0
+		h.runner.tokens.mu.Lock()
+		servers := slices.Clone(h.runner.tokens.servers[token])
+		h.runner.tokens.mu.Unlock()
+		for _, s := range servers {
+			for range s.Sessions() {
+				n++
+			}
+		}
+		return n
+	}
+	if n := sessions(); n != 1 {
+		t.Fatalf("server sessions of the live token = %d; want 1", n)
+	}
+	h.runner.tokens.mu.Lock()
+	servers := slices.Clone(h.runner.tokens.servers[token])
+	h.runner.tokens.mu.Unlock()
+	h.runner.tokens.revoke(token)
+	for _, s := range servers {
+		for range s.Sessions() {
+			t.Fatal("a session of the revoked token is still open")
+		}
+	}
+	if n := sessions(); n != 0 {
+		t.Fatalf("server sessions kept for the revoked token = %d; want 0", n)
+	}
+}

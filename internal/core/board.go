@@ -125,6 +125,9 @@ type NewItem struct {
 	OwnerID    string
 	ReviewerID string
 	DependsOn  []string
+	// ForItemID names the request of another team's goal that a request is
+	// for, when the lead's team serves several (RequestWork only).
+	ForItemID string
 }
 
 func toGoal(row db.Goal, used int64) Goal {
@@ -758,16 +761,15 @@ func changeEvent(who, title, from, to string) (string, bool) {
 	return fmt.Sprintf("%s %s %s.", who, verb, title), true
 }
 
-// RequestWork asks another team for an item of the lead's active goal. The
-// other team's lead assigns or declines it; its work counts against the
-// asking goal, and the goal's items can depend on it.
+// RequestWork asks another team for an item of a goal: the lead's own
+// active goal, or the goal of a request that the lead's team serves, so that
+// a team in a chain can pass work on. The other team's lead assigns or
+// declines it; its work counts against that goal, and the goal's items can
+// depend on it.
 func (s *Service) RequestWork(ctx context.Context, a Actor, teamID string, n NewItem) (Item, error) {
-	g, ok, err := s.latestGoal(ctx, a.TeamID)
+	g, err := s.requestGoal(ctx, a, n.ForItemID)
 	if err != nil {
 		return Item{}, err
-	}
-	if !ok || g.State != GoalActive {
-		return Item{}, invalid("ask another team for work only for your team's active goal")
 	}
 	team, g, err := s.boardOf(ctx, a, a.TeamID, g.ID)
 	if err != nil {
@@ -782,6 +784,9 @@ func (s *Service) RequestWork(ctx context.Context, a Actor, teamID string, n New
 	}
 	if _, ok := other.Lead(); !ok || other.ID == team.ID {
 		return Item{}, invalid("ask a team other than yours that has members")
+	}
+	if other.ID == g.TeamID {
+		return Item{}, invalid("%s's goal asked for your work; submit your result and its lead takes it on", other.Name)
 	}
 	items, err := goalItems(ctx, s.q, g.ID)
 	if err != nil {
@@ -801,10 +806,95 @@ func (s *Service) RequestWork(ctx context.Context, a Actor, teamID string, n New
 		return Item{}, err
 	}
 	s.signalTurns()
-	if err := s.boardNote(ctx, other.ID, fmt.Sprintf("Team %s asked for %q.", team.Name, it.Title)); err != nil {
-		return Item{}, err
+	return it, s.requestNotes(ctx, a, team, other, g, it)
+}
+
+// requestNotes shows a new request in the channels of the asking team, the
+// asked team and, for a chained request, the team whose goal it is.
+func (s *Service) requestNotes(ctx context.Context, a Actor, team, other Bot, g Goal, it Item) error {
+	asked := fmt.Sprintf("Team %s asked for %q.", team.Name, it.Title)
+	asking := fmt.Sprintf("%s asked team %s for %q.", memberName(team, a.BotID), other.Name, it.Title)
+	if g.TeamID != team.ID {
+		owner, err := s.GetBot(ctx, g.TeamID)
+		if err != nil {
+			return err
+		}
+		asked = fmt.Sprintf("Team %s asked for %q, for team %s's goal.", team.Name, it.Title, owner.Name)
+		asking = fmt.Sprintf("%s asked team %s for %q, for team %s's goal.", memberName(team, a.BotID), other.Name, it.Title, owner.Name)
+		if err := s.boardNote(ctx, g.TeamID, fmt.Sprintf("Team %s asked team %s for %q, for this goal.", team.Name, other.Name, it.Title)); err != nil {
+			return err
+		}
 	}
-	return it, s.boardNote(ctx, team.ID, fmt.Sprintf("%s asked team %s for %q.", memberName(team, a.BotID), other.Name, it.Title))
+	if err := s.boardNote(ctx, other.ID, asked); err != nil {
+		return err
+	}
+	return s.boardNote(ctx, team.ID, asking)
+}
+
+// requestGoal returns the goal that a request of the actor's team counts
+// against. forItemID names a request that the team serves; without it, that
+// is the team's own active goal, else the one goal whose requests it serves.
+func (s *Service) requestGoal(ctx context.Context, a Actor, forItemID string) (Goal, error) {
+	served, err := s.servedRequests(ctx, a.TeamID)
+	if err != nil {
+		return Goal{}, err
+	}
+	if forItemID != "" {
+		for _, r := range served {
+			if r.ID == forItemID {
+				return s.goal(ctx, s.q, r.GoalID)
+			}
+		}
+		return Goal{}, invalid("%s is not a request of another team's active goal that your team works on", forItemID)
+	}
+	g, ok, err := s.latestGoal(ctx, a.TeamID)
+	if err != nil {
+		return Goal{}, err
+	}
+	if ok && g.State == GoalActive {
+		return g, nil
+	}
+	return s.onlyServedGoal(ctx, served)
+}
+
+// onlyServedGoal returns the goal of the requests that a team without an
+// active goal serves, when they all come from one goal.
+func (s *Service) onlyServedGoal(ctx context.Context, served []Item) (Goal, error) {
+	if len(served) == 0 {
+		return Goal{}, invalid("your team has no active goal and works on no request of another team; " +
+			"the user starts a goal in the team's channel, or the team whose goal needs the work asks for it")
+	}
+	ids := []string{}
+	for _, r := range served {
+		if r.GoalID != served[0].GoalID {
+			ids = append(ids, fmt.Sprintf("%q (id %s)", r.Title, r.ID))
+		}
+	}
+	if len(ids) > 0 {
+		return Goal{}, invalid("your team works on requests of several goals; give item_id of the request this work is for: %q (id %s), %s",
+			served[0].Title, served[0].ID, strings.Join(ids, ", "))
+	}
+	return s.goal(ctx, s.q, served[0].GoalID)
+}
+
+// servedRequests lists the requests that other teams' active goals ask of team
+// and that are not dropped.
+func (s *Service) servedRequests(ctx context.Context, teamID string) ([]Item, error) {
+	rows, err := s.q.ListTeamRequests(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("list the requests to team %s: %w", teamID, err)
+	}
+	var served []Item
+	for _, r := range rows {
+		g, err := s.goal(ctx, s.q, r.Item.GoalID)
+		if err != nil {
+			return nil, err
+		}
+		if g.State == GoalActive && r.Item.State != ItemDropped {
+			served = append(served, Item{ID: r.Item.ID, GoalID: r.Item.GoalID, Title: r.Item.Title})
+		}
+	}
+	return served, nil
 }
 
 // AssignItem gives an item that waits to start, or a blocked one, an owner

@@ -38,7 +38,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { cn } from "@/lib/utils"
 import { botColor, colorId } from "@/lib/bot-color"
-import { anchorIndex, ScrollMemory } from "@/lib/scroll"
+import { ScrollFollower, ScrollMemory, type Item } from "@/lib/scroll"
 
 function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -852,48 +852,53 @@ function Composer({
   )
 }
 
+// itemsOf pairs the entries with their elements, which come first in the transcript's column.
+function itemsOf(column: HTMLElement | null, entries: Entry[]): Item[] {
+  const kids = column?.children
+  return kids ? entries.flatMap((e, i) => (kids[i] ? [{ key: e.id, box: kids[i] }] : [])) : []
+}
+
 // mentionables are the bots that @ can complete: room members, or the other bots.
 export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[]; mentionables: Member[] }) {
   // The transcript follows new messages only while the user keeps it at the bottom, and each
   // chat keeps its own position across a switch to another chat.
   const scroller = useRef<HTMLDivElement>(null)
-  const [memory] = useState(() => new ScrollMemory())
+  const column = useRef<HTMLDivElement>(null)
+  const [follower] = useState(() => new ScrollFollower(new ScrollMemory()))
+  const memory = follower.memory
   // following re-renders the "Jump to latest" button when the view pins or unpins.
   const [, setFollowing] = useState(true)
+  // shown is the chat on screen, as of the last layout.
   const shown = useRef<string | null>(null)
-  const column = useRef<HTMLDivElement>(null)
-  // anchor is the entry at the top of an unpinned view and its offset from the view's top.
-  const anchor = useRef<{ el: Element; offset: number } | null>(null)
-  const last = entries[entries.length - 1]
   const toBottom = () => {
     const el = scroller.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (el) follower.scrollTo(el, el.scrollHeight)
   }
+  const items = () => itemsOf(column.current, entries)
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
-    const top = memory.target(bot.id, shown.current !== bot.id, el.scrollHeight)
+    const opened = shown.current !== bot.id
+    const top = memory.target(bot.id, opened, el.scrollHeight)
     shown.current = bot.id
-    if (top !== null) el.scrollTop = top
-  }, [entries.length, last?.rev, bot.id, memory])
-  const onScroll = (el: HTMLDivElement) => {
-    const pinned = memory.record(bot.id, el)
-    setFollowing(pinned)
-    anchor.current = null
-    if (pinned || !column.current) return
-    const viewTop = el.getBoundingClientRect().top
-    const kids = [...column.current.children]
-    const rects = kids.map((k) => k.getBoundingClientRect())
-    const i = anchorIndex(rects, viewTop)
-    if (i >= 0) anchor.current = { el: kids[i], offset: rects[i].top - viewTop }
-  }
-  // onMediaLoad keeps a pinned view at the bottom and an unpinned one on its anchor entry.
-  // Safari has no scroll anchoring, so this does it by hand in every browser.
-  const onMediaLoad = (el: HTMLDivElement) => {
-    if (memory.pinned(bot.id)) return toBottom()
-    const a = anchor.current
-    if (a?.el.isConnected) el.scrollTop += a.el.getBoundingClientRect().top - el.getBoundingClientRect().top - a.offset
-  }
+    if (top === null) return
+    // A chat the user left scrolled up reopens on the entry they left it at; its saved
+    // scrollTop is only the fallback, since images above may not have loaded again yet.
+    if (opened && !memory.pinned(bot.id) && follower.restore(bot.id, el, itemsOf(column.current, entries))) return
+    follower.scrollTo(el, top)
+    if (opened && !memory.pinned(bot.id)) follower.capture(bot.id, el, itemsOf(column.current, entries))
+  }, [entries, bot.id, memory, follower])
+  // An entry that grows (an update, a loaded image, a reflow to another width) or a view that
+  // shrinks (the goal bar, a taller draft, a shorter window) would move what the user reads.
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el || !column.current) return
+    const observer = new ResizeObserver(() => shown.current && follower.settle(shown.current, el))
+    observer.observe(el)
+    observer.observe(column.current)
+    return () => observer.disconnect()
+  }, [follower])
+  const onScroll = (el: HTMLDivElement) => setFollowing(follower.scrolled(bot.id, el, items()))
   // pin makes a chat follow the bottom again: on "Jump to latest" or the user's own send.
   // A send that finishes after a switch to another chat holds the old render's bot id, so
   // compare with the chat on screen now, which shown holds.
@@ -958,13 +963,10 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
           Drop images or videos to attach
         </div>
       )}
-      {/* An image grows the transcript when it loads, after the scroll above. React also passes
-          up the load events of the media viewer, which renders outside this element. */}
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
         onScroll={(e) => onScroll(e.currentTarget)}
-        onLoadCapture={(e) => e.currentTarget.contains(e.target as Node) && onMediaLoad(e.currentTarget)}
       >
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
           {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">No messages yet.</p>}

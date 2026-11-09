@@ -3,8 +3,17 @@
 export const CREATE_SETUP = "create_setup"
 
 export type SetupProposal = {
-  bots: { name: string; instructions: string }[]
-  teams: { name: string; purpose: string; members: string[]; lead: string; agreement: string; goalBudget?: number }[]
+  bots: { name: string; instructions: string; model: string; effort: string }[]
+  teams: {
+    name: string
+    purpose: string
+    members: string[]
+    lead: string
+    agreement: string
+    defaultModel: string
+    defaultEffort: string
+    goalBudget?: number
+  }[]
   rooms: { name: string; purpose: string; members: string[] }[]
 }
 
@@ -26,7 +35,12 @@ function list<T>(v: unknown, read: (f: Fields) => T): T[] | null {
 // the input is not a setup. A team without a lead is led by its first member.
 export function setupProposal(input: unknown): SetupProposal | null {
   if (!isFields(input)) return null
-  const bots = list(input.bots, (b) => ({ name: text(b.name), instructions: text(b.instructions) }))
+  const bots = list(input.bots, (b) => ({
+    name: text(b.name),
+    instructions: text(b.instructions),
+    model: text(b.model),
+    effort: text(b.effort),
+  }))
   const teams = list(input.teams, (t) => {
     const members = names(t.members)
     const team = {
@@ -35,6 +49,8 @@ export function setupProposal(input: unknown): SetupProposal | null {
       members,
       lead: text(t.lead) || (members[0] ?? ""),
       agreement: text(t.agreement),
+      defaultModel: text(t.default_model),
+      defaultEffort: text(t.default_effort),
     }
     return typeof t.goal_budget === "number" ? { ...team, goalBudget: t.goal_budget } : team
   })

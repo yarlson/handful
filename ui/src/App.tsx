@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
 import {
+  AlertTriangle,
   Bot as BotIcon,
   MessageCircleQuestion,
   MessagesSquare,
@@ -16,6 +17,8 @@ import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel } from "@/components/bot-panel"
 import { GoalBar } from "@/components/board"
+import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, OPEN_SETTINGS, useDefaults } from "@/components/model"
+import { inheritedFromGlobal, overrides, teamEffective } from "@/lib/model"
 import { ConnectorsDialog } from "@/components/connectors"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -43,12 +46,17 @@ function NewBotDialog({
 }) {
   const [name, setName] = useState("")
   const [instructions, setInstructions] = useState("")
+  const [model, setModel] = useState("")
+  const [effort, setEffort] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const defaults = useDefaults()
   const create = async () => {
     try {
-      const bot = await api.createBot(name, instructions)
+      const bot = await api.createBot(name, instructions, { model, effort })
       setName("")
       setInstructions("")
+      setModel("")
+      setEffort("")
       setError(null)
       await onCreated(bot.id)
       onOpenChange(false)
@@ -79,7 +87,25 @@ function NewBotDialog({
             onChange={(e) => setInstructions(e.target.value)}
           />
         </div>
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        <details className="text-sm">
+          <summary className="cursor-pointer">Model and effort (optional)</summary>
+          <div className="mt-3 flex flex-col gap-3">
+            <ModelEffortFields
+              id="new"
+              model={model}
+              effort={effort}
+              onModel={setModel}
+              onEffort={setEffort}
+              inherited={
+                defaults
+                  ? inheritedFromGlobal(defaults)
+                  : { model: { value: "", source: "claude-code" }, effort: { value: "", source: "claude-code" } }
+              }
+              defaults={defaults}
+            />
+          </div>
+        </details>
+        {error && <output className="text-destructive text-sm">{error}</output>}
         <DialogFooter>
           <Button disabled={!name.trim()} onClick={() => void create()}>
             Create
@@ -303,6 +329,11 @@ function SidebarItem({
           <title>The goal is paused</title>
         </PauseCircle>
       )}
+      {bot.attention === "model" && (
+        <AlertTriangle className="size-4 shrink-0 text-amber-500" aria-label="Check the bot's model">
+          <title>Check the bot's model</title>
+        </AlertTriangle>
+      )}
       {bot.attention === "question" && (
         <MessageCircleQuestion className="size-4 shrink-0 text-amber-500" aria-label="Waiting for your reply">
           <title>Waiting for your reply</title>
@@ -472,11 +503,30 @@ export function App() {
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [connectors, setConnectors] = useState(false)
   const [panel, setPanel] = useState(true)
+  const [show, setShow] = useState<{ tab: string; n: number } | undefined>()
+  const showTab = (tab: string) => {
+    setPanel(true)
+    setShow((s) => ({ tab, n: (s?.n ?? 0) + 1 }))
+    // The settings tab renders after this click; then its model select takes focus.
+    if (tab === "settings") requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
+  }
+  const defaults = useDefaults()
+  const aliases = defaults?.modelAliases ?? FALLBACK_ALIASES
 
   const openChat = (id: string) => {
     if (location.pathname !== chatPath(id)) history.pushState(null, "", chatPath(id))
     setSelected(id)
-  }
+  } // An error or mismatch entry's "Open settings" asks for the bot's settings.
+  useEffect(() => {
+    const open = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail
+      if (id !== selected) openChat(id)
+      showTab("settings")
+    }
+    window.addEventListener(OPEN_SETTINGS, open)
+    return () => window.removeEventListener(OPEN_SETTINGS, open)
+  })
+
   useEffect(() => {
     const onPopState = () => setSelected(chatInLocation())
     window.addEventListener("popstate", onPopState)
@@ -598,6 +648,19 @@ export function App() {
               <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm" title={subtitle}>
                 {subtitle}
               </span>
+              {bot.effective && (
+                <ModelChip effective={bot.effective} aliases={aliases} onClick={() => showTab("settings")} />
+              )}
+              {bot.team && defaults && (
+                <ModelChip
+                  effective={teamEffective(bot.team, defaults)}
+                  aliases={aliases}
+                  prefix="Team: "
+                  suffix={overrides(bot.members ?? []) > 0 ? "· mixed" : ""}
+                  action="Open members."
+                  onClick={() => showTab("members")}
+                />
+              )}
               <Button
                 size="icon"
                 variant="ghost"
@@ -626,6 +689,7 @@ export function App() {
                     agents={agents}
                     version={transcript?.rev ?? 0}
                     onDeleted={() => setSelected(null)}
+                    show={show}
                   />
                 </aside>
               )}

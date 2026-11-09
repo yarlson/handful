@@ -65,3 +65,49 @@ test("a bot's tool rows have the color of its posts", () => {
   // In a bot's own chat, its rows match its posts.
   assert.equal(colorOf(tool(solo, { bot: "Solo" }), solo), colorOf(post(solo), solo))
 })
+
+test("a model error names the problem as an alert with a way to the settings", () => {
+  const entry: Entry = {
+    ...base,
+    id: "m",
+    botId: "solo-id",
+    kind: "event",
+    body: {
+      type: "model-error",
+      text: "Claude Code couldn't run model `claude-foo` (set on this bot): not found",
+      botId: "solo-id",
+    },
+  }
+  const html = renderToStaticMarkup(<EntryView entry={entry} chat={solo} skill={null} />)
+  assert.include(html, 'role="alert"')
+  assert.include(html, "claude-foo")
+  assert.include(html, "Open settings")
+  assert.include(html, "text-destructive")
+  const mismatch = renderToStaticMarkup(
+    <EntryView
+      entry={{ ...entry, body: { ...entry.body, type: "model-mismatch", text: "Asked for opus" } }}
+      chat={solo}
+      skill={null}
+    />,
+  )
+  assert.include(mismatch, "amber")
+  assert.include(mismatch, 'role="alert"')
+})
+
+test("a post that records its model makes the speaker a focusable button for its tooltip", () => {
+  const withModel: Entry = {
+    ...base,
+    id: "p",
+    botId: solo.id,
+    kind: "bot",
+    body: { text: "hi", fallback: false, model: "opus", effort: "high" },
+  }
+  assert.include(
+    renderToStaticMarkup(<EntryView entry={withModel} chat={solo} skill={null} />),
+    '<button type="button"',
+  )
+  assert.notInclude(
+    renderToStaticMarkup(<EntryView entry={post(solo)} chat={solo} skill={null} />),
+    '<button type="button" class="cursor-default',
+  )
+})

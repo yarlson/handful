@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"sort"
 	"sync"
@@ -46,6 +45,7 @@ type session struct {
 	bot    core.Bot
 	token  string
 	files  []string // MCP config and system prompt files of the process, removed when it exits
+	flags  runFlags // the model and effort the process started with
 	stdin  io.WriteCloser
 	kill   context.CancelFunc
 	exited chan struct{} // closed after the process exits and its turns are finished
@@ -68,9 +68,10 @@ type session struct {
 
 // command is a turn's message to a session.
 type command struct {
-	turn core.Turn
-	rc   runContext
-	done chan outcome // receives the outcome once
+	turn  core.Turn
+	rc    runContext
+	flags runFlags     // used when the command starts a process
+	done  chan outcome // receives the outcome once
 }
 
 // activeTurn is the turn that the session's events belong to: a command, or
@@ -82,17 +83,35 @@ type activeTurn struct {
 	out  outcome
 }
 
+// onInit handles a process's init event: output outside any message starts
+// a task turn, and the reported model is recorded. It returns the active turn.
+func (r *Runner) onInit(ctx context.Context, s *session, cur *activeTurn, model string) *activeTurn {
+	if cur == nil {
+		cur = r.startTask(s)
+	}
+	r.noteInitModel(ctx, s, cur.turnID(), model)
+	return cur
+}
+
+// turnID is the id of the active turn; "" when there is none.
+func (a *activeTurn) turnID() string {
+	if a == nil {
+		return ""
+	}
+	return a.turn.ID
+}
+
 // sendCommand writes prompt to the claude process of key as the message of
 // turn t and waits until Claude Code completes it. When no process runs for
 // key, it starts one with startArgs, which receive the MCP token and return
 // the arguments and the MCP config file, if any. Cancelling ctx stops the
 // process and its background tasks.
-func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt string, startArgs func(token string) (args []string, files []string, err error)) (outcome, error) {
+func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt string, flags runFlags, startArgs func(token string) (args []string, files []string, err error)) (outcome, error) {
 	msg, err := userMessage(t.ID, prompt)
 	if err != nil {
 		return outcome{}, err
 	}
-	c := &command{turn: t, rc: runContext{BotID: bot.ID, BotName: bot.Name, TurnID: t.ID, RoomID: key.roomID, Hops: t.Hops, BoardRole: t.BoardRole, UserPost: t.FromUserPost()}, done: make(chan outcome, 1)}
+	c := &command{turn: t, rc: runContext{BotID: bot.ID, BotName: bot.Name, TurnID: t.ID, RoomID: key.roomID, Hops: t.Hops, BoardRole: t.BoardRole, UserPost: t.FromUserPost(), Post: flags.post}, flags: flags, done: make(chan outcome, 1)}
 	s, err := r.claimSession(ctx, key, bot, c, startArgs)
 	if err != nil {
 		return outcome{}, err
@@ -123,6 +142,8 @@ func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot,
 			return r.startSession(key, bot, c, startArgs)
 		}
 		if s.open {
+			// The running process keeps the model and effort it started with.
+			c.flags, c.rc.Post = s.flags, s.flags.post
 			if len(s.pending) == 0 {
 				s.lastOutput = time.Now()
 			}
@@ -164,7 +185,9 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// Claude Code finds CLAUDE.md files by walking up from the workspace, which
 	// lies under the user's home, so ~/.claude/CLAUDE.md would reach every bot
 	// even with --setting-sources project.
-	cmd.Env = append(os.Environ(), "MCP_TOOL_TIMEOUT="+mcpToolTimeoutMs, "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1")
+	// The child also loses the variables that would override the model or
+	// effort that YarGPT picked (childEnv).
+	cmd.Env = append(childEnv(r.environ(), c.flags.effort != ""), "MCP_TOOL_TIMEOUT="+mcpToolTimeoutMs, "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
 	cmd.WaitDelay = processWaitDelay
@@ -187,7 +210,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	if err := cmd.Start(); err != nil {
 		return fail(fmt.Errorf("start %s: %w", r.cfg.ClaudePath, err))
 	}
-	s := &session{key: key, bot: bot, token: token, files: files, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
+	s := &session{key: key, bot: bot, token: token, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
 	r.mu.Lock()
 	r.sessions[key] = s
 	r.mu.Unlock()
@@ -289,9 +312,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 		case "system":
 			switch ev.Subtype {
 			case "init":
-				if cur == nil {
-					cur = r.startTask(s)
-				}
+				cur = r.onInit(ctx, s, cur, ev.Model)
 			case "compact_boundary":
 				if cur != nil && ev.CompactMetadata != nil {
 					cur.out.compacted = ev.CompactMetadata
@@ -425,7 +446,7 @@ func (r *Runner) startTask(s *session) *activeTurn {
 		r.log.Error("record task turn", "bot", s.key.botID, "err", err)
 		return nil
 	}
-	r.tokens.set(s.token, runContext{BotID: s.bot.ID, BotName: s.bot.Name, TurnID: t.ID, RoomID: s.key.roomID, Hops: t.Hops})
+	r.tokens.set(s.token, runContext{BotID: s.bot.ID, BotName: s.bot.Name, TurnID: t.ID, RoomID: s.key.roomID, Hops: t.Hops, Post: s.flags.post})
 	r.mu.Lock()
 	s.waking = true
 	r.mu.Unlock()

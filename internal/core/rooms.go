@@ -316,6 +316,12 @@ func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string) er
 // PostToRoom adds a bot's message to a room and wakes the members it mentions.
 // It returns the names of the members it woke.
 func (s *Service) PostToRoom(ctx context.Context, roomID, botID, turnID, text string, files []string, hops int64, needsReply bool) ([]string, error) {
+	return s.PostToRoomWithMeta(ctx, roomID, botID, turnID, text, files, hops, needsReply, PostMeta{})
+}
+
+// PostToRoomWithMeta posts as PostToRoom does, and records in the post the
+// model and effort of the turn that wrote it.
+func (s *Service) PostToRoomWithMeta(ctx context.Context, roomID, botID, turnID, text string, files []string, hops int64, needsReply bool, meta PostMeta) ([]string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" && len(files) == 0 {
 		return nil, invalid("message text is empty")
@@ -341,6 +347,7 @@ func (s *Service) PostToRoom(ctx context.Context, roomID, botID, turnID, text st
 	if len(media) > 0 {
 		body["media"] = media
 	}
+	meta.addTo(body)
 	if _, err := s.AppendEntry(ctx, roomID, KindBot, turnID, body); err != nil {
 		return nil, errors.Join(err, s.removeMedia(media))
 	}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"image"
 	"image/png"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +36,9 @@ import (
 // stream-json script chosen by the FAKE_MODE variable. Like Claude Code, it
 // brackets its answer to a message with command_lifecycle events.
 // newHarness sets FAKE_MODE in the script file, not in the environment,
-// because the tests run in parallel and share one environment.
+// because the tests run in parallel and share one environment. The init
+// event reports the model in FAKE_INIT_MODEL, which a test puts in
+// harness.env.
 const fakeClaude = `dir=$(dirname "$0")
 IFS= read -r input
 # Turns of a team run at once; a lock keeps their long lines whole in args.log.
@@ -55,13 +56,13 @@ done
 printf '%s\n<<SYSTEM>>%s\n<<STDIN>>%s\n<<END>>\n' "$*" "$system" "$input" >> "$dir/args.log"
 rmdir "$dir/args.lock"
 trap - EXIT
-env | grep -E '^CLAUDE_CODE_(SILENT_TURN_REMINDER|DISABLE_CLAUDE_MDS)=' | sort > "$dir/env.log"
+env | grep -E '^(CLAUDE_CODE_(SILENT_TURN_REMINDER|DISABLE_CLAUDE_MDS|EFFORT_LEVEL|SUBAGENT_[A-Z_]*)|ANTHROPIC_MODEL)=' | sort > "$dir/env.log"
 lifecycle() {
   uuid=$(printf '%s' "$input" | sed -n 's/.*"uuid":"\([^"]*\)".*/\1/p')
   echo "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$uuid\",\"state\":\"$1\"}"
 }
 result() { echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"$1\"}"; }
-init() { echo '{"type":"system","subtype":"init","session_id":"s"}'; }
+init() { echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s\",\"model\":\"${FAKE_INIT_MODEL:-}\"}"; }
 compacted() { echo '{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":17833,"post_tokens":3651}}'; }
 case "$FAKE_MODE" in
 reply)
@@ -124,6 +125,16 @@ mcp-config)
   cp "$config" "$dir/mcp-config.json"
   lifecycle started
   result "ok"
+  lifecycle completed
+  ;;
+model-error)
+  # As Claude Code 2.1.319 does for a model it cannot run
+  # (testdata/claude-2.1.319/unknown-model.jsonl).
+  [ -n "$FAKE_QUIET" ] || echo '[claude-code:unrecognized_model] {"model":"claude-foo-9","query_source":"sdk"}' >&2
+  lifecycle started
+  init
+  echo '{"type":"assistant","error":"model_not_found","message":{"content":[{"type":"text","text":"There'"'"'s an issue with the selected model (claude-foo-9). It may not exist or you may not have access to it. Run --model to pick a different model."}]},"parent_tool_use_id":null}'
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"There'"'"'s an issue with the selected model (claude-foo-9). It may not exist or you may not have access to it. Run --model to pick a different model."}'
   lifecycle completed
   ;;
 api-error)
@@ -299,9 +310,50 @@ type harness struct {
 	dir    string
 	cancel context.CancelFunc
 	done   chan struct{}
+	env    []string    // added to the environment of claude processes; set before start
+	logs   *syncBuffer // the runner's error log
+}
+
+// syncBuffer is a bytes.Buffer that the runner's goroutines may write at once.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// testEnviron is the test process's environment without the variables that
+// change Claude Code's model or effort, which the user's shell may set.
+func testEnviron() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if name == core.EnvModel || name == core.EnvEffort || strings.HasPrefix(name, envSubagentPrefix) {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
 }
 
 func newHarness(t *testing.T, mode string) *harness {
+	t.Helper()
+	return newHarnessWith(t, mode, "", "")
+}
+
+// newHarnessWith makes a harness whose bots inherit a global model and
+// effort, as from the flags; "" sets none.
+func newHarnessWith(t *testing.T, mode, model, effort string) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	conn, err := db.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
@@ -309,7 +361,14 @@ func newHarness(t *testing.T, mode string) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	svc, err := core.New(conn, dir, time.UTC)
+	flag := func(v string) string {
+		if v == "" {
+			return ""
+		}
+		return core.DefaultFromFlag
+	}
+	d := core.NewDefaults(model, flag(model), effort, flag(effort), func(string) string { return "" })
+	svc, err := core.New(conn, dir, time.UTC, core.WithDefaults(d))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,8 +376,19 @@ func newHarness(t *testing.T, mode string) *harness {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nFAKE_MODE="+mode+"\n"+fakeClaude), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := &harness{svc: svc, conn: conn, dir: dir, runner: NewRunner(svc, Config{ClaudePath: script, MCPURL: "http://127.0.0.1:1/mcp"}, log), done: make(chan struct{})}
+	logs := &syncBuffer{}
+	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelError}))
+	h := &harness{logs: logs, svc: svc, conn: conn, dir: dir, runner: NewRunner(svc, Config{ClaudePath: script, MCPURL: "http://127.0.0.1:1/mcp"}, log), done: make(chan struct{})}
+	h.runner.environ = func() []string { return append(testEnviron(), h.env...) }
+	// Bookkeeping after a turn logs only real failures: a check that logs
+	// without an error shows here.
+	t.Cleanup(func() {
+		for _, msg := range []string{"record turn failure", "record interrupt", "acknowledge inbox", "mark room seen", "record compaction", "drop missing session"} {
+			if logs := h.logs.String(); strings.Contains(logs, `msg="`+msg+`"`) {
+				t.Errorf("the runner logged %q:\n%s", msg, logs)
+			}
+		}
+	})
 	return h
 }
 

@@ -166,10 +166,12 @@ func pick(own, team, global, globalSource string) (string, string) {
 }
 
 // PostMeta is what a post records about the turn that wrote it: the model and
-// effort that YarGPT resolved for it. Empty fields are left out.
+// effort that YarGPT resolved for it, and the model ID that Claude Code
+// reported running. Empty fields are left out.
 type PostMeta struct {
-	Model  string
-	Effort string
+	Model   string
+	ModelID string
+	Effort  string
 }
 
 // modelFlags is the set of bots with a model problem; it lives in memory.
@@ -227,6 +229,9 @@ func validModelEffort(model, effort string) (string, string, error) {
 func (m PostMeta) addTo(body map[string]any) {
 	if m.Model != "" {
 		body["model"] = m.Model
+	}
+	if m.ModelID != "" {
+		body["modelId"] = m.ModelID
 	}
 	if m.Effort != "" {
 		body["effort"] = m.Effort

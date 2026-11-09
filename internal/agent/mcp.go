@@ -29,7 +29,8 @@ type runContext struct {
 	// BoardRole is the board role of a turn in a team: core.RoleLead,
 	// core.RoleWork, core.RoleReview, core.RoleRetro, or "".
 	BoardRole string
-	UserPost  bool // a post of the user woke the turn
+	UserPost  bool          // a post of the user woke the turn
+	Post      core.PostMeta // the model and effort of the run, for its posts
 }
 
 // actor is who acts on a team's board in this run.
@@ -108,7 +109,7 @@ func (r *Runner) MCPHandler() http.Handler {
 			return nil
 		}
 		current := func() (runContext, bool) { return r.tokens.get(token) }
-		s := newToolServer(r.svc, current)
+		s := newToolServer(r.svc, current, r.postMeta)
 		addArtifactTools(s, r.svc, current)
 		return s
 	}, nil)
@@ -227,9 +228,9 @@ func addRunTool[In any](s *mcp.Server, current func() (runContext, bool), tool *
 	})
 }
 
-func newToolServer(svc *core.Service, current func() (runContext, bool)) *mcp.Server {
+func newToolServer(svc *core.Service, current func() (runContext, bool), meta func(runContext) core.PostMeta) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: "1"}, nil)
-	h := tools{svc: svc}
+	h := tools{svc: svc, meta: meta}
 	addRunTool(s, current, &mcp.Tool{Name: "send_to_user", Description: "Send a message to the user, with images or videos if you attach files. This is the only output the user sees. During a turn in a room, it posts into the room for everyone."}, h.sendToUser)
 	addRunTool(s, current, &mcp.Tool{Name: "send_to_agent", Description: fmt.Sprintf("Message one of the user's other bots, or post into a room you are in; at most %d characters. Asynchronous like texting: the reply, if any, arrives later as its own turn, so do not wait or poll for it. To ask a teammate to act, message them directly. A room post wakes only the members it names with @Name; use that only when the room should see the request.", core.MaxAgentMessage)}, h.sendToAgent)
 	addRunTool(s, current, &mcp.Tool{Name: "read_room", Description: "Read the latest messages of a room you are in, oldest first, with the files they carry. Each line starts with the message's #seq; pass the oldest one as before_seq to read further back. Reading does not change what your next room turn shows as new."}, h.readRoom)
@@ -262,11 +263,14 @@ func inTeam(svc *core.Service, current func() (runContext, bool)) bool {
 
 // tools holds the handlers of the MCP tools. Each acts on the run of the
 // token that called it.
-type tools struct{ svc *core.Service }
+type tools struct {
+	svc  *core.Service
+	meta func(runContext) core.PostMeta // what a post of the run records
+}
 
 func (t tools) sendToUser(ctx context.Context, rc runContext, in sendInput) (*mcp.CallToolResult, any, error) {
 	if rc.RoomID != "" {
-		woken, err := t.svc.PostToRoom(ctx, rc.RoomID, rc.BotID, rc.TurnID, in.Text, in.Files, rc.Hops, in.NeedsReply)
+		woken, err := t.svc.PostToRoomWithMeta(ctx, rc.RoomID, rc.BotID, rc.TurnID, in.Text, in.Files, rc.Hops, in.NeedsReply, t.meta(rc))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -280,7 +284,7 @@ func (t tools) sendToUser(ctx context.Context, rc runContext, in sendInput) (*mc
 		}
 		return textResult("%s", posted), nil, nil
 	}
-	if _, err := t.svc.AppendBotMessage(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply); err != nil {
+	if _, err := t.svc.AppendBotMessageWith(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply, t.meta(rc)); err != nil {
 		return nil, nil, err
 	}
 	return textResult("Delivered."), nil, nil

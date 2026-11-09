@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,6 @@ import (
 type Config struct {
 	ClaudePath  string // claude executable
 	MCPURL      string // URL of this server's MCP endpoint
-	Model       string // optional model alias for every bot
 	MaxParallel int    // turns that may run at once across all bots
 	// OAuthCallbackURL is the redirect URI of connector sign-ins. It must
 	// match the address the server listens on.
@@ -52,12 +52,16 @@ type Runner struct {
 	log    *slog.Logger
 
 	outputTimeout time.Duration // turnOutputTimeout; tests shorten it
+	// environ is the environment that claude processes start from:
+	// os.Environ, which tests replace because they run in parallel.
+	environ func() []string
 	// publish sends a working state; tests watch it.
 	publish func(id string, running bool)
 
 	mu       sync.Mutex
 	running  map[string]runningTurn // bot id -> its running turn
 	sessions map[sessionKey]*session
+	models   map[sessionKey]modelReport // the model each session's process reported
 	wg       sync.WaitGroup
 	done     chan struct{}
 
@@ -81,8 +85,8 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 	resume := time.NewTimer(0)
 	resume.Stop()
 	return &Runner{
-		svc: svc, cfg: cfg, tokens: newTokenRegistry(), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), sessions: make(map[sessionKey]*session), done: make(chan struct{}, 1),
-		resume: resume, maxLimitPause: limitPauseMax, publish: svc.PublishState,
+		svc: svc, cfg: cfg, tokens: newTokenRegistry(), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
+		resume: resume, maxLimitPause: limitPauseMax, publish: svc.PublishState, environ: os.Environ,
 	}
 }
 
@@ -375,14 +379,17 @@ type outcome struct {
 	exitErr     error
 	stderr      string
 
+	modelNotFound bool  // Claude Code could not run the requested model
 	usageLimit    bool  // Claude Code reported the usage_limit_reached API error
 	limitResetsAt int64 // Unix seconds when the usage limit resets; 0 when not reported
 }
 
 func (o outcome) failed() bool { return o.exitErr != nil || o.resultError }
 
-// noteAPIError records a usage limit error of an assistant or result event.
+// noteAPIError records a usage limit error of an assistant or result event,
+// and a model that Claude Code could not run.
 func (o *outcome) noteAPIError(ev streamEvent) {
+	o.modelNotFound = o.modelNotFound || ev.Error == modelNotFound
 	if ev.APIError != usageLimitError {
 		return
 	}
@@ -424,17 +431,10 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 			r.log.Error("finish turn", "turn", t.ID, "err", err)
 		}
 	}()
-	// A turn in a room shows its activity, approvals and failures in the room.
-	transcript := t.BotID
-	if t.RoomID != "" {
-		transcript = t.RoomID
-	}
+	transcript := turnTranscript(t)
 	fail := func(err error) {
 		status, errText = "failed", err.Error()
-		r.log.Error("turn failed", "bot", t.BotID, "turn", t.ID, "err", err)
-		if _, aerr := r.svc.AppendEntry(bg, transcript, core.KindEvent, t.ID, map[string]string{"type": "turn-failed", "text": errText}); aerr != nil {
-			r.log.Error("record turn failure", "turn", t.ID, "err", aerr)
-		}
+		r.recordFailure(bg, t, transcript, err)
 	}
 
 	bot, err := r.svc.GetBot(ctx, t.BotID)
@@ -454,47 +454,89 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 	// Approval waits run in the MCP session, which outlives the turn; end them with it.
 	defer r.svc.ExpireTurnApprovals(t.ID)
 
-	out, err := r.runTurn(ctx, bot, t, run)
-	if err == nil && out.failed() && run.Resume && out.sessionMissing() && ctx.Err() == nil {
-		// The stored Claude session is gone (for example, deleted on disk): start a new one.
-		run.Resume, run.SessionID = false, uuid.NewString()
-		if err = r.saveSession(ctx, bot.ID, t.RoomID, run.SessionID); err == nil {
-			out, err = r.runTurn(ctx, bot, t, run)
-		}
-	}
+	out, err := r.runTurnOnce(ctx, bot, t, run)
 	switch {
 	case ctx.Err() != nil:
-		status, errText = "interrupted", "stopped by the user"
-		if _, aerr := r.svc.AppendEntry(bg, transcript, core.KindEvent, t.ID, map[string]string{"type": "interrupted", "text": "Stopped."}); aerr != nil {
-			r.log.Error("record interrupt", "turn", t.ID, "err", aerr)
-		}
-		return
+		status, errText = r.recordInterrupt(bg, t, transcript)
 	case err != nil:
 		fail(err)
-		return
 	case out.failed():
-		fail(errors.New(out.errorText()))
-		return
+		status, errText = r.turnFailed(bg, bot, t, run.Flags, out, fail)
+	default:
+		r.finishDelivery(bg, bot, t, run, delivered, out)
 	}
-	if err := r.svc.AckInbox(bg, delivered.inbox); err != nil {
+}
+
+// turnTranscript is where a turn shows its activity, approvals and
+// failures: its room, or the bot's chat.
+func turnTranscript(t core.Turn) string {
+	if t.RoomID != "" {
+		return t.RoomID
+	}
+	return t.BotID
+}
+
+// recordFailure logs a failed turn and writes its turn-failed entry.
+func (r *Runner) recordFailure(ctx context.Context, t core.Turn, transcript string, err error) {
+	r.log.Error("turn failed", "bot", t.BotID, "turn", t.ID, "err", err)
+	if _, aerr := r.svc.AppendEntry(ctx, transcript, core.KindEvent, t.ID, map[string]string{"type": "turn-failed", "text": err.Error()}); aerr != nil {
+		r.log.Error("record turn failure", "turn", t.ID, "err", aerr)
+	}
+}
+
+// recordInterrupt writes the entry of a turn that the user stopped and
+// returns its status and error.
+func (r *Runner) recordInterrupt(ctx context.Context, t core.Turn, transcript string) (string, string) {
+	if _, err := r.svc.AppendEntry(ctx, transcript, core.KindEvent, t.ID, map[string]string{"type": "interrupted", "text": "Stopped."}); err != nil {
+		r.log.Error("record interrupt", "turn", t.ID, "err", err)
+	}
+	return "interrupted", "stopped by the user"
+}
+
+// runTurnOnce runs the turn, and once more on a new Claude session when the
+// stored one is gone (for example, deleted on disk).
+func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
+	out, err := r.runTurn(ctx, bot, t, run)
+	if err != nil || !out.failed() || !run.Resume || !out.sessionMissing() || ctx.Err() != nil {
+		return out, err
+	}
+	run.Resume, run.SessionID = false, uuid.NewString()
+	if err := r.saveSession(ctx, bot.ID, t.RoomID, run.SessionID); err != nil {
+		return out, err
+	}
+	return r.runTurn(ctx, bot, t, run)
+}
+
+// finishDelivery marks what a successful turn delivered as handled, and
+// delivers the final text when a user wrote and the bot sent nothing.
+func (r *Runner) finishDelivery(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun, delivered delivery, out outcome) {
+	if err := r.svc.AckInbox(ctx, delivered.inbox); err != nil {
 		r.log.Error("acknowledge inbox", "turn", t.ID, "err", err)
 	}
 	if t.RoomID != "" {
-		if err := r.svc.MarkRoomSeen(bg, t.RoomID, bot.ID, delivered.roomSeq); err != nil {
+		if err := r.svc.MarkRoomSeen(ctx, t.RoomID, bot.ID, delivered.roomSeq); err != nil {
 			r.log.Error("mark room seen", "turn", t.ID, "err", err)
 		}
 	}
-
-	// A user who wrote something must get an answer even if the model forgot send_to_user.
 	if t.Source == core.SourceUser && strings.TrimSpace(out.resultText) != "" {
-		n, err := r.svc.TurnReplyCount(bg, t.ID)
-		if err != nil {
-			r.log.Error("count replies", "turn", t.ID, "err", err)
-		} else if n == 0 {
-			if _, err := r.svc.AppendBotMessage(bg, bot.ID, t.ID, out.resultText, nil, true, false); err != nil {
-				r.log.Error("deliver final text", "turn", t.ID, "err", err)
-			}
-		}
+		r.deliverFinalText(ctx, bot, t, run, out)
+	}
+}
+
+// deliverFinalText posts the turn's final text when the bot sent nothing:
+// a user who wrote something must get an answer even if the model forgot
+// send_to_user.
+func (r *Runner) deliverFinalText(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun, out outcome) {
+	n, err := r.svc.TurnReplyCount(ctx, t.ID)
+	if err != nil {
+		r.log.Error("count replies", "turn", t.ID, "err", err)
+		return
+	}
+	if n > 0 {
+		return
+	}
+	if _, err := r.svc.AppendBotMessageWith(ctx, bot.ID, t.ID, out.resultText, nil, true, false, r.postMeta(runContext{BotID: bot.ID, Post: run.Flags.post})); err != nil {
+		r.log.Error("deliver final text", "turn", t.ID, "err", err)
 	}
 }
 
@@ -510,6 +552,10 @@ type delivery struct {
 // also returns what the turn delivers.
 func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claudeRun, delivery, error) {
 	now := time.Now().In(r.svc.Location())
+	flags, err := r.runSettings(ctx, bot, t)
+	if err != nil {
+		return claudeRun{}, delivery{}, err
+	}
 	// The item is being done from now on, so the prompt shows it that way.
 	if t.BoardRole == core.RoleWork {
 		if err := r.svc.StartItemWork(ctx, t.ItemID, bot.ID); err != nil {
@@ -540,7 +586,7 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 		SessionID:    sessionID,
 		Resume:       sessionID != "",
 		BotName:      bot.Name,
-		Model:        r.cfg.Model,
+		Flags:        flags,
 	}
 	if !run.Resume {
 		run.SessionID = uuid.NewString()
@@ -549,6 +595,23 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 		}
 	}
 	return run, delivered, nil
+}
+
+// runSettings resolves and checks the model and effort of the turn. A value
+// that fails the check marks the bot, and the run does not start.
+func (r *Runner) runSettings(ctx context.Context, bot core.Bot, t core.Turn) (runFlags, error) {
+	var room core.Bot
+	if t.RoomID != "" {
+		var err error
+		if room, err = r.svc.GetBot(ctx, t.RoomID); err != nil {
+			return runFlags{}, err
+		}
+	}
+	flags, err := r.settings(bot, room)
+	if err != nil {
+		r.svc.SetModelAttention(bot.ID, true)
+	}
+	return flags, err
 }
 
 // turnPrompt returns the message of the turn, and for a turn in a room the
@@ -713,60 +776,106 @@ func (r *Runner) slashSkill(text string) (core.Skill, string, bool) {
 // for a room turn) and records the result. It returns the turn status and error.
 func (r *Runner) compact(ctx context.Context, bot core.Bot, t core.Turn, transcript string, fail func(error)) (string, string) {
 	bg := context.WithoutCancel(ctx)
+	who := ""
+	if t.RoomID != "" {
+		who = bot.Name + ": "
+	}
 	note := func(text string) {
 		if _, err := r.svc.AppendEntry(bg, transcript, core.KindEvent, t.ID, map[string]string{"type": "context-compacted", "text": text}); err != nil {
 			r.log.Error("record compaction", "turn", t.ID, "err", err)
 		}
 	}
-	who := ""
-	if t.RoomID != "" {
-		who = bot.Name + ": "
-	}
-	sessionID := bot.ClaudeSessionID
-	if t.RoomID != "" {
-		seats, err := r.svc.RoomSeats(ctx, t.RoomID)
-		if err != nil {
-			fail(err)
-			return "failed", err.Error()
-		}
-		sessionID = ""
-		for _, seat := range seats {
-			if seat.ID == bot.ID {
-				sessionID = seat.ClaudeSessionID
-			}
-		}
+	sessionID, err := r.compactSession(ctx, bot, t.RoomID)
+	if err != nil {
+		fail(err)
+		return "failed", err.Error()
 	}
 	if sessionID == "" {
 		note(who + "nothing to compact yet; the context is empty.")
 		return "done", ""
 	}
 	// With background tasks running, the bot's process is still alive and compacts its own session.
-	out, err := r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", func(string) ([]string, []string, error) {
-		return compactArgs(sessionID, r.cfg.Model), nil, nil
-	})
-	switch {
-	case ctx.Err() != nil:
+	out, err := r.runCompact(ctx, bot, t, sessionID)
+	if ctx.Err() != nil {
 		note(who + "compaction stopped.")
 		return "interrupted", "stopped by the user"
-	case err != nil:
+	}
+	return r.compactResult(bg, bot, t, who, out, err, note, fail)
+}
+
+// compactSession is the Claude session that /compact runs on: the bot's
+// own, or its seat's in a room; "" when there is none yet.
+func (r *Runner) compactSession(ctx context.Context, bot core.Bot, roomID string) (string, error) {
+	if roomID == "" {
+		return bot.ClaudeSessionID, nil
+	}
+	seats, err := r.svc.RoomSeats(ctx, roomID)
+	if err != nil {
+		return "", err
+	}
+	for _, seat := range seats {
+		if seat.ID == bot.ID {
+			return seat.ClaudeSessionID, nil
+		}
+	}
+	return "", nil
+}
+
+// compactResult records how /compact ended and returns the turn's status
+// and error. A stored session that no longer exists is dropped.
+func (r *Runner) compactResult(ctx context.Context, bot core.Bot, t core.Turn, who string, out outcome, err error, note func(string), fail func(error)) (string, string) {
+	if err != nil {
 		fail(err)
 		return "failed", err.Error()
-	case out.failed() && out.sessionMissing():
-		if err := r.saveSession(bg, bot.ID, t.RoomID, ""); err != nil {
+	}
+	if out.failed() && out.sessionMissing() {
+		if err := r.saveSession(ctx, bot.ID, t.RoomID, ""); err != nil {
 			r.log.Error("drop missing session", "turn", t.ID, "err", err)
 		}
 		note(who + "nothing to compact; the stored session no longer exists, so the next turn starts fresh.")
 		return "done", ""
-	case out.failed():
+	}
+	if out.failed() {
 		fail(errors.New(out.errorText()))
 		return "failed", out.errorText()
 	}
-	text := who + "context compacted. Earlier messages stay visible here."
-	if c := out.compacted; c != nil {
-		text = fmt.Sprintf("%scontext compacted from %s to %s tokens. Earlier messages stay visible here.", who, kTokens(c.PreTokens), kTokens(c.PostTokens))
-	}
+	text := who + compactedText(out.compacted)
 	note(strings.ToUpper(text[:1]) + text[1:])
 	return "done", ""
+}
+
+// compactedText tells the user that the context was compacted, with the
+// token counts when Claude Code reported them.
+func compactedText(c *compactMetadata) string {
+	if c == nil {
+		return "context compacted. Earlier messages stay visible here."
+	}
+	return fmt.Sprintf("context compacted from %s to %s tokens. Earlier messages stay visible here.", kTokens(c.PreTokens), kTokens(c.PostTokens))
+}
+
+// runCompact sends /compact to the session's process, which starts with the
+// model and effort of the session's turns when none runs.
+func (r *Runner) runCompact(ctx context.Context, bot core.Bot, t core.Turn, sessionID string) (outcome, error) {
+	flags, err := r.runSettings(ctx, bot, t)
+	if err != nil {
+		return outcome{}, err
+	}
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", flags, func(string) ([]string, []string, error) {
+		return compactArgs(sessionID, flags.model, flags.effort), nil, nil
+	})
+}
+
+// turnFailed records a turn that Claude Code failed and returns its status
+// and error. A model that Claude Code can't run gets its own entry, which
+// says what to change, and the turn isn't retried; any other failure goes
+// to fail.
+func (r *Runner) turnFailed(ctx context.Context, bot core.Bot, t core.Turn, flags runFlags, out outcome, fail func(error)) (string, string) {
+	if out.modelRejected() {
+		r.noteModelFailure(ctx, sessionKey{bot.ID, t.RoomID}, bot.Name, t.ID, flags, out)
+	} else {
+		fail(errors.New(out.errorText()))
+	}
+	return "failed", out.errorText()
 }
 
 func kTokens(n int64) string {
@@ -788,7 +897,7 @@ func (r *Runner) saveSession(ctx context.Context, botID, roomID, sessionID strin
 // session, which starts with run's arguments and a new MCP config file when
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, func(token string) ([]string, []string, error) {
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Flags, func(token string) ([]string, []string, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
 			return nil, nil, err

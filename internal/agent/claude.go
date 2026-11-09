@@ -36,7 +36,7 @@ type claudeRun struct {
 	Resume           bool
 	MCPConfig        string // path of the file that writeMCPConfig wrote
 	BotName          string
-	Model            string
+	Flags            runFlags // the model and effort
 }
 
 // isolatedSettings is the --settings value for every claude run. It turns
@@ -77,9 +77,7 @@ func (r claudeRun) args() ([]string, error) {
 		"--allowedTools", strings.Join(allowed, ","),
 		"--permission-prompt-tool", approveTool,
 	}
-	if r.Model != "" {
-		args = append(args, "--model", r.Model)
-	}
+	args = appendModelEffort(args, r.Flags.model, r.Flags.effort)
 	if r.Resume {
 		args = append(args, "--resume", r.SessionID)
 	} else {
@@ -110,7 +108,7 @@ func userMessage(id, text string) ([]byte, error) {
 // compactArgs starts claude on a stored session to run Claude Code's /compact,
 // which goes to stdin. The isolation flags match a normal turn; no tools or
 // MCP servers are needed.
-func compactArgs(sessionID, model string) []string {
+func compactArgs(sessionID, model, effort string) []string {
 	args := []string{
 		"-p",
 		"--input-format", "stream-json",
@@ -121,8 +119,16 @@ func compactArgs(sessionID, model string) []string {
 		"--settings", isolatedSettings,
 		"--resume", sessionID,
 	}
+	return appendModelEffort(args, model, effort)
+}
+
+// appendModelEffort adds --model and --effort for the values that are set.
+func appendModelEffort(args []string, model, effort string) []string {
 	if model != "" {
 		args = append(args, "--model", model)
+	}
+	if effort != "" {
+		args = append(args, "--effort", effort)
 	}
 	return args
 }
@@ -136,6 +142,7 @@ type compactMetadata struct {
 type streamEvent struct {
 	CompactMetadata *compactMetadata `json:"compact_metadata"`
 	Type            string           `json:"type"`
+	Model           string           `json:"model"` // system/init: the full ID of the model Claude Code runs
 	Subtype         string           `json:"subtype"`
 	CommandUUID     string           `json:"command_uuid"` // command_lifecycle: the message's uuid
 	State           string           `json:"state"`        // command_lifecycle: queued, started, completed or cancelled
@@ -150,6 +157,7 @@ type streamEvent struct {
 	Result          string           `json:"result"`
 	IsError         bool             `json:"is_error"`
 	Errors          json.RawMessage  `json:"errors"`
+	Error           string           `json:"error"`            // assistant: kind of a failure, such as model_not_found
 	APIError        string           `json:"api_error"`        // assistant, result: kind of an API error, such as usage_limit_reached
 	APIErrorParams  *apiErrorParams  `json:"api_error_params"` // assistant
 }

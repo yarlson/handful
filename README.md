@@ -170,14 +170,29 @@ For work with several steps, give the team a goal: type `/goal` and what the tea
 
 #### Teams that work together
 
-A lead can ask another team for work that its goal needs, for example a Release team that asks a Docs team for a guide. The other team's lead accepts the request by assigning it to a member, declines it with a reason, or defers it with a reason and a time to look at it again.
+Teams pass work to each other in two ways:
 
-- The request is an item of the asking team's goal: its turns count against that goal, and the goal waits for it before the lead can deliver.
-- The asking lead makes the items that need the result depend on the request. They start when the request is done, and the result shows on the asking team's board.
+- A **handoff** gives another team a whole piece of work as a goal of its own, for example a bug for a Dev team or an approved spec to build. It costs the sending team nothing and needs no goal of its own.
+- A **request** asks another team for a part that items of the sending team's running goal wait on, for example a Release team that asks a Docs team for a guide. It counts against that goal.
+
+##### Handoffs
+
+- A lead hands work over with a brief and any artifacts. You can too: **Hand over…** in a team's goal bar, or **Hand to team…** on an artifact in the **Artifacts** tab.
+- The receiving team's **Board** tab lists it under **Incoming from other teams**, and the sidebar shows a blue count on the team. The receiving lead accepts it, asks the sender a question, or declines it with a reason. After 3 questions on one handoff, the leads stop and you decide: **Accept**, **Answer…** or **Decline…** on the card.
+- An accepted handoff joins the team's goal queue and works under the team's own budget. Under **Accepted handoffs** in the team's **Settings**, choose whether it starts on its own when the team is free (the default) or waits for you to start it. The goal bar and the queue mark handed-over goals with **From <team>**.
+- The sending team's **Board** tab lists its handoffs of the last 30 days under **Handed over**, with each one's state: waiting, asked, queued, active with its turns, delivered, done, declined or ended. **Answer…** replies to the receiver's question, and **Withdraw…** takes back a handoff that hasn't started. The sender's chat gets a note when the work is accepted, declined, delivered or ended.
+- A handoff is independent of the sender's goals: ending them doesn't touch it. Work that came through 3 handoffs, or a team with 10 handoffs waiting, needs you to pass it on.
+
+##### Requests
+
+The other team's lead accepts a request by assigning it to a member, declines it with a reason, or defers it with a reason and a time to look at it again.
+
+- A lead names the items of its goal that wait on the request. The request is an item of the asking team's goal: its turns count against that goal, and the goal waits for it before the lead can deliver.
+- Those items start when the request is done, and the result shows on the asking team's board.
 - While a team works on its own goal, it works on at most one request of other teams at a time; accepted requests wait their turn in arrival order. Change the number under **Requests in progress at once** in the team's **Settings**, from 1 to the number of members. Without a goal of its own, a team works on every accepted request. Looking at a new request never waits for a slot.
 - The lead accepts requests oldest first. To take one out of order, it gives a reason, which the asking team sees.
 - A declined, deferred or withdrawn request doesn't count as done: items that depend on it don't start, and the asking lead is told to re-plan.
-- The serving team's **Board** tab shows the requests in groups (in progress, waiting for a slot, awaiting triage, deferred, closed), with each one's place and why it waits. **Bring back** returns a deferred request.
+- The serving team's **Board** tab shows them under **Requests for other teams' goals**, in groups (in progress, waiting for a slot, awaiting triage, deferred, closed), with each one's place and why it waits. **Bring back** returns a deferred request.
 - The asking team's **Board** tab lists what it asked of other teams under **Asked of other teams**, with each request's state, place and reason. **Withdraw…** takes one back, as can the asking lead. Ending the asking goal withdraws its open requests.
 - Both teams' chats show each change of a request.
 - Only leads send requests, and a member talks only to its own team.

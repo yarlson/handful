@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { slotsError } from "@/lib/queue"
 import { BoardTab } from "@/components/board"
+import { HandOverDialog } from "@/components/handoff"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 
@@ -261,7 +262,9 @@ function SkillsTab({ version }: { version: number }) {
 
 // ArtifactsTab lists the documents that all bots share. Bots write them; the
 // user reads and deletes them here.
-function ArtifactsTab({ agents, version }: { agents: Bot[]; version: number }) {
+function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: number; teams: Bot[] }) {
+  // handing is the artifact the user hands to a team.
+  const [handing, setHanding] = useState<string | null>(null)
   const [kind, setKind] = useState("")
   const [query, setQuery] = useState("")
   const { data, error, reload, setError } = useLoad(() => api.artifacts({ kind, query }), `${version}:${kind}:${query}`)
@@ -374,13 +377,34 @@ function ArtifactsTab({ agents, version }: { agents: Bot[]; version: number }) {
                 </Button>
               </>
             ) : (
-              <Button variant="destructive" onClick={() => setConfirm(true)}>
-                Delete
-              </Button>
+              <>
+                {teams.length > 0 && (
+                  <Button
+                    variant="outline"
+                    aria-haspopup="dialog"
+                    onClick={() => {
+                      setHanding(open?.id ?? null)
+                      setOpen(null)
+                    }}
+                  >
+                    Hand to team…
+                  </Button>
+                )}
+                <Button variant="destructive" onClick={() => setConfirm(true)}>
+                  Delete
+                </Button>
+              </>
             )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <HandOverDialog
+        open={handing !== null}
+        onOpenChange={(v) => !v && setHanding(null)}
+        from={null}
+        teams={teams}
+        artifactIds={handing ? [handing] : []}
+      />
     </div>
   )
 }
@@ -463,6 +487,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
   const [agreement, setAgreement] = useState(settings.agreement)
   const [budget, setBudget] = useState(String(settings.goalBudget))
   const [slots, setSlots] = useState(String(settings.requestSlots ?? 1))
+  const [startHandoffs, setStartHandoffs] = useState(settings.startHandoffs ?? "auto")
   const [slotsInvalid, setSlotsInvalid] = useState<string | null>(null)
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
   const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
@@ -488,6 +513,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         agreement,
         goalBudget,
         requestSlots: Number(slots),
+        startHandoffs,
         defaultModel,
         defaultEffort,
       })
@@ -563,6 +589,21 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
             {slotsInvalid}
           </p>
         )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="team-settings-handoffs">Accepted handoffs</Label>
+        <select
+          id="team-settings-handoffs"
+          className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
+          value={startHandoffs}
+          onChange={(e) => setStartHandoffs(e.target.value === "ask" ? "ask" : "auto")}
+        >
+          <option value="auto">Start automatically when the team is free</option>
+          <option value="ask">Wait for me to start them</option>
+        </select>
+        <p className="text-muted-foreground text-xs">
+          Work another team hands over joins the goal queue once the lead accepts it.
+        </p>
       </div>
       <fieldset className="flex flex-col gap-3">
         <legend className="mb-1 text-sm font-medium">Member defaults</legend>
@@ -688,7 +729,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
       </div>
       {bot.team && (
         <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}`}
+          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}:${bot.team.startHandoffs}`}
           team={bot}
           settings={bot.team}
         />
@@ -748,9 +789,12 @@ export function BotPanel({
   version,
   onDeleted,
   show,
+  teams = [],
 }: {
   bot: Bot
   agents: Bot[]
+  // teams are the app's teams, to hand work over to.
+  teams?: Bot[]
   version: number
   onDeleted: () => void
   // show asks for a tab; its n changes with every ask, so the same tab can be asked again.
@@ -774,7 +818,7 @@ export function BotPanel({
           </TabsContent>
           {bot.team && (
             <TabsContent value="board">
-              <BoardTab team={bot} version={version} />
+              <BoardTab team={bot} version={version} teams={teams} />
             </TabsContent>
           )}
           {bot.team && (
@@ -820,7 +864,7 @@ export function BotPanel({
           <SkillsTab version={version} />
         </TabsContent>
         <TabsContent value="artifacts">
-          <ArtifactsTab agents={agents} version={version} />
+          <ArtifactsTab agents={agents} version={version} teams={teams} />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab bot={bot} onDeleted={onDeleted} />

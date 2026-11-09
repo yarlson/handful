@@ -13,7 +13,8 @@ export type TeamSettings = {
   goalBudget: number
   defaultModel?: string
   defaultEffort?: string
-  requestSlots?: number // requests of other teams worked on at once beside its own goal
+  requestSlots?: number
+  startHandoffs?: "auto" | "ask" // what an accepted handoff does when the team is free // requests of other teams worked on at once beside its own goal
 }
 
 export type Bot = {
@@ -27,7 +28,8 @@ export type Bot = {
   model?: string // "" inherits
   effort?: string // "" inherits
   effective?: Effective // its values in its direct chat; absent on rooms
-  openQuestions?: number // its chat's open questions
+  openQuestions?: number
+  incomingHandoffs?: number // on a team: handoffs that wait for it // its chat's open questions
   createdAt: number
   updatedAt: number
   running: boolean
@@ -133,11 +135,23 @@ export type Goal = {
   id: string
   teamId: string
   text: string
-  state: "active" | "delivered" | "paused" | "done" | "ended" | "queued"
+  state: "active" | "delivered" | "paused" | "done" | "ended" | "queued" | "incoming" | "declined"
   budget: number
   used: number
   queuePos: number // 1-based place in the queue; 0 unless queued
   createdAt: number
+  // A goal that another team, or the user, handed over to this team.
+  origin?: "user" | "handoff"
+  fromTeamId?: string
+  fromBotId?: string
+  fromGoalId?: string
+  brief?: string
+  artifactIds?: string[]
+  intakeNote?: string // the receiver's latest question, or why it declined
+  askedAt?: number
+  askRounds?: number
+  depth?: number
+  needsUser?: boolean
 }
 
 export type Item = {
@@ -188,6 +202,8 @@ export type Board = {
   queue: Goal[] // queued goals, in order
   slots: Slots
   asked: Request[] // what this team asked of other teams
+  incoming?: Goal[] // handoffs that wait for this team, oldest first
+  handedOver?: Goal[] // this team's handoffs of the last 30 days, newest first
   teams: Record<string, string>
 }
 
@@ -246,6 +262,14 @@ export const api = {
   cancelGoal: (id: string) => request<void>("POST", `/api/goals/${id}/cancel`, {}),
   reorderGoals: (teamId: string, order: string[]) =>
     request<void>("POST", `/api/teams/${teamId}/goal-queue`, { order }),
+  handOver: (toTeamId: string, h: { fromTeamId?: string; text: string; brief?: string; artifactIds?: string[] }) =>
+    request<Goal>("POST", `/api/teams/${toTeamId}/handoffs`, h),
+  acceptHandoff: (goalId: string) => request<Goal>("POST", `/api/goals/${goalId}/accept-handoff`, {}),
+  answerHandoff: (goalId: string, text: string) =>
+    request<Goal>("POST", `/api/goals/${goalId}/answer-handoff`, { text }),
+  declineHandoff: (goalId: string, text: string) =>
+    request<Goal>("POST", `/api/goals/${goalId}/decline-handoff`, { text }),
+  withdrawHandoff: (goalId: string) => request<Goal>("POST", `/api/goals/${goalId}/withdraw-handoff`, {}),
   startNextGoal: (teamId: string) => request<Goal>("POST", `/api/teams/${teamId}/goal-queue/start`, {}),
   withdrawItem: (id: string) => request<Item>("POST", `/api/items/${id}/withdraw`, {}),
   undeferItem: (id: string) => request<Item>("POST", `/api/items/${id}/undefer`, {}),

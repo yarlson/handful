@@ -14,6 +14,8 @@ export function useYarGPT() {
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pausedUntil, setPausedUntil] = useState<string | null>(null)
+  // draining: the server starts no new turns until it restarts for an update.
+  const [draining, setDraining] = useState(false)
   const loaded = useRef<Map<string, number>>(new Map()) // bot id -> highest rev fetched
   const selectedRef = useRef<string | null>(null)
 
@@ -86,6 +88,11 @@ export function useYarGPT() {
     source.addEventListener("hello", () => {
       setConnected(true)
       setPausedUntil(null)
+      // A (re)connect may follow a restart, which ends drain mode; ask instead of assuming.
+      api.version().then(
+        (v) => setDraining(v.draining),
+        () => setDraining(false),
+      )
       void refreshBots()
       for (const botId of loaded.current.keys()) void loadTranscript(botId)
     })
@@ -97,6 +104,8 @@ export function useYarGPT() {
         setBots((prev) => prev.map((b) => (b.id === ev.botId ? { ...b, running: ev.running } : b)))
       } else if (ev.type === "pause") {
         setPausedUntil(ev.pausedUntil ?? null)
+      } else if (ev.type === "drain") {
+        setDraining(ev.draining)
       } else if (ev.type === "tasks") {
         setBots((prev) => prev.map((b) => (b.id === ev.botId ? { ...b, tasks: ev.tasks } : b)))
       } else if (ev.type === "entry") {
@@ -132,7 +141,7 @@ export function useYarGPT() {
     [refreshBots],
   )
 
-  return { bots, transcripts, unread, connected, error, setError, pausedUntil, select, refreshBots, reorder }
+  return { bots, transcripts, unread, connected, error, setError, pausedUntil, draining, select, refreshBots, reorder }
 }
 
 export function orderedEntries(t: Transcript | undefined): Entry[] {

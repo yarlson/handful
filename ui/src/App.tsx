@@ -18,6 +18,8 @@ import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
 import { GoalBar } from "@/components/board"
+import { UpdatePill, useUpdate } from "@/components/update-pill"
+import { shown } from "@/lib/updates"
 import { WaitingView } from "@/components/questions"
 import { countBadge, waitingCount, waitingKey, type Asked } from "@/lib/questions"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, OPEN_SETTINGS, useDefaults } from "@/components/model"
@@ -511,8 +513,9 @@ function chatSubtitle(bot: Bot) {
 }
 
 export function App() {
-  const { bots, transcripts, unread, connected, error, setError, pausedUntil, select, refreshBots, reorder } =
+  const { bots, transcripts, unread, connected, error, setError, pausedUntil, draining, select, refreshBots, reorder } =
     useYarGPT()
+  const update = useUpdate()
   const [width, setWidth] = useState(loadSidebarWidth)
   const resizing = useRef(false)
   useEffect(() => saveSidebarWidth(width), [width])
@@ -742,6 +745,7 @@ export function App() {
                 version={transcript?.rev ?? 0}
                 onShowBoard={() => showTab("board")}
                 teams={teams}
+                draining={draining}
               />
             )}
             <div className="flex min-h-0 flex-1">
@@ -749,6 +753,8 @@ export function App() {
                 bot={bot}
                 entries={entries}
                 answering={answering.get(bot.id) ?? null}
+                draining={draining}
+                pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
                 onAnswer={(q) => setAnswer(bot.id, q)}
                 mentionables={
                   bot.kind === "room"
@@ -773,6 +779,11 @@ export function App() {
         ) : (
           <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
             Create a bot to start.
+          </div>
+        )}
+        {(waitingOpen || !bot) && update.state && shown(update.state) && (
+          <div className="@container">
+            <UpdatePill update={update} bots={bots} floating />
           </div>
         )}
       </main>

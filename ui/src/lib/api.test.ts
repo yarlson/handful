@@ -45,14 +45,36 @@ test("team and goal calls go to the server's routes with their bodies", async ()
     { method: "GET", url: "/api/teams/t1/board", body: undefined },
     { method: "POST", url: "/api/teams/t1/goals", body: { text: "Ship CSV export." } },
     { method: "POST", url: "/api/goals/g1/extend", body: { turns: 10 } },
-    { method: "POST", url: "/api/goals/g1/accept", body: {} },
+    { method: "POST", url: "/api/goals/g1/accept", body: { startNext: true } },
+  ])
+})
+
+test("queue and request calls go to the server's routes with their bodies", async () => {
+  const calls = stubFetch(200)
+  await api.acceptGoal("g1", false)
+  await api.endGoal("g2", false)
+  await api.cancelGoal("g3")
+  await api.reorderGoals("t1", ["g5", "g4"])
+  await api.startNextGoal("t1")
+  await api.withdrawItem("i1")
+  await api.undeferItem("i2")
+  await api.updateTeam("t1", { requestSlots: 2 })
+  assert.deepEqual(calls, [
+    { method: "POST", url: "/api/goals/g1/accept", body: { startNext: false } },
+    { method: "POST", url: "/api/goals/g2/end", body: { startNext: false } },
+    { method: "POST", url: "/api/goals/g3/cancel", body: {} },
+    { method: "POST", url: "/api/teams/t1/goal-queue", body: { order: ["g5", "g4"] } },
+    { method: "POST", url: "/api/teams/t1/goal-queue/start", body: {} },
+    { method: "POST", url: "/api/items/i1/withdraw", body: {} },
+    { method: "POST", url: "/api/items/i2/undefer", body: {} },
+    { method: "PATCH", url: "/api/teams/t1", body: { requestSlots: 2 } },
   ])
 })
 
 test("ending a goal posts to its route and returns nothing", async () => {
   const calls = stubFetch(204)
   assert.strictEqual(await api.endGoal("g1"), undefined)
-  assert.deepEqual(calls, [{ method: "POST", url: "/api/goals/g1/end", body: {} }])
+  assert.deepEqual(calls, [{ method: "POST", url: "/api/goals/g1/end", body: { startNext: true } }])
 })
 
 test("a failed request throws the server's error without its invalid input prefix", async () => {

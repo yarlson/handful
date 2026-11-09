@@ -158,6 +158,8 @@ For work with several steps, give the team a goal: type `/goal` and what the tea
 - When an owner or a reviewer stops without handing its item on, for example after a failed turn or a restart, the item is blocked, and the lead decides. When a goal has nothing in flight after such a stop, the lead wakes.
 - When a member leaves the team, or you delete it, its items wait for a new owner, and a review that it did not finish is blocked for the lead.
 - When every item is done or dropped, the lead delivers the result to you in the chat. Click **Accept** above the chat, or write what to change: the lead then adds items, and the goal goes on.
+- A team works on one goal at a time. A goal that you or the lead start while the team is busy is **queued**, up to 10. The **Board** tab lists them under **Next up**, where you move them up or down or cancel them; leads can't. The bar above the chat names the next one.
+- The next goal starts when you accept or end the current one, with its own budget. With goals queued, **Accept and start next…** asks whether to start the next goal or hold the queue, and **End goal** has a **Start the next goal** box. A delivered goal never starts the next on its own. While the queue holds, the bar shows **Start now**, and a new goal joins the end of the queue.
 - After you accept a goal, the lead looks back on it once. It is asked to save up to 5 lessons in team memory, and it can suggest a change to the working agreement; only you change the agreement.
 - The **Board** tab of the team panel shows the items by state. The bar above the chat shows the goal and the turns it used.
 - A goal can use 30 turns of the board: the lead's turns, the work and the reviews. Your chat with the team and the bots' @mentions do not count. Change the number for the next goals in the team panel, under **Settings**. At the limit, the goal pauses, and the team shows a pause icon. **Add 10 turns** goes on.
@@ -168,12 +170,17 @@ For work with several steps, give the team a goal: type `/goal` and what the tea
 
 #### Teams that work together
 
-A lead can ask another team for work that its goal needs, for example a Release team that asks a Docs team for a guide. The other team's lead assigns the request to a member, or declines it with a reason.
+A lead can ask another team for work that its goal needs, for example a Release team that asks a Docs team for a guide. The other team's lead accepts the request by assigning it to a member, declines it with a reason, or defers it with a reason and a time to look at it again.
 
 - The request is an item of the asking team's goal: its turns count against that goal, and the goal waits for it before the lead can deliver.
 - The asking lead makes the items that need the result depend on the request. They start when the request is done, and the result shows on the asking team's board.
-- Each team's **Board** tab shows the requests that other teams sent to it, and both teams' chats show each change of a request.
-- Only leads send requests, and a member talks only to its own team. The asking lead cannot take a request back; end the goal to stop it.
+- While a team works on its own goal, it works on at most one request of other teams at a time; accepted requests wait their turn in arrival order. Change the number under **Requests in progress at once** in the team's **Settings**, from 1 to the number of members. Without a goal of its own, a team works on every accepted request. Looking at a new request never waits for a slot.
+- The lead accepts requests oldest first. To take one out of order, it gives a reason, which the asking team sees.
+- A declined, deferred or withdrawn request doesn't count as done: items that depend on it don't start, and the asking lead is told to re-plan.
+- The serving team's **Board** tab shows the requests in groups (in progress, waiting for a slot, awaiting triage, deferred, closed), with each one's place and why it waits. **Bring back** returns a deferred request.
+- The asking team's **Board** tab lists what it asked of other teams under **Asked of other teams**, with each request's state, place and reason. **Withdraw…** takes one back, as can the asking lead. Ending the asking goal withdraws its open requests.
+- Both teams' chats show each change of a request.
+- Only leads send requests, and a member talks only to its own team.
 - Deleting a team also deletes the requests that other teams sent to it.
 
 ### Bots that message each other

@@ -1,5 +1,6 @@
 import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifacts"
 import { errorMessage } from "./errors"
+import type { Intake, Slots } from "./queue"
 import type { Defaults, Effective } from "./model"
 
 export type Member = { id: string; name: string; effective?: Effective }
@@ -11,6 +12,7 @@ export type TeamSettings = {
   goalBudget: number
   defaultModel?: string
   defaultEffort?: string
+  requestSlots?: number // requests of other teams worked on at once beside its own goal
 }
 
 export type Bot = {
@@ -125,9 +127,10 @@ export type Goal = {
   id: string
   teamId: string
   text: string
-  state: "active" | "delivered" | "paused" | "done" | "ended"
+  state: "active" | "delivered" | "paused" | "done" | "ended" | "queued"
   budget: number
   used: number
+  queuePos: number // 1-based place in the queue; 0 unless queued
   createdAt: number
 }
 
@@ -145,7 +148,24 @@ export type Item = {
   result: string
   note: string
   reviewRounds: number
+  createdAt?: number
   updatedAt: number
+  // A request to another team carries its intake: how the serving team took it.
+  intake?: Intake
+  intakeNote?: string
+  deferRevisit?: "goal_end" | "date" | "manual"
+  deferUntil?: number
+  slotAt?: number // >0 while it holds one of the serving team's slots
+  jumpedAt?: number
+}
+
+// Request is an item that another team's goal asked a team to do, with its place and the
+// line that says why it waits.
+export type Request = Item & {
+  fromTeamId: string
+  position?: number
+  total?: number
+  reason?: { code: string; text: string; waitsOn?: string }
 }
 
 // Board is a team's open goal, or its latest one, with the goal's items, and
@@ -154,7 +174,10 @@ export type Item = {
 export type Board = {
   goal: Goal | null
   items: Item[]
-  requests: (Item & { fromTeamId: string })[]
+  requests: Request[]
+  queue: Goal[] // queued goals, in order
+  slots: Slots
+  asked: Request[] // what this team asked of other teams
   teams: Record<string, string>
 }
 
@@ -208,8 +231,14 @@ export const api = {
   board: (id: string) => request<Board>("GET", `/api/teams/${id}/board`),
   startGoal: (id: string, text: string) => request<Goal>("POST", `/api/teams/${id}/goals`, { text }),
   extendGoal: (id: string, turns: number) => request<Goal>("POST", `/api/goals/${id}/extend`, { turns }),
-  endGoal: (id: string) => request<void>("POST", `/api/goals/${id}/end`, {}),
-  acceptGoal: (id: string) => request<Goal>("POST", `/api/goals/${id}/accept`, {}),
+  endGoal: (id: string, startNext = true) => request<void>("POST", `/api/goals/${id}/end`, { startNext }),
+  acceptGoal: (id: string, startNext = true) => request<Goal>("POST", `/api/goals/${id}/accept`, { startNext }),
+  cancelGoal: (id: string) => request<void>("POST", `/api/goals/${id}/cancel`, {}),
+  reorderGoals: (teamId: string, order: string[]) =>
+    request<void>("POST", `/api/teams/${teamId}/goal-queue`, { order }),
+  startNextGoal: (teamId: string) => request<Goal>("POST", `/api/teams/${teamId}/goal-queue/start`, {}),
+  withdrawItem: (id: string) => request<Item>("POST", `/api/items/${id}/withdraw`, {}),
+  undeferItem: (id: string) => request<Item>("POST", `/api/items/${id}/undefer`, {}),
   updateBot: (id: string, patch: { name?: string; instructions?: string; model?: string; effort?: string }) =>
     request<Bot>("PATCH", `/api/bots/${id}`, patch),
   deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),

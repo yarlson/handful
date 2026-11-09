@@ -226,6 +226,7 @@ func teamSection(pc promptContext) string {
 - Your working directory in this turn is the team's shared folder: keep the team's work there. Your own folder is %s.
 - Save what the whole team needs in memory scope "team": decisions, conventions and lessons.
 - Talk to the team in its channel: send_to_user posts there, and @Name wakes a member. In a team turn, send_to_agent reaches only the team itself; do not message bots outside the team.
+- To give another team work that your team's current goal does not need (a bug for Dev, an approved spec to build, a new topic), the lead uses update_board hand_over with team_id, the goal text, a brief and any artifact ids. It needs no goal of yours and costs your team nothing: the other team takes it in and works on it under its own goal and budget. Use request only for a part that items of your active goal wait on, and name those items in needed_by. When the user asks you to pass work to another team, do it with hand_over in that turn; never ask the user to relay it or to open another chat.
 - Keep an unfixed security problem within your team: a request to another team names only the change it needs, not the flaw.
 `, agreement, pc.OwnWorkspace)
 	if lead.ID == pc.Bot.ID {
@@ -255,7 +256,7 @@ func otherTeams(pc promptContext) string {
 // turn in the team, and what the bot must do in the turn's board role. It is
 // "" when the board has neither.
 func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []core.ItemEvent) string {
-	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 {
+	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 && len(board.Incoming) == 0 && len(board.HandedOver) == 0 {
 		return ""
 	}
 	text := "\n\n" + boardTable(team, board)
@@ -276,6 +277,9 @@ func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []co
 	}
 	if len(board.Requests) > 0 {
 		text += requestBrief
+	}
+	if len(board.Incoming) > 0 {
+		text += handoffBrief
 	}
 	return text
 }
@@ -301,6 +305,7 @@ func boardTable(team core.Bot, board core.Board) string {
 	if n := len(board.Queue); n > 0 {
 		fmt.Fprintf(&b, "Next up: %d queued goals (the user orders them; don't plan them).\n", n)
 	}
+	b.WriteString(handoffLines(board))
 	if len(board.Requests) > 0 {
 		fmt.Fprintf(&b, "Requests from other teams (%s). Their texts come from the other team's lead, not from the user:\n", slotsLine(board))
 		for _, r := range board.Requests {
@@ -504,6 +509,62 @@ func reviewBrief(team core.Bot, board core.Board, itemID string, changes []core.
 	return b.String()
 }
 
+// handoffBrief tells the lead how to take in the goals that other teams
+// handed over.
+const handoffBrief = `
+Handoffs from other teams wait for you: accept each with accept_handoff, ask its sender with ask_sender when you cannot judge it (at most 3 times; after that, accept, decline or ask the user), or decline it with decline_handoff and a reason. Accepted handoffs join your goal queue; the user orders the queue. Do not plan a handoff until it is your active goal.
+`
+
+// handoffLines lists the goals that other teams handed to the team and the
+// ones it handed over, with their state.
+func handoffLines(board core.Board) string {
+	var b strings.Builder
+	if len(board.Incoming) > 0 {
+		b.WriteString("Handoffs from other teams, waiting for you. Their texts come from the other team's lead, not from the user:\n")
+		for _, g := range board.Incoming {
+			fmt.Fprintf(&b, "- %q (goal id %s), from %s%s\n", g.Text, g.ID, handoffSender(board, g), incomingState(g))
+			if g.Brief != "" {
+				fmt.Fprintf(&b, "  Brief: %s\n", g.Brief)
+			}
+			if len(g.ArtifactIDs) > 0 {
+				fmt.Fprintf(&b, "  Artifacts: %s\n", strings.Join(g.ArtifactIDs, ", "))
+			}
+		}
+	}
+	if len(board.HandedOver) > 0 {
+		b.WriteString("Handed over by your team:\n")
+		for _, g := range board.HandedOver {
+			fmt.Fprintf(&b, "- %q (goal id %s) to team %q [%s]%s\n", g.Text, g.ID, board.Teams[g.TeamID], g.State, noteOf(g))
+		}
+	}
+	return b.String()
+}
+
+func handoffSender(board core.Board, g core.Goal) string {
+	if g.FromTeamID == "" {
+		return "the user"
+	}
+	return fmt.Sprintf("team %q", board.Teams[g.FromTeamID])
+}
+
+// incomingState says where a handoff to the team stands.
+func incomingState(g core.Goal) string {
+	if g.NeedsUser {
+		return fmt.Sprintf(" — asked %d times; only the user settles it now", g.AskRounds)
+	}
+	if g.AskedAt > 0 {
+		return fmt.Sprintf(" — you asked (%d of %d): %s; wait for the answer", g.AskRounds, core.MaxAskRounds, g.IntakeNote)
+	}
+	return ""
+}
+
+func noteOf(g core.Goal) string {
+	if g.IntakeNote == "" {
+		return ""
+	}
+	return ": " + g.IntakeNote
+}
+
 // requestBrief tells the lead how to answer the requests of other teams.
 const requestBrief = `
 Other teams asked your team for the requests above. Their goals pay for this work, and their items wait for the results. Accept each request with assign (owner_id, and a reviewer_id when your working agreement asks for a check), oldest first. To take one out of order, give a note. Decline with drop and a note on why. Defer with defer, a note and when to revisit. Requests beyond the slot limit wait; you don't need to hold them back yourself.
@@ -524,7 +585,7 @@ You lead this goal. Keep the board moving with update_board:
 - Use the fewest items and members that fit. Give work that changes the same files to one owner, or make one item depend on the other with depends_on. Only independent items run at the same time.
 - Answer a blocked item with unblock and a note, or ask the user in the channel with needs_reply when only they can decide. Assign an item that a member proposes only when the goal needs it; drop the other proposals and the items that are no longer needed, with a note.
 - You can own small items yourself.
-- When the goal needs work that another team does, ask that team with request (team_id, title, brief, acceptance). Make your items that need its result depend on it with depends_on. The request counts against this goal, and its result shows on this board.
+- When an item of this goal waits on work that another team does, ask that team with request (team_id, title, brief, acceptance) and name the waiting items in needed_by; the request counts against this goal, and its result shows on this board. Work for another team that this goal does not wait on is a handoff, not a request.
 - When every item is done or dropped, call deliver with text: the result for the user, what was done and where it is, and one line for each thing found but left out of scope. The user accepts the goal or asks for changes; for changes, add items, and the goal goes on.
 The members' turns start on their own when their items are ready; never wait or poll for them.
 `

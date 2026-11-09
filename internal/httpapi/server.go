@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -76,6 +77,11 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("POST /api/goals/{id}/extend", s.extendGoal)
 	mux.HandleFunc("POST /api/goals/{id}/end", s.endGoal)
 	mux.HandleFunc("POST /api/goals/{id}/accept", s.acceptGoal)
+	mux.HandleFunc("POST /api/goals/{id}/cancel", s.cancelGoal)
+	mux.HandleFunc("POST /api/teams/{id}/goal-queue", s.reorderGoalQueue)
+	mux.HandleFunc("POST /api/teams/{id}/goal-queue/start", s.startNextGoal)
+	mux.HandleFunc("POST /api/items/{id}/withdraw", s.withdrawItem)
+	mux.HandleFunc("POST /api/items/{id}/undefer", s.undeferItem)
 	mux.HandleFunc("GET /api/bots/{id}/memory", s.listMemory)
 	mux.HandleFunc("POST /api/bots/{id}/memory", s.addMemory)
 	mux.HandleFunc("DELETE /api/memory/{id}", s.deleteMemory)
@@ -181,7 +187,7 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, core.ErrInvalid):
 		status = http.StatusBadRequest
-	case errors.Is(err, core.ErrApprovalClosed):
+	case errors.Is(err, core.ErrApprovalClosed), errors.Is(err, core.ErrConflict):
 		status = http.StatusConflict
 	}
 	if status == http.StatusInternalServerError {
@@ -192,6 +198,15 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 
 func decode(r *http.Request, v any) error {
 	return decodeLimited(r, v, maxBodyBytes)
+}
+
+// decodeOptional decodes a body that may be empty: then v keeps its values.
+func decodeOptional(r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, maxBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%w: request body: %w", core.ErrInvalid, err)
+	}
+	return nil
 }
 
 func decodeLimited(r *http.Request, v any, limit int64) error {
@@ -508,6 +523,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 		GoalBudget    *int64  `json:"goalBudget"`
 		DefaultModel  *string `json:"defaultModel"`
 		DefaultEffort *string `json:"defaultEffort"`
+		RequestSlots  *int64  `json:"requestSlots"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
@@ -515,6 +531,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{
 		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
+		RequestSlots: in.RequestSlots,
 	})
 	if err != nil {
 		s.fail(w, r, err)
@@ -565,9 +582,22 @@ func (s *server) extendGoal(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, goal)
 }
 
+// nextInput is the body of an accept or an end: whether the head of the
+// team's queue starts after it. It does unless the body says no.
+type nextInput struct {
+	StartNext *bool `json:"startNext"`
+}
+
+func (in nextInput) startNext() bool { return in.StartNext == nil || *in.StartNext }
+
 // acceptGoal is the user's acceptance of a delivered goal.
 func (s *server) acceptGoal(w http.ResponseWriter, r *http.Request) {
-	goal, err := s.svc.AcceptGoal(r.Context(), r.PathValue("id"))
+	var in nextInput
+	if err := decodeOptional(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	goal, err := s.svc.AcceptGoal(r.Context(), r.PathValue("id"), in.startNext())
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -577,13 +607,73 @@ func (s *server) acceptGoal(w http.ResponseWriter, r *http.Request) {
 
 // endGoal closes a goal and stops the turns that work for it, in every team.
 func (s *server) endGoal(w http.ResponseWriter, r *http.Request) {
+	var in nextInput
+	if err := decodeOptional(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	id := r.PathValue("id")
-	if err := s.svc.EndGoal(r.Context(), id); err != nil {
+	if err := s.svc.EndGoal(r.Context(), id, in.startNext()); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	s.runner.CancelGoal(id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// cancelGoal takes a queued goal out of its team's queue.
+func (s *server) cancelGoal(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.CancelGoal(r.Context(), r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// reorderGoalQueue puts a team's queued goals in the user's order.
+func (s *server) reorderGoalQueue(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Order []string `json:"order"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.svc.ReorderGoalQueue(r.Context(), r.PathValue("id"), in.Order); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// startNextGoal starts the head of a team's queue that holds.
+func (s *server) startNextGoal(w http.ResponseWriter, r *http.Request) {
+	goal, err := s.svc.StartNextGoal(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, goal)
+}
+
+// withdrawItem is the user's withdrawal of a request from the asking board.
+func (s *server) withdrawItem(w http.ResponseWriter, r *http.Request) {
+	it, err := s.svc.WithdrawItem(r.Context(), core.Actor{Role: core.RoleUser}, r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, it)
+}
+
+// undeferItem brings a deferred request back to the serving lead's triage.
+func (s *server) undeferItem(w http.ResponseWriter, r *http.Request) {
+	it, err := s.svc.UndeferItem(r.Context(), core.Actor{Role: core.RoleUser}, r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, it)
 }
 
 func (s *server) listMemory(w http.ResponseWriter, r *http.Request) {

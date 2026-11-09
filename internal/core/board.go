@@ -17,6 +17,7 @@ import (
 
 // Goal and item states, and the roles of board turns, as stored.
 const (
+	GoalQueued    = "queued" // waits in its team's queue; never open
 	GoalActive    = "active"
 	GoalDelivered = "delivered"
 	GoalPaused    = "paused"
@@ -53,7 +54,9 @@ type Goal struct {
 	State  string `json:"state"`
 	Budget int64  `json:"budget"`
 	// Used is how many turns of the goal have started; at Budget, the goal pauses.
-	Used      int64 `json:"used"`
+	Used int64 `json:"used"`
+	// QueuePos is the goal's place in its team's queue, from 1; 0 unless queued.
+	QueuePos  int64 `json:"queuePos"`
 	CreatedAt int64 `json:"createdAt"`
 }
 
@@ -82,7 +85,22 @@ type Item struct {
 	BlockedFrom  string `json:"blockedFrom,omitempty"`
 	ReviewRounds int64  `json:"reviewRounds"`
 	CreatedBy    string `json:"createdBy"` // LearnedByUser or a bot id
+	CreatedAt    int64  `json:"createdAt"`
 	UpdatedAt    int64  `json:"updatedAt"`
+	// Intake is how the serving team took a request: IntakeRequested and so
+	// on. It is "" for a team's own item.
+	Intake string `json:"intake,omitempty"`
+	// IntakeNote is the note of a decline, a deferral, an out-of-order
+	// accept or a withdrawal, which the asking team sees.
+	IntakeNote   string `json:"intakeNote,omitempty"`
+	DeferRevisit string `json:"deferRevisit,omitempty"` // RevisitGoalEnd, RevisitDate or RevisitManual
+	DeferUntil   int64  `json:"deferUntil,omitempty"`   // ms, for RevisitDate
+	// SlotAt is when the request got one of its team's request slots; 0
+	// while it holds none. JumpedAt is when its lead took it out of order.
+	SlotAt   int64 `json:"slotAt,omitempty"`
+	JumpedAt int64 `json:"jumpedAt,omitempty"`
+	// ForItemID is the request of another goal that a chained request serves.
+	ForItemID string `json:"forItemId,omitempty"`
 }
 
 // Board is the open goal of a team, or its latest goal, with the goal's
@@ -93,6 +111,12 @@ type Board struct {
 	Goal     *Goal     `json:"goal"`
 	Items    []Item    `json:"items"`
 	Requests []Request `json:"requests"`
+	// Queue is the team's queued goals, in order.
+	Queue []Goal `json:"queue"`
+	// Slots is how the team's request slots are used.
+	Slots Slots `json:"slots"`
+	// Asked is what the team asked of other teams, with the state of each.
+	Asked []Request `json:"asked"`
 	// Teams names the other teams that the board's items and requests involve.
 	Teams map[string]string `json:"teams"`
 }
@@ -101,6 +125,11 @@ type Board struct {
 type Request struct {
 	Item
 	FromTeamID string `json:"fromTeamId"`
+	// Position and Total place a request in its group: the requests that
+	// wait for triage, or the accepted ones that wait for a slot.
+	Position int64  `json:"position,omitempty"`
+	Total    int64  `json:"total,omitempty"`
+	Reason   Reason `json:"reason"`
 }
 
 // Actor is who acts on a board: a member in a turn in the team, or the app
@@ -128,17 +157,20 @@ type NewItem struct {
 	// ForItemID names the request of another team's goal that a request is
 	// for, when the lead's team serves several (RequestWork only).
 	ForItemID string
+	intake    string // IntakeRequested for a request
 }
 
 func toGoal(row db.Goal, used int64) Goal {
-	return Goal{ID: row.ID, TeamID: row.TeamID, Text: row.Text, State: row.State, Budget: row.Budget, Used: used, CreatedAt: row.CreatedAt}
+	return Goal{ID: row.ID, TeamID: row.TeamID, Text: row.Text, State: row.State, Budget: row.Budget, Used: used, QueuePos: row.QueuePos, CreatedAt: row.CreatedAt}
 }
 
 func toItem(row db.Item) (Item, error) {
 	it := Item{
 		ID: row.ID, TeamID: row.TeamID, GoalID: row.GoalID, Title: row.Title, Brief: row.Brief, Acceptance: row.Acceptance,
 		State: row.State, OwnerID: row.OwnerID, ReviewerID: row.ReviewerID, Result: row.Result, Note: row.Note,
-		BlockedFrom: row.BlockedFrom, ReviewRounds: row.ReviewRounds, CreatedBy: row.CreatedBy, UpdatedAt: row.UpdatedAt,
+		BlockedFrom: row.BlockedFrom, ReviewRounds: row.ReviewRounds, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		Intake: row.Intake, IntakeNote: row.IntakeNote, DeferRevisit: row.DeferRevisit, DeferUntil: row.DeferUntil,
+		SlotAt: row.SlotAt, JumpedAt: row.JumpedAt, ForItemID: row.ForItemID,
 	}
 	if err := json.Unmarshal([]byte(row.DependsOn), &it.DependsOn); err != nil {
 		return Item{}, fmt.Errorf("decode the dependencies of item %s: %w", row.ID, err)
@@ -197,7 +229,7 @@ func (s *Service) latestGoal(ctx context.Context, teamID string) (Goal, bool, er
 // Board returns the open goal of a team, or its latest goal, the goal's
 // items, and the open requests of other teams to it.
 func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
-	board := Board{Items: []Item{}, Requests: []Request{}, Teams: map[string]string{}}
+	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Teams: map[string]string{}}
 	g, ok, err := s.latestGoal(ctx, teamID)
 	if err != nil {
 		return Board{}, err
@@ -208,16 +240,8 @@ func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
 			return Board{}, err
 		}
 	}
-	rows, err := s.q.ListTeamRequests(ctx, teamID)
-	if err != nil {
-		return Board{}, fmt.Errorf("list the requests to team %s: %w", teamID, err)
-	}
-	for _, r := range rows {
-		it, err := toItem(r.Item)
-		if err != nil {
-			return Board{}, err
-		}
-		board.Requests = append(board.Requests, Request{Item: it, FromTeamID: r.FromTeamID})
+	if err := s.fillLane(ctx, teamID, &board); err != nil {
+		return Board{}, err
 	}
 	return board, s.nameTeams(ctx, teamID, &board)
 }
@@ -230,6 +254,9 @@ func (s *Service) nameTeams(ctx context.Context, teamID string, board *Board) er
 	}
 	for _, r := range board.Requests {
 		ids = append(ids, r.FromTeamID)
+	}
+	for _, r := range board.Asked {
+		ids = append(ids, r.TeamID, r.FromTeamID)
 	}
 	for _, id := range ids {
 		if _, known := board.Teams[id]; id == teamID || known {
@@ -269,25 +296,11 @@ func (s *Service) goalStart(ctx context.Context, teamID, text string) (Bot, stri
 	if _, ok := team.Lead(); !ok {
 		return Bot{}, "", invalid("%s has no members", team.Name)
 	}
-	g, ok, err := s.latestGoal(ctx, teamID)
-	if err != nil {
-		return Bot{}, "", err
-	}
-	if ok && g.Open() {
-		return Bot{}, "", invalid("%s already works on a goal; end it first", team.Name)
-	}
 	return team, text, nil
 }
 
-func (s *Service) insertGoal(ctx context.Context, q *db.Queries, team Bot, text string) (Goal, error) {
-	row, err := q.InsertGoal(ctx, db.InsertGoalParams{ID: uuid.NewString(), TeamID: team.ID, Text: text, Budget: team.Team.GoalBudget, CreatedAt: s.nowMs()})
-	if err != nil {
-		return Goal{}, fmt.Errorf("start a goal for team %s: %w", team.ID, err)
-	}
-	return toGoal(row, 0), nil
-}
-
-// StartGoal starts a goal that the user gives a team, and wakes the lead to plan it.
+// StartGoal starts a goal that the user gives a team, and wakes the lead to
+// plan it. While the team has an open goal or a queue, the goal is queued.
 func (s *Service) StartGoal(ctx context.Context, teamID, text string) (Goal, error) {
 	team, text, err := s.goalStart(ctx, teamID, text)
 	if err != nil {
@@ -296,30 +309,20 @@ func (s *Service) StartGoal(ctx context.Context, teamID, text string) (Goal, err
 	var g Goal
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		var err error
-		if g, err = s.insertGoal(ctx, q, team, text); err != nil {
+		if g, err = s.placeGoal(ctx, q, team, text); err != nil || g.State == GoalQueued {
 			return err
 		}
 		return s.wakeLead(ctx, q, team, g, "The user started a new goal: plan it.")
 	})
 	if err != nil {
-		return Goal{}, s.goalStartFailed(ctx, team, err)
+		return Goal{}, err
 	}
 	s.signalTurns()
-	s.hub.Publish(Event{Type: "bots"})
-	return g, s.boardNote(ctx, team.ID, "New goal: "+text)
-}
-
-// goalStartFailed explains a failed insert of a goal: when a goal started at
-// the same moment, the team works on a goal already.
-func (s *Service) goalStartFailed(ctx context.Context, team Bot, err error) error {
-	if g, ok, lerr := s.latestGoal(ctx, team.ID); lerr == nil && ok && g.Open() {
-		return invalid("%s already works on a goal; end it first", team.Name)
-	}
-	return err
+	return g, s.goalStarted(ctx, team, g)
 }
 
 // StartGoalAsLead starts a goal for the lead's team in a turn that a user
-// post woke. The lead plans it in the same turn.
+// post woke. The lead plans it in the same turn, unless it is queued.
 func (s *Service) StartGoalAsLead(ctx context.Context, a Actor, text string) (Goal, error) {
 	team, text, err := s.goalStart(ctx, a.TeamID, text)
 	if err != nil {
@@ -331,12 +334,25 @@ func (s *Service) StartGoalAsLead(ctx context.Context, a Actor, text string) (Go
 	if !a.UserPost {
 		return Goal{}, invalid("start a goal only in a turn that a post of the user started")
 	}
-	g, err := s.insertGoal(ctx, s.q, team, text)
+	var g Goal
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		var err error
+		g, err = s.placeGoal(ctx, q, team, text)
+		return err
+	})
 	if err != nil {
-		return Goal{}, s.goalStartFailed(ctx, team, err)
+		return Goal{}, err
 	}
+	return g, s.goalStarted(ctx, team, g)
+}
+
+// goalStarted shows a new goal, active or queued, in the team's channel.
+func (s *Service) goalStarted(ctx context.Context, team Bot, g Goal) error {
 	s.hub.Publish(Event{Type: "bots"})
-	return g, s.boardNote(ctx, team.ID, "New goal: "+text)
+	if g.State == GoalQueued {
+		return s.boardNote(ctx, team.ID, fmt.Sprintf("Queued goal #%d: %s", g.QueuePos, g.Text))
+	}
+	return s.boardNote(ctx, team.ID, "New goal: "+g.Text)
 }
 
 // boardNote shows a change of the board in the team's channel.
@@ -497,6 +513,7 @@ func (s *Service) insertItem(ctx context.Context, q *db.Queries, team Bot, g Goa
 	row, err := q.InsertItem(ctx, db.InsertItemParams{
 		ID: uuid.NewString(), TeamID: team.ID, GoalID: g.ID, Title: n.Title, Brief: n.Brief, Acceptance: n.Acceptance,
 		OwnerID: n.OwnerID, ReviewerID: n.ReviewerID, DependsOn: string(deps), CreatedBy: a.BotID, CreatedAt: now, UpdatedAt: now,
+		Intake: n.intake, ForItemID: n.ForItemID,
 	})
 	if err != nil {
 		return Item{}, fmt.Errorf("add item %q: %w", n.Title, err)
@@ -543,36 +560,39 @@ func (s *Service) moveItem(ctx context.Context, a Actor, itemID string, change f
 	if err != nil {
 		return Item{}, err
 	}
-	from := it.State
+	from, fromIntake := it.State, it.Intake
 	if err := change(team, &it); err != nil {
 		return Item{}, err
 	}
 	it.UpdatedAt = s.nowMs()
+	var notes []noteTo
 	err = s.inTx(ctx, func(q *db.Queries) error {
-		n, err := q.UpdateItem(ctx, db.UpdateItemParams{
-			State: it.State, OwnerID: it.OwnerID, ReviewerID: it.ReviewerID, Result: it.Result, Note: it.Note,
-			BlockedFrom: it.BlockedFrom, ReviewRounds: it.ReviewRounds, UpdatedAt: it.UpdatedAt, ID: it.ID, FromState: from,
-		})
+		n, err := updateItem(ctx, q, it, from, fromIntake)
 		if err != nil {
-			return fmt.Errorf("update item %s: %w", it.ID, err)
+			return err
 		}
 		if n == 0 {
 			return invalid("item %q changed meanwhile; list the board and try again", it.Title)
 		}
-		return s.wake(ctx, q, team, g, a, it)
+		if err := releaseSlot(ctx, q, &it); err != nil {
+			return err
+		}
+		if err := s.wake(ctx, q, team, g, a, it); err != nil {
+			return err
+		}
+		notes, err = s.intakeEffects(ctx, q, team, g, fromIntake, it)
+		return err
 	})
 	if err != nil {
 		return Item{}, err
 	}
 	s.signalTurns()
-	text := itemEvent(team, a, from, it)
+	text := moveText(team, a, from, fromIntake, it)
 	if g.TeamID != team.ID {
 		// The asking team sees its request move too.
-		if err := s.boardNote(ctx, g.TeamID, "Team "+team.Name+": "+text); err != nil {
-			return Item{}, err
-		}
+		notes = append([]noteTo{{g.TeamID, "Team " + team.Name + ": " + text}}, notes...)
 	}
-	return it, s.boardNote(ctx, team.ID, text)
+	return it, s.postNotes(ctx, append([]noteTo{{team.ID, text}}, notes...))
 }
 
 // wake queues the turns that an item's new state needs, in the transaction
@@ -597,13 +617,16 @@ func (s *Service) wake(ctx context.Context, q *db.Queries, team Bot, g Goal, a A
 			return err
 		}
 	}
-	return s.wakeLeads(ctx, q, team, g, a, it, items)
+	if err := s.wakeLeads(ctx, q, team, g, a, it, items); err != nil {
+		return err
+	}
+	return s.grantGoalSlots(ctx, q, g, items)
 }
 
 // wakeLeads queues the turns of the leads that must act after it changed, as
 // wake describes. items is the goal's items after the change.
 func (s *Service) wakeLeads(ctx context.Context, q *db.Queries, team Bot, g Goal, a Actor, it Item, items []Item) error {
-	if (it.State == ItemBlocked || it.OwnerID == "") && !a.leadActs(team) && a.Role != RoleUser {
+	if (it.State == ItemBlocked || (it.OwnerID == "" && it.State != ItemDropped)) && !a.leadActs(team) && a.Role != RoleUser {
 		if err := s.wakeLead(ctx, q, team, g, "The board changed."); err != nil {
 			return err
 		}
@@ -659,14 +682,21 @@ func (s *Service) wakeLead(ctx context.Context, q *db.Queries, team Bot, g Goal,
 	return err
 }
 
-// ready reports whether every item that it depends on is done or dropped.
+// ready reports whether every item that it depends on is done, or dropped as
+// no longer needed. A request that its team declined or deferred, or that
+// was withdrawn, is not done: the asking lead re-plans.
 func ready(it Item, items []Item) bool {
 	for _, dep := range items {
-		if slices.Contains(it.DependsOn, dep.ID) && dep.State != ItemDone && dep.State != ItemDropped {
+		if slices.Contains(it.DependsOn, dep.ID) && !satisfies(dep) {
 			return false
 		}
 	}
 	return true
+}
+
+// satisfies reports whether an item no longer holds up the items that depend on it.
+func satisfies(dep Item) bool {
+	return dep.State == ItemDone || (dep.State == ItemDropped && dep.Intake == "")
 }
 
 // itemTurn is the board turn in which member works on it in role, in the
@@ -678,6 +708,9 @@ func itemTurn(g Goal, it Item, member, role, prompt string) Turn {
 // itemTurns returns the turns that the new state of it needs. items is the
 // goal's items after the change.
 func itemTurns(g Goal, it Item, items []Item) []Turn {
+	if !mayRun(it) && !closed(it) {
+		return nil // a request without a slot waits for one
+	}
 	switch it.State {
 	case ItemTodo:
 		if it.OwnerID != "" && ready(it, items) {
@@ -690,7 +723,7 @@ func itemTurns(g Goal, it Item, items []Item) []Turn {
 	case ItemDone, ItemDropped:
 		var turns []Turn
 		for _, next := range items {
-			if next.State == ItemTodo && next.OwnerID != "" && slices.Contains(next.DependsOn, it.ID) && ready(next, items) {
+			if next.State == ItemTodo && next.OwnerID != "" && mayRun(next) && slices.Contains(next.DependsOn, it.ID) && ready(next, items) {
 				turns = append(turns, itemTurn(g, next, next.OwnerID, RoleWork, "Work on your item."))
 			}
 		}
@@ -699,8 +732,12 @@ func itemTurns(g Goal, it Item, items []Item) []Turn {
 	return nil
 }
 
-// inFlight reports whether a member works on it or will.
+// inFlight reports whether a member works on it or will. A deferred request
+// waits for its revisit, not for a member.
 func inFlight(it Item) bool {
+	if it.Intake == IntakeDeferred {
+		return false
+	}
 	return it.State == ItemDoing || it.State == ItemReview || (it.State == ItemTodo && it.OwnerID != "")
 }
 
@@ -767,7 +804,7 @@ func changeEvent(who, title, from, to string) (string, bool) {
 // declines it; its work counts against that goal, and the goal's items can
 // depend on it.
 func (s *Service) RequestWork(ctx context.Context, a Actor, teamID string, n NewItem) (Item, error) {
-	g, err := s.requestGoal(ctx, a, n.ForItemID)
+	g, forItem, err := s.requestGoal(ctx, a, n.ForItemID)
 	if err != nil {
 		return Item{}, err
 	}
@@ -796,6 +833,7 @@ func (s *Service) RequestWork(ctx context.Context, a Actor, teamID string, n New
 	if n, err = validNewItem(n, other, items); err != nil {
 		return Item{}, err
 	}
+	n.ForItemID, n.intake = forItem, IntakeRequested
 	var it Item
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		var err error
@@ -834,27 +872,32 @@ func (s *Service) requestNotes(ctx context.Context, a Actor, team, other Bot, g 
 // requestGoal returns the goal that a request of the actor's team counts
 // against. forItemID names a request that the team serves; without it, that
 // is the team's own active goal, else the one goal whose requests it serves.
-func (s *Service) requestGoal(ctx context.Context, a Actor, forItemID string) (Goal, error) {
+func (s *Service) requestGoal(ctx context.Context, a Actor, forItemID string) (Goal, string, error) {
 	served, err := s.servedRequests(ctx, a.TeamID)
 	if err != nil {
-		return Goal{}, err
+		return Goal{}, "", err
 	}
 	if forItemID != "" {
 		for _, r := range served {
 			if r.ID == forItemID {
-				return s.goal(ctx, s.q, r.GoalID)
+				g, err := s.goal(ctx, s.q, r.GoalID)
+				return g, r.ID, err
 			}
 		}
-		return Goal{}, invalid("%s is not a request of another team's active goal that your team works on", forItemID)
+		return Goal{}, "", invalid("%s is not a request of another team's active goal that your team works on", forItemID)
 	}
 	g, ok, err := s.latestGoal(ctx, a.TeamID)
 	if err != nil {
-		return Goal{}, err
+		return Goal{}, "", err
 	}
 	if ok && g.State == GoalActive {
-		return g, nil
+		return g, "", nil
 	}
-	return s.onlyServedGoal(ctx, served)
+	g, err = s.onlyServedGoal(ctx, served)
+	if err != nil || len(served) > 1 {
+		return g, "", err
+	}
+	return g, served[0].ID, nil
 }
 
 // onlyServedGoal returns the goal of the requests that a team without an
@@ -899,13 +942,30 @@ func (s *Service) servedRequests(ctx context.Context, teamID string) ([]Item, er
 
 // AssignItem gives an item that waits to start, or a blocked one, an owner
 // and a reviewer. A blocked item then starts again from the beginning.
-func (s *Service) AssignItem(ctx context.Context, a Actor, itemID, ownerID, reviewerID string) (Item, error) {
+//
+// Assigning a request of another team accepts it. One that skips requests
+// that arrived earlier and wait for triage needs a note on why it goes
+// first; with a note, it gets the next slot.
+func (s *Service) AssignItem(ctx context.Context, a Actor, itemID, ownerID, reviewerID, note string) (Item, error) {
+	before, err := s.earlierRequests(ctx, itemID)
+	if err != nil {
+		return Item{}, err
+	}
+	now := s.nowMs()
 	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
 		if err := a.mustLead(team); err != nil {
 			return err
 		}
 		if it.State != ItemTodo && it.State != ItemBlocked {
 			return invalid("only an item that waits to start, or a blocked one, can be assigned; %q is %s", it.Title, it.State)
+		}
+		if it.Intake == IntakeDeferred {
+			return invalid("%q is deferred; bring it back with undefer first", it.Title)
+		}
+		if it.Intake == IntakeRequested {
+			if err := accept(it, before, note, now); err != nil {
+				return err
+			}
 		}
 		if ownerID == "" {
 			return invalid("owner_id is required")
@@ -1002,11 +1062,14 @@ func (s *Service) DropItem(ctx context.Context, a Actor, itemID, note string) (I
 		if it.State == ItemDone || it.State == ItemDropped {
 			return invalid("%q is %s already", it.Title, it.State)
 		}
-		text, err := textOf("the note", note, maxItemNote, false)
+		text, err := textOf("the note", note, maxItemNote, it.Intake != "")
 		if err != nil {
 			return err
 		}
 		it.Note, it.State = text, ItemDropped
+		if it.Intake != "" {
+			it.Intake, it.IntakeNote = IntakeDeclined, text
+		}
 		return nil
 	})
 }
@@ -1097,7 +1160,10 @@ func (s *Service) pauseAtBudget(ctx context.Context, g Goal) error {
 			return err
 		}
 		paused = true
-		return s.cancelGoalTurns(ctx, q, g.ID)
+		if err := s.cancelGoalTurns(ctx, q, g.ID); err != nil {
+			return err
+		}
+		return s.goalChanged(ctx, q, g, GoalPaused)
 	})
 	if err != nil || !paused {
 		return err
@@ -1124,10 +1190,12 @@ func (s *Service) setGoalState(ctx context.Context, q *db.Queries, g Goal, state
 	if n == 0 {
 		return invalid("the goal changed meanwhile; look at the board again")
 	}
-	if state == GoalActive {
-		return nil
+	if state != GoalActive {
+		if err := s.cancelGoalTurns(ctx, q, g.ID); err != nil {
+			return err
+		}
 	}
-	return s.cancelGoalTurns(ctx, q, g.ID)
+	return s.goalChanged(ctx, q, g, state)
 }
 
 // StopTeam stops a team's board work when the user presses Stop: the team's
@@ -1254,6 +1322,14 @@ func (s *Service) requeue(ctx context.Context, q *db.Queries, g Goal, it Item, i
 // turn: the owner of an item that is being done or is ready to start, the
 // reviewer of an item in review. It returns "" when the item waits on nobody.
 func waitingOn(it Item, items []Item) (string, string) {
+	if !mayRun(it) {
+		return "", ""
+	}
+	return waitsOn(it, items)
+}
+
+// waitsOn is waitingOn without the slot of a request.
+func waitsOn(it Item, items []Item) (string, string) {
 	if it.State == ItemReview {
 		return it.ReviewerID, RoleReview
 	}
@@ -1338,8 +1414,9 @@ func checkDelivery(items []Item) error {
 
 // AcceptGoal is the user's acceptance of a delivered goal. The goal is done,
 // and the lead looks back on it in one retro turn. The acceptance shows as
-// the user's message, which answers the lead's delivery.
-func (s *Service) AcceptGoal(ctx context.Context, goalID string) (Goal, error) {
+// the user's message, which answers the lead's delivery. With startNext, the
+// head of the team's queue starts after the retro; else the queue holds.
+func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool) (Goal, error) {
 	g, err := s.goal(ctx, s.q, goalID)
 	if err != nil {
 		return Goal{}, err
@@ -1351,15 +1428,19 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string) (Goal, error) {
 	if err != nil {
 		return Goal{}, err
 	}
+	var after goalAfter
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		if err := s.setGoalState(ctx, q, g, GoalDone); err != nil {
 			return err
 		}
-		lead, ok := team.Lead()
-		if !ok {
-			return nil
+		if lead, ok := team.Lead(); ok {
+			// The retro turn comes first, so the lead looks back before it plans the next goal.
+			if _, err := s.queueTurn(ctx, q, Turn{BotID: lead.ID, Source: SourceRoom, RoomID: team.ID, GoalID: g.ID, BoardRole: RoleRetro, Prompt: "The user accepted the goal."}); err != nil {
+				return err
+			}
 		}
-		_, err := s.queueTurn(ctx, q, Turn{BotID: lead.ID, Source: SourceRoom, RoomID: team.ID, GoalID: g.ID, BoardRole: RoleRetro, Prompt: "The user accepted the goal."})
+		var err error
+		after, err = s.afterGoal(ctx, q, g.TeamID, startNext)
 		return err
 	})
 	if err != nil {
@@ -1368,26 +1449,93 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string) (Goal, error) {
 	g.State = GoalDone
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	_, err = s.AppendEntry(ctx, team.ID, KindUser, "", userBody{Text: "Accepted the goal."})
-	return g, err
+	if _, err = s.AppendEntry(ctx, team.ID, KindUser, "", userBody{Text: "Accepted the goal."}); err != nil {
+		return Goal{}, err
+	}
+	return g, s.goalAfterNotes(ctx, g.TeamID, after)
+}
+
+// goalAfter is what followed the end of a team's goal: the requests back
+// from deferral, and the next goal from the queue, if one started.
+type goalAfter struct {
+	notes   []noteTo
+	next    Goal
+	started bool
+	held    bool // the queue has goals but holds
+}
+
+// afterGoal follows the end of a team's own goal with q: the requests that
+// waited for it come back, and with startNext the head of the queue starts.
+func (s *Service) afterGoal(ctx context.Context, q *db.Queries, teamID string, startNext bool) (goalAfter, error) {
+	var after goalAfter
+	var err error
+	if after.notes, err = s.revisitGoalEnd(ctx, q, teamID); err != nil {
+		return goalAfter{}, err
+	}
+	if !startNext {
+		queue, err := queuedGoals(ctx, q, teamID)
+		after.held = len(queue) > 0
+		return after, err
+	}
+	after.next, after.started, err = s.nextGoal(ctx, q, teamID)
+	return after, err
+}
+
+// goalAfterNotes posts what followed the end of a team's goal.
+func (s *Service) goalAfterNotes(ctx context.Context, teamID string, after goalAfter) error {
+	if err := s.postNotes(ctx, after.notes); err != nil {
+		return err
+	}
+	if after.held {
+		return s.boardNote(ctx, teamID, "The queue is on hold: start the next goal when you are ready.")
+	}
+	return s.nextGoalNote(ctx, after.next, after.started)
 }
 
 // EndGoal closes an open goal before it is done; its queued turns are
-// dropped. The caller stops the goal's running turns.
-func (s *Service) EndGoal(ctx context.Context, goalID string) error {
+// dropped, and its open requests to other teams are withdrawn. With
+// startNext, the head of the team's queue starts; else the queue holds. The
+// caller stops the goal's running turns.
+func (s *Service) EndGoal(ctx context.Context, goalID string, startNext bool) error {
 	g, err := s.goal(ctx, s.q, goalID)
 	if err != nil {
 		return err
 	}
+	if g.State == GoalQueued {
+		return invalid("the goal has not started; cancel it instead")
+	}
 	if !g.Open() {
 		return invalid("the goal is over already")
 	}
-	err = s.inTx(ctx, func(q *db.Queries) error { return s.setGoalState(ctx, q, g, GoalEnded) })
+	team, err := s.GetBot(ctx, g.TeamID)
 	if err != nil {
 		return err
 	}
+	var withdrawn []noteTo
+	var after goalAfter
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		if err := s.setGoalState(ctx, q, g, GoalEnded); err != nil {
+			return err
+		}
+		var err error
+		if withdrawn, err = s.withdrawGoal(ctx, q, g, team.Name); err != nil {
+			return err
+		}
+		after, err = s.afterGoal(ctx, q, g.TeamID, startNext)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	return s.boardNote(ctx, g.TeamID, "The goal ended.")
+	if err := s.boardNote(ctx, g.TeamID, "The goal ended."); err != nil {
+		return err
+	}
+	if err := s.postNotes(ctx, withdrawn); err != nil {
+		return err
+	}
+	return s.goalAfterNotes(ctx, g.TeamID, after)
 }
 
 // SettleItems keeps active goals moving when nobody works on them. It blocks
@@ -1397,6 +1545,9 @@ func (s *Service) EndGoal(ctx context.Context, goalID string) error {
 // a goal that has nothing in flight after such a stop. live reports whether a
 // member's process runs in a team.
 func (s *Service) SettleItems(ctx context.Context, live func(botID, teamID string) bool) error {
+	if err := s.revisitDue(ctx); err != nil {
+		return err
+	}
 	goals, err := s.q.ListOpenGoals(ctx)
 	if err != nil {
 		return fmt.Errorf("list open goals: %w", err)
@@ -1515,7 +1666,7 @@ func (s *Service) GoalBoard(ctx context.Context, goalID string) (Board, error) {
 	if err != nil {
 		return Board{}, err
 	}
-	board := Board{Goal: &g, Items: items, Requests: []Request{}, Teams: map[string]string{}}
+	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Teams: map[string]string{}}
 	return board, s.nameTeams(ctx, g.TeamID, &board)
 }
 

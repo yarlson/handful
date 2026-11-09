@@ -97,7 +97,7 @@ func insertRoom(ctx context.Context, q *db.Queries, id, name, instructions strin
 		}
 	}
 	if team != nil {
-		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort}); err != nil {
+		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, RequestSlots: team.RequestSlots}); err != nil {
 			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
 		}
 	}
@@ -136,6 +136,9 @@ func (s *Service) SetRoomMembers(ctx context.Context, roomID string, memberIDs [
 		}
 	}
 	if room, err = s.GetBot(ctx, roomID); err != nil {
+		return Bot{}, err
+	}
+	if err := s.keepSlots(ctx, room); err != nil {
 		return Bot{}, err
 	}
 	if _, err := s.AppendEntry(ctx, roomID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
@@ -483,4 +486,16 @@ func (s *Service) Teammates(ctx context.Context, botID string) ([]Bot, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
 	return out, nil
+}
+
+// keepSlots stores the request slots of a team that lost members, so that
+// they stay within its number of members.
+func (s *Service) keepSlots(ctx context.Context, room Bot) error {
+	if !room.IsTeam() {
+		return nil
+	}
+	if err := s.q.SetRequestSlots(ctx, db.SetRequestSlotsParams{RequestSlots: room.Team.RequestSlots, TeamID: room.ID}); err != nil {
+		return fmt.Errorf("set the request slots of team %s: %w", room.ID, err)
+	}
+	return nil
 }

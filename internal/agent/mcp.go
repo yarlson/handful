@@ -818,7 +818,7 @@ func (t tools) boardCreate(ctx context.Context, a core.Actor, in boardInput) (st
 }
 
 func (t tools) boardAssign(ctx context.Context, a core.Actor, in boardInput) (string, error) {
-	it, err := t.svc.AssignItem(ctx, a, in.ItemID, in.OwnerID, in.ReviewerID)
+	it, err := t.svc.AssignItem(ctx, a, in.ItemID, in.OwnerID, in.ReviewerID, "")
 	if err != nil {
 		return "", err
 	}

@@ -283,7 +283,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -292,7 +292,7 @@ SELECT * FROM teams WHERE team_id = ?;
 SELECT * FROM teams;
 
 -- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ? WHERE team_id = ?;
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, start_handoffs = ? WHERE team_id = ?;
 
 -- name: SetRequestSlots :exec
 UPDATE teams SET request_slots = ? WHERE team_id = ?;
@@ -301,6 +301,41 @@ UPDATE teams SET request_slots = ? WHERE team_id = ?;
 INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: InsertHandoffGoal :one
+INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, depth)
+VALUES (?, ?, ?, 'incoming', 0, 0, ?, 'handoff', ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: ListIncomingGoals :many
+SELECT * FROM goals WHERE team_id = ? AND state = 'incoming' ORDER BY created_at, rowid;
+
+-- name: CountIncomingGoals :many
+SELECT team_id, COUNT(*) AS n FROM goals WHERE state = 'incoming' GROUP BY team_id;
+
+-- name: ListHandedOverGoals :many
+-- The handoffs of a team since a time (ms), newest first.
+SELECT * FROM goals WHERE origin = 'handoff' AND from_team_id = sqlc.arg(from_team_id) AND created_at >= sqlc.arg(since)
+ORDER BY created_at DESC, rowid DESC;
+
+-- name: AcceptHandoffGoal :execrows
+UPDATE goals SET state = sqlc.arg(state), budget = sqlc.arg(budget), queue_pos = sqlc.arg(queue_pos), asked_at = 0
+WHERE id = sqlc.arg(id) AND state = 'incoming';
+
+-- name: AskAboutHandoff :execrows
+UPDATE goals SET intake_note = sqlc.arg(intake_note), asked_at = sqlc.arg(asked_at), ask_rounds = sqlc.arg(ask_rounds)
+WHERE id = sqlc.arg(id) AND state = 'incoming' AND ask_rounds = sqlc.arg(from_rounds);
+
+-- name: AnswerHandoffGoal :execrows
+UPDATE goals SET brief = sqlc.arg(brief), asked_at = 0
+WHERE id = sqlc.arg(id) AND state = 'incoming' AND brief = sqlc.arg(from_brief);
+
+-- name: DeclineHandoffGoal :execrows
+UPDATE goals SET state = 'declined', intake_note = sqlc.arg(intake_note), asked_at = 0
+WHERE id = sqlc.arg(id) AND state = 'incoming';
+
+-- name: SetItemDependsOn :exec
+UPDATE items SET depends_on = ? WHERE id = ?;
 
 -- name: ListQueuedGoals :many
 SELECT * FROM goals WHERE team_id = ? AND state = 'queued' ORDER BY queue_pos, rowid;
@@ -316,7 +351,10 @@ UPDATE goals SET queue_pos = ? WHERE id = ? AND state = 'queued';
 SELECT * FROM goals WHERE id = ?;
 
 -- name: GetLatestGoal :one
-SELECT * FROM goals WHERE team_id = ? AND state <> 'queued'
+-- A goal that never started (queued, incoming, declined, or a handoff
+-- withdrawn before it started) is not the team's latest goal.
+SELECT * FROM goals WHERE team_id = ? AND state NOT IN ('queued', 'incoming', 'declined')
+  AND NOT (state = 'ended' AND origin = 'handoff' AND budget = 0)
 ORDER BY state IN ('active', 'delivered', 'paused') DESC, created_at DESC, rowid DESC
 LIMIT 1;
 
@@ -333,6 +371,9 @@ UPDATE goals SET budget = ? WHERE id = ?;
 -- name: PauseGoalAtBudget :execrows
 UPDATE goals SET state = 'paused'
 WHERE id = sqlc.arg(id) AND state = 'active' AND budget <= sqlc.arg(used);
+
+-- name: GetTurnGoal :one
+SELECT goal_id FROM turns WHERE id = ?;
 
 -- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns

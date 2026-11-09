@@ -39,6 +39,9 @@ type Team struct {
 	// RequestSlots is how many requests of other teams the team works on at
 	// once while its own goal is active: 1 to the number of members.
 	RequestSlots int64 `json:"requestSlots"`
+	// StartHandoffs is what an accepted handoff does when the team is free:
+	// StartAuto starts it, StartAsk holds the queue until the user starts it.
+	StartHandoffs string `json:"startHandoffs"`
 }
 
 func (b Bot) IsTeam() bool { return b.Team != nil }
@@ -66,6 +69,7 @@ type TeamSettings struct {
 	DefaultModel  string
 	DefaultEffort string
 	RequestSlots  int64
+	StartHandoffs string // "" means StartAuto
 }
 
 // TeamPatch changes the settings of a team. A nil field keeps its value.
@@ -76,6 +80,7 @@ type TeamPatch struct {
 	DefaultModel  *string
 	DefaultEffort *string
 	RequestSlots  *int64
+	StartHandoffs *string
 }
 
 // TeamWorkspace is the shared folder of a team. Every turn in the team runs there.
@@ -116,7 +121,7 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		if err := q.UpdateTeam(ctx, db.UpdateTeamParams{
 			LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
-			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots, TeamID: id,
+			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots, StartHandoffs: updated.StartHandoffs, TeamID: id,
 		}); err != nil {
 			return fmt.Errorf("update team %s: %w", id, err)
 		}
@@ -146,6 +151,7 @@ func (p TeamPatch) apply(t Team) TeamSettings {
 	setIf(&set.DefaultModel, p.DefaultModel)
 	setIf(&set.DefaultEffort, p.DefaultEffort)
 	setIf(&set.RequestSlots, p.RequestSlots)
+	setIf(&set.StartHandoffs, p.StartHandoffs)
 	return set
 }
 
@@ -187,7 +193,22 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if slots < 1 || slots > int64(len(members)) {
 		return nil, invalid("Requests in progress at once must be from 1 to %d.", len(members))
 	}
-	return &Team{LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots}, nil
+	start, err := validStartHandoffs(set.StartHandoffs)
+	if err != nil {
+		return nil, err
+	}
+	return &Team{LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots, StartHandoffs: start}, nil
+}
+
+// validStartHandoffs checks what accepted handoffs do; "" means StartAuto.
+func validStartHandoffs(start string) (string, error) {
+	if start == "" {
+		return StartAuto, nil
+	}
+	if start != StartAuto && start != StartAsk {
+		return "", invalid("Accepted handoffs must start %q or wait for the user (%q).", StartAuto, StartAsk)
+	}
+	return start, nil
 }
 
 // teamOf returns the team settings of a room, or nil when the room is no team.
@@ -212,7 +233,7 @@ func toTeam(row db.Team, members []Member) *Team {
 	}
 	return &Team{
 		LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
-		RequestSlots: clampSlots(row.RequestSlots, len(members)),
+		RequestSlots: clampSlots(row.RequestSlots, len(members)), StartHandoffs: row.StartHandoffs,
 	}
 }
 

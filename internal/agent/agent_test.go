@@ -1540,7 +1540,8 @@ func TestALeadServingTwoGoalsPassesWorkOnForTheRequestItNames(t *testing.T) {
 	h.newGoal(t, ops)
 	request := func(lead core.Bot, team core.Bot, title string) core.Item {
 		t.Helper()
-		it, err := h.svc.RequestWork(ctx, core.Actor{BotID: lead.ID, TeamID: team.ID, Role: core.RoleLead}, docs.ID, core.NewItem{Title: title, Brief: "Write it.", Acceptance: "It exists."})
+		a := core.Actor{BotID: lead.ID, TeamID: team.ID, Role: core.RoleLead}
+		it, err := h.svc.RequestWork(ctx, a, docs.ID, core.NewItem{Title: title, Brief: "Write it.", Acceptance: "It exists.", NeededBy: []string{waitingItem(t, h, a, title)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1610,7 +1611,8 @@ func TestALeadAsksAnotherTeamWhoseLeadSeesTheRequest(t *testing.T) {
 	lead := session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: ship.ID, BoardRole: core.RoleLead})
 	member := session(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t2", RoomID: ship.ID})
 
-	args := map[string]any{"action": "request", "team_id": docs.ID, "title": "Guide", "brief": "Write the export guide.", "acceptance": "guide.md exists."}
+	waits := waitingItem(t, h, core.Actor{BotID: ana.ID, TeamID: ship.ID, Role: core.RoleLead}, "Guide")
+	args := map[string]any{"action": "request", "team_id": docs.ID, "title": "Guide", "brief": "Write the export guide.", "acceptance": "guide.md exists.", "depends_on": []string{waits}}
 	if text, isErr := callText(t, member, "update_board", args); !isErr || !strings.Contains(text, "only the lead") {
 		t.Fatalf("a member's request = %q (error %v); want an error", text, isErr)
 	}
@@ -1791,7 +1793,10 @@ func TestATurnForAnotherTeamsGoalShowsOnlyTheRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.newGoal(t, ship)
-	if _, err := h.svc.RequestWork(ctx, core.Actor{BotID: ana.ID, TeamID: ship.ID, Role: core.RoleLead}, docs.ID, boardItem("Guide", "Write the guide.", "", "")); err != nil {
+	shipLead := core.Actor{BotID: ana.ID, TeamID: ship.ID, Role: core.RoleLead}
+	guide := boardItem("Guide", "Write the guide.", "", "")
+	guide.NeededBy = []string{waitingItem(t, h, shipLead, "Guide")}
+	if _, err := h.svc.RequestWork(ctx, shipLead, docs.ID, guide); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)

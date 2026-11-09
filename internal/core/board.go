@@ -23,6 +23,8 @@ const (
 	GoalPaused    = "paused"
 	GoalDone      = "done"
 	GoalEnded     = "ended"
+	GoalIncoming  = "incoming" // a handoff that its team has not accepted; never open
+	GoalDeclined  = "declined" // a handoff that its team declined; final
 
 	ItemTodo    = "todo"
 	ItemDoing   = "doing"
@@ -58,6 +60,7 @@ type Goal struct {
 	// QueuePos is the goal's place in its team's queue, from 1; 0 unless queued.
 	QueuePos  int64 `json:"queuePos"`
 	CreatedAt int64 `json:"createdAt"`
+	Handoff
 }
 
 // Open reports whether the goal can still change: it is active, delivered or paused.
@@ -123,6 +126,11 @@ type Board struct {
 	Slots Slots `json:"slots"`
 	// Asked is what the team asked of other teams, with the state of each.
 	Asked []Request `json:"asked"`
+	// Incoming is the handoffs that wait for the team to take them in, oldest
+	// first; HandedOver is the team's handoffs to other teams of the last 30
+	// days, newest first.
+	Incoming   []Goal `json:"incoming"`
+	HandedOver []Goal `json:"handedOver"`
 	// Teams names the other teams that the board's items and requests involve.
 	Teams map[string]string `json:"teams"`
 }
@@ -163,11 +171,17 @@ type NewItem struct {
 	// ForItemID names the request of another team's goal that a request is
 	// for, when the lead's team serves several (RequestWork only).
 	ForItemID string
-	intake    string // IntakeRequested for a request
+	// NeededBy names the todo or blocked items of the asking goal that wait
+	// on a request (RequestWork only); they come to depend on it.
+	NeededBy []string
+	intake   string // IntakeRequested for a request
 }
 
 func toGoal(row db.Goal, used int64) Goal {
-	return Goal{ID: row.ID, TeamID: row.TeamID, Text: row.Text, State: row.State, Budget: row.Budget, Used: used, QueuePos: row.QueuePos, CreatedAt: row.CreatedAt}
+	return Goal{
+		ID: row.ID, TeamID: row.TeamID, Text: row.Text, State: row.State, Budget: row.Budget, Used: used, QueuePos: row.QueuePos, CreatedAt: row.CreatedAt,
+		Handoff: toHandoff(row),
+	}
 }
 
 func toItem(row db.Item) (Item, error) {
@@ -235,7 +249,7 @@ func (s *Service) latestGoal(ctx context.Context, teamID string) (Goal, bool, er
 // Board returns the open goal of a team, or its latest goal, the goal's
 // items, and the open requests of other teams to it.
 func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
-	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Teams: map[string]string{}}
+	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Teams: map[string]string{}}
 	g, ok, err := s.latestGoal(ctx, teamID)
 	if err != nil {
 		return Board{}, err
@@ -250,6 +264,9 @@ func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
 		return Board{}, err
 	}
 	if err := s.boardHistory(ctx, &board); err != nil {
+		return Board{}, err
+	}
+	if err := s.fillHandoffs(ctx, teamID, &board); err != nil {
 		return Board{}, err
 	}
 	return board, s.nameTeams(ctx, teamID, &board)
@@ -893,12 +910,18 @@ func (s *Service) RequestWork(ctx context.Context, a Actor, teamID string, n New
 	if n, err = validNewItem(n, other, items); err != nil {
 		return Item{}, err
 	}
+	waiting, err := neededBy(n.NeededBy, items, forItem)
+	if err != nil {
+		return Item{}, err
+	}
 	n.ForItemID, n.intake = forItem, IntakeRequested
 	var it Item
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		var err error
-		it, err = s.insertItem(ctx, q, other, g, a, n)
-		return err
+		if it, err = s.insertItem(ctx, q, other, g, a, n); err != nil {
+			return err
+		}
+		return s.waitOn(ctx, q, waiting, it.ID)
 	})
 	if err != nil {
 		return Item{}, err
@@ -965,7 +988,8 @@ func (s *Service) requestGoal(ctx context.Context, a Actor, forItemID string) (G
 func (s *Service) onlyServedGoal(ctx context.Context, served []Item) (Goal, error) {
 	if len(served) == 0 {
 		return Goal{}, invalid("your team has no active goal and works on no request of another team; " +
-			"the user starts a goal in the team's channel, or the team whose goal needs the work asks for it")
+			"the user starts a goal in the team's channel, or the team whose goal needs the work asks for it, " +
+			"or use hand_over to give that team the work as a goal of its own")
 	}
 	ids := []string{}
 	for _, r := range served {
@@ -1430,7 +1454,7 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 	g.State = GoalDelivered
 	s.hub.Publish(Event{Type: "entry", BotID: team.ID, Entry: &e})
 	s.hub.Publish(Event{Type: "bots"})
-	return g, nil
+	return g, s.handoffResult(ctx, g, "delivered: "+summary+" —", true)
 }
 
 // deliverable checks that the actor, the lead, can deliver its team's active
@@ -1518,6 +1542,9 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool)
 	if _, err = s.AppendEntry(ctx, team.ID, KindUser, "", userBody{Text: "Accepted the goal."}); err != nil {
 		return Goal{}, err
 	}
+	if err := s.handoffResult(ctx, g, "finished, and the user accepted,", false); err != nil {
+		return Goal{}, err
+	}
 	return g, s.goalAfterNotes(ctx, g.TeamID, after)
 }
 
@@ -1538,12 +1565,13 @@ func (s *Service) afterGoal(ctx context.Context, q *db.Queries, teamID string, s
 	if after.notes, err = s.revisitGoalEnd(ctx, q, teamID); err != nil {
 		return goalAfter{}, err
 	}
-	if !startNext {
-		queue, err := queuedGoals(ctx, q, teamID)
-		after.held = len(queue) > 0
-		return after, err
+	if startNext {
+		if after.next, after.started, err = s.nextGoal(ctx, q, teamID, false); err != nil || after.started {
+			return after, err
+		}
 	}
-	after.next, after.started, err = s.nextGoal(ctx, q, teamID)
+	queue, err := queuedGoals(ctx, q, teamID)
+	after.held = len(queue) > 0
 	return after, err
 }
 
@@ -1599,6 +1627,9 @@ func (s *Service) EndGoal(ctx context.Context, goalID string, startNext bool) er
 		return err
 	}
 	if err := s.boardNote(ctx, g.TeamID, "The goal ended."); err != nil {
+		return err
+	}
+	if err := s.handoffResult(ctx, g, "stopped: the user ended", false); err != nil {
 		return err
 	}
 	if err := s.postNotes(ctx, withdrawn); err != nil {
@@ -1735,7 +1766,7 @@ func (s *Service) GoalBoard(ctx context.Context, goalID string) (Board, error) {
 	if err != nil {
 		return Board{}, err
 	}
-	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Teams: map[string]string{}}
+	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Teams: map[string]string{}}
 	if err := s.withHistory(ctx, board.Items); err != nil {
 		return Board{}, err
 	}

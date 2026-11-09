@@ -39,7 +39,7 @@ func (f *boardFixture) wantTurns(t *testing.T, step string, want ...string) {
 // ask has the fixture's lead ask team other for an item.
 func (f *boardFixture) ask(t *testing.T, other Bot, n NewItem) Item {
 	t.Helper()
-	it, err := f.svc.RequestWork(context.Background(), f.lead, other.ID, n)
+	it, err := f.svc.RequestWork(context.Background(), f.lead, other.ID, f.needs(t, n))
 	if err != nil {
 		t.Fatalf("request %q: %v", n.Title, err)
 	}
@@ -824,7 +824,7 @@ func TestEndingTheAskingGoalWithdrawsItsRequests(t *testing.T) {
 	other := newGoalOf(t, l.svc, "Ops", "Olga", "Oz", "Run it.")
 	guide := l.ask(t, l.docs, item("Guide", "", ""))
 	l.accept(t, guide, l.eve, "")
-	waiting, err := l.svc.RequestWork(ctx, other.lead, l.docs.ID, item("Runbook", "", ""))
+	waiting, err := l.svc.RequestWork(ctx, other.lead, l.docs.ID, waitedOn(t, l.svc, other.lead, item("Runbook", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1040,7 +1040,7 @@ func TestPausingTheAskingGoalFreesItsSlots(t *testing.T) {
 	ctx := context.Background()
 	other := newGoalOf(t, l.svc, "Ops", "Olga", "Oz", "Run it.")
 	guide := l.ask(t, l.docs, item("Guide", "", ""))
-	runbook, err := l.svc.RequestWork(ctx, other.lead, l.docs.ID, item("Runbook", "", ""))
+	runbook, err := l.svc.RequestWork(ctx, other.lead, l.docs.ID, waitedOn(t, l.svc, other.lead, item("Runbook", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,7 +1084,7 @@ func TestTheRequestersSeeWhatTheirRequestsWaitOn(t *testing.T) {
 		t.Fatalf("API = %+v; want it waiting for Dev's triage only", r)
 	}
 	// Docs asks Ship back: the two teams wait on each other.
-	back, err := l.svc.RequestWork(ctx, l.docsLead, l.team.ID, item("Review", "", ""))
+	back, err := l.svc.RequestWork(ctx, l.docsLead, l.team.ID, waitedOn(t, l.svc, l.docsLead, item("Review", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}

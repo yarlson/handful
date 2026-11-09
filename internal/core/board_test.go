@@ -47,6 +47,27 @@ func newBoardFixture(t *testing.T, budget int64) *boardFixture {
 	return f
 }
 
+// needs gives request n the item of the fixture's goal that waits on it,
+// unless it names one: a todo item "<title> waits" without an owner.
+func (f *boardFixture) needs(t *testing.T, n NewItem) NewItem {
+	t.Helper()
+	if len(n.NeededBy) == 0 {
+		n.NeededBy = []string{f.create(t, f.lead, item(n.Title+" waits", "", "")).ID}
+	}
+	return n
+}
+
+// waitedOn gives request n an item of the lead a's goal that waits on it.
+func waitedOn(t *testing.T, svc *Service, a Actor, n NewItem) NewItem {
+	t.Helper()
+	w, err := svc.CreateItem(context.Background(), a, item(n.Title+" waits", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.NeededBy = []string{w.ID}
+	return n
+}
+
 // as is bot b in a turn in the team with a board role.
 func (f *boardFixture) as(b Bot, role string) Actor {
 	return Actor{BotID: b.ID, TeamID: f.team.ID, Role: role}
@@ -929,7 +950,10 @@ func TestALeadAsksAnotherTeamAndItsResultUnblocksTheWaitingItems(t *testing.T) {
 	docs, dee, eve := f.docsTeam(t)
 	teams := map[string]string{f.team.ID: "Ship", docs.ID: "Docs"}
 
-	req, err := f.svc.RequestWork(ctx, f.lead, docs.ID, NewItem{Title: "Guide", Brief: "Write the export guide.", Acceptance: "guide.md exists.", OwnerID: f.ana.ID})
+	// Publish waits on the request: needed_by makes it depend on it, and its
+	// work, ready a moment ago, waits.
+	publish := f.create(t, f.lead, item("Publish", f.ana.ID, ""))
+	req, err := f.svc.RequestWork(ctx, f.lead, docs.ID, NewItem{Title: "Guide", Brief: "Write the export guide.", Acceptance: "guide.md exists.", OwnerID: f.ana.ID, NeededBy: []string{publish.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -950,11 +974,10 @@ func TestALeadAsksAnotherTeamAndItsResultUnblocksTheWaitingItems(t *testing.T) {
 	if err != nil || board.Goal != nil || len(board.Requests) != 1 || board.Requests[0].ID != req.ID || board.Requests[0].FromTeamID != f.team.ID || board.Teams[f.team.ID] != "Ship" {
 		t.Fatalf("Docs's board = %+v, %v; want Ship's request", board, err)
 	}
-	if ship, _ := f.svc.Board(ctx, f.team.ID); len(ship.Items) != 1 || ship.Items[0].TeamID != docs.ID || ship.Teams[docs.ID] != "Docs" {
-		t.Fatalf("Ship's board = %+v; want the request among its goal's items", ship)
+	if ship, _ := f.svc.Board(ctx, f.team.ID); len(ship.Items) != 2 || ship.Items[1].TeamID != docs.ID || ship.Teams[docs.ID] != "Docs" ||
+		!slices.Equal(ship.Items[0].DependsOn, []string{req.ID}) {
+		t.Fatalf("Ship's board = %+v; want the request among its goal's items, and Publish waiting on it", ship)
 	}
-
-	publish := f.create(t, f.lead, item("Publish", f.ana.ID, "", req.ID))
 	finishQueued(t, f.svc)
 	if _, err := f.svc.AssignItem(ctx, f.lead, req.ID, f.ana.ID, "", ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("the asking lead assigns the request: err = %v; want ErrInvalid", err)
@@ -1038,7 +1061,7 @@ func TestADeclinedRequestWakesTheAskingLead(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
 	docs, dee, _ := f.docsTeam(t)
-	req, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Guide", "", ""))
+	req, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Guide", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1056,7 +1079,7 @@ func TestABlockedRequestWakesBothLeadsWhenNothingElseRuns(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
 	docs, dee, eve := f.docsTeam(t)
-	req, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Guide", "", ""))
+	req, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Guide", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1157,16 +1180,16 @@ func TestStopBlocksTheRequestsATeamWorksOnWithoutWakingItsLead(t *testing.T) {
 	ctx := context.Background()
 	docs, dee, eve := f.docsTeam(t)
 	teams := map[string]string{f.team.ID: "Ship", docs.ID: "Docs"}
-	guide, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Guide", "", ""))
+	guide, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Guide", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	spare, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spare", "", ""))
+	spare, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Spare", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.items[guide.ID], f.items[spare.ID] = guide.Title, spare.Title
-	faq, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("FAQ", "", ""))
+	faq, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("FAQ", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1592,7 +1615,7 @@ func TestATeamServingARequestPassesWorkOnToAThirdTeamUnderTheAskingGoal(t *testi
 	dev, cal := f.otherTeam(t, "Dev", "Cal", "Dan")
 	teams := map[string]string{f.team.ID: "Ship", docs.ID: "Docs", dev.ID: "Dev"}
 
-	spec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec", "", ""))
+	spec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Spec", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1635,7 +1658,7 @@ func TestATeamServingARequestPassesWorkOnToAThirdTeamUnderTheAskingGoal(t *testi
 		}
 	}
 	ship, err := f.svc.Board(ctx, f.team.ID)
-	if err != nil || len(ship.Items) != 2 || ship.Items[1].ID != build.ID || ship.Teams[dev.ID] != "Dev" {
+	if err != nil || len(ship.Items) != 3 || ship.Items[2].ID != build.ID || ship.Teams[dev.ID] != "Dev" {
 		t.Fatalf("Ship's board = %+v, %v; want the chained request among its goal's items", ship, err)
 	}
 	if board, _ := f.svc.Board(ctx, dev.ID); len(board.Requests) != 1 || board.Requests[0].FromTeamID != f.team.ID {
@@ -1671,7 +1694,7 @@ func TestARequestWithoutAGoalSaysHowToGoOn(t *testing.T) {
 	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "the user starts a goal") {
 		t.Fatalf("request without any goal: err = %v; want ErrInvalid that says how to go on", err)
 	}
-	spec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec", "", ""))
+	spec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Spec", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1681,7 +1704,7 @@ func TestARequestWithoutAGoalSaysHowToGoOn(t *testing.T) {
 	if _, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Build", "", "")); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("request for a dropped request: err = %v; want ErrInvalid", err)
 	}
-	if _, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec 2", "", "")); err != nil {
+	if _, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Spec 2", "", ""))); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.svc.EndGoal(ctx, f.goal.ID, true); err != nil {
@@ -1705,11 +1728,12 @@ func TestALeadServingSeveralGoalsNamesTheRequestItsWorkIsFor(t *testing.T) {
 	finishQueued(t, f.svc)
 	docsLead := Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}
 
-	shipSpec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec", "", ""))
+	shipSpec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, f.needs(t, item("Spec", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	opsSpec, err := f.svc.RequestWork(ctx, Actor{BotID: olga.ID, TeamID: ops.ID, Role: RoleLead}, docs.ID, item("Runbook", "", ""))
+	opsLead := Actor{BotID: olga.ID, TeamID: ops.ID, Role: RoleLead}
+	opsSpec, err := f.svc.RequestWork(ctx, opsLead, docs.ID, waitedOn(t, f.svc, opsLead, item("Runbook", "", "")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1730,7 +1754,7 @@ func TestALeadServingSeveralGoalsNamesTheRequestItsWorkIsFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	finishQueued(t, f.svc)
-	own, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Own", "", ""))
+	own, err := f.svc.RequestWork(ctx, docsLead, dev.ID, waitedOn(t, f.svc, docsLead, item("Own", "", "")))
 	if err != nil || own.GoalID == f.goal.ID || own.GoalID == opsGoal.ID {
 		t.Fatalf("request with an own goal = %+v, %v; want an item of Docs's goal", own, err)
 	}

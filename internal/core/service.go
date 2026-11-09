@@ -57,8 +57,10 @@ type Bot struct {
 	Team            *Team    `json:"team,omitempty"`          // set for a room that is a team
 	Attention       string   `json:"attention,omitempty"`     // set by ListBots: AttentionApproval or AttentionQuestion
 	OpenQuestions   int64    `json:"openQuestions,omitempty"` // set by ListBots: the open questions in the chat
-	CreatedAt       int64    `json:"createdAt"`
-	UpdatedAt       int64    `json:"updatedAt"`
+	// IncomingHandoffs is set by ListBots on a team: the handoffs that wait for it.
+	IncomingHandoffs int64 `json:"incomingHandoffs,omitempty"`
+	CreatedAt        int64 `json:"createdAt"`
+	UpdatedAt        int64 `json:"updatedAt"`
 }
 
 func (b Bot) IsRoom() bool { return b.Kind == KindRoom }
@@ -311,6 +313,10 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	if err != nil {
 		return nil, err
 	}
+	incoming, err := s.incomingCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	bots := make([]Bot, 0, len(rows))
 	for _, r := range rows {
 		b := toBot(r)
@@ -318,7 +324,7 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 		if row, ok := teamRows[b.ID]; ok {
 			b.Team = toTeam(row, b.Members)
 		}
-		b.Attention, b.OpenQuestions = attention[b.ID], open[b.ID]
+		b.Attention, b.OpenQuestions, b.IncomingHandoffs = attention[b.ID], open[b.ID], incoming[b.ID]
 		bots = append(bots, b)
 	}
 	return bots, nil

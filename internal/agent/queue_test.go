@@ -69,7 +69,7 @@ func TestLeadsDeferUndeferWithdrawAndTakeRequestsOutOfOrder(t *testing.T) {
 	asker := core.Actor{BotID: ana.ID, TeamID: ship.ID, Role: core.RoleLead}
 	var reqs []core.Item
 	for _, title := range []string{"Guide", "FAQ"} {
-		it, err := h.svc.RequestWork(ctx, asker, docs.ID, core.NewItem{Title: title, Brief: "Write it.", Acceptance: "It exists."})
+		it, err := h.svc.RequestWork(ctx, asker, docs.ID, core.NewItem{Title: title, Brief: "Write it.", Acceptance: "It exists.", NeededBy: []string{waitingItem(t, h, asker, title)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -175,4 +175,15 @@ func TestParseRevisit(t *testing.T) {
 	if _, until, _ := parseRevisit("2026-11-10T09:00:00+02:00"); until != time.Date(2026, 11, 10, 7, 0, 0, 0, time.UTC).UnixMilli() {
 		t.Errorf("until = %d", until)
 	}
+}
+
+// waitingItem adds to the goal of lead a an item, without an owner, that
+// waits on a request for title, and returns its id.
+func waitingItem(t *testing.T, h *harness, a core.Actor, title string) string {
+	t.Helper()
+	it, err := h.svc.CreateItem(context.Background(), a, core.NewItem{Title: title + " waits", Brief: "Use " + title + ".", Acceptance: title + " is used."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return it.ID
 }

@@ -59,13 +59,23 @@ type Entry struct {
 }
 
 type Goal struct {
-	ID        string `json:"id"`
-	TeamID    string `json:"team_id"`
-	Text      string `json:"text"`
-	State     string `json:"state"`
-	Budget    int64  `json:"budget"`
-	QueuePos  int64  `json:"queue_pos"`
-	CreatedAt int64  `json:"created_at"`
+	ID          string `json:"id"`
+	TeamID      string `json:"team_id"`
+	Text        string `json:"text"`
+	State       string `json:"state"`
+	Budget      int64  `json:"budget"`
+	QueuePos    int64  `json:"queue_pos"`
+	CreatedAt   int64  `json:"created_at"`
+	Origin      string `json:"origin"`
+	FromTeamID  string `json:"from_team_id"`
+	FromBotID   string `json:"from_bot_id"`
+	FromGoalID  string `json:"from_goal_id"`
+	Brief       string `json:"brief"`
+	ArtifactIds string `json:"artifact_ids"`
+	IntakeNote  string `json:"intake_note"`
+	AskedAt     int64  `json:"asked_at"`
+	AskRounds   int64  `json:"ask_rounds"`
+	Depth       int64  `json:"depth"`
 }
 
 type Item struct {
@@ -145,6 +155,7 @@ type Team struct {
 	DefaultModel  string `json:"default_model"`
 	DefaultEffort string `json:"default_effort"`
 	RequestSlots  int64  `json:"request_slots"`
+	StartHandoffs string `json:"start_handoffs"`
 }
 
 type ToolGrant struct {

@@ -850,7 +850,7 @@ func (t tools) boardAssign(ctx context.Context, a core.Actor, in boardInput) (st
 }
 
 func (t tools) boardRequest(ctx context.Context, a core.Actor, in boardInput) (string, error) {
-	it, err := t.svc.RequestWork(ctx, a, in.TeamID, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance, ForItemID: in.ItemID})
+	it, err := t.svc.RequestWork(ctx, a, in.TeamID, core.NewItem{Title: in.Title, Brief: in.Brief, Acceptance: in.Acceptance, ForItemID: in.ItemID, NeededBy: in.DependsOn})
 	if err != nil {
 		return "", err
 	}

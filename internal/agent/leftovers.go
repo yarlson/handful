@@ -168,7 +168,7 @@ func stopProcessGroup(pgid int, kill func(int, syscall.Signal) error) error {
 	}
 	deadline := time.Now().Add(groupStopWait)
 	for time.Now().Before(deadline) {
-		if kill(-pgid, 0) != nil {
+		if errors.Is(kill(-pgid, 0), syscall.ESRCH) {
 			return nil
 		}
 		time.Sleep(groupPoll)

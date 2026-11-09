@@ -30,7 +30,6 @@ const (
 	MaxAskRounds    = 3  // questions of the receiving lead to the sender
 
 	maxHandoffArtifacts = 10
-	handedOverWindow    = 30 * 24 * time.Hour
 )
 
 // Handoff is what a goal that another team handed over keeps about it.
@@ -632,7 +631,9 @@ func (s *Service) fillHandoffs(ctx context.Context, teamID string, board *Board)
 	for _, row := range incoming {
 		board.Incoming = append(board.Incoming, toGoal(row, 0))
 	}
-	sent, err := s.q.ListHandedOverGoals(ctx, db.ListHandedOverGoalsParams{FromTeamID: teamID, Since: s.nowMs() - handedOverWindow.Milliseconds()})
+	// The handoffs of the last 30 days.
+	since := s.now().Add(-30 * 24 * time.Hour).UnixMilli()
+	sent, err := s.q.ListHandedOverGoals(ctx, db.ListHandedOverGoalsParams{FromTeamID: teamID, Since: since})
 	if err != nil {
 		return fmt.Errorf("list the handoffs of team %s: %w", teamID, err)
 	}

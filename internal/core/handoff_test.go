@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // handoffFixture is the board fixture with team Docs (Dee leads) and team Dev
@@ -787,5 +788,69 @@ func TestStartHandoffsIsAutoOrAsk(t *testing.T) {
 	team, err := h.svc.CreateTeam(ctx, "Asks", "", []string{h.eve.ID}, TeamSettings{StartHandoffs: StartAsk})
 	if err != nil || team.Team.StartHandoffs != StartAsk {
 		t.Fatalf("a team created to ask = %+v, %v", team.Team, err)
+	}
+}
+
+func TestAHandoffFromABoardTurnIsOneDeeperThanItsGoal(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	g := h.handOver(t, f.lead, f.team, h.docs, "Guide.")
+	finishQueued(t, h.svc)
+	if _, err := h.svc.AcceptHandoff(ctx, h.docsLead, g.ID); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := h.svc.QueuedTurns(ctx, 10)
+	if err != nil || len(turns) != 1 || turns[0].GoalID != g.ID {
+		t.Fatalf("queued = %+v, %v; want Dee's planning turn", turns, err)
+	}
+	// The planning turn of the handoff's goal hands over from that goal.
+	a := h.docsLead
+	a.TurnID = turns[0].ID
+	next, err := h.svc.HandOver(ctx, a, h.docs.ID, h.dev.ID, NewHandoff{Text: "Build it."})
+	if err != nil || next.FromGoalID != g.ID || next.Depth != 2 {
+		t.Fatalf("handoff from the planning turn = %+v, %v; want it from the handoff's goal, depth 2", next, err)
+	}
+}
+
+func TestTheSenderSeesItsHandoffsOfTheLastThirtyDays(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	g := h.handOver(t, f.lead, f.team, h.docs, "Guide.")
+	start := time.Now()
+	for _, c := range []struct {
+		after time.Duration
+		n     int
+	}{{29 * 24 * time.Hour, 1}, {30*24*time.Hour + time.Hour, 0}} {
+		h.svc.now = func() time.Time { return start.Add(c.after) }
+		board, err := h.svc.Board(ctx, f.team.ID)
+		if err != nil || len(board.HandedOver) != c.n {
+			t.Fatalf("handed over %s later = %+v, %v; want %d", c.after, board.HandedOver, err, c.n)
+		}
+		if c.n == 1 && board.HandedOver[0].ID != g.ID {
+			t.Fatalf("handed over = %+v", board.HandedOver)
+		}
+	}
+}
+
+func TestAHandoffCarriesUpToTenArtifacts(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	var ids []string
+	for i := range maxHandoffArtifacts + 1 {
+		kind, title, content := "note", fmt.Sprintf("Note %d", i), "x"
+		a, err := h.svc.CreateArtifact(ctx, f.bo.ID, ArtifactInput{Kind: &kind, Title: &title, Content: &content})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, a.ID)
+	}
+	if _, err := h.svc.HandOver(ctx, f.lead, "", h.docs.ID, NewHandoff{Text: "Ten.", ArtifactIDs: ids[:maxHandoffArtifacts]}); err != nil {
+		t.Fatalf("a handoff with %d artifacts: %v", maxHandoffArtifacts, err)
+	}
+	if _, err := h.svc.HandOver(ctx, f.lead, "", h.docs.ID, NewHandoff{Text: "Eleven.", ArtifactIDs: ids}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a handoff with %d artifacts: err = %v; want ErrInvalid", len(ids), err)
 	}
 }

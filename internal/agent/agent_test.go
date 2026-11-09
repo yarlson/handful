@@ -1353,12 +1353,12 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 		{"member", ana, core.Turn{}, "</board>\n", "You lead this goal."},
 	}
 	for _, r := range roles {
-		got := boardPrompt(core.Bot{ID: r.bot.ID}, team, board, r.turn)
+		got := boardPrompt(core.Bot{ID: r.bot.ID}, team, board, r.turn, nil)
 		if !strings.Contains(got, table) || !strings.Contains(got, r.want) || strings.Contains(got, r.not) {
 			t.Errorf("%s prompt = %q; want the board and %q, without %q", r.name, got, r.want, r.not)
 		}
 	}
-	if got := boardPrompt(core.Bot{ID: ana.ID}, team, core.Board{}, core.Turn{}); got != "" {
+	if got := boardPrompt(core.Bot{ID: ana.ID}, team, core.Board{}, core.Turn{}, nil); got != "" {
 		t.Errorf("prompt without a goal = %q; want none", got)
 	}
 }
@@ -1370,7 +1370,7 @@ func TestWorkAndReviewBriefsCarryTheItem(t *testing.T) {
 	parse := core.Item{ID: "i1", Title: "Parse", Brief: "Parse it.", Acceptance: "Tests pass.", State: core.ItemDoing, OwnerID: "a1", DependsOn: []string{"i0"}, Result: "parse.go", Note: "Handle empty lines.", ReviewRounds: 1}
 	board := core.Board{Items: []core.Item{dep, parse}}
 
-	work := workBrief(board, "i1")
+	work := workBrief(board, "i1", nil)
 	for _, want := range []string{"It builds on \"Spec\" (done): spec.md", "Note for you: Handle empty lines.", "Your last result: parse.go", "update_board submit with item_id i1"} {
 		if !strings.Contains(work, want) {
 			t.Errorf("work brief lacks %q:\n%s", want, work)
@@ -1378,25 +1378,25 @@ func TestWorkAndReviewBriefsCarryTheItem(t *testing.T) {
 	}
 	parse.ReviewRounds, parse.Note = 0, ""
 	board.Items[1] = parse
-	if work := workBrief(board, "i1"); strings.Contains(work, "Your last result") || strings.Contains(work, "Note for you") {
+	if work := workBrief(board, "i1", nil); strings.Contains(work, "Your last result") || strings.Contains(work, "Note for you") {
 		t.Errorf("first work brief = %q; want no last result and no note", work)
 	}
-	if work := workBrief(board, "missing"); !strings.Contains(work, "no longer yours") {
+	if work := workBrief(board, "missing", nil); !strings.Contains(work, "no longer yours") {
 		t.Errorf("work brief of a missing item = %q", work)
 	}
 	asked := core.Board{Requests: []core.Request{{ID: "r1", Title: "Guide", Brief: "Write it.", Acceptance: "It exists.", State: core.ItemDoing, FromTeamID: "t2"}}}
-	if work := workBrief(asked, "r1"); !strings.Contains(work, "Your item: \"Guide\" (id r1).") {
+	if work := workBrief(asked, "r1", nil); !strings.Contains(work, "Your item: \"Guide\" (id r1).") {
 		t.Errorf("work brief of a request = %q; want the request as the item", work)
 	}
 	parse.State = core.ItemReview
 	board.Items[1] = parse
-	review := reviewBrief(team, board, "i1")
+	review := reviewBrief(team, board, "i1", nil)
 	for _, want := range []string{"Review \"Parse\" (id i1) of Ana (id a1).", "Result: parse.go", "update_board pass with item_id i1"} {
 		if !strings.Contains(review, want) {
 			t.Errorf("review brief lacks %q:\n%s", want, review)
 		}
 	}
-	if work := workBrief(board, "i1"); !strings.Contains(work, "no longer yours") {
+	if work := workBrief(board, "i1", nil); !strings.Contains(work, "no longer yours") {
 		t.Errorf("work brief of an item in review = %q; want it to end the turn", work)
 	}
 }

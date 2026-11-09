@@ -89,7 +89,7 @@ Your standing instructions (your profile description): %s
 - In a room turn, send_to_user posts into the room, where every member reads it. Rooms, boards, artifacts and memory stay on this computer, so discuss, fix and review an unfixed security problem there with the team that works on it. Tell the user as soon as you find one: what it is, how bad, and what you propose, with needs_reply set.
 - To show the user an image, a GIF or a video (a chart, a screenshot, a screen recording), send it as a file: its path in files on send_to_user. For one from the web, download it first. The chat shows only images that YarGPT serves itself, so an embedded markdown image of a web URL shows as a plain link, not as the image.
 - When work will take more than a moment, first send a short acknowledgement that names what you are doing ("Checking now."), then do the work, then send the result.
-- When you ask the user a question or for a decision and cannot continue without the answer, set needs_reply on that send_to_user call. The app then shows the user that you are waiting. Do not set it on results or acknowledgements.
+- When you ask the user a question or for a decision and cannot continue without the answer, set needs_reply on that send_to_user call and give it a short question line; the app lists it as open until the user answers or dismisses it. Do not set it on results or acknowledgements. Write the question so it stands on its own, because the user may not have read earlier messages: first say what it is about in one line; then the options, each with a one-line consequence; then your recommendation and why; then what you will do if they do not answer. Ask one decision per message, or number several so each can be answered on its own. Do not ask again a question that is still open.
 - A hidden turn is marked [routine] or [first run], right after its timestamp. It needs no acknowledgement; message the user only when the result is worth it.
 - Write to the user like a capable colleague: lead with the answer, keep it short, use markdown when it helps.
 - Your name is shown with every message you send, to the user, to another bot or in a room. Never start a message with your name, as in "<your name> here" or "<your name>:".
@@ -254,16 +254,16 @@ func otherTeams(pc promptContext) string {
 // boardPrompt shows a team's open goal and the requests of other teams in a
 // turn in the team, and what the bot must do in the turn's board role. It is
 // "" when the board has neither.
-func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn) string {
+func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []core.ItemEvent) string {
 	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 {
 		return ""
 	}
 	text := "\n\n" + boardTable(team, board)
 	if t.BoardRole == core.RoleWork {
-		return text + workBrief(board, t.ItemID)
+		return text + workBrief(board, t.ItemID, changes)
 	}
 	if t.BoardRole == core.RoleReview {
-		return text + reviewBrief(team, board, t.ItemID)
+		return text + reviewBrief(team, board, t.ItemID, changes)
 	}
 	if t.BoardRole == core.RoleRetro {
 		return text + retroBrief
@@ -435,14 +435,53 @@ func itemDetails(board core.Board, it core.Item) string {
 	return b.String()
 }
 
+// changeHistory lists every change request of an item, oldest first, so
+// that its owner keeps the earlier fixes and its reviewer checks them again.
+func changeHistory(changes []core.ItemEvent) string {
+	if len(changes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Change requests so far, oldest first; each still holds unless a later one says otherwise:\n")
+	for _, c := range changes {
+		fmt.Fprintf(&b, "- round %d (%s): %s\n", c.Round, c.ActorName, c.Text)
+	}
+	return b.String()
+}
+
+// questionNotes tells a bot about its questions in the chat of its turn:
+// the ones the user's message answers, the ones the user dismissed since its
+// previous turn there, and the ones still open. loc is the user's time zone.
+func questionNotes(answered, dismissed, open []core.OpenQuestion, loc *time.Location) string {
+	var b strings.Builder
+	at := func(q core.OpenQuestion) string { return time.UnixMilli(q.CreatedAt).In(loc).Format("15:04") }
+	for _, q := range answered {
+		fmt.Fprintf(&b, "The user answers your question (%s): %s\n", at(q), q.Question)
+	}
+	for _, q := range dismissed {
+		fmt.Fprintf(&b, "The user dismissed your question: %s. Do not ask it again.\n", q.Question)
+	}
+	if len(open) > 0 {
+		items := make([]string, len(open))
+		for i, q := range open {
+			items[i] = fmt.Sprintf("#%d %s %q", q.Seq, at(q), q.Question)
+		}
+		fmt.Fprintf(&b, "Your open questions here (the user hasn't answered): %s. Close one with closes_questions when it's answered or no longer needed; don't ask it again.\n", strings.Join(items, "; "))
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return b.String() + "\n"
+}
+
 // workBrief tells the owner of an item what to do in its work turn.
-func workBrief(board core.Board, itemID string) string {
+func workBrief(board core.Board, itemID string, changes []core.ItemEvent) string {
 	it, ok := findItem(board, itemID)
 	if !ok || it.State != core.ItemDoing {
 		return "\nYour item is no longer yours to work on. End the turn without work.\n"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\nYour item: %q (id %s).\n%s", it.Title, it.ID, itemDetails(board, it))
+	fmt.Fprintf(&b, "\nYour item: %q (id %s).\n%s%s", it.Title, it.ID, itemDetails(board, it), changeHistory(changes))
 	if it.Note != "" {
 		fmt.Fprintf(&b, "Note for you: %s\n", it.Note)
 	}
@@ -454,13 +493,13 @@ func workBrief(board core.Board, itemID string) string {
 }
 
 // reviewBrief tells the reviewer of an item what to check in its review turn.
-func reviewBrief(team core.Bot, board core.Board, itemID string) string {
+func reviewBrief(team core.Bot, board core.Board, itemID string, changes []core.ItemEvent) string {
 	it, ok := findItem(board, itemID)
 	if !ok || it.State != core.ItemReview {
 		return "\nThe item is no longer in review. End the turn without work.\n"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\nReview %q (id %s) of %s.\n%sResult: %s\n", it.Title, it.ID, memberLabel(team, it.OwnerID), itemDetails(board, it), it.Result)
+	fmt.Fprintf(&b, "\nReview %q (id %s) of %s.\n%s%sResult: %s\n", it.Title, it.ID, memberLabel(team, it.OwnerID), itemDetails(board, it), changeHistory(changes), it.Result)
 	fmt.Fprintf(&b, "Check the result against the acceptance criteria and the working agreement: read the files and run the checks. You check the work and do not change it: Edit and Write are denied in a review. Then call update_board pass with item_id %s, or changes with item_id %s and text: what must change and why. If you cannot judge it, call update_board block with your question.\n", it.ID, it.ID)
 	return b.String()
 }

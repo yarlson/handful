@@ -2632,6 +2632,24 @@ func (q *Queries) PauseGoalAtBudget(ctx context.Context, arg PauseGoalAtBudgetPa
 	return result.RowsAffected()
 }
 
+const previousTurnStart = `-- name: PreviousTurnStart :one
+SELECT CAST(COALESCE(MAX(started_at), 0) AS INTEGER) AS started FROM turns
+WHERE bot_id = ? AND room_id = ? AND id != ? AND started_at IS NOT NULL
+`
+
+type PreviousTurnStartParams struct {
+	BotID  string `json:"bot_id"`
+	RoomID string `json:"room_id"`
+	ID     string `json:"id"`
+}
+
+func (q *Queries) PreviousTurnStart(ctx context.Context, arg PreviousTurnStartParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, previousTurnStart, arg.BotID, arg.RoomID, arg.ID)
+	var started int64
+	err := row.Scan(&started)
+	return started, err
+}
+
 const pruneNotes = `-- name: PruneNotes :execrows
 DELETE FROM memories WHERE tier = 'note' AND created_at < ?
 `

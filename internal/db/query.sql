@@ -464,3 +464,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListItemEvents :many
 SELECT * FROM item_events WHERE item_id = ? ORDER BY created_at, rowid;
+
+-- name: PreviousTurnStart :one
+SELECT CAST(COALESCE(MAX(started_at), 0) AS INTEGER) AS started FROM turns
+WHERE bot_id = ? AND room_id = ? AND id != ? AND started_at IS NOT NULL;

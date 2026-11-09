@@ -100,3 +100,22 @@ test("with nothing waiting the view says so", () => {
   )
   assert.include(html, "Nothing is waiting for you.")
 })
+
+test("closed questions are counted, and Show is offered only when there are some", () => {
+  const view = (closed: OpenQuestion[]) =>
+    renderToStaticMarkup(
+      <WaitingView
+        waiting={{ questions: [], approvals: 0, pausedGoals: 0, closedRecently: closed.length, closed }}
+        bots={[bot("x", "Alpha")]}
+        onOpen={noop}
+        onAnswer={noop}
+        onChange={noop}
+      />,
+    )
+  const some = view([{ ...q("e9", "x", "Old one?"), state: "dismissed", closedAt: 5 }])
+  assert.include(some, "Answered or dismissed in the last 7 days: 1")
+  assert.match(some, /<button[^>]*aria-expanded="false"[^>]*aria-controls="waiting-closed"[^>]*>Show</)
+  // The list stays folded until Show is pressed.
+  assert.notInclude(some, "Old one?")
+  assert.notInclude(view([]), ">Show<")
+})

@@ -11,6 +11,9 @@ export type OpenQuestion = {
   askerName: string
   question: string
   createdAt: number
+  // A closed question of the Waiting view says how and when it closed.
+  state?: QuestionState
+  closedAt?: number
 }
 
 export type Waiting = {
@@ -18,6 +21,7 @@ export type Waiting = {
   approvals: number
   pausedGoals: number
   closedRecently: number
+  closed?: OpenQuestion[] // closed in the last 7 days, newest first
 }
 
 // stateLabel names a question's state as text, so it never rests on color alone.

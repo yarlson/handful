@@ -45,6 +45,9 @@ type OpenQuestion struct {
 	// Question is the bot's one-line summary, or the first line of its text.
 	Question  string `json:"question"`
 	CreatedAt int64  `json:"createdAt"`
+	// State and ClosedAt are set only on the closed questions of Waiting.
+	State    string `json:"state,omitempty"`
+	ClosedAt int64  `json:"closedAt,omitempty"`
 }
 
 // Waiting is everything that waits for the user, for the Waiting view.
@@ -55,6 +58,8 @@ type Waiting struct {
 	// ClosedRecently counts the questions answered, dismissed or withdrawn
 	// in the last 7 days.
 	ClosedRecently int64 `json:"closedRecently"`
+	// Closed lists those questions, newest first.
+	Closed []OpenQuestion `json:"closed"`
 }
 
 // questionBody is what a question keeps in its entry's body.
@@ -219,11 +224,32 @@ func (s *Service) Waiting(ctx context.Context) (Waiting, error) {
 	if err != nil {
 		return Waiting{}, fmt.Errorf("list teams with paused goals: %w", err)
 	}
-	closed, err := s.q.CountClosedQuestionsSince(ctx, s.nowMs()-closedWindowMs)
+	closed, err := s.closedQuestions(ctx)
 	if err != nil {
-		return Waiting{}, fmt.Errorf("count closed questions: %w", err)
+		return Waiting{}, err
 	}
-	return Waiting{Questions: questions, Approvals: int64(len(approvals)), PausedGoals: int64(len(paused)), ClosedRecently: closed}, nil
+	return Waiting{Questions: questions, Approvals: int64(len(approvals)), PausedGoals: int64(len(paused)), ClosedRecently: int64(len(closed)), Closed: closed}, nil
+}
+
+// closedQuestions lists the questions closed in the last 7 days, newest
+// first, with how and when each closed.
+func (s *Service) closedQuestions(ctx context.Context) ([]OpenQuestion, error) {
+	rows, err := s.q.ListClosedQuestionsSince(ctx, s.nowMs()-closedWindowMs)
+	if err != nil {
+		return nil, fmt.Errorf("list closed questions: %w", err)
+	}
+	out, err := s.toQuestions(ctx, s.q, rows, "")
+	if err != nil {
+		return nil, err
+	}
+	for i, row := range rows {
+		b, err := parseQuestion(row)
+		if err != nil {
+			return nil, err
+		}
+		out[i].State, out[i].ClosedAt = b.QuestionState, b.ClosedAt
+	}
+	return out, nil
 }
 
 // withQuestionState returns a question's body in state. answeredBy names the

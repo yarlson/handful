@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
   AlertTriangle,
   ArrowDownLeft,
+  ArrowDown,
   ArrowUp,
   ArrowUpRight,
   Bot as BotIcon,
@@ -37,6 +38,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { cn } from "@/lib/utils"
 import { botColor } from "@/lib/bot-color"
+import { anchorIndex, ScrollMemory } from "@/lib/scroll"
 
 function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -567,6 +569,7 @@ function Composer({
   attachError,
   onAttach,
   onMediaChange,
+  onSent,
 }: {
   bot: Bot
   mentionables: Member[]
@@ -574,6 +577,7 @@ function Composer({
   attachError: string | null
   onAttach: (files: File[]) => void
   onMediaChange: (update: (media: PendingMedia[]) => PendingMedia[]) => void
+  onSent: (botId: string) => void
 }) {
   const [text, setText] = useState(() => loadDraft(bot.id))
   useEffect(() => saveDraft(bot.id, text), [bot.id, text])
@@ -645,6 +649,7 @@ function Composer({
       else if (media.length === 0 && value === "/compact") await api.compactContext(bot.id)
       else await api.send(bot.id, value, await Promise.all(media.map((m) => readBase64(m.file))))
       setText("")
+      onSent(bot.id)
       for (const m of media) URL.revokeObjectURL(m.url)
       onMediaChange(() => [])
       setQuery(null)
@@ -849,11 +854,55 @@ function Composer({
 
 // mentionables are the bots that @ can complete: room members, or the other bots.
 export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[]; mentionables: Member[] }) {
-  const bottom = useRef<HTMLDivElement>(null)
+  // The transcript follows new messages only while the user keeps it at the bottom, and each
+  // chat keeps its own position across a switch to another chat.
+  const scroller = useRef<HTMLDivElement>(null)
+  const [memory] = useState(() => new ScrollMemory())
+  // following re-renders the "Jump to latest" button when the view pins or unpins.
+  const [, setFollowing] = useState(true)
+  const shown = useRef<string | null>(null)
+  const column = useRef<HTMLDivElement>(null)
+  // anchor is the entry at the top of an unpinned view and its offset from the view's top.
+  const anchor = useRef<{ el: Element; offset: number } | null>(null)
   const last = entries[entries.length - 1]
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" })
-  }, [entries.length, last?.rev, bot.id])
+  const toBottom = () => {
+    const el = scroller.current
+    if (el) el.scrollTop = el.scrollHeight
+  }
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const top = memory.target(bot.id, shown.current !== bot.id, el.scrollHeight)
+    shown.current = bot.id
+    if (top !== null) el.scrollTop = top
+  }, [entries.length, last?.rev, bot.id, memory])
+  const onScroll = (el: HTMLDivElement) => {
+    const pinned = memory.record(bot.id, el)
+    setFollowing(pinned)
+    anchor.current = null
+    if (pinned || !column.current) return
+    const viewTop = el.getBoundingClientRect().top
+    const kids = [...column.current.children]
+    const rects = kids.map((k) => k.getBoundingClientRect())
+    const i = anchorIndex(rects, viewTop)
+    if (i >= 0) anchor.current = { el: kids[i], offset: rects[i].top - viewTop }
+  }
+  // onMediaLoad keeps a pinned view at the bottom and an unpinned one on its anchor entry.
+  // Safari has no scroll anchoring, so this does it by hand in every browser.
+  const onMediaLoad = (el: HTMLDivElement) => {
+    if (memory.pinned(bot.id)) return toBottom()
+    const a = anchor.current
+    if (a?.el.isConnected) el.scrollTop += a.el.getBoundingClientRect().top - el.getBoundingClientRect().top - a.offset
+  }
+  // pin makes a chat follow the bottom again: on "Jump to latest" or the user's own send.
+  // A send that finishes after a switch to another chat holds the old render's bot id, so
+  // compare with the chat on screen now, which shown holds.
+  const pin = (id: string) => {
+    memory.pin(id)
+    if (id !== shown.current) return
+    setFollowing(true)
+    toBottom()
+  }
 
   // Files waiting to be sent, per chat, so they survive a switch to another chat.
   const [pending, setPending] = useState(() => new Map<string, PendingMedia[]>())
@@ -912,12 +961,12 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
       {/* An image grows the transcript when it loads, after the scroll above. React also passes
           up the load events of the media viewer, which renders outside this element. */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto"
-        onLoadCapture={(e) =>
-          e.currentTarget.contains(e.target as Node) && bottom.current?.scrollIntoView({ block: "end" })
-        }
+        ref={scroller}
+        className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+        onScroll={(e) => onScroll(e.currentTarget)}
+        onLoadCapture={(e) => e.currentTarget.contains(e.target as Node) && onMediaLoad(e.currentTarget)}
       >
-        <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
+        <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
           {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">No messages yet.</p>}
           {entries.map((e) => (
             <EntryView key={e.id} entry={e} botName={bot.name} skill={skillOf(e)} />
@@ -928,9 +977,22 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
               {bot.kind === "room" ? "Members are working…" : `${bot.name} is working…`}
             </div>
           )}
-          <div ref={bottom} />
         </div>
       </div>
+      {!memory.pinned(bot.id) && (
+        <div className="pointer-events-none relative mx-auto w-full max-w-3xl">
+          <Button
+            size="icon"
+            variant="outline"
+            className="pointer-events-auto absolute right-4 bottom-3 z-10 rounded-full shadow-md"
+            aria-label="Jump to latest"
+            title="Jump to latest"
+            onClick={() => pin(bot.id)}
+          >
+            <ArrowDown />
+          </Button>
+        </div>
+      )}
       <div className="mx-auto w-full max-w-3xl">
         <Composer
           key={bot.id}
@@ -940,6 +1002,7 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
           attachError={attachError}
           onAttach={attach}
           onMediaChange={(update) => updateMedia(bot.id, update)}
+          onSent={pin}
         />
       </div>
     </div>

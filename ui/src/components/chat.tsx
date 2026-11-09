@@ -40,6 +40,8 @@ import { cn } from "@/lib/utils"
 import { botColor, colorId } from "@/lib/bot-color"
 import { FALLBACK_ALIASES, Hint, openSettings } from "@/components/model"
 import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
+import { AnswerChip, QuestionStrip } from "@/components/questions"
+import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 
 function time(ms: number) {
@@ -453,7 +455,17 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
   )
 }
 
-export function EntryView({ entry, chat, skill }: { entry: Entry; chat: Bot; skill: string | null }) {
+export function EntryView({
+  entry,
+  chat,
+  skill,
+  onAnswer,
+}: {
+  entry: Entry
+  chat: Bot
+  skill: string | null
+  onAnswer?: (q: Asked) => void
+}) {
   switch (entry.kind) {
     case "user":
       return (
@@ -482,8 +494,18 @@ export function EntryView({ entry, chat, skill }: { entry: Entry; chat: Bot; ski
     case "bot": {
       const speaker = entry.body.speakerName ?? chat.name
       const color = botColor(entry.body.speakerId ?? entry.botId)
+      const qState = entry.body.questionState
+      const open = qState === "open"
+      const asked = questionOf(entry.id, entry.body)
       return (
-        <div className="group/message flex max-w-[85%] gap-2.5">
+        <div
+          id={qState ? `entry-${entry.id}` : undefined}
+          tabIndex={qState ? -1 : undefined}
+          className={cn(
+            "group/message flex max-w-[85%] gap-2.5 rounded-md outline-none",
+            open && "border-l-2 border-amber-500 pl-2",
+          )}
+        >
           <div
             className={cn("grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold", color.avatar)}
             aria-hidden
@@ -502,6 +524,26 @@ export function EntryView({ entry, chat, skill }: { entry: Entry; chat: Bot; ski
                 <span className={cn("text-sm font-semibold", color.text)}>{speaker}</span>
               )}
               <span className="text-muted-foreground text-xs">{time(entry.createdAt)}</span>
+              {stateLabel(qState) && (
+                <span
+                  className={cn(
+                    "text-xs",
+                    open ? "font-medium text-amber-700 dark:text-amber-400" : "text-muted-foreground",
+                  )}
+                >
+                  {stateLabel(qState)}
+                </span>
+              )}
+              {open && onAnswer && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  aria-label={`Answer: ${asked.question}`}
+                  onClick={() => onAnswer(asked)}
+                >
+                  Answer
+                </Button>
+              )}
             </div>
             {entry.body.text && <MarkdownText text={entry.body.text} />}
             {entry.body.media && entry.body.media.length > 0 && (
@@ -621,6 +663,8 @@ function Composer({
   onAttach,
   onMediaChange,
   onSent,
+  answering,
+  onAnswer,
 }: {
   bot: Bot
   mentionables: Member[]
@@ -629,6 +673,9 @@ function Composer({
   onAttach: (files: File[]) => void
   onMediaChange: (update: (media: PendingMedia[]) => PendingMedia[]) => void
   onSent: (botId: string) => void
+  // answering is the question that the next message answers, set by an Answer button.
+  answering: Asked | null
+  onAnswer: (q: Asked | null) => void
 }) {
   const [text, setText] = useState(() => loadDraft(bot.id))
   useEffect(() => saveDraft(bot.id, text), [bot.id, text])
@@ -698,7 +745,14 @@ function Composer({
       if (goal !== null) await api.startGoal(bot.id, goal)
       else if (media.length === 0 && value === "/clear") await api.clearContext(bot.id)
       else if (media.length === 0 && value === "/compact") await api.compactContext(bot.id)
-      else await api.send(bot.id, value, await Promise.all(media.map((m) => readBase64(m.file))))
+      else
+        await api.send(
+          bot.id,
+          value,
+          await Promise.all(media.map((m) => readBase64(m.file))),
+          answersFor(answering, false),
+        )
+      if (goal === null && !(media.length === 0 && (value === "/clear" || value === "/compact"))) onAnswer(null)
       setText("")
       onSent(bot.id)
       for (const m of media) URL.revokeObjectURL(m.url)
@@ -729,6 +783,11 @@ function Composer({
         setDismissedAt(query?.start ?? null)
         return
       }
+    }
+    if (e.key === "Escape" && answering) {
+      e.preventDefault()
+      onAnswer(null)
+      return
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -790,6 +849,7 @@ function Composer({
           </div>
         )}
         <div className="bg-background focus-within:ring-ring/50 rounded-xl border p-2 focus-within:ring-2">
+          {answering && <AnswerChip answering={answering} onClear={() => onAnswer(null)} />}
           {media.length > 0 && (
             <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">
               {media.map((m) => (
@@ -848,6 +908,7 @@ function Composer({
             </Button>
             <Textarea
               ref={input}
+              id="composer-input"
               aria-label="Message"
               aria-autocomplete="list"
               aria-expanded={open}
@@ -910,7 +971,34 @@ function itemsOf(column: HTMLElement | null, entries: Entry[]): Item[] {
 }
 
 // mentionables are the bots that @ can complete: room members, or the other bots.
-export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[]; mentionables: Member[] }) {
+export function Chat({
+  bot,
+  entries,
+  mentionables,
+  answering = null,
+  onAnswer = () => {},
+}: {
+  bot: Bot
+  entries: Entry[]
+  mentionables: Member[]
+  // answering is the question the next message in this chat answers.
+  answering?: Asked | null
+  onAnswer?: (q: Asked | null) => void
+}) {
+  // The chat's open questions, for the strip; reloaded as the transcript changes.
+  const [questions, setQuestions] = useState<OpenQuestion[]>([])
+  const [questionsAt, setQuestionsAt] = useState(0)
+  const transcriptRev = entries.reduce((max, e) => Math.max(max, e.rev), 0)
+  useEffect(() => {
+    let live = true
+    api.chatQuestions(bot.id).then(
+      (qs) => live && setQuestions(qs),
+      () => live && setQuestions([]),
+    )
+    return () => {
+      live = false
+    }
+  }, [bot.id, transcriptRev, questionsAt])
   // The transcript follows new messages only while the user keeps it at the bottom, and each
   // chat keeps its own position across a switch to another chat.
   const scroller = useRef<HTMLDivElement>(null)
@@ -988,6 +1076,12 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
     toBottom()
   }
 
+  // answer sets the Answer chip and moves the keyboard to the message box.
+  const answer = (q: Asked) => {
+    onAnswer(q)
+    requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
+  }
+
   // Files waiting to be sent, per chat, so they survive a switch to another chat.
   const [pending, setPending] = useState(() => new Map<string, PendingMedia[]>())
   const [attachError, setAttachError] = useState<string | null>(null)
@@ -1050,7 +1144,7 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
           {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">No messages yet.</p>}
           {entries.map((e) => (
-            <EntryView key={e.id} entry={e} chat={bot} skill={skillOf(e)} />
+            <EntryView key={e.id} entry={e} chat={bot} skill={skillOf(e)} onAnswer={answer} />
           ))}
           {bot.running && (
             <div className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -1075,8 +1169,16 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
         </div>
       )}
       <div className="mx-auto w-full max-w-3xl">
+        <QuestionStrip
+          questions={questions}
+          room={bot.kind === "room"}
+          onAnswer={answer}
+          onChange={() => setQuestionsAt((n) => n + 1)}
+        />
         <Composer
           key={bot.id}
+          answering={answering}
+          onAnswer={onAnswer}
           bot={bot}
           mentionables={mentionables}
           media={pending.get(bot.id) ?? []}

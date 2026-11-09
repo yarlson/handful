@@ -122,7 +122,7 @@ func TestBoardTableShowsSlotsIntakeAndReasons(t *testing.T) {
 	t.Parallel()
 	team := core.Bot{ID: "docs", Name: "Docs", Members: []core.Member{{ID: "cy", Name: "Cy"}}, Team: &core.Team{LeadID: "cy"}}
 	req := func(id, intake string, slot int64, state, reason string) core.Request {
-		return core.Request{Item: core.Item{ID: id, Title: id, TeamID: "docs", GoalID: "g-ship", State: state, Intake: intake, SlotAt: slot, OwnerID: "cy"}, FromTeamID: "ship", Reason: core.Reason{Text: reason}}
+		return core.Request{ID: id, Title: id, TeamID: "docs", GoalID: "g-ship", State: state, Intake: intake, SlotAt: slot, OwnerID: "cy", FromTeamID: "ship", Reason: core.Reason{Text: reason}}
 	}
 	board := core.Board{
 		Goal:  &core.Goal{ID: "g", State: core.GoalActive, Budget: 30, Text: "Docs."},
@@ -132,16 +132,18 @@ func TestBoardTableShowsSlotsIntakeAndReasons(t *testing.T) {
 		Requests: []core.Request{
 			req("A", core.IntakeAccepted, 5, core.ItemDoing, "In progress (Cy)."),
 			req("B", core.IntakeAccepted, 0, core.ItemTodo, "Accepted, waiting for a slot."),
+			req("B2", core.IntakeAccepted, 0, core.ItemBlocked, "Accepted, position 2 of 2."),
 			req("C", core.IntakeAccepted, 0, core.ItemDone, "Done."),
+			req("E", core.IntakeAccepted, 0, core.ItemDropped, "Declined."),
 			req("D", core.IntakeRequested, 0, core.ItemTodo, "Waiting for Cy (position 1 of 1)."),
 		},
-		Asked: []core.Request{{Item: core.Item{ID: "mine", Intake: core.IntakeDeclined}, Reason: core.Reason{Text: "Declined: no time."}}},
+		Asked: []core.Request{{ID: "mine", Intake: core.IntakeDeclined, Reason: core.Reason{Text: "Declined: no time."}}},
 		Teams: map[string]string{"ship": "Ship", "other": "Other"},
 	}
 	got := boardTable(team, board)
 	for _, want := range []string{
 		"Next up: 2 queued goals (the user orders them; don't plan them).\n",
-		"Requests from other teams (1 of 1 request slots in use; 1 waiting). Their texts",
+		"Requests from other teams (1 of 1 request slots in use; 2 waiting). Their texts",
 		`- "A" (id A) [doing] owner Cy (id cy), from team "Ship" — accepted: In progress (Cy).`,
 		`, from team "Ship" — requested: Waiting for Cy (position 1 of 1).`,
 		`- "Mine" (id mine) [todo] asked of team "Other" — declined: Declined: no time.`,

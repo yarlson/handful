@@ -89,7 +89,7 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 // Run dispatches turns and fires due routines until ctx ends, then stops all
 // running turns and claude processes and waits for them.
 func (r *Runner) Run(ctx context.Context) {
-	r.removeLeftoverMCPConfigs()
+	r.removeLeftoverRunFiles()
 	ticker := time.NewTicker(routineTick)
 	defer ticker.Stop()
 	defer r.resume.Stop()
@@ -741,8 +741,8 @@ func (r *Runner) compact(ctx context.Context, bot core.Bot, t core.Turn, transcr
 		return "done", ""
 	}
 	// With background tasks running, the bot's process is still alive and compacts its own session.
-	out, err := r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", func(string) ([]string, string, error) {
-		return compactArgs(sessionID, r.cfg.Model), "", nil
+	out, err := r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", func(string) ([]string, []string, error) {
+		return compactArgs(sessionID, r.cfg.Model), nil, nil
 	})
 	switch {
 	case ctx.Err() != nil:
@@ -788,21 +788,27 @@ func (r *Runner) saveSession(ctx context.Context, botID, roomID, sessionID strin
 // session, which starts with run's arguments and a new MCP config file when
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, func(token string) ([]string, string, error) {
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, func(token string) ([]string, []string, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, err
 		}
+		promptFile, err := r.writeRunFile("prompt-*.md", []byte(run.SystemPrompt))
+		if err != nil {
+			r.removeRunFile(path)
+			return nil, nil, fmt.Errorf("system prompt file: %w", err)
+		}
+		files := []string{path, promptFile}
 		if len(signIn) > 0 {
 			r.noteSignIn(ctx, t, signIn)
 		}
-		run.MCPConfig = path
+		run.MCPConfig, run.SystemPromptFile = path, promptFile
 		args, err := run.args()
 		if err != nil {
-			r.removeMCPConfig(path)
-			return nil, "", err
+			r.removeRunFiles(files)
+			return nil, nil, err
 		}
-		return args, path, nil
+		return args, files, nil
 	})
 }
 

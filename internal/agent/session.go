@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"yargpt/internal/core"
 )
@@ -39,13 +42,13 @@ func (k sessionKey) transcript() string {
 // tasks run, so later turns go to the same process, and closes it when no
 // task is left; the process then exits.
 type session struct {
-	key       sessionKey
-	bot       core.Bot
-	token     string
-	mcpConfig string // MCP config file of the process, removed when it exits; empty for none
-	stdin     io.WriteCloser
-	kill      context.CancelFunc
-	exited    chan struct{} // closed after the process exits and its turns are finished
+	key    sessionKey
+	bot    core.Bot
+	token  string
+	files  []string // MCP config and system prompt files of the process, removed when it exits
+	stdin  io.WriteCloser
+	kill   context.CancelFunc
+	exited chan struct{} // closed after the process exits and its turns are finished
 
 	// Guarded by Runner.mu.
 	open    bool                // stdin is open, so the session takes turns
@@ -84,7 +87,7 @@ type activeTurn struct {
 // key, it starts one with startArgs, which receive the MCP token and return
 // the arguments and the MCP config file, if any. Cancelling ctx stops the
 // process and its background tasks.
-func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt string, startArgs func(token string) (args []string, mcpConfig string, err error)) (outcome, error) {
+func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt string, startArgs func(token string) (args []string, files []string, err error)) (outcome, error) {
 	msg, err := userMessage(t.ID, prompt)
 	if err != nil {
 		return outcome{}, err
@@ -111,7 +114,7 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 // claimSession puts c on the open session of key, or starts a session for it.
 // A closed session can still run a last task turn, and a second process must
 // not resume the same Claude session meanwhile, so it waits for that one to exit.
-func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, string, error)) (*session, error) {
+func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, []string, error)) (*session, error) {
 	for {
 		r.mu.Lock()
 		s := r.sessions[key]
@@ -136,7 +139,7 @@ func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot,
 	}
 }
 
-func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, string, error)) (*session, error) {
+func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, []string, error)) (*session, error) {
 	dir, err := r.svc.TurnWorkspace(context.Background(), key.botID, key.roomID)
 	if err != nil {
 		return nil, err
@@ -145,7 +148,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	if err != nil {
 		return nil, err
 	}
-	args, mcpConfig, err := startArgs(token)
+	args, files, err := startArgs(token)
 	if err != nil {
 		r.tokens.revoke(token)
 		return nil, err
@@ -168,9 +171,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	fail := func(err error) (*session, error) {
 		kill()
 		r.tokens.revoke(token)
-		if mcpConfig != "" {
-			r.removeMCPConfig(mcpConfig)
-		}
+		r.removeRunFiles(files)
 		return nil, err
 	}
 	stdin, err := cmd.StdinPipe()
@@ -186,7 +187,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	if err := cmd.Start(); err != nil {
 		return fail(fmt.Errorf("start %s: %w", r.cfg.ClaudePath, err))
 	}
-	s := &session{key: key, bot: bot, token: token, mcpConfig: mcpConfig, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
+	s := &session{key: key, bot: bot, token: token, files: files, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
 	r.mu.Lock()
 	r.sessions[key] = s
 	r.mu.Unlock()
@@ -366,9 +367,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 	watcher.Wait()
 	exitErr := cmd.Wait()
 	s.kill()
-	if s.mcpConfig != "" {
-		r.removeMCPConfig(s.mcpConfig)
-	}
+	r.removeRunFiles(s.files)
 
 	r.mu.Lock()
 	if r.sessions[s.key] == s {
@@ -379,9 +378,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 	r.mu.Unlock()
 	r.tokens.revoke(s.token)
 	stderrText := stderr.String()
-	if silent {
-		exitErr, stderrText = fmt.Errorf("no output from Claude for %.0f minutes", r.outputTimeout.Minutes()), ""
-	}
+	stderrText, exitErr = r.exitReason(s, exitErr, stderrText, stopped, silent)
 	if cur != nil && cur.cmd == nil {
 		status, errText := "failed", outcome{exitErr: exitErr, stderr: stderrText}.errorText()
 		if stopped && !silent {
@@ -586,4 +583,35 @@ func (r *Runner) HasSession(id string) bool {
 		}
 	}
 	return false
+}
+
+// exitReason is how a process's end reads in its turns: a stop for silence,
+// a signal from outside YarGPT, such as a pattern kill, or the exit error and
+// stderr as they are.
+func (r *Runner) exitReason(s *session, exitErr error, stderr string, stopped, silent bool) (string, error) {
+	if silent {
+		return "", fmt.Errorf("no output from Claude for %.0f minutes", r.outputTimeout.Minutes())
+	}
+	if sig, ok := killedBy(exitErr); ok && !stopped {
+		r.log.Warn("claude stopped by a signal", "bot", s.key.botID, "signal", sig, "stderr", truncate(stderr, 500))
+		return "", fmt.Errorf("stopped by %s from outside YarGPT", sig)
+	}
+	return stderr, exitErr
+}
+
+// killedBy reports the signal that ended a process, by its name, when a
+// signal ended it.
+func killedBy(exitErr error) (string, bool) {
+	var ee *exec.ExitError
+	if !errors.As(exitErr, &ee) {
+		return "", false
+	}
+	ws, ok := ee.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() {
+		return "", false
+	}
+	if name := unix.SignalName(ws.Signal()); name != "" {
+		return name, true
+	}
+	return fmt.Sprintf("signal %d", int(ws.Signal())), true
 }

@@ -21,6 +21,8 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { BoardTab } from "@/components/board"
+import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
+import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 
 function when(ms: number | null) {
   return ms
@@ -394,8 +396,27 @@ function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
       setMessage((e as Error).message)
     }
   }
+  const defaults = useDefaults()
+  const aliases = defaults?.modelAliases ?? FALLBACK_ALIASES
+  const seated = (room.members ?? []).filter((m) => m.effective)
   return (
     <div className="flex flex-col gap-2 text-sm">
+      {seated.length > 0 && (
+        <ul
+          className="flex flex-col gap-2 border-b pb-3"
+          aria-label={room.team ? "Members' models in this team" : "Members' models"}
+        >
+          {seated.map((m) => (
+            <li key={m.id} className="flex min-w-0 flex-col gap-0.5">
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <span className="truncate font-medium">{m.name}</span>
+                {m.effective && <ModelChip effective={m.effective} aliases={aliases} who={m.name} />}
+              </div>
+              {m.effective && <span className="text-muted-foreground text-xs">{sourceLine(m.effective)}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="text-muted-foreground text-xs">
         {room.team
           ? "A post from you wakes the members it @mentions, or the lead when it mentions none. @here wakes every member."
@@ -440,7 +461,11 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
   const [lead, setLead] = useState(settings.leadId)
   const [agreement, setAgreement] = useState(settings.agreement)
   const [budget, setBudget] = useState(String(settings.goalBudget))
+  const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
+  const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
   const [message, setMessage] = useState<string | null>(null)
+  const defaults = useDefaults()
+  const members = team.members ?? []
   const save = async () => {
     try {
       const goalBudget = Number(budget)
@@ -449,7 +474,13 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         return
       }
       // The lead goes only when it changed, so that a fallback lead does not replace the chosen one.
-      await api.updateTeam(team.id, { ...(lead !== settings.leadId && { leadId: lead }), agreement, goalBudget })
+      await api.updateTeam(team.id, {
+        ...(lead !== settings.leadId && { leadId: lead }),
+        agreement,
+        goalBudget,
+        defaultModel,
+        defaultEffort,
+      })
       setMessage("Saved.")
     } catch (e) {
       setMessage((e as Error).message)
@@ -499,6 +530,28 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           For the next goal. A goal pauses when its turns are used up; add turns above the chat.
         </p>
       </div>
+      <fieldset className="flex flex-col gap-3">
+        <legend className="mb-1 text-sm font-medium">Member defaults</legend>
+        <ModelEffortFields
+          id="team-default"
+          modelLabel="Default model for members"
+          effortLabel="Default effort for members"
+          model={defaultModel}
+          effort={defaultEffort}
+          onModel={setDefaultModel}
+          onEffort={setDefaultEffort}
+          inherited={
+            defaults
+              ? inheritedFromGlobal(defaults)
+              : { model: { value: "", source: "claude-code" }, effort: { value: "", source: "claude-code" } }
+          }
+          defaults={defaults}
+        />
+        <p className="text-muted-foreground text-xs">
+          Members without their own model or effort use these in this team. {overrides(members)} of {members.length}{" "}
+          members override the model.
+        </p>
+      </fieldset>
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => void save()}>
           Save team
@@ -512,19 +565,24 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
 function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
   const [name, setName] = useState(bot.name)
   const [instructions, setInstructions] = useState(bot.instructions)
+  const [model, setModel] = useState(bot.model ?? "")
+  const [effort, setEffort] = useState(bot.effort ?? "")
   const [message, setMessage] = useState<string | null>(null)
   const [confirm, setConfirm] = useState(false)
+  const defaults = useDefaults()
   const isRoom = bot.kind === "room"
   const what = bot.team ? "team" : isRoom ? "room" : "bot"
   const grants = useLoad(() => (isRoom ? Promise.resolve([]) : api.grants(bot.id)), `${bot.id}`)
   useEffect(() => {
     setName(bot.name)
     setInstructions(bot.instructions)
-  }, [bot.id, bot.name, bot.instructions])
+    setModel(bot.model ?? "")
+    setEffort(bot.effort ?? "")
+  }, [bot.id, bot.name, bot.instructions, bot.model, bot.effort])
   const save = async () => {
     try {
-      await api.updateBot(bot.id, { name, instructions })
-      setMessage("Saved.")
+      await api.updateBot(bot.id, isRoom ? { name, instructions } : { name, instructions, model, effort })
+      setMessage(isRoom ? "Saved." : "Saved. Applies from the next turn.")
     } catch (e) {
       setMessage((e as Error).message)
     }
@@ -552,15 +610,51 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
           onChange={(e) => setInstructions(e.target.value)}
         />
       </div>
+      {!isRoom && (
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-1 text-sm font-medium">Model and effort</legend>
+          <ModelEffortFields
+            key={bot.id}
+            id="bot"
+            model={model}
+            effort={effort}
+            onModel={setModel}
+            onEffort={setEffort}
+            inherited={
+              defaults
+                ? inheritedFromGlobal(defaults)
+                : { model: { value: "", source: "claude-code" }, effort: { value: "", source: "claude-code" } }
+            }
+            defaults={defaults}
+            invalid={
+              message && /model/i.test(message) && message !== "Saved. Applies from the next turn." ? message : null
+            }
+          />
+          {bot.effective?.modelId && (
+            <p className="text-muted-foreground text-xs">
+              Now runs on <code>{bot.effective.modelId}</code>
+              {bot.effective.effort ? `; requested effort ${bot.effective.effort}.` : "."}
+            </p>
+          )}
+          <p className="text-muted-foreground text-xs">
+            Applies from the bot's next turn. Switching models makes that turn slower and costlier.
+          </p>
+          {defaults && ignoredOverrides(defaults).length > 0 && (
+            <p className="text-muted-foreground text-xs">
+              {ignoredOverrides(defaults).join(", ")} ignored: YarGPT bots' helper subagents use the bot's model.
+            </p>
+          )}
+        </fieldset>
+      )}
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => void save()}>
           Save
         </Button>
-        {message && <span className="text-muted-foreground text-xs">{message}</span>}
+        {message && <output className="text-muted-foreground text-xs">{message}</output>}
       </div>
       {bot.team && (
         <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}`}
+          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}`}
           team={bot}
           settings={bot.team}
         />
@@ -619,15 +713,21 @@ export function BotPanel({
   agents,
   version,
   onDeleted,
+  show,
 }: {
   bot: Bot
   agents: Bot[]
   version: number
   onDeleted: () => void
+  // show asks for a tab; its n changes with every ask, so the same tab can be asked again.
+  show?: { tab: string; n: number }
 }) {
+  // A new ask remounts the tabs on the asked tab.
+  const first = show?.tab ?? (bot.kind === "room" ? (bot.team ? "board" : "members") : "memory")
+  const key = `${bot.id}:${show?.n ?? 0}`
   if (bot.kind === "room") {
     return (
-      <Tabs key={bot.id} defaultValue={bot.team ? "board" : "members"} className="flex h-full flex-col p-3">
+      <Tabs key={key} defaultValue={first} className="flex h-full flex-col p-3">
         <TabsList className="w-full">
           {bot.team && <TabsTrigger value="board">Board</TabsTrigger>}
           <TabsTrigger value="members">Members</TabsTrigger>
@@ -656,7 +756,7 @@ export function BotPanel({
     )
   }
   return (
-    <Tabs key={bot.id} defaultValue="memory" className="flex h-full flex-col p-3">
+    <Tabs key={key} defaultValue={first} className="flex h-full flex-col p-3">
       <TabsList className="w-full">
         {/* text-xs fits five tabs into the panel's width. */}
         <TabsTrigger value="memory" className="text-xs">

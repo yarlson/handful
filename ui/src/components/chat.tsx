@@ -38,6 +38,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { cn } from "@/lib/utils"
 import { botColor, colorId } from "@/lib/bot-color"
+import { FALLBACK_ALIASES, Hint, openSettings } from "@/components/model"
+import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 
 function time(ms: number) {
@@ -207,6 +209,9 @@ function SetupSummary({ setup }: { setup: SetupProposal }) {
               <li key={i}>
                 <span className="font-medium">{bot.name}</span>
                 <p className="text-muted-foreground text-xs whitespace-pre-wrap">{bot.instructions}</p>
+                {setupLine(bot.model, bot.effort, FALLBACK_ALIASES) && (
+                  <p className="text-muted-foreground text-xs">{setupLine(bot.model, bot.effort, FALLBACK_ALIASES)}</p>
+                )}
               </li>
             ))}
           </ul>
@@ -222,6 +227,11 @@ function SetupSummary({ setup }: { setup: SetupProposal }) {
                 {team.purpose && <p className="text-muted-foreground text-xs whitespace-pre-wrap">{team.purpose}</p>}
                 {team.agreement && (
                   <p className="text-muted-foreground text-xs whitespace-pre-wrap">Agreement: {team.agreement}</p>
+                )}
+                {teamSetupLine(team.defaultModel, team.defaultEffort, FALLBACK_ALIASES) && (
+                  <p className="text-muted-foreground text-xs">
+                    {teamSetupLine(team.defaultModel, team.defaultEffort, FALLBACK_ALIASES)}
+                  </p>
                 )}
                 {team.goalBudget !== undefined && (
                   <p className="text-muted-foreground text-xs">{team.goalBudget} turns per goal</p>
@@ -256,6 +266,27 @@ function EventLine({ entry }: { entry: Extract<Entry, { kind: "event" }> }) {
         <span className="bg-border h-px flex-1" />
         <span>{b.text}</span>
         <span className="bg-border h-px flex-1" />
+      </div>
+    )
+  }
+  if (b.type === "model-error" || b.type === "model-mismatch") {
+    const error = b.type === "model-error"
+    return (
+      <div
+        role="alert"
+        className={cn(
+          "flex flex-wrap items-center justify-center gap-1.5 text-xs",
+          error ? "text-destructive" : "text-amber-700 dark:text-amber-400",
+        )}
+      >
+        <AlertTriangle className="size-3 shrink-0" aria-hidden />
+        <span className="max-w-xl">{b.text}</span>
+        {b.botId && (
+          <Button size="xs" variant="outline" onClick={() => openSettings(b.botId ?? "")}>
+            Open settings
+          </Button>
+        )}
+        <span className="opacity-60">· {time(entry.createdAt)}</span>
       </div>
     )
   }
@@ -449,7 +480,15 @@ export function EntryView({ entry, chat, skill }: { entry: Entry; chat: Bot; ski
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-0.5 flex items-baseline gap-2">
-              <span className={cn("text-sm font-semibold", color.text)}>{speaker}</span>
+              {postTooltip(entry.body, FALLBACK_ALIASES) ? (
+                <Hint text={postTooltip(entry.body, FALLBACK_ALIASES)}>
+                  <button type="button" className={cn("cursor-default text-sm font-semibold", color.text)}>
+                    {speaker}
+                  </button>
+                </Hint>
+              ) : (
+                <span className={cn("text-sm font-semibold", color.text)}>{speaker}</span>
+              )}
               <span className="text-muted-foreground text-xs">{time(entry.createdAt)}</span>
             </div>
             {entry.body.text && <MarkdownText text={entry.body.text} />}

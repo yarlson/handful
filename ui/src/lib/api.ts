@@ -1,19 +1,29 @@
 import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifacts"
 import { errorMessage } from "./errors"
+import type { Defaults, Effective } from "./model"
 
-export type Member = { id: string; name: string }
+export type Member = { id: string; name: string; effective?: Effective }
 
 // TeamSettings is what a team adds to its room. leadId is the current lead.
-export type TeamSettings = { leadId: string; agreement: string; goalBudget: number }
+export type TeamSettings = {
+  leadId: string
+  agreement: string
+  goalBudget: number
+  defaultModel?: string
+  defaultEffort?: string
+}
 
 export type Bot = {
   id: string
   kind: "agent" | "room"
   members?: Member[]
   team?: TeamSettings
-  attention?: "approval" | "question" | "goal"
+  attention?: "approval" | "question" | "goal" | "model"
   name: string
   instructions: string
+  model?: string // "" inherits
+  effort?: string // "" inherits
+  effective?: Effective // its values in its direct chat; absent on rooms
   createdAt: number
   updatedAt: number
   running: boolean
@@ -33,6 +43,9 @@ export type BotBody = {
   speakerId?: string
   speakerName?: string
   reactions?: string[]
+  model?: string // what the turn that wrote it asked for
+  modelId?: string // what Claude Code reported running
+  effort?: string
 }
 export type AgentBody = {
   direction: "in" | "out"
@@ -43,7 +56,7 @@ export type AgentBody = {
   held?: boolean
   reactions?: string[]
 }
-export type EventBody = { type: string; text?: string; from?: string; to?: string }
+export type EventBody = { type: string; text?: string; from?: string; to?: string; botId?: string }
 export type ActivityBody = {
   bot?: string
   botId?: string
@@ -183,7 +196,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   listBots: () => request<Bot[]>("GET", "/api/bots"),
   reorderBots: (ids: string[]) => request<void>("PUT", "/api/bots/order", { ids }),
-  createBot: (name: string, instructions: string) => request<Bot>("POST", "/api/bots", { name, instructions }),
+  createBot: (name: string, instructions: string, values: { model?: string; effort?: string } = {}) =>
+    request<Bot>("POST", "/api/bots", { name, instructions, ...values }),
+  defaults: () => request<Defaults>("GET", "/api/defaults"),
   createRoom: (name: string, instructions: string, memberIds: string[]) =>
     request<Bot>("POST", "/api/rooms", { name, instructions, memberIds }),
   setRoomMembers: (id: string, memberIds: string[]) => request<Bot>("PUT", `/api/rooms/${id}/members`, { memberIds }),
@@ -195,7 +210,7 @@ export const api = {
   extendGoal: (id: string, turns: number) => request<Goal>("POST", `/api/goals/${id}/extend`, { turns }),
   endGoal: (id: string) => request<void>("POST", `/api/goals/${id}/end`, {}),
   acceptGoal: (id: string) => request<Goal>("POST", `/api/goals/${id}/accept`, {}),
-  updateBot: (id: string, patch: { name?: string; instructions?: string }) =>
+  updateBot: (id: string, patch: { name?: string; instructions?: string; model?: string; effort?: string }) =>
     request<Bot>("PATCH", `/api/bots/${id}`, patch),
   deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),
   entries: (id: string, afterRev: number) =>

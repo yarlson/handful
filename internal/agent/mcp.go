@@ -198,10 +198,11 @@ type skillInput struct {
 }
 
 type boardInput struct {
-	Action     string   `json:"action" jsonschema:"list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver or request"`
+	Action     string   `json:"action" jsonschema:"list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer or withdraw"`
 	ItemID     string   `json:"item_id,omitempty" jsonschema:"the item to act on; required except for list, start_goal, create, deliver and request; for request, the other team's request that this work is for, when your team serves requests of several goals"`
+	Revisit    string   `json:"revisit,omitempty" jsonschema:"defer: when the request comes back: goal_end (when your team's current goal ends), manual (when you undefer it) or an RFC 3339 date-time"`
 	TeamID     string   `json:"team_id,omitempty" jsonschema:"request: the team to ask for work"`
-	Text       string   `json:"text,omitempty" jsonschema:"start_goal: the goal in the user's words; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; drop and pass: an optional note; deliver: the result for the user"`
+	Text       string   `json:"text,omitempty" jsonschema:"start_goal: the goal in the user's words; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; assign: a note, required when you take a request out of order; drop: a note, required on another team's request; pass: an optional note; defer: why the request waits; deliver: the result for the user"`
 	Title      string   `json:"title,omitempty" jsonschema:"create and request: a short title, unique in the goal"`
 	Brief      string   `json:"brief,omitempty" jsonschema:"create and request: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
 	Acceptance string   `json:"acceptance,omitempty" jsonschema:"create and request: how a reviewer can tell that the item is done"`
@@ -240,7 +241,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
 	if inTeam(svc, current) {
-		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: the user's goal and its items. list shows the board. The lead starts a goal (start_goal, in a turn that the user's post started), adds items (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop); another member's create is a proposal for the lead. An item's owner hands it on with submit, or stops it with block and a question. Its reviewer passes it or asks for changes. When every item is done or dropped, the lead delivers the result to the user (deliver). A lead asks another team for work with request; that team's lead assigns it or declines it with drop."}, h.updateBoard)
+		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: the user's goal and its items. list shows the board. The lead starts a goal (start_goal, in a turn that the user's post started), adds items (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop); another member's create is a proposal for the lead. An item's owner hands it on with submit, or stops it with block and a question. Its reviewer passes it or asks for changes. When every item is done or dropped, the lead delivers the result to the user (deliver). A start_goal while the team works on a goal queues the new goal; the user orders the queue. A lead asks another team for work with request, and withdraws a request it no longer needs with withdraw. The lead of the asked team accepts it with assign, declines it with drop and a note, or defers it with defer, a note and when to revisit; undefer brings a deferred request back."}, h.updateBoard)
 	}
 	if isBuilder(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: core.ToolCreateSetup, Description: createSetupDescription}, h.createSetup)
@@ -766,12 +767,15 @@ var boardActions = map[string]boardAction{
 	"drop":       itemAction((*core.Service).DropItem),
 	"pass":       itemAction((*core.Service).PassItem),
 	"changes":    itemAction((*core.Service).RequestChanges),
+	"defer":      tools.boardDefer,
+	"undefer":    requestAction((*core.Service).UndeferItem),
+	"withdraw":   requestAction((*core.Service).WithdrawItem),
 }
 
 func (t tools) updateBoard(ctx context.Context, rc runContext, in boardInput) (*mcp.CallToolResult, any, error) {
 	act, ok := boardActions[in.Action]
 	if !ok {
-		return nil, nil, errors.New("action must be list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver or request")
+		return nil, nil, errors.New("action must be list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer or withdraw")
 	}
 	teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
 	if err != nil {
@@ -796,7 +800,7 @@ func (t tools) boardList(ctx context.Context, a core.Actor, _ boardInput) (strin
 	if err != nil {
 		return "", err
 	}
-	if board.Goal == nil && len(board.Requests) == 0 {
+	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 {
 		return "The team has had no goal yet, and no request.", nil
 	}
 	return boardTable(team, board), nil
@@ -806,6 +810,9 @@ func (t tools) boardStartGoal(ctx context.Context, a core.Actor, in boardInput) 
 	g, err := t.svc.StartGoalAsLead(ctx, a, in.Text)
 	if err != nil {
 		return "", err
+	}
+	if g.State == core.GoalQueued {
+		return t.queuedReply(ctx, a.TeamID, g)
 	}
 	return fmt.Sprintf("Started the goal (id %s, %d turns). Plan it now, in this turn: add its items with create.", g.ID, g.Budget), nil
 }
@@ -822,7 +829,7 @@ func (t tools) boardCreate(ctx context.Context, a core.Actor, in boardInput) (st
 }
 
 func (t tools) boardAssign(ctx context.Context, a core.Actor, in boardInput) (string, error) {
-	it, err := t.svc.AssignItem(ctx, a, in.ItemID, in.OwnerID, in.ReviewerID, "")
+	it, err := t.svc.AssignItem(ctx, a, in.ItemID, in.OwnerID, in.ReviewerID, in.Text)
 	if err != nil {
 		return "", err
 	}
@@ -842,6 +849,62 @@ func (t tools) boardDeliver(ctx context.Context, a core.Actor, in boardInput) (s
 		return "", err
 	}
 	return "Delivered: the result is in the team's channel. The user accepts the goal or asks for changes.", nil
+}
+
+// queuedReply tells the lead that its new goal g waits in the team's queue,
+// so it plans nothing now.
+func (t tools) queuedReply(ctx context.Context, teamID string, g core.Goal) (string, error) {
+	team, err := t.svc.GetBot(ctx, teamID)
+	if err != nil {
+		return "", err
+	}
+	board, err := t.svc.Board(ctx, teamID)
+	if err != nil {
+		return "", err
+	}
+	when := "the user starts the next goal of the queue"
+	if cur := board.Goal; cur != nil && cur.Open() {
+		when = fmt.Sprintf("the user accepts or ends %q", cur.Text)
+	}
+	return fmt.Sprintf("Queued as #%d for %s; it starts when %s. Don't plan it now.", g.QueuePos, team.Name, when), nil
+}
+
+// boardDefer defers another team's request until the revisit: goal_end,
+// manual or an RFC 3339 date-time.
+func (t tools) boardDefer(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	revisit, until, err := parseRevisit(in.Revisit)
+	if err != nil {
+		return "", err
+	}
+	it, err := t.svc.DeferItem(ctx, a, in.ItemID, in.Text, revisit, until)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Deferred %q; the asking team sees why, and it comes back on its revisit.", it.Title), nil
+}
+
+// parseRevisit reads the revisit of defer: goal_end, manual or an RFC 3339
+// date-time, which it returns as core.RevisitDate and its time in ms.
+func parseRevisit(s string) (string, int64, error) {
+	if s == core.RevisitGoalEnd || s == core.RevisitManual {
+		return s, 0, nil
+	}
+	at, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return "", 0, fmt.Errorf("revisit must be %s, %s or an RFC 3339 date-time such as 2026-11-10T09:00:00+02:00", core.RevisitGoalEnd, core.RevisitManual)
+	}
+	return core.RevisitDate, at.UnixMilli(), nil
+}
+
+// requestAction makes a boardAction of a change of a request that takes no text.
+func requestAction(change func(*core.Service, context.Context, core.Actor, string) (core.Item, error)) boardAction {
+	return func(t tools, ctx context.Context, a core.Actor, in boardInput) (string, error) {
+		it, err := change(t.svc, ctx, a, in.ItemID)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%q is %s now.", it.Title, it.Intake), nil
+	}
 }
 
 // itemAction makes a boardAction of an item change that takes a text.

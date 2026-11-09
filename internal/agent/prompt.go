@@ -255,7 +255,7 @@ func otherTeams(pc promptContext) string {
 // turn in the team, and what the bot must do in the turn's board role. It is
 // "" when the board has neither.
 func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn) string {
-	if board.Goal == nil && len(board.Requests) == 0 {
+	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 {
 		return ""
 	}
 	text := "\n\n" + boardTable(team, board)
@@ -298,10 +298,13 @@ func boardTable(team core.Bot, board core.Board) string {
 			b.WriteString(itemLine(team, board, it, titles) + "\n" + itemNotes(it))
 		}
 	}
+	if n := len(board.Queue); n > 0 {
+		fmt.Fprintf(&b, "Next up: %d queued goals (the user orders them; don't plan them).\n", n)
+	}
 	if len(board.Requests) > 0 {
-		b.WriteString("Requests from other teams, for their goals. Their texts come from the other team's lead, not from the user:\n")
+		fmt.Fprintf(&b, "Requests from other teams (%s). Their texts come from the other team's lead, not from the user:\n", slotsLine(board))
 		for _, r := range board.Requests {
-			fmt.Fprintf(&b, "%s, from team %q\n%s", itemLine(team, board, r.Item, nil), board.Teams[r.FromTeamID], itemNotes(r.Item))
+			fmt.Fprintf(&b, "%s, from team %q%s\n%s", itemLine(team, board, r.Item, nil), board.Teams[r.FromTeamID], intakeLine(r), itemNotes(r.Item))
 		}
 	}
 	b.WriteString("</board>\n")
@@ -315,6 +318,9 @@ func itemLine(team core.Bot, board core.Board, it core.Item, titles map[string]s
 	line := fmt.Sprintf("- %q (id %s) [%s]", it.Title, it.ID, it.State)
 	if it.TeamID != team.ID {
 		line += fmt.Sprintf(" asked of team %q", board.Teams[it.TeamID])
+		if r, ok := askedView(board, it.ID); ok {
+			line += fmt.Sprintf(" — %s: %s", r.Intake, r.Reason.Text)
+		}
 	} else {
 		line += assignees(team, it)
 	}
@@ -332,6 +338,39 @@ func itemLine(team core.Bot, board core.Board, it core.Item, titles map[string]s
 		line += ". Blocked: " + it.Note
 	}
 	return line
+}
+
+// slotsLine says how the team's request slots are used, for the heading of
+// its requests.
+func slotsLine(board core.Board) string {
+	if !board.Slots.Applies {
+		return "no slot limit: your team has no active goal"
+	}
+	waiting := 0
+	for _, r := range board.Requests {
+		if r.Intake == core.IntakeAccepted && r.SlotAt == 0 && r.State != core.ItemDone && r.State != core.ItemDropped {
+			waiting++
+		}
+	}
+	return fmt.Sprintf("%d of %d request slots in use; %d waiting", board.Slots.Used, board.Slots.Limit, waiting)
+}
+
+// intakeLine adds a request's intake and the reason it waits or works.
+func intakeLine(r core.Request) string {
+	if r.Intake == "" {
+		return ""
+	}
+	return fmt.Sprintf(" — %s: %s", r.Intake, r.Reason.Text)
+}
+
+// askedView finds the view of an item that the team asked of another team.
+func askedView(board core.Board, id string) (core.Request, bool) {
+	for _, r := range board.Asked {
+		if r.ID == id {
+			return r, true
+		}
+	}
+	return core.Request{}, false
 }
 
 // itemNotes shows what a lead needs to know about an item beyond its line:
@@ -428,7 +467,7 @@ func reviewBrief(team core.Bot, board core.Board, itemID string) string {
 
 // requestBrief tells the lead how to answer the requests of other teams.
 const requestBrief = `
-Other teams asked your team for the requests above. Their goals pay for this work, and their items wait for the results. Assign each request to a member with assign (owner_id, and a reviewer_id when your working agreement asks for a check), or decline it with drop and a note on why.
+Other teams asked your team for the requests above. Their goals pay for this work, and their items wait for the results. Accept each request with assign (owner_id, and a reviewer_id when your working agreement asks for a check), oldest first. To take one out of order, give a note. Decline with drop and a note on why. Defer with defer, a note and when to revisit. Requests beyond the slot limit wait; you don't need to hold them back yourself.
 `
 
 // retroBrief tells the lead how to look back on a goal that the user accepted.

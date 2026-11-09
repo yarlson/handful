@@ -514,8 +514,20 @@ function chatSubtitle(bot: Bot) {
 }
 
 export function App() {
-  const { bots, transcripts, unread, link, error, setError, pausedUntil, draining, select, refreshBots, reorder } =
-    useYarGPT()
+  const {
+    bots,
+    transcripts,
+    transcriptStatus,
+    unread,
+    link,
+    error,
+    setError,
+    pausedUntil,
+    draining,
+    select,
+    refreshBots,
+    reorder,
+  } = useYarGPT()
   const update = useUpdate()
   const [width, setWidth] = useState(loadSidebarWidth)
   const resizing = useRef(false)
@@ -753,6 +765,7 @@ export function App() {
               <Chat
                 bot={bot}
                 entries={entries}
+                status={transcriptStatus.get(bot.id) ?? "unloaded"}
                 answering={answering.get(bot.id) ?? null}
                 draining={draining}
                 pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}

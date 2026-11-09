@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, X } from "lucide-react"
 import { api, type Board, type Bot, type Goal, type Item, type Request } from "@/lib/api"
+import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@/lib/questions"
 import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -224,25 +225,104 @@ function ItemCard({
     item.teamId !== team.id
       ? `Asked of team ${teams[item.teamId] ?? "a deleted team"}`
       : `${item.ownerId ? memberName(team, item.ownerId) : "No owner yet"}${item.reviewerId ? ` · reviewed by ${memberName(team, item.reviewerId)}` : ""}`
+  const [history, setHistory] = useState(false)
+  const historyId = `history-${item.id}`
+  const count = item.eventCount ?? 0
+  const toggle = (item.reviewRounds > 0 || count > 0) && (
+    <Button
+      size="xs"
+      variant={item.reviewRounds > 0 ? "outline" : "link"}
+      className={item.reviewRounds > 0 ? "" : "text-muted-foreground h-auto p-0 text-xs"}
+      aria-expanded={history}
+      aria-controls={historyId}
+      onClick={() => setHistory((v) => !v)}
+    >
+      {historyToggle(item.reviewRounds, count)}
+    </Button>
+  )
   return (
     <div className="flex flex-col gap-1 rounded-md border p-2 text-sm">
       <div className="flex items-start gap-2">
         <span className="flex-1 font-medium">{item.title}</span>
-        {item.reviewRounds > 0 && (
-          <Badge variant="outline" title="Times that the reviewer asked for changes">
-            {item.reviewRounds === 1 ? "1 change request" : `${item.reviewRounds} change requests`}
-          </Badge>
-        )}
+        {item.reviewRounds > 0 && toggle}
       </div>
-      <p className="text-muted-foreground text-xs">{who}</p>
+      <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
+        {who}
+        {item.reviewRounds === 0 && toggle}
+      </p>
+      {item.latestChange && (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
+          <p className="font-medium text-amber-800 dark:text-amber-300">
+            Changes asked · round {item.latestChange.round} · {item.latestChange.by} · {time(item.latestChange.at)}
+          </p>
+          <p className="mt-1 whitespace-pre-wrap">{item.latestChange.text}</p>
+        </div>
+      )}
+      {history && <ItemHistory id={historyId} item={item} />}
       {children}
-      {item.note && <p className="text-xs">{item.note}</p>}
+      {item.note && (item.state === "blocked" || item.state === "dropped") && <p className="text-xs">{item.note}</p>}
       <details className="text-xs">
         <summary className="text-muted-foreground cursor-pointer">Details</summary>
         <p className="mt-1 whitespace-pre-wrap">{item.brief}</p>
         <p className="text-muted-foreground mt-1 whitespace-pre-wrap">Done when: {item.acceptance}</p>
         {item.result && <p className="mt-1 whitespace-pre-wrap">Result: {item.result}</p>}
       </details>
+    </div>
+  )
+}
+
+function time(ms: number) {
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
+
+function day(ms: number) {
+  return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" })
+}
+
+// ItemHistory shows every event of an item, oldest first: each round of changes with its
+// whole text, who asked and when.
+export function ItemHistory({ id, item }: { id: string; item: Item }) {
+  const events = useLoad(() => api.itemEvents(item.id), `${item.id}:${item.eventCount ?? 0}`)
+  if (events.error) return <p className="text-destructive text-xs">{events.error}</p>
+  if (!events.data) return null
+  return <HistoryList id={id} item={item} events={events.data} />
+}
+
+export function HistoryList({ id, item, events }: { id: string; item: Item; events: ItemEvent[] }) {
+  return (
+    <div id={id} className="text-xs">
+      {item.historyFrom && <p className="text-muted-foreground mb-1">History starts on {day(item.historyFrom)}.</p>}
+      <ol aria-label={`History of ${item.title}`} className="flex flex-col gap-1.5 border-l pl-3">
+        {events.map((e) => {
+          const tone = eventTone(e.kind)
+          return (
+            <li
+              key={e.id}
+              className={cn(
+                "relative",
+                tone === "changes" && "rounded-sm bg-amber-500/10 p-1.5",
+                tone === "passed" && "rounded-sm bg-emerald-500/10 p-1.5",
+              )}
+            >
+              <p>
+                <span
+                  className={cn(
+                    "font-medium",
+                    tone === "changes" && "text-amber-800 dark:text-amber-300",
+                    tone === "passed" && "text-emerald-800 dark:text-emerald-300",
+                  )}
+                >
+                  {eventLabel(e)}
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  · {actorOf(e)} · {day(e.createdAt)} {time(e.createdAt)}
+                </span>
+              </p>
+              {e.text && <p className="mt-0.5 whitespace-pre-wrap">{e.text}</p>}
+            </li>
+          )
+        })}
+      </ol>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
 import {
+  Inbox,
   AlertTriangle,
   Bot as BotIcon,
   MessageCircleQuestion,
@@ -15,8 +16,10 @@ import { botColor } from "@/lib/bot-color"
 import { api, type Bot } from "@/lib/api"
 import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
-import { BotPanel } from "@/components/bot-panel"
+import { BotPanel, useLoad } from "@/components/bot-panel"
 import { GoalBar } from "@/components/board"
+import { WaitingView } from "@/components/questions"
+import { countBadge, waitingCount, waitingKey, type Asked } from "@/lib/questions"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, OPEN_SETTINGS, useDefaults } from "@/components/model"
 import { inheritedFromGlobal, overrides, teamEffective } from "@/lib/model"
 import { ConnectorsDialog } from "@/components/connectors"
@@ -339,6 +342,14 @@ function SidebarItem({
           <title>Waiting for your reply</title>
         </MessageCircleQuestion>
       )}
+      {countBadge(bot.openQuestions) && (
+        <span
+          className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
+          aria-label={`${bot.openQuestions} open questions`}
+        >
+          {countBadge(bot.openQuestions)}
+        </span>
+      )}
       {bot.running && <span className="size-2 animate-pulse rounded-full bg-emerald-500" title="Working" />}
       {!bot.running && bot.tasks.length > 0 && (
         <span
@@ -503,6 +514,7 @@ export function App() {
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [connectors, setConnectors] = useState(false)
   const [panel, setPanel] = useState(true)
+  const [waitingOpen, setWaitingOpen] = useState(false)
   const [show, setShow] = useState<{ tab: string; n: number } | undefined>()
   const showTab = (tab: string) => {
     setPanel(true)
@@ -515,8 +527,18 @@ export function App() {
 
   const openChat = (id: string) => {
     if (location.pathname !== chatPath(id)) history.pushState(null, "", chatPath(id))
+    setWaitingOpen(false)
     setSelected(id)
-  } // An error or mismatch entry's "Open settings" asks for the bot's settings.
+  }
+  // The question that each chat's next message answers, set by an Answer button.
+  const [answering, setAnswering] = useState(() => new Map<string, Asked>())
+  const setAnswer = (chatId: string, q: Asked | null) =>
+    setAnswering((m) => {
+      const next = new Map(m)
+      if (q) next.set(chatId, q)
+      else next.delete(chatId)
+      return next
+    }) // An error or mismatch entry's "Open settings" asks for the bot's settings.
   useEffect(() => {
     const open = (e: Event) => {
       const id = (e as CustomEvent<string>).detail
@@ -547,6 +569,8 @@ export function App() {
   const teams = bots.filter((b) => b.team)
   const transcript = selected ? transcripts.get(selected) : undefined
   const entries = orderedEntries(transcript)
+  const waiting = useLoad(() => api.waiting(), waitingKey(bots))
+  const waitingN = waiting.data ? waitingCount(waiting.data) : 0
 
   return (
     <div className="bg-background text-foreground flex h-screen">
@@ -555,6 +579,26 @@ export function App() {
           <img src="/logo.svg" alt="YarGPT" className="size-7" />
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
+          <button
+            type="button"
+            aria-current={waitingOpen ? "page" : undefined}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+              waitingOpen ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
+            )}
+            onClick={() => setWaitingOpen(true)}
+          >
+            <Inbox className="size-4 shrink-0" />
+            <span className="flex-1">Waiting for you</span>
+            {waitingN > 0 && (
+              <span
+                className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
+                aria-label={`${waitingN} waiting`}
+              >
+                {waitingN}
+              </span>
+            )}
+          </button>
           <SectionTitle title="Bots" action="New bot" onAction={() => setCreating(true)} />
           <BotList
             items={agents}
@@ -639,7 +683,19 @@ export function App() {
             {new Date(pausedUntil).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}.
           </div>
         )}
-        {bot ? (
+        {waitingOpen && waiting.data ? (
+          <WaitingView
+            waiting={waiting.data}
+            bots={bots}
+            onOpen={openChat}
+            onAnswer={(chatId, q) => {
+              setAnswer(chatId, q)
+              openChat(chatId)
+              requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
+            }}
+            onChange={waiting.reload}
+          />
+        ) : bot ? (
           <>
             <header className="flex h-12 items-center gap-2 border-b px-4">
               <span className="max-w-[60%] shrink-0 truncate font-medium" title={bot.name}>
@@ -678,6 +734,8 @@ export function App() {
               <Chat
                 bot={bot}
                 entries={entries}
+                answering={answering.get(bot.id) ?? null}
+                onAnswer={(q) => setAnswer(bot.id, q)}
                 mentionables={
                   bot.kind === "room"
                     ? (bot.members ?? [])

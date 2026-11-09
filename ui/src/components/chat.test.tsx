@@ -126,3 +126,37 @@ test("a post loads the app's own images, and shows other sites' images as links"
   assert.include(html, "logo (example.com)")
   assert.include(html, "Image (cdn.example.org)")
 })
+
+test("an open question is marked in words and offers Answer; a closed one says how it closed", () => {
+  const ask = (questionState: "open" | "answered" | "dismissed" | "withdrawn"): Entry => ({
+    ...base,
+    id: "q1",
+    botId: solo.id,
+    kind: "bot",
+    body: {
+      text: "Ship it now?\nDetails.",
+      fallback: false,
+      needsReply: true,
+      question: "Ship it now?",
+      questionState,
+    },
+  })
+  const open = renderToStaticMarkup(<EntryView entry={ask("open")} chat={solo} skill={null} onAnswer={() => {}} />)
+  assert.include(open, 'id="entry-q1"')
+  assert.include(open, 'tabindex="-1"')
+  assert.include(open, "Open question")
+  assert.include(open, "border-amber-500")
+  assert.include(open, 'aria-label="Answer: Ship it now?"')
+  const answered = renderToStaticMarkup(
+    <EntryView entry={ask("answered")} chat={solo} skill={null} onAnswer={() => {}} />,
+  )
+  assert.include(answered, "Answered")
+  assert.notInclude(answered, "border-amber-500")
+  assert.notInclude(answered, "Answer: ")
+  assert.include(
+    renderToStaticMarkup(<EntryView entry={ask("withdrawn")} chat={solo} skill={null} />),
+    "No longer needed",
+  )
+  assert.include(renderToStaticMarkup(<EntryView entry={ask("dismissed")} chat={solo} skill={null} />), "Dismissed")
+  assert.notInclude(renderToStaticMarkup(<EntryView entry={post(solo)} chat={solo} skill={null} />), 'id="entry-')
+})

@@ -1,6 +1,7 @@
 import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifacts"
 import { errorMessage } from "./errors"
 import type { Intake, Slots } from "./queue"
+import type { ItemEvent, OpenQuestion, QuestionState, Waiting } from "./questions"
 import type { Defaults, Effective } from "./model"
 
 export type Member = { id: string; name: string; effective?: Effective }
@@ -26,6 +27,7 @@ export type Bot = {
   model?: string // "" inherits
   effort?: string // "" inherits
   effective?: Effective // its values in its direct chat; absent on rooms
+  openQuestions?: number // its chat's open questions
   createdAt: number
   updatedAt: number
   running: boolean
@@ -36,12 +38,16 @@ export type Bot = {
 export type BackgroundTask = { id: string; description: string; bot?: string; botId?: string }
 
 // reactions are the user's emoji on a message, in the order of REACTIONS.
-export type UserBody = { text: string; media?: string[]; reactions?: string[] }
+export type UserBody = { text: string; media?: string[]; reactions?: string[]; answers?: string[] }
 export type BotBody = {
   text: string
   media?: string[]
   fallback: boolean
   needsReply?: boolean
+  question?: string // the one-line question, when it has one
+  questionState?: QuestionState
+  answeredBy?: string
+  closedAt?: number
   speakerId?: string
   speakerName?: string
   reactions?: string[]
@@ -157,6 +163,10 @@ export type Item = {
   deferUntil?: number
   slotAt?: number // >0 while it holds one of the serving team's slots
   jumpedAt?: number
+  // The change request the owner works on: the latest, while no submission came after it.
+  latestChange?: { round: number; by: string; at: number; text: string }
+  eventCount?: number
+  historyFrom?: number // set when the item is older than its history
 }
 
 // Request is an item that another team's goal asked a team to do, with its place and the
@@ -245,8 +255,18 @@ export const api = {
   entries: (id: string, afterRev: number) =>
     request<{ entries: Entry[] }>("GET", `/api/bots/${id}/entries?after=${afterRev}`).then((r) => r.entries),
   // media are base64-encoded file contents.
-  send: (id: string, text: string, media: string[] = []) =>
-    request<{ turnId: string }>("POST", `/api/bots/${id}/messages`, { text, media, clientNonce: crypto.randomUUID() }),
+  send: (id: string, text: string, media: string[] = [], answers: string[] = []) =>
+    request<{ turnId: string }>("POST", `/api/bots/${id}/messages`, {
+      text,
+      media,
+      clientNonce: crypto.randomUUID(),
+      ...(answers.length > 0 && { answers }),
+    }),
+  itemEvents: (id: string) => request<ItemEvent[]>("GET", `/api/items/${id}/events`),
+  waiting: () => request<Waiting>("GET", "/api/questions"),
+  chatQuestions: (id: string) => request<OpenQuestion[]>("GET", `/api/bots/${id}/questions`),
+  dismissQuestion: (entryId: string) => request<Entry>("POST", `/api/entries/${entryId}/dismiss`, {}),
+  reopenQuestion: (entryId: string) => request<Entry>("POST", `/api/entries/${entryId}/reopen`, {}),
   mediaUrl: (name: string) => `/api/media/${encodeURIComponent(name)}`,
   interrupt: (id: string) => request<{ stopped: boolean }>("POST", `/api/bots/${id}/interrupt`, {}),
   clearContext: (id: string) => request<void>("POST", `/api/bots/${id}/clear`, {}),

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
 import type { Board, Bot, Goal, Request } from "@/lib/api"
-import { BoardView } from "./board.tsx"
+import { BoardView, HistoryList } from "./board.tsx"
 
 const team: Bot = {
   id: "t1",
@@ -188,4 +188,66 @@ test("cancelling a queued goal asks first: no confirm shows until the ✕ is pre
   assert.include(html, 'aria-label="Cancel goal Add PDF export"')
   assert.include(html, 'aria-expanded="false"')
   assert.notInclude(html, "can't be undone")
+})
+
+const item = (x: Partial<Request>) => ({ ...req("i1", "Write code", { goalId: "g1", ownerId: "a" }), ...x })
+
+test("a card with change requests opens its history, and shows the request being worked on", () => {
+  const html = render(
+    board({
+      items: [
+        item({
+          state: "doing",
+          reviewRounds: 2,
+          eventCount: 5,
+          latestChange: { round: 2, by: "Bo", at: 0, text: "Add a test for the empty file." },
+        }),
+      ],
+    }),
+  )
+  assert.match(html, /<button[^>]*aria-expanded="false"[^>]*aria-controls="history-i1"[^>]*>2 change requests</)
+  assert.include(html, "Changes asked · round 2 · Bo")
+  assert.include(html, "Add a test for the empty file.")
+})
+
+test("a card without change requests links its history, and none without events", () => {
+  assert.include(render(board({ items: [item({ eventCount: 3 })] })), "History (3)")
+  assert.notInclude(render(board({ items: [item({ eventCount: 0 })] })), "History (")
+})
+
+test("a note shows only on blocked and dropped cards", () => {
+  assert.include(render(board({ items: [item({ state: "blocked", note: "Which API?" })] })), "Which API?")
+  assert.notInclude(render(board({ items: [item({ state: "doing", note: "old note" })] })), "old note")
+})
+
+test("the history lists every event with its round, author and whole text", () => {
+  const ev = (id: string, kind: string, round: number, actorName: string, text: string) => ({
+    id,
+    itemId: "i1",
+    kind,
+    actorId: actorName ? "b" : "",
+    actorName,
+    round,
+    text,
+    createdAt: 0,
+  })
+  const html = renderToStaticMarkup(
+    <HistoryList
+      id="history-i1"
+      item={item({ historyFrom: 1000 })}
+      events={[
+        ev("1", "submitted", 0, "Ana", "Done."),
+        ev("2", "changes", 1, "Bo", "Round one text."),
+        ev("3", "changes", 2, "Bo", "Round two text."),
+        ev("4", "passed", 0, "Bo", ""),
+      ]}
+    />,
+  )
+  assert.include(html, 'aria-label="History of Write code"')
+  assert.include(html, "<ol")
+  assert.isBelow(html.indexOf("Round one text."), html.indexOf("Round two text."))
+  assert.include(html, "Changes asked · round 1")
+  assert.include(html, "Changes asked · round 2")
+  assert.include(html, "Passed")
+  assert.include(html, "History starts on")
 })

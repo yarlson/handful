@@ -52,7 +52,7 @@ func TestStoredMessagesDropTheSendersPreamble(t *testing.T) {
 		return body.Text
 	}
 
-	if _, err := svc.AppendBotMessage(ctx, sec.ID, "t1", "Atlas Security here. The scan is clean.", nil, false, false, PostMeta{}); err != nil {
+	if _, err := svc.AppendBotMessage(ctx, sec.ID, "t1", "Atlas Security here. The scan is clean.", nil, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastText(sec.ID); got != "The scan is clean." {

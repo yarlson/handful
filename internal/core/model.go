@@ -46,7 +46,6 @@ const maxModelLen = 200
 
 var (
 	modelChars = regexp.MustCompile(`^[A-Za-z0-9._:/@\[\]-]+$`)
-	effortText = "Effort must be one of " + strings.Join(EffortLevels, ", ") + "."
 )
 
 // NormalizeModel checks a model setting and returns it as stored: "" for
@@ -86,7 +85,7 @@ func NormalizeEffort(s string) (string, error) {
 			return l, nil
 		}
 	}
-	return "", invalid("%s", effortText)
+	return "", invalid("Effort must be one of %s.", strings.Join(EffortLevels, ", "))
 }
 
 // Defaults are the global model and effort of every bot, from the flags, the
@@ -153,14 +152,16 @@ func Resolve(bot Bot, team *Team, d Defaults) Effective {
 
 // pick chooses the first set value of a bot, a team and the defaults.
 func pick(own, team, global, globalSource string) (string, string) {
-	switch {
-	case own != "":
+	if own != "" {
 		return own, SourceBot
-	case team != "":
+	}
+	if team != "" {
 		return team, SourceTeam
-	case globalSource == SourceEnv || globalSource == SourceClaudeCode:
+	}
+	if globalSource == SourceEnv || globalSource == SourceClaudeCode {
 		return global, globalSource
-	case global != "":
+	}
+	if global != "" {
 		return global, SourceGlobal
 	}
 	return "", SourceClaudeCode

@@ -143,7 +143,9 @@ func TestBotEndpointsSetModelAndEffortAndShowTheEffectiveValues(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(list, func(b modelBot) bool { return b.ID == bo.ID && b.Effective != nil && b.Effective.ModelSource == core.SourceGlobal }) {
+	if !slices.ContainsFunc(list, func(b modelBot) bool {
+		return b.ID == bo.ID && b.Effective != nil && b.Effective.ModelSource == core.SourceGlobal
+	}) {
 		t.Fatalf("list = %s; want Bo's effective values", rec.Body)
 	}
 }

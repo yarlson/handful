@@ -540,7 +540,13 @@ func (s *Service) Entries(ctx context.Context, botID string, afterRev int64, lim
 // AppendBotMessage delivers a message from the bot to the user. needsReply
 // marks a question the bot cannot continue without; it shows as attention
 // until the user writes again.
-func (s *Service) AppendBotMessage(ctx context.Context, botID, turnID, text string, files []string, fallback, needsReply bool, meta PostMeta) (Entry, error) {
+func (s *Service) AppendBotMessage(ctx context.Context, botID, turnID, text string, files []string, fallback, needsReply bool) (Entry, error) {
+	return s.AppendBotMessageWith(ctx, botID, turnID, text, files, fallback, needsReply, PostMeta{})
+}
+
+// AppendBotMessageWith delivers a message as AppendBotMessage does, and
+// records the model and effort of the turn that wrote it.
+func (s *Service) AppendBotMessageWith(ctx context.Context, botID, turnID, text string, files []string, fallback, needsReply bool, meta PostMeta) (Entry, error) {
 	text = strings.TrimSpace(text)
 	if text == "" && len(files) == 0 {
 		return Entry{}, invalid("message text is empty")

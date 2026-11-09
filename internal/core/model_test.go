@@ -240,7 +240,7 @@ func TestModelAttentionShowsUntilClearedOrTheSettingChanges(t *testing.T) {
 	if got := attentionOf(t, svc, ana.ID); got != AttentionModel {
 		t.Fatalf("attention = %q; want model", got)
 	}
-	if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Which one?", nil, false, true, PostMeta{}); err != nil {
+	if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Which one?", nil, false, true); err != nil {
 		t.Fatal(err)
 	}
 	if got := attentionOf(t, svc, ana.ID); got != AttentionQuestion {
@@ -291,7 +291,7 @@ func TestABotPostRecordsTheModelAndEffortOfItsTurn(t *testing.T) {
 		{PostMeta{Effort: "low"}, map[string]any{"effort": "low"}},
 		{PostMeta{}, map[string]any{}},
 	} {
-		e, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Hi.", nil, false, false, c.meta)
+		e, err := svc.AppendBotMessageWith(ctx, ana.ID, "t1", "Hi.", nil, false, false, c.meta)
 		if err != nil {
 			t.Fatal(err)
 		}

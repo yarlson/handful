@@ -280,7 +280,7 @@ func (t tools) sendToUser(ctx context.Context, rc runContext, in sendInput) (*mc
 		}
 		return textResult("%s", posted), nil, nil
 	}
-	if _, err := t.svc.AppendBotMessage(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply, core.PostMeta{}); err != nil {
+	if _, err := t.svc.AppendBotMessage(ctx, rc.BotID, rc.TurnID, in.Text, in.Files, false, in.NeedsReply); err != nil {
 		return nil, nil, err
 	}
 	return textResult("Delivered."), nil, nil

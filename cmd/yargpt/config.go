@@ -51,19 +51,19 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 	if file.MaxParallel != nil && *file.MaxParallel < 1 {
 		return fmt.Errorf("config file %s: maxParallel must be at least 1", path)
 	}
-	if file.Claude != nil && !set["claude"] {
-		s.Claude = *file.Claude
-	}
-	if file.Model != nil && !set["model"] {
-		s.Model = *file.Model
-	}
-	if file.Effort != nil && !set["effort"] {
-		s.Effort = *file.Effort
-	}
-	if file.MaxParallel != nil && !set["max-parallel"] {
-		s.MaxParallel = *file.MaxParallel
-	}
+	fromFile(&s.Claude, file.Claude, set["claude"])
+	fromFile(&s.Model, file.Model, set["model"])
+	fromFile(&s.Effort, file.Effort, set["effort"])
+	fromFile(&s.MaxParallel, file.MaxParallel, set["max-parallel"])
 	return nil
+}
+
+// fromFile sets *dst to the file's value v, unless the file lacks it or its
+// flag was given.
+func fromFile[T any](dst, v *T, flagGiven bool) {
+	if v != nil && !flagGiven {
+		*dst = *v
+	}
 }
 
 // globalDefaults checks the global model and effort of s, normalizes them in

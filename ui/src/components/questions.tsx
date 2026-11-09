@@ -3,6 +3,7 @@ import { CornerDownLeft, X } from "lucide-react"
 import { api, type Bot } from "@/lib/api"
 import {
   byChat,
+  stateLabel,
   stripCollapsed,
   UNDO_MS,
   waitingCount,
@@ -244,9 +245,55 @@ export function WaitingView({
         </section>
       )}
       <UndoNote undo={undo} onUndo={() => void reopen()} error={error} />
-      <p className="text-muted-foreground text-xs">
-        Answered or dismissed in the last 7 days: {waiting.closedRecently}
-      </p>
+      <ClosedList waiting={waiting} name={name} onOpen={onOpen} />
     </div>
+  )
+}
+
+// ClosedList counts the questions closed in the last 7 days and shows them on request,
+// newest first, each with how it closed.
+function ClosedList({
+  waiting,
+  name,
+  onOpen,
+}: {
+  waiting: Waiting
+  name: (id: string) => string
+  onOpen: (chatId: string) => void
+}) {
+  const [shown, setShown] = useState(false)
+  const closed = waiting.closed ?? []
+  return (
+    <section className="flex flex-col gap-1.5 text-xs">
+      <p className="text-muted-foreground flex items-center gap-2">
+        Answered or dismissed in the last 7 days: {waiting.closedRecently}
+        {closed.length > 0 && (
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-expanded={shown}
+            aria-controls="waiting-closed"
+            onClick={() => setShown((v) => !v)}
+          >
+            {shown ? "Hide" : "Show"}
+          </Button>
+        )}
+      </p>
+      {shown && (
+        <ul id="waiting-closed" aria-label="Closed in the last 7 days" className="flex flex-col gap-1">
+          {closed.map((q) => (
+            <li key={q.entryId} className="flex flex-wrap items-baseline gap-x-2 rounded-md border p-2">
+              <span className="min-w-0 flex-1">{q.question}</span>
+              <span className="text-muted-foreground">
+                {stateLabel(q.state)} · {name(q.chatId)} · {time(q.closedAt ?? q.createdAt)}
+              </span>
+              <Button size="xs" variant="ghost" onClick={() => onOpen(q.chatId)}>
+                Open chat
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }

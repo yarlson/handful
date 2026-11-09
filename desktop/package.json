@@ -21,7 +21,7 @@
   },
   "build": {
     "appId": "dev.yarlson.yargpt",
-    "files": ["main.js", "app.js", "preload.js", "updater.js", "updater-state.js", "updater-io.js"],
+    "files": ["main.js", "app.js", "context-menu.js", "preload.js", "updater.js", "updater-state.js", "updater-io.js"],
     "extraResources": [{ "from": "../bin/yargpt", "to": "yargpt" }],
     "extraFiles": [
       {

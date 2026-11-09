@@ -407,3 +407,33 @@ test("an entry above that grows between a step up and its scroll does not move t
   f.settle("a", l.view)
   assert.equal(l.topOf(18), before)
 })
+
+test("a step up in a view that cannot scroll up keeps the chat pinned", () => {
+  // The whole chat fits in the view.
+  const short = new Layout([100, 100], 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  f.settle("a", short.view)
+  assert.equal(short.scrollTop, 0)
+  assert.isTrue(f.intent("a", short.view, short.entries(), { kind: "wheel", deltaY: -40 }))
+  assert.isTrue(f.intent("a", short.view, short.entries(), { kind: "key", key: "Home" }))
+  assert.isTrue(f.memory.pinned("a"))
+  // A long reply arrives and the chat follows it.
+  short.heights.push(600)
+  f.settle("a", short.view)
+  assert.equal(short.scrollTop, short.scrollHeight - short.viewHeight)
+})
+
+test("a step up at the very top of an unpinned chat keeps it unpinned", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  l.scrollTop = 0
+  f.scrolled("a", l.view, l.entries())
+  assert.isFalse(f.intent("a", l.view, l.entries(), { kind: "wheel", deltaY: -40 }))
+})
+
+test("a step up one pixel below the top unpins the chat", () => {
+  const l = new Layout([200, 200], 399)
+  const f = new ScrollFollower(new ScrollMemory())
+  l.scrollTop = 1
+  assert.isFalse(f.intent("a", l.view, l.entries(), { kind: "wheel", deltaY: -40 }))
+})

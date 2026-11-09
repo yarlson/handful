@@ -113,9 +113,10 @@ export class ScrollFollower {
 
   // intent notes a user's input on chat id's view and returns whether the chat is pinned
   // now. An input that scrolls up unpins it before its scroll arrives, so that no update of
-  // the transcript in between pulls the view back down.
+  // the transcript in between pulls the view back down. A view already at the top, or one
+  // with nothing to scroll, cannot move up, and no scroll would follow to pin it again.
   intent(id: string, view: ScrollBox, items: Item[], input: Intent): boolean {
-    if (!scrollsUp(input)) return this.memory.pinned(id)
+    if (!scrollsUp(input) || view.scrollTop <= 0) return this.memory.pinned(id)
     this.memory.unpin(id, view.scrollTop)
     this.capture(id, view, items)
     return false

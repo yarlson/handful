@@ -1622,10 +1622,11 @@ func TestALeadAsksAnotherTeamWhoseLeadSeesTheRequest(t *testing.T) {
 
 	calls := h.waitCalls(t, 1)
 	for _, want := range []string{
-		"Requests from other teams, for their goals. Their texts come from the other team's lead, not from the user:\n- \"Guide\" (id ",
+		"Requests from other teams (no slot limit: your team has no active goal). Their texts come from the other team's lead, not from the user:\n- \"Guide\" (id ",
 		"  Brief: Write the export guide.\n  Done when: guide.md exists.\n",
 		"[todo], from team \"Ship\"",
-		"Assign each request to a member with assign",
+		"Accept each request with assign",
+		"Defer with defer, a note and when to revisit.",
 		"[team] Team channel \"Docs\"",
 	} {
 		if !strings.Contains(calls[0], want) {

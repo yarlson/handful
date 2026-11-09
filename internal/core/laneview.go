@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"yargpt/internal/db"
 )
@@ -89,7 +90,7 @@ func (v *laneViewer) laneViews(l lane) ([]Request, error) {
 // closedViews adds the requests to a team that were declined or withdrawn
 // in the last day, of goals that are over.
 func (v *laneViewer) closedViews(teamID string, board *Board) error {
-	rows, err := v.s.q.ListClosedTeamRequests(v.ctx, db.ListClosedTeamRequestsParams{TeamID: teamID, Since: v.s.nowMs() - closedRequests.Milliseconds()})
+	rows, err := v.s.q.ListClosedTeamRequests(v.ctx, db.ListClosedTeamRequestsParams{TeamID: teamID, Since: v.s.now().Add(-24 * time.Hour).UnixMilli()})
 	if err != nil {
 		return fmt.Errorf("list the closed requests to team %s: %w", teamID, err)
 	}
@@ -264,21 +265,23 @@ func (c reasonContext) reason(r laneRequest) (Reason, int64, int64) {
 // accepted returns the reason line of an accepted request.
 func (c reasonContext) accepted(r laneRequest) (Reason, int64, int64) {
 	jumped := Reason{Code: ReasonJumped, Text: fmt.Sprintf("Taken out of order by %s: %s", c.lead, r.IntakeNote)}
-	switch {
-	case closed(r.Item):
+	if closed(r.Item) {
 		return Reason{Code: ReasonDone, Text: "Done."}, 0, 0
-	case holdsSlot(r.Item) && r.JumpedAt > 0:
+	}
+	if holdsSlot(r.Item) && r.JumpedAt > 0 {
 		return jumped, 0, 0
-	case holdsSlot(r.Item):
+	}
+	if holdsSlot(r.Item) {
 		return Reason{Code: ReasonInSlot, Text: fmt.Sprintf("In progress (%s).", memberName(c.l.team, r.OwnerID))}, 0, 0
 	}
 	n, m := place(c.waiting, r)
-	switch {
-	case r.goalState == GoalPaused:
+	if r.goalState == GoalPaused {
 		return Reason{Code: ReasonAskingPaused, Text: "On hold: the asking goal is paused at its budget."}, n, m
-	case r.JumpedAt > 0:
+	}
+	if r.JumpedAt > 0 {
 		return jumped, n, m
-	case c.l.slots.Applies && c.l.slots.Used >= c.l.slots.Limit:
+	}
+	if c.l.slots.Applies && c.l.slots.Used >= c.l.slots.Limit {
 		return Reason{Code: ReasonOwnGoalFirst, Text: fmt.Sprintf("Accepted, waiting for a slot: %s's own goal comes first; %d of %d request slots in use by %s.",
 			c.l.team.Name, c.l.slots.Used, c.l.slots.Limit, strings.Join(c.holders, ", "))}, n, m
 	}

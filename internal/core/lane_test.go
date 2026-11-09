@@ -264,6 +264,12 @@ func TestEndingAGoalStartsTheNextOrHoldsTheQueue(t *testing.T) {
 	if _, err := f.svc.StartNextGoal(ctx, f.team.ID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("start the next goal of an empty queue: err = %v; want ErrConflict", err)
 	}
+	if err := f.svc.EndGoal(ctx, appended.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if text := lastEventText(t, f.svc, f.team.ID); strings.Contains(text, "on hold") {
+		t.Fatalf("channel event after an end with an empty queue = %q; want no hold note", text)
+	}
 	if _, err := f.svc.StartNextGoal(ctx, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("start the next goal of a missing team: err = %v; want ErrNotFound", err)
 	}
@@ -663,14 +669,16 @@ func TestADeferredRequestComesBackWhenItsRevisitIsDue(t *testing.T) {
 	publish := l.create(t, l.lead, item("Publish", l.ana.ID, "", faq.ID))
 	l.accept(t, guide, l.eve, "")
 	finishQueued(t, l.svc)
+	frozen := l.svc.now()
+	l.svc.now = func() time.Time { return frozen }
 	for name, c := range map[string]struct {
 		note, revisit string
 		until         int64
 	}{
 		"without a note":   {"", RevisitManual, 0},
 		"a bad revisit":    {"Later.", "someday", 0},
-		"a time gone by":   {"Later.", RevisitDate, l.svc.nowMs() - 1},
-		"a time right now": {"Later.", RevisitDate, l.svc.nowMs()},
+		"a time gone by":   {"Later.", RevisitDate, frozen.UnixMilli() - 1},
+		"a time right now": {"Later.", RevisitDate, frozen.UnixMilli()},
 	} {
 		if _, err := l.svc.DeferItem(ctx, l.docsLead, faq.ID, c.note, c.revisit, c.until); !errors.Is(err, ErrInvalid) {
 			t.Errorf("defer %s: err = %v; want ErrInvalid", name, err)
@@ -866,6 +874,16 @@ func TestEndingTheAskingGoalWithdrawsItsRequests(t *testing.T) {
 	if !found {
 		t.Fatalf("Docs's requests = %+v; want the withdrawn Guide among the closed ones", board.Requests)
 	}
+	later := l.svc.now().Add(23 * time.Hour)
+	l.svc.now = func() time.Time { return later }
+	if r := l.request(t, l.docs.ID, guide); r.Intake != IntakeWithdrawn {
+		t.Fatalf("Guide after 23 hours = %+v; want it still among the closed requests", r)
+	}
+	l.svc.now = func() time.Time { return later.Add(2 * time.Hour) }
+	if board, _ := l.svc.Board(ctx, l.docs.ID); slices.ContainsFunc(board.Requests, func(r Request) bool { return r.ID == guide.ID }) {
+		t.Fatalf("Docs's requests after a day = %+v; want the withdrawn Guide gone", board.Requests)
+	}
+	l.svc.now = time.Now
 	if _, err := l.svc.AssignItem(ctx, Actor{BotID: cal.ID, TeamID: dev.ID, Role: RoleLead}, build.ID, cal.ID, "", ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("accept a request of an ended goal: err = %v; want ErrInvalid", err)
 	}
@@ -1088,5 +1106,38 @@ func TestTheRequestersSeeWhatTheirRequestsWaitOn(t *testing.T) {
 	}
 	if a := l.asked(t, l.docs.ID, sdk); a.FromTeamID != l.team.ID || a.Reason.Code != ReasonTriage {
 		t.Fatalf("Docs's chained ask = %+v", a)
+	}
+}
+
+func TestAGoalPausedAtItsBudgetFreesTheSlotsOfEveryServingTeam(t *testing.T) {
+	l := newLaneFixture(t, true)
+	ctx := context.Background()
+	ops := newGoalOf(t, l.svc, "Ops", "Olga", "Oz", "Run it.")
+	guide := l.ask(t, l.docs, item("Guide", "", ""))
+	runbook := l.ask(t, ops.team, item("Runbook", "", ""))
+	l.accept(t, guide, l.eve, "")
+	if _, err := l.svc.AssignItem(ctx, ops.lead, runbook.ID, ops.lead.BotID, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, l.svc)
+	if g, r := l.itemNow(t, guide.ID), l.itemNow(t, runbook.ID); g.SlotAt == 0 || r.SlotAt == 0 {
+		t.Fatalf("Guide = %+v, Runbook = %+v; want both in a slot", g, r)
+	}
+	spent := l.goalNow(t, l.goal.ID)
+	spent.Used = spent.Budget
+	if err := l.svc.pauseAtBudget(ctx, spent); err != nil {
+		t.Fatal(err)
+	}
+	if g := l.goalNow(t, l.goal.ID); g.State != GoalPaused {
+		t.Fatalf("goal = %+v; want it paused at its budget", g)
+	}
+	if g, r := l.itemNow(t, guide.ID), l.itemNow(t, runbook.ID); g.SlotAt != 0 || r.SlotAt != 0 {
+		t.Fatalf("after the pause Guide = %+v, Runbook = %+v; want both slots free", g, r)
+	}
+	if _, err := l.svc.ExtendGoal(ctx, l.goal.ID, 5); err != nil {
+		t.Fatal(err)
+	}
+	if g, r := l.itemNow(t, guide.ID), l.itemNow(t, runbook.ID); g.SlotAt == 0 || r.SlotAt == 0 {
+		t.Fatalf("after the resume Guide = %+v, Runbook = %+v; want both in a slot again", g, r)
 	}
 }

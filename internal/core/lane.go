@@ -43,10 +43,6 @@ const (
 	ReasonDone         = "done"
 )
 
-// closedRequests is how long a declined or withdrawn request of a goal that
-// is over stays on the serving board.
-const closedRequests = 24 * time.Hour
-
 // Reason says why a request is where it is.
 type Reason struct {
 	Code string `json:"code"`
@@ -286,11 +282,14 @@ type earlier struct {
 
 func (s *Service) earlierRequests(ctx context.Context, itemID string) (earlier, error) {
 	row, err := s.q.GetItem(ctx, itemID)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && row.Intake != IntakeRequested) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return earlier{}, nil
 	}
 	if err != nil {
 		return earlier{}, fmt.Errorf("get item %s: %w", itemID, err)
+	}
+	if row.Intake != IntakeRequested {
+		return earlier{}, nil
 	}
 	l, err := laneWith(ctx, s.q, row.TeamID)
 	if err != nil {
@@ -433,10 +432,10 @@ func (s *Service) loadRequest(ctx context.Context, itemID string) (Item, Bot, Go
 
 // actorName names who acts for a channel note.
 func actorName(team Bot, a Actor) string {
-	switch {
-	case a.BotID != "":
+	if a.BotID != "" {
 		return memberName(team, a.BotID)
-	case a.Role == RoleUser:
+	}
+	if a.Role == RoleUser {
 		return "The user"
 	}
 	return "The app"
@@ -695,7 +694,7 @@ func (s *Service) blockDependents(ctx context.Context, q *db.Queries, g Goal, it
 		if err != nil {
 			return nil, err
 		}
-		if n > 0 {
+		if n == 1 {
 			notes = append(notes, noteTo{d.TeamID, fmt.Sprintf("%q is blocked: %s", d.Title, note)})
 		}
 	}
@@ -705,14 +704,17 @@ func (s *Service) blockDependents(ctx context.Context, q *db.Queries, g Goal, it
 // moveText describes a change of an item for the channel, with the change
 // of its intake when it has one.
 func moveText(team Bot, a Actor, from, fromIntake string, it Item) string {
+	if it.Intake == fromIntake {
+		return itemEvent(team, a, from, it)
+	}
 	who := actorName(team, a)
-	switch {
-	case it.Intake == fromIntake:
-	case it.Intake == IntakeDeclined:
+	if it.Intake == IntakeDeclined {
 		return fmt.Sprintf("%s declined %q: %s", who, it.Title, it.IntakeNote)
-	case it.Intake == IntakeDeferred:
+	}
+	if it.Intake == IntakeDeferred {
 		return fmt.Sprintf("%s deferred %q until %s: %s", who, it.Title, deferWhen(it, team.Name), it.IntakeNote)
-	case it.JumpedAt > 0:
+	}
+	if it.JumpedAt > 0 {
 		return fmt.Sprintf("%s took %q out of order for %s: %s", who, it.Title, memberName(team, it.OwnerID), it.IntakeNote)
 	}
 	return itemEvent(team, a, from, it)

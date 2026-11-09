@@ -1618,7 +1618,7 @@ func TestATeamServingARequestPassesWorkOnToAThirdTeamUnderTheAskingGoal(t *testi
 		t.Fatalf("chained request: %v", err)
 	}
 	f.items[build.ID] = build.Title
-	if build.GoalID != f.goal.ID || build.TeamID != dev.ID || build.CreatedBy != dee.ID || !slices.Equal(build.DependsOn, []string{spec.ID}) {
+	if build.GoalID != f.goal.ID || build.TeamID != dev.ID || build.CreatedBy != dee.ID || build.ForItemID != spec.ID || !slices.Equal(build.DependsOn, []string{spec.ID}) {
 		t.Fatalf("chained request = %+v; want an item of Ship's goal in Dev, by Dee, after Spec", build)
 	}
 	// Nothing of Ship's goal is in flight, so Ship's lead hears of the new item too.

@@ -1,11 +1,29 @@
-// A chat follows new messages while its view is within this many pixels of the bottom.
+// A pinned chat stays pinned while its view is within this many pixels of the bottom, so
+// that a scrollbar drag or a layout shift does not unpin it.
 export const PIN_THRESHOLD = 48
+// An unpinned chat pins again only once its view is this close to the bottom: the user has
+// scrolled all the way down. Browsers can leave a fraction of a pixel.
+export const REPIN_THRESHOLD = 2
 
 export type ScrollMetrics = { scrollTop: number; scrollHeight: number; clientHeight: number }
 
-// atBottom tells whether the view is at or near the bottom of the content.
-export function atBottom(m: ScrollMetrics): boolean {
-  return m.scrollHeight - m.scrollTop - m.clientHeight <= PIN_THRESHOLD
+// atBottom tells whether the view is within threshold pixels of the bottom of the content.
+export function atBottom(m: ScrollMetrics, threshold = PIN_THRESHOLD): boolean {
+  return m.scrollHeight - m.scrollTop - m.clientHeight <= threshold
+}
+
+// Intent is a user's input on the transcript that may scroll it.
+export type Intent = { kind: "wheel"; deltaY: number } | { kind: "key"; key: string } | { kind: "touch"; dy: number } // how far the finger moved down since the last touch event
+
+const upKeys = new Set(["ArrowUp", "PageUp", "Home"])
+
+// scrollsUp tells whether an input asks to see older messages. A small wheel or trackpad
+// step stays within PIN_THRESHOLD, so the position alone cannot tell it apart from the
+// bottom; the input itself says what the user wants.
+export function scrollsUp(i: Intent): boolean {
+  if (i.kind === "wheel") return i.deltaY < 0
+  if (i.kind === "key") return upKeys.has(i.key)
+  return i.dy > 0
 }
 
 // ScrollMemory keeps where the user left each chat. A chat it has no position for is
@@ -16,12 +34,17 @@ export class ScrollMemory {
   // record notes the view of chat id after a scroll and returns whether it is now pinned.
   // Scrolling up unpins the chat; scrolling back to the bottom pins it again.
   record(id: string, m: ScrollMetrics): boolean {
-    if (atBottom(m)) {
+    if (atBottom(m, this.pinned(id) ? PIN_THRESHOLD : REPIN_THRESHOLD)) {
       this.saved.delete(id)
       return true
     }
     this.saved.set(id, m.scrollTop)
     return false
+  }
+
+  // unpin stops chat id following the bottom at scrollTop, as when the user scrolls up.
+  unpin(id: string, scrollTop: number) {
+    this.saved.set(id, scrollTop)
   }
 
   // pin makes chat id follow the bottom again, as when the user sends a message.
@@ -86,6 +109,17 @@ export class ScrollFollower {
     this.anchor = null
     this.left.delete(id)
     return true
+  }
+
+  // intent notes a user's input on chat id's view and returns whether the chat is pinned
+  // now. An input that scrolls up unpins it before its scroll arrives, so that no update of
+  // the transcript in between pulls the view back down. A view already at the top, or one
+  // with nothing to scroll, cannot move up, and no scroll would follow to pin it again.
+  intent(id: string, view: ScrollBox, items: Item[], input: Intent): boolean {
+    if (!scrollsUp(input) || view.scrollTop <= 0) return this.memory.pinned(id)
+    this.memory.unpin(id, view.scrollTop)
+    this.capture(id, view, items)
+    return false
   }
 
   // capture remembers the item at the top of chat id's view and how far below the view's top

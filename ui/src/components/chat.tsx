@@ -895,9 +895,11 @@ export function Chat({ bot, entries, mentionables }: { bot: Bot; entries: Entry[
     if (a?.el.isConnected) el.scrollTop += a.el.getBoundingClientRect().top - el.getBoundingClientRect().top - a.offset
   }
   // pin makes a chat follow the bottom again: on "Jump to latest" or the user's own send.
+  // A send that finishes after a switch to another chat holds the old render's bot id, so
+  // compare with the chat on screen now, which shown holds.
   const pin = (id: string) => {
     memory.pin(id)
-    if (id !== bot.id) return
+    if (id !== shown.current) return
     setFollowing(true)
     toBottom()
   }

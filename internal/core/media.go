@@ -52,8 +52,9 @@ func sniffMedia(data []byte) string {
 
 // userBody is the body of a user entry. Media are file names in MediaDir.
 type userBody struct {
-	Text  string   `json:"text"`
-	Media []string `json:"media,omitempty"`
+	Text    string   `json:"text"`
+	Media   []string `json:"media,omitempty"`
+	Answers []string `json:"answers,omitempty"` // the questions (entry ids) it answers
 }
 
 // MediaDir holds the media files of messages.

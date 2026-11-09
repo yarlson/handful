@@ -224,6 +224,20 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 	return err
 }
 
+const countClosedQuestionsSince = `-- name: CountClosedQuestionsSince :one
+SELECT COUNT(*) FROM entries
+WHERE kind = 'bot'
+  AND json_extract(body, '$.questionState') IN ('answered', 'dismissed', 'withdrawn')
+  AND json_extract(body, '$.closedAt') >= CAST(?1 AS INTEGER)
+`
+
+func (q *Queries) CountClosedQuestionsSince(ctx context.Context, since int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countClosedQuestionsSince, since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countGoalTurns = `-- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns
 WHERE goal_id = ? AND started_at IS NOT NULL AND board_role <> 'retro'
@@ -262,6 +276,41 @@ func (q *Queries) CountOpenItemTurns(ctx context.Context, arg CountOpenItemTurns
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const countOpenQuestions = `-- name: CountOpenQuestions :many
+SELECT bot_id, COUNT(*) AS n FROM entries
+WHERE kind = 'bot' AND json_extract(body, '$.questionState') = 'open'
+GROUP BY bot_id
+`
+
+type CountOpenQuestionsRow struct {
+	BotID string `json:"bot_id"`
+	N     int64  `json:"n"`
+}
+
+// How many open questions each bot or room has.
+func (q *Queries) CountOpenQuestions(ctx context.Context) ([]CountOpenQuestionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, countOpenQuestions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountOpenQuestionsRow
+	for rows.Next() {
+		var i CountOpenQuestionsRow
+		if err := rows.Scan(&i.BotID, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const countOpenTurnsOfBotInRoom = `-- name: CountOpenTurnsOfBotInRoom :one
@@ -1000,6 +1049,36 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (Item, e
 	return i, err
 }
 
+const insertItemEvent = `-- name: InsertItemEvent :exec
+INSERT INTO item_events (id, item_id, kind, actor_id, actor_name, round, text, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertItemEventParams struct {
+	ID        string `json:"id"`
+	ItemID    string `json:"item_id"`
+	Kind      string `json:"kind"`
+	ActorID   string `json:"actor_id"`
+	ActorName string `json:"actor_name"`
+	Round     int64  `json:"round"`
+	Text      string `json:"text"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+func (q *Queries) InsertItemEvent(ctx context.Context, arg InsertItemEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertItemEvent,
+		arg.ID,
+		arg.ItemID,
+		arg.Kind,
+		arg.ActorID,
+		arg.ActorName,
+		arg.Round,
+		arg.Text,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const insertMemory = `-- name: InsertMemory :execrows
 INSERT INTO memories (id, scope_key, tier, fact, learned_by, created_at)
 VALUES (?, ?, ?, ?, ?, ?)
@@ -1148,6 +1227,44 @@ func (q *Queries) LastGoalTurnStatus(ctx context.Context, goalID string) (string
 	return status, err
 }
 
+const listAllOpenQuestionEntries = `-- name: ListAllOpenQuestionEntries :many
+SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
+WHERE kind = 'bot' AND json_extract(body, '$.questionState') = 'open'
+ORDER BY bot_id, seq
+`
+
+func (q *Queries) ListAllOpenQuestionEntries(ctx context.Context) ([]Entry, error) {
+	rows, err := q.db.QueryContext(ctx, listAllOpenQuestionEntries)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Entry
+	for rows.Next() {
+		var i Entry
+		if err := rows.Scan(
+			&i.BotID,
+			&i.Seq,
+			&i.Rev,
+			&i.ID,
+			&i.Kind,
+			&i.TurnID,
+			&i.Body,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllRoomMembers = `-- name: ListAllRoomMembers :many
 SELECT rm.room_id, rm.bot_id, b.name, b.model, b.effort
 FROM room_members rm JOIN bots b ON b.id = rm.bot_id
@@ -1257,36 +1374,6 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 	return items, nil
 }
 
-const listBotsAwaitingReply = `-- name: ListBotsAwaitingReply :many
-SELECT e.bot_id FROM entries e
-WHERE e.kind = 'bot'
-  AND json_extract(e.body, '$.needsReply') = 1
-  AND e.seq = (SELECT MAX(x.seq) FROM entries x WHERE x.bot_id = e.bot_id AND x.kind IN ('user', 'bot'))
-`
-
-func (q *Queries) ListBotsAwaitingReply(ctx context.Context) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listBotsAwaitingReply)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var bot_id string
-		if err := rows.Scan(&bot_id); err != nil {
-			return nil, err
-		}
-		items = append(items, bot_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listBotsWithPendingApprovals = `-- name: ListBotsWithPendingApprovals :many
 SELECT DISTINCT bot_id FROM entries
 WHERE kind = 'approval' AND json_extract(body, '$.status') = 'pending'
@@ -1354,6 +1441,53 @@ func (q *Queries) ListChainedItems(ctx context.Context, forItemID string) ([]Ite
 			&i.SlotAt,
 			&i.JumpedAt,
 			&i.ForItemID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClosedQuestionEntries = `-- name: ListClosedQuestionEntries :many
+SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
+WHERE bot_id = ?1 AND kind = 'bot'
+  AND json_extract(body, '$.questionState') = ?2
+  AND json_extract(body, '$.closedAt') > CAST(?3 AS INTEGER)
+ORDER BY seq
+`
+
+type ListClosedQuestionEntriesParams struct {
+	BotID string `json:"bot_id"`
+	State string `json:"state"`
+	After int64  `json:"after"`
+}
+
+// The questions of a chat that closed in the given way after a time (ms).
+func (q *Queries) ListClosedQuestionEntries(ctx context.Context, arg ListClosedQuestionEntriesParams) ([]Entry, error) {
+	rows, err := q.db.QueryContext(ctx, listClosedQuestionEntries, arg.BotID, arg.State, arg.After)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Entry
+	for rows.Next() {
+		var i Entry
+		if err := rows.Scan(
+			&i.BotID,
+			&i.Seq,
+			&i.Rev,
+			&i.ID,
+			&i.Kind,
+			&i.TurnID,
+			&i.Body,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1767,6 +1901,42 @@ func (q *Queries) ListInbox(ctx context.Context, botID string) ([]AgentInbox, er
 	return items, nil
 }
 
+const listItemEvents = `-- name: ListItemEvents :many
+SELECT id, item_id, kind, actor_id, actor_name, round, text, created_at FROM item_events WHERE item_id = ? ORDER BY created_at, rowid
+`
+
+func (q *Queries) ListItemEvents(ctx context.Context, itemID string) ([]ItemEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listItemEvents, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ItemEvent
+	for rows.Next() {
+		var i ItemEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.ItemID,
+			&i.Kind,
+			&i.ActorID,
+			&i.ActorName,
+			&i.Round,
+			&i.Text,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestConversation = `-- name: ListLatestConversation :many
 SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
 WHERE bot_id = ? AND seq < ? AND kind IN ('user', 'bot', 'agent')
@@ -1972,6 +2142,44 @@ func (q *Queries) ListOpenGoals(ctx context.Context) ([]Goal, error) {
 			&i.State,
 			&i.Budget,
 			&i.QueuePos,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenQuestionEntries = `-- name: ListOpenQuestionEntries :many
+SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
+WHERE bot_id = ? AND kind = 'bot' AND json_extract(body, '$.questionState') = 'open'
+ORDER BY seq
+`
+
+func (q *Queries) ListOpenQuestionEntries(ctx context.Context, botID string) ([]Entry, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenQuestionEntries, botID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Entry
+	for rows.Next() {
+		var i Entry
+		if err := rows.Scan(
+			&i.BotID,
+			&i.Seq,
+			&i.Rev,
+			&i.ID,
+			&i.Kind,
+			&i.TurnID,
+			&i.Body,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

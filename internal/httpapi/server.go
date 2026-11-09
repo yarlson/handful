@@ -82,6 +82,11 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("POST /api/teams/{id}/goal-queue/start", s.startNextGoal)
 	mux.HandleFunc("POST /api/items/{id}/withdraw", s.withdrawItem)
 	mux.HandleFunc("POST /api/items/{id}/undefer", s.undeferItem)
+	mux.HandleFunc("GET /api/items/{id}/events", s.itemEvents)
+	mux.HandleFunc("GET /api/questions", s.waiting)
+	mux.HandleFunc("GET /api/bots/{id}/questions", s.chatQuestions)
+	mux.HandleFunc("POST /api/entries/{id}/dismiss", s.dismissQuestion)
+	mux.HandleFunc("POST /api/entries/{id}/reopen", s.reopenQuestion)
 	mux.HandleFunc("GET /api/bots/{id}/memory", s.listMemory)
 	mux.HandleFunc("POST /api/bots/{id}/memory", s.addMemory)
 	mux.HandleFunc("DELETE /api/memory/{id}", s.deleteMemory)
@@ -373,7 +378,8 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text        string   `json:"text"`
 		ClientNonce string   `json:"clientNonce"`
-		Media       []string `json:"media"` // base64
+		Media       []string `json:"media"`   // base64
+		Answers     []string `json:"answers"` // the open questions (entry ids) it answers
 	}
 	if err := decodeLimited(r, &in, maxMessageBodyBytes); err != nil {
 		s.fail(w, r, err)
@@ -388,7 +394,7 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		media[i] = img
 	}
-	turnID, dup, err := s.svc.SubmitUserMessage(r.Context(), r.PathValue("id"), in.Text, in.ClientNonce, media...)
+	turnID, dup, err := s.svc.SubmitAnswer(r.Context(), r.PathValue("id"), in.Text, in.ClientNonce, in.Answers, media...)
 	if err != nil {
 		s.fail(w, r, err)
 		return

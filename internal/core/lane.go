@@ -336,7 +336,7 @@ func accept(it *Item, e earlier, note string, now int64) error {
 // undefer. Its owner stops, its slot is free, and the asking lead re-plans.
 func (s *Service) DeferItem(ctx context.Context, a Actor, itemID, note, revisit string, until int64) (Item, error) {
 	now := s.nowMs()
-	return s.moveItem(ctx, a, itemID, func(team Bot, it *Item) error {
+	return s.moveItem(ctx, a, itemID, leaving(EventDeferred, fixed(note), func(team Bot, it *Item) error {
 		if err := a.mustLead(team); err != nil {
 			return err
 		}
@@ -353,7 +353,7 @@ func (s *Service) DeferItem(ctx context.Context, a Actor, itemID, note, revisit 
 		it.Intake, it.IntakeNote, it.DeferRevisit, it.DeferUntil = IntakeDeferred, text, revisit, until
 		it.State, it.BlockedFrom = ItemTodo, ""
 		return nil
-	})
+	}))
 }
 
 // deferUntil checks the revisit of a deferral and returns its time.
@@ -451,6 +451,9 @@ func (s *Service) undeferWith(ctx context.Context, q *db.Queries, team Bot, g Go
 	it.OwnerID, it.ReviewerID, it.State, it.BlockedFrom, it.UpdatedAt = "", "", ItemTodo, "", s.nowMs()
 	n, err := updateItem(ctx, q, it, from, fromIntake)
 	if err != nil || n == 0 {
+		return it, nil, err
+	}
+	if err := s.recordEvent(ctx, q, a, it, eventDraft{Kind: EventUndeferred}); err != nil {
 		return it, nil, err
 	}
 	if err := releaseSlot(ctx, q, &it); err != nil {
@@ -559,7 +562,7 @@ func (s *Service) WithdrawItem(ctx context.Context, a Actor, itemID string) (Ite
 	var notes []noteTo
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		var err error
-		notes, err = s.withdrawWith(ctx, q, team, it, "Withdrawn by "+who+".", fmt.Sprintf("%s withdrew %q.", upperFirst(who), it.Title))
+		notes, err = s.withdrawWith(ctx, q, a, team, it, "Withdrawn by "+who+".", fmt.Sprintf("%s withdrew %q.", upperFirst(who), it.Title))
 		return err
 	})
 	if err != nil {
@@ -578,11 +581,14 @@ func upperFirst(s string) string { return strings.ToUpper(s[:1]) + s[1:] }
 // dropped with reason, its slot and turns are freed, and the requests that
 // it chained are withdrawn too. servingText goes into the serving channel.
 // It does nothing when the item moved meanwhile.
-func (s *Service) withdrawWith(ctx context.Context, q *db.Queries, team Bot, it Item, reason, servingText string) ([]noteTo, error) {
+func (s *Service) withdrawWith(ctx context.Context, q *db.Queries, a Actor, team Bot, it Item, reason, servingText string) ([]noteTo, error) {
 	from, fromIntake := it.State, it.Intake
 	it.Intake, it.State, it.IntakeNote, it.UpdatedAt = IntakeWithdrawn, ItemDropped, reason, s.nowMs()
 	n, err := updateItem(ctx, q, it, from, fromIntake)
 	if err != nil || n == 0 {
+		return nil, err
+	}
+	if err := s.recordEvent(ctx, q, a, it, eventDraft{Kind: EventWithdrawn, Text: reason}); err != nil {
 		return nil, err
 	}
 	if err := releaseSlot(ctx, q, &it); err != nil {
@@ -594,13 +600,13 @@ func (s *Service) withdrawWith(ctx context.Context, q *db.Queries, team Bot, it 
 	if err := s.grantSlots(ctx, q, team.ID); err != nil {
 		return nil, err
 	}
-	more, err := s.withdrawChain(ctx, q, team, it)
+	more, err := s.withdrawChain(ctx, q, a, team, it)
 	return append([]noteTo{{team.ID, servingText}}, more...), err
 }
 
 // withdrawChain withdraws, with q, the open requests that serving team
 // chained for request it.
-func (s *Service) withdrawChain(ctx context.Context, q *db.Queries, team Bot, it Item) ([]noteTo, error) {
+func (s *Service) withdrawChain(ctx context.Context, q *db.Queries, a Actor, team Bot, it Item) ([]noteTo, error) {
 	chained, err := q.ListChainedItems(ctx, it.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list the requests chained to item %s: %w", it.ID, err)
@@ -618,7 +624,7 @@ func (s *Service) withdrawChain(ctx context.Context, q *db.Queries, team Bot, it
 		if err != nil {
 			return nil, err
 		}
-		more, err := s.withdrawWith(ctx, q, serving, child, fmt.Sprintf("Withdrawn: %q, which it served, was withdrawn.", it.Title),
+		more, err := s.withdrawWith(ctx, q, a, serving, child, fmt.Sprintf("Withdrawn: %q, which it served, was withdrawn.", it.Title),
 			fmt.Sprintf("Team %s withdrew %q: %q, which it served, was withdrawn.", team.Name, child.Title, it.Title))
 		if err != nil {
 			return nil, err
@@ -644,7 +650,7 @@ func (s *Service) withdrawGoal(ctx context.Context, q *db.Queries, g Goal, teamN
 		if err != nil {
 			return nil, err
 		}
-		more, err := s.withdrawWith(ctx, q, serving, it, fmt.Sprintf("Withdrawn: team %s ended its goal.", teamName),
+		more, err := s.withdrawWith(ctx, q, Actor{Role: RoleUser}, serving, it, fmt.Sprintf("Withdrawn: team %s ended its goal.", teamName),
 			fmt.Sprintf("Team %s ended its goal; %q is withdrawn.", teamName, it.Title))
 		if err != nil {
 			return nil, err
@@ -694,9 +700,13 @@ func (s *Service) blockDependents(ctx context.Context, q *db.Queries, g Goal, it
 		if err != nil {
 			return nil, err
 		}
-		if n == 1 {
-			notes = append(notes, noteTo{d.TeamID, fmt.Sprintf("%q is blocked: %s", d.Title, note)})
+		if n != 1 {
+			continue
 		}
+		if err := s.recordEvent(ctx, q, Actor{}, d, eventDraft{Kind: EventBlocked, Text: note}); err != nil {
+			return nil, err
+		}
+		notes = append(notes, noteTo{d.TeamID, fmt.Sprintf("%q is blocked: %s", d.Title, note)})
 	}
 	return notes, nil
 }

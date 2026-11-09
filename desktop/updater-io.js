@@ -87,7 +87,9 @@ async function fetchFeedVersion(feed, fetchImpl = fetch) {
 function serverAPI(base, fetchImpl = fetch) {
   async function call(method, endpoint, timeout) {
     try {
-      const res = await fetchImpl(`${base}${endpoint}`, { method, signal: AbortSignal.timeout(timeout) })
+      // The API's CSRF guard requires a JSON content type on every change.
+      const init = method === "GET" ? {} : { headers: { "Content-Type": "application/json" }, body: "{}" }
+      const res = await fetchImpl(`${base}${endpoint}`, { method, ...init, signal: AbortSignal.timeout(timeout) })
       let body = null
       try {
         body = res.status === 200 ? await res.json() : null

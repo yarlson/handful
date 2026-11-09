@@ -56,7 +56,7 @@ function readyModel(version = "1.4.0", options) {
 
 const bots = [
   { botId: "a", name: "Dev Lead", kind: "turn" },
-  { botId: "b", name: "Researcher", kind: "task", since: "2026-11-09T10:00:00Z" },
+  { botId: "b", name: "Researcher", kind: "task", since: 1762682400000 },
 ]
 
 test("versions compare by semantic versioning, prereleases included", () => {

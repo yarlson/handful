@@ -47,7 +47,7 @@ jobs:
         with:
           install_args: go node
       - name: Build the UI and the server, and install the desktop packages
-        run: make app-universal-deps
+        run: make app-universal-deps VERSION="${TAG#v}"
       # Only this step gets the signing secrets, and it installs no packages.
       - name: Sign and notarize the universal app
         env:

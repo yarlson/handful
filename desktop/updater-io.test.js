@@ -208,7 +208,10 @@ test("fetchFeedVersion fails on a missing feed or a feed without a version", asy
 test("serverAPI calls /api/version and /api/drain, and tolerates an old or stopped server", async (t) => {
   const body = { version: "1.3.2", sourceBuild: false, draining: false, running: [{ botId: "a", name: "Dev Lead", kind: "turn" }] }
   const { base, log } = await serve(t, (req, res) => {
-    if (req.url === "/api/version" || req.url === "/api/drain") {
+    // Like the API's CSRF guard: a change needs a JSON content type.
+    if (req.method !== "GET" && req.headers["content-type"] !== "application/json") {
+      res.writeHead(403).end()
+    } else if (req.url === "/api/version" || req.url === "/api/drain") {
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ...body, draining: req.method === "POST" }))
     } else res.writeHead(404).end()
   })

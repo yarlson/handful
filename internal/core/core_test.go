@@ -851,3 +851,17 @@ func TestWriteAndReplaceFactRejectBadTiersAndEmptyFacts(t *testing.T) {
 		t.Fatalf("facts after the replace = %+v; want only the new fact in tier %q", ms, TierLog)
 	}
 }
+
+func TestApprovalOutsideATurnIsDeniedAtOnceUnlessGranted(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	ok, reason, err := svc.RequestApproval(ctx, ApprovalRequest{BotID: bot.ID, TranscriptID: bot.ID, Tool: "Bash", Input: json.RawMessage(`{}`)})
+	if err != nil || ok || !strings.Contains(reason, "No turn is running") {
+		t.Fatalf("approval with no turn = %v %q %v; want denied at once", ok, reason, err)
+	}
+	entries, err := svc.Entries(ctx, bot.ID, 0, 0)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries = %d, %v; want no approval card", len(entries), err)
+	}
+}

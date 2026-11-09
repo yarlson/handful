@@ -255,6 +255,25 @@ ignore-eof)
     sleep 60
   fi
   ;;
+task-wake)
+  # The first message starts a background task. The next message ends it:
+  # Claude Code wakes the model, whose run ends with a result while a second
+  # task keeps the process. Later messages are answered.
+  lifecycle started
+  init
+  echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Build the site"}]}'
+  result "started"
+  lifecycle completed
+  while IFS= read -r input; do
+    lifecycle started
+    result "pong"
+    lifecycle completed
+    echo '{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","summary":"Background command \"Build the site\" completed (exit code 0)"}'
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t2","task_type":"local_agent","description":"Watch the logs"}]}'
+    init
+    result "woke"
+  done
+  ;;
 chatty)
   # A long turn that prints a line every 0.2 seconds.
   lifecycle started
@@ -3744,5 +3763,47 @@ func TestAStateReadBeforeATurnStartsIsNotPublishedAfterIt(t *testing.T) {
 	defer mu.Unlock()
 	if len(published) != 2 || !published[1] || !r.botBusyLocked(bot.ID) {
 		t.Fatalf("published states = %v; want the idle state first and running last, as the bot runs", published)
+	}
+}
+
+func TestALateCallAfterATaskTurnEndsActsOnNoTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "task-wake")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	h.startBackgroundTask(t, bot)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "finish the build", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	var token string
+	waitFor(t, "the task turn ends with the process left", func() bool {
+		var n int
+		if err := h.conn.QueryRowContext(t.Context(), `SELECT count(*) FROM turns WHERE bot_id = ? AND source = 'task' AND status = 'done'`, bot.ID).Scan(&n); err != nil || n != 1 {
+			return false
+		}
+		h.runner.mu.Lock()
+		defer h.runner.mu.Unlock()
+		for _, s := range h.runner.sessions {
+			if s.key.botID == bot.ID && !s.waking {
+				token = s.token
+			}
+		}
+		return token != ""
+	})
+	rc, ok := h.runner.tokens.get(token)
+	if !ok || rc.TurnID != "" || rc.BotID != bot.ID {
+		t.Fatalf("token after the task turn = %+v, %v; want the bot with no turn", rc, ok)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	text, _ := callText(t, cs, "approve", map[string]any{"tool_name": "Bash", "input": map[string]any{"command": "ls"}})
+	if !strings.Contains(text, `"behavior":"deny"`) || !strings.Contains(text, "No turn is running") {
+		t.Fatalf("late approval = %s; want an immediate denial: no turn is running", text)
 	}
 }

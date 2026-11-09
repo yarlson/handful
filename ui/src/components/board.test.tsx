@@ -182,3 +182,10 @@ test("items asked of other teams show only in the asked section", () => {
   assert.equal(html.split("Need logs").length - 1, 1)
   assert.include(html, "Write code")
 })
+
+test("cancelling a queued goal asks first: no confirm shows until the ✕ is pressed", () => {
+  const html = render(board({ queue: [goal("q1", "Add PDF export", "queued", 1)] }))
+  assert.include(html, 'aria-label="Cancel goal Add PDF export"')
+  assert.include(html, 'aria-expanded="false"')
+  assert.notInclude(html, "can't be undone")
+})

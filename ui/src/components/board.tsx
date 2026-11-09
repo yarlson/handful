@@ -273,6 +273,8 @@ function QueueList({ team, board, held, act }: { team: Bot; board: Board; held: 
     setNote(placeNote(g.text, i + step + 1, ids.length))
     focus.current = { id: g.id, step, to: i + step }
   }
+  // cancelling is the goal whose cancel waits for a confirm: a cancel can't be undone.
+  const [cancelling, setCancelling] = useState<string | null>(null)
   return (
     <section className="flex flex-col gap-1.5" aria-labelledby="queue-heading">
       <h3 id="queue-heading" className="text-muted-foreground text-xs font-medium uppercase">
@@ -280,7 +282,7 @@ function QueueList({ team, board, held, act }: { team: Bot; board: Board; held: 
       </h3>
       <ol className="flex flex-col gap-1.5">
         {board.queue.map((g, i) => (
-          <li key={g.id} className="flex items-start gap-2 rounded-md border p-2 text-sm">
+          <li key={g.id} className="flex flex-wrap items-start gap-2 rounded-md border p-2 text-sm">
             <span className="text-muted-foreground w-4 shrink-0 text-xs">{i + 1}</span>
             <span className="line-clamp-2 flex-1" title={g.text}>
               {g.text}
@@ -310,10 +312,26 @@ function QueueList({ team, board, held, act }: { team: Bot; board: Board; held: 
               variant="ghost"
               aria-label={`Cancel goal ${g.text}`}
               title="Cancel goal"
-              onClick={() => void act(() => api.cancelGoal(g.id))}
+              aria-expanded={cancelling === g.id}
+              onClick={() => setCancelling(g.id)}
             >
               <X />
             </Button>
+            {cancelling === g.id && (
+              <div className="flex w-full items-center gap-2 text-xs">
+                <span className="flex-1">Cancel this goal? It won't start, and this can't be undone.</span>
+                <Button
+                  size="xs"
+                  variant="destructive"
+                  onClick={() => void act(() => api.cancelGoal(g.id)).then(() => setCancelling(null))}
+                >
+                  Cancel goal
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => setCancelling(null)}>
+                  Keep it
+                </Button>
+              </div>
+            )}
           </li>
         ))}
       </ol>

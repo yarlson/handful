@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, type Bot, type Entry, type ServerEvent } from "./api"
+import {
+  drainAnswered,
+  drainAsked,
+  drainChanged,
+  linkStep,
+  NO_DRAIN,
+  type Drain,
+  type Link,
+  type LinkEvent,
+} from "./connection"
 import { loadEntriesAfter } from "./entries"
 
 type Transcript = { byId: Map<string, Entry>; rev: number }
@@ -11,11 +21,25 @@ export function useYarGPT() {
   const [bots, setBots] = useState<Bot[]>([])
   const [transcripts, setTranscripts] = useState<Map<string, Transcript>>(new Map())
   const [unread, setUnread] = useState<Set<string>>(new Set())
-  const [connected, setConnected] = useState(false)
+  // link is the event stream's state; connection.ts holds its transitions.
+  const [link, setLink] = useState<Link>("connecting")
   const [error, setError] = useState<string | null>(null)
   const [pausedUntil, setPausedUntil] = useState<string | null>(null)
-  // draining: the server starts no new turns until it restarts for an update.
+  // draining: the server starts no new turns until it restarts for an update. The stream's
+  // drain events and GET /api/version both set it; drain.rev drops answers they overtook.
   const [draining, setDraining] = useState(false)
+  const drain = useRef<Drain>(NO_DRAIN)
+  const setDrain = useCallback((d: Drain) => {
+    drain.current = d
+    setDraining(d.draining)
+  }, [])
+  const linkRef = useRef<Link>("connecting")
+  const onLink = useCallback((event: LinkEvent) => {
+    const step = linkStep(linkRef.current, event)
+    if (!step.ok) console.warn(step.error)
+    linkRef.current = step.state
+    setLink(step.state)
+  }, [])
   const loaded = useRef<Map<string, number>>(new Map()) // bot id -> highest rev fetched
   const selectedRef = useRef<string | null>(null)
 
@@ -86,12 +110,14 @@ export function useYarGPT() {
   useEffect(() => {
     const source = new EventSource("/api/events")
     source.addEventListener("hello", () => {
-      setConnected(true)
+      onLink("hello")
       setPausedUntil(null)
       // A (re)connect may follow a restart, which ends drain mode; ask instead of assuming.
+      const asked = drainAsked(drain.current)
+      setDrain(asked)
       api.version().then(
-        (v) => setDraining(v.draining),
-        () => setDraining(false),
+        (v) => setDrain(drainAnswered(drain.current, asked.rev, v.draining)),
+        () => setDrain(drainAnswered(drain.current, asked.rev, false)),
       )
       void refreshBots()
       for (const botId of loaded.current.keys()) void loadTranscript(botId)
@@ -105,7 +131,7 @@ export function useYarGPT() {
       } else if (ev.type === "pause") {
         setPausedUntil(ev.pausedUntil ?? null)
       } else if (ev.type === "drain") {
-        setDraining(ev.draining)
+        setDrain(drainChanged(drain.current, ev.draining))
       } else if (ev.type === "tasks") {
         setBots((prev) => prev.map((b) => (b.id === ev.botId ? { ...b, tasks: ev.tasks } : b)))
       } else if (ev.type === "entry") {
@@ -117,9 +143,9 @@ export function useYarGPT() {
         }
       }
     }
-    source.onerror = () => setConnected(false)
+    source.onerror = () => onLink("error")
     return () => source.close()
-  }, [loadTranscript, merge, refreshBots, scheduleBotsRefresh])
+  }, [loadTranscript, merge, refreshBots, scheduleBotsRefresh, onLink, setDrain])
 
   // reorder sets the order of one sidebar section (all bots, teams or rooms). The
   // list changes at once; a failed save reloads the order from the server.
@@ -141,7 +167,7 @@ export function useYarGPT() {
     [refreshBots],
   )
 
-  return { bots, transcripts, unread, connected, error, setError, pausedUntil, draining, select, refreshBots, reorder }
+  return { bots, transcripts, unread, link, error, setError, pausedUntil, draining, select, refreshBots, reorder }
 }
 
 export function orderedEntries(t: Transcript | undefined): Entry[] {

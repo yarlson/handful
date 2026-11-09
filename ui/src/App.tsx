@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { botColor } from "@/lib/bot-color"
 import { api, type Bot } from "@/lib/api"
+import { linkLabel } from "@/lib/connection"
 import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
@@ -513,7 +514,7 @@ function chatSubtitle(bot: Bot) {
 }
 
 export function App() {
-  const { bots, transcripts, unread, connected, error, setError, pausedUntil, draining, select, refreshBots, reorder } =
+  const { bots, transcripts, unread, link, error, setError, pausedUntil, draining, select, refreshBots, reorder } =
     useYarGPT()
   const update = useUpdate()
   const [width, setWidth] = useState(loadSidebarWidth)
@@ -640,9 +641,9 @@ export function App() {
             </Button>
           )}
         </nav>
-        <div className="text-muted-foreground flex items-center gap-1.5 px-3 py-2 text-xs">
-          <span className={cn("size-1.5 rounded-full", connected ? "bg-emerald-500" : "bg-amber-500")} />
-          <span className="flex-1">{connected ? "Connected" : "Reconnecting…"}</span>
+        <div className="text-muted-foreground flex items-center gap-1.5 px-3 py-2 text-xs" data-connection={link}>
+          <span className={cn("size-1.5 rounded-full", link === "live" ? "bg-emerald-500" : "bg-amber-500")} />
+          <span className="flex-1">{linkLabel(link)}</span>
           <Button size="xs" variant="ghost" onClick={() => setConnectors(true)}>
             <Plug /> Connectors
           </Button>

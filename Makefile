@@ -3,12 +3,19 @@ export BASE ?= origin/main
 
 .PHONY: build ui generate test run app app-universal app-universal-deps app-universal-package icons fmt check fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check crap mutation mutation-diff ui-mutation
 
+# SERVER_VERSION is the version the server reports, without the tag's "v":
+# VERSION when given (the release workflow passes the tag), else the tag of
+# the checked-out commit, else dev-<short sha>. The server checks for new
+# releases only with a release version.
+SERVER_VERSION ?= $(or $(VERSION),$(patsubst v%,%,$(shell git describe --tags --exact-match 2>/dev/null)),dev-$(shell git rev-parse --short HEAD 2>/dev/null))
+GO_LDFLAGS = -ldflags "-X main.version=$(SERVER_VERSION)"
+
 # app-universal leaves a universal binary in bin/yargpt, which go build does
 # not overwrite. The server needs no cgo on macOS. On other systems cgo keeps
 # the system DNS resolver, for example for .local names.
 build: ui
 	rm -f bin/yargpt
-	$(if $(filter Darwin,$(shell uname -s)),CGO_ENABLED=0) $(MISE) go build -o bin/yargpt ./cmd/yargpt
+	$(if $(filter Darwin,$(shell uname -s)),CGO_ENABLED=0) $(MISE) go build $(GO_LDFLAGS) -o bin/yargpt ./cmd/yargpt
 
 ui:
 	cd ui && $(MISE) npm ci && $(MISE) npm run build
@@ -44,8 +51,8 @@ app-universal: app-universal-deps app-universal-package
 # app-universal-package, so that no package install script sees them.
 app-universal-deps: ui
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MISE) go build -o bin/yargpt-arm64 ./cmd/yargpt
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MISE) go build -o bin/yargpt-amd64 ./cmd/yargpt
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MISE) go build $(GO_LDFLAGS) -o bin/yargpt-arm64 ./cmd/yargpt
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MISE) go build $(GO_LDFLAGS) -o bin/yargpt-amd64 ./cmd/yargpt
 	lipo -create -output bin/yargpt bin/yargpt-arm64 bin/yargpt-amd64
 	cd desktop && $(MISE) npm ci
 

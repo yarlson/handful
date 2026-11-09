@@ -112,7 +112,7 @@ func parseFlags(args []string) (options, error) {
 	if err != nil {
 		return options{}, fmt.Errorf("find home directory: %w", err)
 	}
-	o := options{set: map[string]bool{}}
+	o := options{set: map[string]bool{}, Updates: httpapi.DefaultUpdates().Settings}
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "loopback address to listen on")
 	fs.StringVar(&o.dataDir, "data", filepath.Join(home, ".yargpt"), "directory for the database, bot workspaces and skills")
@@ -191,9 +191,10 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		log.Warn("web UI not available", "err", err)
 		assets = nil
 	}
+	updates := startUpdateNotice(ctx, o, log)
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner)),
+		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates)),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Requests end with the server: event streams and pending approvals stop on shutdown.
 		BaseContext: func(net.Listener) context.Context { return ctx },
@@ -224,4 +225,22 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		return fmt.Errorf("shut down HTTP server: %w", err)
 	}
 	return nil
+}
+
+// startUpdateNotice returns what the API reports about the server's version
+// and updates. For a source build that may check, it starts looking for new
+// releases until ctx ends.
+func startUpdateNotice(ctx context.Context, o options, log *slog.Logger) httpapi.Updates {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Debug("find the server's executable", "err", err)
+	}
+	u := httpapi.Updates{Version: version, SourceBuild: !inAppBundle(exe), Settings: o.Updates}
+	if !checksForUpdates(version, exe, o.Updates.UpdateCheck, os.Getenv) {
+		return u
+	}
+	n := newUpdateNotice(o.dataDir, log)
+	u.Latest = n.Latest
+	go n.run(ctx)
+	return u
 }

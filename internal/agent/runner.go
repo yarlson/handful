@@ -288,8 +288,11 @@ func (r *Runner) signalDone() {
 	}
 }
 
+// dispatch starts the queued turns that may start. It starts none after a
+// usage limit, or while the server drains for an update; the turns stay
+// queued, and leaving drain mode signals TurnsReady.
 func (r *Runner) dispatch(ctx context.Context) {
-	if ctx.Err() != nil || !r.PausedUntil().IsZero() {
+	if draining, _ := r.svc.Draining(); draining || ctx.Err() != nil || !r.PausedUntil().IsZero() {
 		return
 	}
 	turns, err := r.svc.QueuedTurns(ctx, 100)

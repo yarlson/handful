@@ -75,13 +75,15 @@ func TestDrainModeLetsRunningTurnsFinishAndHoldsTheQueueUntilItEnds(t *testing.T
 	}
 
 	h.svc.SetDraining(false)
+	// The fake claude logs "end" before the runner records the turn as done,
+	// so wait for the recorded status, not the log.
+	for name, id := range map[string]string{"Ana's message": toAna, "Solo's next message": next} {
+		waitFor(t, name+" runs after the drain", func() bool { return h.turnStatus(t, id) == "done" })
+	}
 	waitFor(t, "the held turns run", func() bool {
 		raw, _ := os.ReadFile(filepath.Join(h.dir, "order.log"))
 		return strings.Count(string(raw), "end ") == 4
 	})
-	if status := h.turnStatus(t, toAna); status != "done" {
-		t.Fatalf("Ana's message after the drain is %s; want done", status)
-	}
 }
 
 func TestBusyListsABotWhoseBackgroundTaskKeepsItsProcess(t *testing.T) {

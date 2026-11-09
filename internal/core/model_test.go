@@ -79,14 +79,20 @@ func TestNewDefaultsFallsBackToTheEnvironmentAndListsOverrides(t *testing.T) {
 		want                         Defaults
 	}{
 		{name: "nothing", want: Defaults{ModelSource: SourceClaudeCode, EffortSource: SourceClaudeCode, EnvOverrides: []string{}}},
-		{name: "flag and config", model: "opus", modelSrc: DefaultFromFlag, eff: "max", effSrc: DefaultFromConfig,
+		{
+			name: "flag and config", model: "opus", modelSrc: DefaultFromFlag, eff: "max", effSrc: DefaultFromConfig,
 			env:  map[string]string{EnvModel: "haiku"},
-			want: Defaults{Model: "opus", ModelSource: DefaultFromFlag, Effort: "max", EffortSource: DefaultFromConfig, EnvOverrides: []string{}}},
-		{name: "environment", env: map[string]string{EnvModel: "haiku", EnvEffort: "low"},
-			want: Defaults{Model: "haiku", ModelSource: SourceEnv, Effort: "low", EffortSource: SourceEnv, EnvOverrides: []string{EnvEffort}}},
-		{name: "effort set and variable present", eff: "high", effSrc: DefaultFromConfig,
+			want: Defaults{Model: "opus", ModelSource: DefaultFromFlag, Effort: "max", EffortSource: DefaultFromConfig, EnvOverrides: []string{}},
+		},
+		{
+			name: "environment", env: map[string]string{EnvModel: "haiku", EnvEffort: "low"},
+			want: Defaults{Model: "haiku", ModelSource: SourceEnv, Effort: "low", EffortSource: SourceEnv, EnvOverrides: []string{EnvEffort}},
+		},
+		{
+			name: "effort set and variable present", eff: "high", effSrc: DefaultFromConfig,
 			env:  map[string]string{EnvEffort: "low", "CLAUDE_CODE_SUBAGENT_MODEL": "haiku", "CLAUDE_CODE_SUBAGENT_EFFORT": "low", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"},
-			want: Defaults{ModelSource: SourceClaudeCode, Effort: "high", EffortSource: DefaultFromConfig, EnvOverrides: []string{EnvEffort, "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_EFFORT", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"}}},
+			want: Defaults{ModelSource: SourceClaudeCode, Effort: "high", EffortSource: DefaultFromConfig, EnvOverrides: []string{EnvEffort, "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_EFFORT", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"}},
+		},
 	}
 	for _, c := range cases {
 		got := NewDefaults(c.model, c.modelSrc, c.eff, c.effSrc, env(c.env))

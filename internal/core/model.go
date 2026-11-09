@@ -44,9 +44,7 @@ var EnvSubagent = []string{"CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_E
 
 const maxModelLen = 200
 
-var (
-	modelChars = regexp.MustCompile(`^[A-Za-z0-9._:/@\[\]-]+$`)
-)
+var modelChars = regexp.MustCompile(`^[A-Za-z0-9._:/@\[\]-]+$`)
 
 // NormalizeModel checks a model setting and returns it as stored: "" for
 // inherit, an alias in lower case, or a custom model ID as given.

@@ -208,7 +208,7 @@ func (s *Service) RoomSeats(ctx context.Context, roomID string) ([]RoomSeat, err
 	}
 	out := make([]RoomSeat, len(rows))
 	for i, r := range rows {
-		out[i] = RoomSeat{Member: Member{ID: r.BotID, Name: r.Name, Model: r.Model, Effort: r.Effort}, ClaudeSessionID: r.ClaudeSessionID, LastSeenSeq: r.LastSeenSeq}
+		out[i] = RoomSeat{ID: r.BotID, Name: r.Name, Model: r.Model, Effort: r.Effort, ClaudeSessionID: r.ClaudeSessionID, LastSeenSeq: r.LastSeenSeq}
 	}
 	return out, nil
 }

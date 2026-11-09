@@ -131,8 +131,10 @@ func (p plannedSetup) setup() Setup {
 			s.Rooms = append(s.Rooms, SetupRoom{Name: r.name, Purpose: r.purpose, Members: names})
 			continue
 		}
-		s.Teams = append(s.Teams, SetupTeam{Name: r.name, Purpose: r.purpose, Members: names, Lead: lead, Agreement: r.team.Agreement, GoalBudget: r.team.GoalBudget,
-			DefaultModel: r.team.DefaultModel, DefaultEffort: r.team.DefaultEffort})
+		s.Teams = append(s.Teams, SetupTeam{
+			Name: r.name, Purpose: r.purpose, Members: names, Lead: lead, Agreement: r.team.Agreement, GoalBudget: r.team.GoalBudget,
+			DefaultModel: r.team.DefaultModel, DefaultEffort: r.team.DefaultEffort,
+		})
 	}
 	return s
 }

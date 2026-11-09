@@ -123,7 +123,7 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 
 // apply returns the settings of team t with the patch's fields.
 func (p TeamPatch) apply(t Team) TeamSettings {
-	set := TeamSettings{LeadID: t.LeadID, Agreement: t.Agreement, GoalBudget: t.GoalBudget, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort}
+	set := TeamSettings(t)
 	setIf(&set.LeadID, p.LeadID)
 	setIf(&set.Agreement, p.Agreement)
 	setIf(&set.GoalBudget, p.GoalBudget)

@@ -1,6 +1,6 @@
 -- name: CreateBot :one
-INSERT INTO bots (id, name, instructions, kind, position, created_at, updated_at)
-VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(b.position), 0) + 1 FROM bots b), ?, ?)
+INSERT INTO bots (id, name, instructions, kind, model, effort, position, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(b.position), 0) + 1 FROM bots b), ?, ?)
 RETURNING *;
 
 -- name: GetBot :one
@@ -13,7 +13,7 @@ SELECT * FROM bots ORDER BY position, created_at, rowid;
 UPDATE bots SET role = ? WHERE id = ?;
 
 -- name: UpdateBotProfile :one
-UPDATE bots SET name = ?, instructions = ?, updated_at = ?
+UPDATE bots SET name = ?, instructions = ?, model = ?, effort = ?, updated_at = ?
 WHERE id = ?
 RETURNING *;
 
@@ -160,13 +160,13 @@ ON CONFLICT (room_id, bot_id) DO NOTHING;
 DELETE FROM room_members WHERE room_id = ? AND bot_id = ?;
 
 -- name: ListRoomMembers :many
-SELECT rm.room_id, rm.bot_id, rm.claude_session_id, rm.last_seen_seq, b.name
+SELECT rm.room_id, rm.bot_id, rm.claude_session_id, rm.last_seen_seq, b.name, b.model, b.effort
 FROM room_members rm JOIN bots b ON b.id = rm.bot_id
 WHERE rm.room_id = ?
 ORDER BY b.position, b.created_at, b.rowid;
 
 -- name: ListAllRoomMembers :many
-SELECT rm.room_id, rm.bot_id, b.name
+SELECT rm.room_id, rm.bot_id, b.name, b.model, b.effort
 FROM room_members rm JOIN bots b ON b.id = rm.bot_id
 ORDER BY b.position, b.created_at, b.rowid;
 
@@ -257,7 +257,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget) VALUES (?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -266,7 +266,7 @@ SELECT * FROM teams WHERE team_id = ?;
 SELECT * FROM teams;
 
 -- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ? WHERE team_id = ?;
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ? WHERE team_id = ?;
 
 -- name: InsertGoal :one
 INSERT INTO goals (id, team_id, text, state, budget, created_at)

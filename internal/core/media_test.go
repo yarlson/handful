@@ -208,7 +208,7 @@ func TestBotFilesAreCopiedIntoTheMediaStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "", []string{"chart.png", clip}, false, false)
+	e, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "", []string{"chart.png", clip}, false, false, PostMeta{})
 	if err != nil {
 		t.Fatalf("bot message with files: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestBadBotFilesAreRejectedAndStoreNothing(t *testing.T) {
 			bot := newAgents(t, svc, "Ana")["Ana"]
 			path := c.file(t, svc.Workspace(bot.ID))
 
-			_, err := svc.AppendBotMessage(context.Background(), bot.ID, "t1", "see", []string{path}, false, false)
+			_, err := svc.AppendBotMessage(context.Background(), bot.ID, "t1", "see", []string{path}, false, false, PostMeta{})
 
 			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.wantErr) {
 				t.Fatalf("error = %v; want invalid input with %q", err, c.wantErr)
@@ -298,7 +298,7 @@ func TestBotFilesComeOnlyFromTheWorkspaceTheMediaFolderAndTemp(t *testing.T) {
 	}
 
 	for _, path := range []string{"in-workspace.png", inTemp} {
-		if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "", []string{path}, false, false); err != nil {
+		if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "", []string{path}, false, false, PostMeta{}); err != nil {
 			t.Errorf("file %s: %v; want it accepted", path, err)
 		}
 	}
@@ -307,7 +307,7 @@ func TestBotFilesComeOnlyFromTheWorkspaceTheMediaFolderAndTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{outside, "link.png", escape} {
-		_, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "", []string{path}, false, false)
+		_, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "", []string{path}, false, false, PostMeta{})
 		if !errors.Is(err, ErrInvalid) {
 			t.Errorf("file %s outside the allowed folders: err = %v; want ErrInvalid", path, err)
 		}

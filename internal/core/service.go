@@ -50,6 +50,8 @@ type Bot struct {
 	Name            string   `json:"name"`
 	Instructions    string   `json:"instructions"`
 	Role            string   `json:"role,omitempty"` // RoleBuilder for Builder
+	Model           string   `json:"model"`          // the bot's own model; "" inherits
+	Effort          string   `json:"effort"`         // the bot's own effort; "" inherits
 	ClaudeSessionID string   `json:"-"`
 	Members         []Member `json:"members,omitempty"`
 	Team            *Team    `json:"team,omitempty"`      // set for a room that is a team
@@ -61,11 +63,12 @@ type Bot struct {
 func (b Bot) IsRoom() bool { return b.Kind == KindRoom }
 
 // What a bot or room needs from the user. An approval outranks a question,
-// and a question outranks a paused goal.
+// and a question outranks a model problem and a paused goal.
 const (
 	AttentionApproval = "approval" // a tool approval card is pending
 	AttentionQuestion = "question" // the latest message asks the user and is unanswered
 	AttentionGoal     = "goal"     // the team's goal is paused
+	AttentionModel    = "model"    // Claude Code could not run the bot's model, or ran another one
 )
 
 type Entry struct {
@@ -139,11 +142,23 @@ type Service struct {
 	// tempDirs are the temp folders a bot may attach files from, besides its
 	// workspace and the media folder.
 	tempDirs []string
+	defaults Defaults
+	// modelAttention holds the bots whose model failed or was replaced in
+	// their latest run, as the runner reports it.
+	modelAttention *modelFlags
+}
+
+// Option changes a new Service.
+type Option func(*Service)
+
+// WithDefaults sets the global model and effort of every bot.
+func WithDefaults(d Defaults) Option {
+	return func(s *Service) { s.defaults = d }
 }
 
 // New creates the service. dataDir holds bot workspaces, shared skills and
 // the media files of messages.
-func New(sqlDB *sql.DB, dataDir string, loc *time.Location) (*Service, error) {
+func New(sqlDB *sql.DB, dataDir string, loc *time.Location, opts ...Option) (*Service, error) {
 	if err := os.MkdirAll(filepath.Join(dataDir, "skills"), 0o755); err != nil {
 		return nil, fmt.Errorf("create skills dir: %w", err)
 	}
@@ -154,18 +169,27 @@ func New(sqlDB *sql.DB, dataDir string, loc *time.Location) (*Service, error) {
 	if err := os.MkdirAll(filepath.Join(dataDir, "media"), 0o700); err != nil {
 		return nil, fmt.Errorf("create media dir: %w", err)
 	}
-	return &Service{
-		sqlDB:      sqlDB,
-		q:          db.New(sqlDB),
-		hub:        NewHub(),
-		dataDir:    dataDir,
-		loc:        loc,
-		now:        time.Now,
-		turnsReady: make(chan struct{}, 1),
-		approvals:  newApprovalWaiters(),
-		tempDirs:   []string{"/tmp", os.TempDir()},
-	}, nil
+	s := &Service{
+		sqlDB:          sqlDB,
+		q:              db.New(sqlDB),
+		hub:            NewHub(),
+		dataDir:        dataDir,
+		loc:            loc,
+		now:            time.Now,
+		turnsReady:     make(chan struct{}, 1),
+		approvals:      newApprovalWaiters(),
+		tempDirs:       []string{"/tmp", os.TempDir()},
+		defaults:       NewDefaults("", "", "", "", func(string) string { return "" }),
+		modelAttention: newModelFlags(),
+	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s, nil
 }
+
+// Defaults returns the global model and effort of every bot.
+func (s *Service) Defaults() Defaults { return s.defaults }
 
 func (s *Service) Hub() *Hub                   { return s.hub }
 func (s *Service) Location() *time.Location    { return s.loc }
@@ -186,7 +210,7 @@ func (s *Service) signalTurns() {
 func (s *Service) nowMs() int64 { return s.now().UnixMilli() }
 
 func toBot(b db.Bot) Bot {
-	return Bot{ID: b.ID, Kind: b.Kind, Name: b.Name, Instructions: b.Instructions, Role: b.Role, ClaudeSessionID: b.ClaudeSessionID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
+	return Bot{ID: b.ID, Kind: b.Kind, Name: b.Name, Instructions: b.Instructions, Role: b.Role, Model: b.Model, Effort: b.Effort, ClaudeSessionID: b.ClaudeSessionID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
 }
 
 func toEntry(e db.Entry) Entry {
@@ -209,8 +233,17 @@ func validateProfile(name, instructions string) (string, string, error) {
 
 // CreateBot stores a new bot, prepares its workspace and queues its first-run turn.
 func (s *Service) CreateBot(ctx context.Context, name, instructions string) (Bot, error) {
+	return s.CreateBotWithModel(ctx, name, instructions, "", "")
+}
+
+// CreateBotWithModel creates a bot as CreateBot does, with its own model and
+// effort; "" inherits.
+func (s *Service) CreateBotWithModel(ctx context.Context, name, instructions, model, effort string) (Bot, error) {
 	name, instructions, err := validateProfile(name, instructions)
 	if err != nil {
+		return Bot{}, err
+	}
+	if model, effort, err = validModelEffort(model, effort); err != nil {
 		return Bot{}, err
 	}
 	id := uuid.NewString()
@@ -218,7 +251,7 @@ func (s *Service) CreateBot(ctx context.Context, name, instructions string) (Bot
 		return Bot{}, err
 	}
 	now := s.nowMs()
-	row, err := s.q.CreateBot(ctx, db.CreateBotParams{ID: id, Name: name, Instructions: instructions, Kind: kindAgentBot, CreatedAt: now, UpdatedAt: now})
+	row, err := s.q.CreateBot(ctx, db.CreateBotParams{ID: id, Name: name, Instructions: instructions, Kind: kindAgentBot, Model: model, Effort: effort, CreatedAt: now, UpdatedAt: now})
 	if err != nil {
 		return Bot{}, fmt.Errorf("create bot %q: %w", name, err)
 	}
@@ -271,7 +304,7 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	}
 	byRoom := map[string][]Member{}
 	for _, m := range members {
-		byRoom[m.RoomID] = append(byRoom[m.RoomID], Member{ID: m.BotID, Name: m.Name})
+		byRoom[m.RoomID] = append(byRoom[m.RoomID], Member{ID: m.BotID, Name: m.Name, Model: m.Model, Effort: m.Effort})
 	}
 	attention, err := s.attention(ctx)
 	if err != nil {
@@ -299,6 +332,9 @@ func (s *Service) attention(ctx context.Context) (map[string]string, error) {
 	}
 	for _, id := range paused {
 		out[id] = AttentionGoal
+	}
+	for _, id := range s.modelAttention.list() {
+		out[id] = AttentionModel
 	}
 	asking, err := s.q.ListBotsAwaitingReply(ctx)
 	if err != nil {
@@ -339,25 +375,37 @@ func (s *Service) GetBot(ctx context.Context, id string) (Bot, error) {
 
 // UpdateBot changes the name and/or instructions. A nil field keeps its value.
 func (s *Service) UpdateBot(ctx context.Context, id string, name, instructions *string) (Bot, error) {
+	return s.UpdateBotSettings(ctx, id, BotPatch{Name: name, Instructions: instructions})
+}
+
+// BotPatch changes what the user sets on a bot. A nil field keeps its value;
+// an empty model or effort inherits.
+type BotPatch struct {
+	Name, Instructions, Model, Effort *string
+}
+
+// UpdateBotSettings changes a bot's profile, model and effort, all or none.
+// A new model or effort clears the bot's model attention.
+func (s *Service) UpdateBotSettings(ctx context.Context, id string, p BotPatch) (Bot, error) {
 	bot, err := s.GetBot(ctx, id)
 	if err != nil {
 		return Bot{}, err
 	}
-	newName, newInstructions := bot.Name, bot.Instructions
-	if name != nil {
-		newName = *name
+	if bot.IsRoom() && (p.Model != nil || p.Effort != nil) {
+		return Bot{}, invalid("Rooms have no model; set it on the bot.")
 	}
-	if instructions != nil {
-		newInstructions = *instructions
-	}
-	newName, newInstructions, err = validateProfile(newName, newInstructions)
+	next, err := p.apply(bot)
 	if err != nil {
 		return Bot{}, err
 	}
-	row, err := s.q.UpdateBotProfile(ctx, db.UpdateBotProfileParams{Name: newName, Instructions: newInstructions, UpdatedAt: s.nowMs(), ID: id})
+	row, err := s.q.UpdateBotProfile(ctx, db.UpdateBotProfileParams{Name: next.Name, Instructions: next.Instructions, Model: next.Model, Effort: next.Effort, UpdatedAt: s.nowMs(), ID: id})
 	if err != nil {
 		return Bot{}, fmt.Errorf("update bot %s: %w", id, err)
 	}
+	if next.Model != bot.Model || next.Effort != bot.Effort {
+		s.modelAttention.set(id, false)
+	}
+	newName := next.Name
 	if newName != bot.Name {
 		if _, err := s.AppendEntry(ctx, id, KindEvent, "", map[string]string{"type": "renamed", "from": bot.Name, "to": newName}); err != nil {
 			return Bot{}, err
@@ -365,6 +413,22 @@ func (s *Service) UpdateBot(ctx context.Context, id string, name, instructions *
 	}
 	s.hub.Publish(Event{Type: "bots"})
 	return toBot(row), nil
+}
+
+// apply returns bot with the patch's fields, checked and normalized.
+func (p BotPatch) apply(bot Bot) (Bot, error) {
+	setIf(&bot.Name, p.Name)
+	setIf(&bot.Instructions, p.Instructions)
+	setIf(&bot.Model, p.Model)
+	setIf(&bot.Effort, p.Effort)
+	var err error
+	if bot.Name, bot.Instructions, err = validateProfile(bot.Name, bot.Instructions); err != nil {
+		return Bot{}, err
+	}
+	if bot.Model, bot.Effort, err = validModelEffort(bot.Model, bot.Effort); err != nil {
+		return Bot{}, err
+	}
+	return bot, nil
 }
 
 // DeleteBot removes a bot, its agent memory and its workspace directory, or
@@ -476,7 +540,7 @@ func (s *Service) Entries(ctx context.Context, botID string, afterRev int64, lim
 // AppendBotMessage delivers a message from the bot to the user. needsReply
 // marks a question the bot cannot continue without; it shows as attention
 // until the user writes again.
-func (s *Service) AppendBotMessage(ctx context.Context, botID, turnID, text string, files []string, fallback, needsReply bool) (Entry, error) {
+func (s *Service) AppendBotMessage(ctx context.Context, botID, turnID, text string, files []string, fallback, needsReply bool, meta PostMeta) (Entry, error) {
 	text = strings.TrimSpace(text)
 	if text == "" && len(files) == 0 {
 		return Entry{}, invalid("message text is empty")
@@ -493,6 +557,7 @@ func (s *Service) AppendBotMessage(ctx context.Context, botID, turnID, text stri
 	if len(media) > 0 {
 		body["media"] = media
 	}
+	meta.addTo(body)
 	e, err := s.AppendEntry(ctx, botID, KindBot, turnID, body)
 	if err != nil {
 		return Entry{}, errors.Join(err, s.removeMedia(media))

@@ -61,13 +61,13 @@ func TestAttentionShowsAQuestionUntilTheUserAnswers(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 	ana := newAgents(t, svc, "Ana")["Ana"]
-	if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Done with the draft.", nil, false, false); err != nil {
+	if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Done with the draft.", nil, false, false, PostMeta{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := attentionOf(t, svc, ana.ID); got != "" {
 		t.Fatalf("attention after a plain message = %q; want none", got)
 	}
-	if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Which repo should I use?", nil, false, true); err != nil {
+	if _, err := svc.AppendBotMessage(ctx, ana.ID, "t1", "Which repo should I use?", nil, false, true, PostMeta{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := attentionOf(t, svc, ana.ID); got != AttentionQuestion {

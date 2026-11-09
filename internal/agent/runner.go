@@ -491,7 +491,7 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 		if err != nil {
 			r.log.Error("count replies", "turn", t.ID, "err", err)
 		} else if n == 0 {
-			if _, err := r.svc.AppendBotMessage(bg, bot.ID, t.ID, out.resultText, nil, true, false); err != nil {
+			if _, err := r.svc.AppendBotMessage(bg, bot.ID, t.ID, out.resultText, nil, true, false, core.PostMeta{}); err != nil {
 				r.log.Error("deliver final text", "turn", t.ID, "err", err)
 			}
 		}

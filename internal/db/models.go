@@ -43,6 +43,8 @@ type Bot struct {
 	Kind            string `json:"kind"`
 	Position        int64  `json:"position"`
 	Role            string `json:"role"`
+	Model           string `json:"model"`
+	Effort          string `json:"effort"`
 }
 
 type Entry struct {
@@ -117,10 +119,12 @@ type Routine struct {
 }
 
 type Team struct {
-	TeamID     string `json:"team_id"`
-	LeadBotID  string `json:"lead_bot_id"`
-	Agreement  string `json:"agreement"`
-	GoalBudget int64  `json:"goal_budget"`
+	TeamID        string `json:"team_id"`
+	LeadBotID     string `json:"lead_bot_id"`
+	Agreement     string `json:"agreement"`
+	GoalBudget    int64  `json:"goal_budget"`
+	DefaultModel  string `json:"default_model"`
+	DefaultEffort string `json:"default_effort"`
 }
 
 type ToolGrant struct {

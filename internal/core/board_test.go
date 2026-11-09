@@ -1574,3 +1574,179 @@ func TestADeletedBotIsReleasedInEveryTeam(t *testing.T) {
 		}
 	}
 }
+
+// otherTeam adds a team of two new bots, the first its lead, to the fixture.
+func (f *boardFixture) otherTeam(t *testing.T, name, leadName, memberName string) (team, lead Bot) {
+	t.Helper()
+	ctx := context.Background()
+	lead, err := f.svc.CreateBot(ctx, leadName, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := f.svc.CreateBot(ctx, memberName, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+	team, err = f.svc.CreateTeam(ctx, name, "", []string{lead.ID, member.ID}, TeamSettings{LeadID: lead.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.names[lead.ID], f.names[member.ID] = leadName, memberName
+	return team, lead
+}
+
+func TestATeamServingARequestPassesWorkOnToAThirdTeamUnderTheAskingGoal(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	ctx := context.Background()
+	docs, dee, eve := f.docsTeam(t)
+	dev, cal := f.otherTeam(t, "Dev", "Cal", "Dan")
+	teams := map[string]string{f.team.ID: "Ship", docs.ID: "Docs", dev.ID: "Dev"}
+
+	spec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.items[spec.ID] = spec.Title
+	docsLead := Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}
+	if _, err := f.svc.AssignItem(ctx, docsLead, spec.ID, eve.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+	if err := f.svc.StartItemWork(ctx, spec.ID, eve.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.SubmitItem(ctx, Actor{BotID: eve.ID, TeamID: docs.ID, Role: RoleWork}, spec.ID, "spec.md"); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+
+	if _, err := f.svc.RequestWork(ctx, docsLead, f.team.ID, item("Back", "", "")); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "submit your result") {
+		t.Fatalf("pass work back to the goal's team: err = %v; want ErrInvalid that says to submit", err)
+	}
+	build, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Build", "", "", spec.ID))
+	if err != nil {
+		t.Fatalf("chained request: %v", err)
+	}
+	f.items[build.ID] = build.Title
+	if build.GoalID != f.goal.ID || build.TeamID != dev.ID || build.CreatedBy != dee.ID || !slices.Equal(build.DependsOn, []string{spec.ID}) {
+		t.Fatalf("chained request = %+v; want an item of Ship's goal in Dev, by Dee, after Spec", build)
+	}
+	// Nothing of Ship's goal is in flight, so Ship's lead hears of the new item too.
+	if got := f.queuedAll(t, teams); !slices.Equal(got, []string{"Cal lead @Dev", "Bo lead @Ship"}) {
+		t.Fatalf("queued after the chained request = %q; want Dev's and Ship's leads, paid by Ship's goal", got)
+	}
+	for id, want := range map[string]string{
+		dev.ID:    `Team Docs asked for "Build", for team Ship's goal.`,
+		docs.ID:   `Dee asked team Dev for "Build", for team Ship's goal.`,
+		f.team.ID: `Team Docs asked team Dev for "Build", for this goal.`,
+	} {
+		if text := lastEventText(t, f.svc, id); text != want {
+			t.Errorf("%s channel event = %q; want %q", teams[id], text, want)
+		}
+	}
+	ship, err := f.svc.Board(ctx, f.team.ID)
+	if err != nil || len(ship.Items) != 2 || ship.Items[1].ID != build.ID || ship.Teams[dev.ID] != "Dev" {
+		t.Fatalf("Ship's board = %+v, %v; want the chained request among its goal's items", ship, err)
+	}
+	if board, _ := f.svc.Board(ctx, dev.ID); len(board.Requests) != 1 || board.Requests[0].FromTeamID != f.team.ID {
+		t.Fatalf("Dev's board = %+v; want Ship's request", board)
+	}
+
+	release := f.create(t, f.lead, item("Release", f.ana.ID, "", build.ID))
+	if _, err := f.svc.AssignItem(ctx, Actor{BotID: cal.ID, TeamID: dev.ID, Role: RoleLead}, build.ID, cal.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+	if err := f.svc.StartItemWork(ctx, build.ID, cal.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.SubmitItem(ctx, Actor{BotID: cal.ID, TeamID: dev.ID, Role: RoleWork}, build.ID, "PR 1"); err != nil {
+		t.Fatal(err)
+	}
+	// queuedAll also checks that Ship's goal pays for every turn, Dev's work included.
+	if got := f.queuedAll(t, teams); !slices.Equal(got, []string{"Ana work Release @Ship"}) {
+		t.Fatalf("queued after the chained request was done = %q; want Ship's waiting item", got)
+	}
+	f.finish(t, release, f.ana)
+}
+
+func TestARequestWithoutAGoalSaysHowToGoOn(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	ctx := context.Background()
+	docs, dee, _ := f.docsTeam(t)
+	dev, _ := f.otherTeam(t, "Dev", "Cal", "Dan")
+	docsLead := Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}
+
+	_, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Build", "", ""))
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "the user starts a goal") {
+		t.Fatalf("request without any goal: err = %v; want ErrInvalid that says how to go on", err)
+	}
+	spec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.DropItem(ctx, docsLead, spec.ID, "Not ours."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Build", "", "")); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("request for a dropped request: err = %v; want ErrInvalid", err)
+	}
+	if _, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec 2", "", "")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.EndGoal(ctx, f.goal.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Build", "", "")); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("request for an ended goal's request: err = %v; want ErrInvalid", err)
+	}
+}
+
+func TestALeadServingSeveralGoalsNamesTheRequestItsWorkIsFor(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	ctx := context.Background()
+	docs, dee, _ := f.docsTeam(t)
+	dev, _ := f.otherTeam(t, "Dev", "Cal", "Dan")
+	ops, olga := f.otherTeam(t, "Ops", "Olga", "Oz")
+	opsGoal, err := f.svc.StartGoal(ctx, ops.ID, "Run it.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+	docsLead := Actor{BotID: dee.ID, TeamID: docs.ID, Role: RoleLead}
+
+	shipSpec, err := f.svc.RequestWork(ctx, f.lead, docs.ID, item("Spec", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opsSpec, err := f.svc.RequestWork(ctx, Actor{BotID: olga.ID, TeamID: ops.ID, Role: RoleLead}, docs.ID, item("Runbook", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.svc.RequestWork(ctx, docsLead, dev.ID, item("Build", "", ""))
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), shipSpec.ID) || !strings.Contains(err.Error(), opsSpec.ID) {
+		t.Fatalf("request while serving two goals: err = %v; want ErrInvalid that lists both requests", err)
+	}
+	build, err := f.svc.RequestWork(ctx, docsLead, dev.ID, NewItem{Title: "Build", Brief: "Do it.", Acceptance: "Works.", ForItemID: opsSpec.ID})
+	if err != nil || build.GoalID != opsGoal.ID {
+		t.Fatalf("request for Ops's request = %+v, %v; want an item of Ops's goal", build, err)
+	}
+	if _, err := f.svc.RequestWork(ctx, docsLead, dev.ID, NewItem{Title: "X", Brief: "Do it.", Acceptance: "Works.", ForItemID: build.ID}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("request for an item Docs doesn't serve: err = %v; want ErrInvalid", err)
+	}
+
+	// The team's own active goal comes first, unless the lead names a request.
+	if _, err := f.svc.StartGoal(ctx, docs.ID, "Write docs."); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+	own, err := f.svc.RequestWork(ctx, docsLead, dev.ID, item("Own", "", ""))
+	if err != nil || own.GoalID == f.goal.ID || own.GoalID == opsGoal.ID {
+		t.Fatalf("request with an own goal = %+v, %v; want an item of Docs's goal", own, err)
+	}
+	forShip, err := f.svc.RequestWork(ctx, docsLead, dev.ID, NewItem{Title: "Build", Brief: "Do it.", Acceptance: "Works.", ForItemID: shipSpec.ID})
+	if err != nil || forShip.GoalID != f.goal.ID {
+		t.Fatalf("request for Ship's request = %+v, %v; want an item of Ship's goal", forShip, err)
+	}
+}

@@ -144,6 +144,9 @@ func TestSendToUserTakesAQuestionLineAndClosesOwnQuestions(t *testing.T) {
 		t.Helper()
 		return callText(t, cs, "send_to_user", args)
 	}
+	if text, isErr := send(map[string]any{}); !isErr || !strings.Contains(text, "message text is empty") {
+		t.Fatalf("an empty send = %q (error %v); want the empty-message error", text, isErr)
+	}
 	if text, isErr := send(map[string]any{"text": "Done.", "question": "Ship it?"}); !isErr || !strings.Contains(text, "only with needs_reply") {
 		t.Fatalf("a question line without needs_reply = %q (error %v)", text, isErr)
 	}

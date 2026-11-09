@@ -30,12 +30,31 @@ type server struct {
 	svc    *core.Service
 	runner *agent.Runner
 	log    *slog.Logger
+	models ModelReporter // nil: no model IDs are known
+}
+
+// ModelReporter tells which model Claude Code ran in a bot's latest run in a
+// room ("" for its direct chat), and whether that differs from the request.
+type ModelReporter interface {
+	ModelReport(botID, roomID string) (id string, mismatch bool)
+}
+
+// Option changes the handler that New returns.
+type Option func(*server)
+
+// WithModelReporter shows the model IDs that r reports in the bots' effective values.
+func WithModelReporter(r ModelReporter) Option {
+	return func(s *server) { s.models = r }
 }
 
 // New returns the HTTP handler. ui holds the built web app; it may be nil.
-func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger) http.Handler {
+func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, opts ...Option) http.Handler {
 	s := &server{svc: svc, runner: runner, log: log}
+	for _, o := range opts {
+		o(s)
+	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/defaults", s.defaults)
 	mux.HandleFunc("GET /api/bots", s.listBots)
 	mux.HandleFunc("POST /api/bots", s.createBot)
 	mux.HandleFunc("PUT /api/bots/order", s.reorderBots)
@@ -185,12 +204,47 @@ func decodeLimited(r *http.Request, v any, limit int64) error {
 
 type botView struct {
 	core.Bot
-	Running bool                  `json:"running"`
-	Tasks   []core.BackgroundTask `json:"tasks"`
+	Running   bool                  `json:"running"`
+	Tasks     []core.BackgroundTask `json:"tasks"`
+	Effective *core.Effective       `json:"effective,omitempty"` // a bot's values in its direct chat
 }
 
 func (s *server) view(b core.Bot) botView {
-	return botView{Bot: b, Running: s.runner.Running(b.ID), Tasks: s.runner.Tasks(b.ID)}
+	v := botView{Bot: b, Running: s.runner.Running(b.ID), Tasks: s.runner.Tasks(b.ID)}
+	if !b.IsRoom() {
+		e := s.effective(b, nil, "")
+		v.Effective = &e
+		return v
+	}
+	// A plain room has no defaults: its members run with their direct-chat values.
+	v.Members = make([]core.Member, len(b.Members))
+	for i, m := range b.Members {
+		e := s.effective(core.Bot{ID: m.ID, Model: m.Model, Effort: m.Effort}, b.Team, b.ID)
+		m.Effective = &e
+		v.Members[i] = m
+	}
+	return v
+}
+
+// effective resolves a bot's model and effort in a room ("" for its direct
+// chat) of team (nil outside a team), with the model its latest run reported.
+func (s *server) effective(b core.Bot, team *core.Team, roomID string) core.Effective {
+	e := core.Resolve(b, team, s.svc.Defaults())
+	if s.models != nil {
+		e.ModelID, e.ModelMismatch = s.models.ModelReport(b.ID, roomID)
+	}
+	return e
+}
+
+type defaultsView struct {
+	core.Defaults
+	ModelAliases []string `json:"modelAliases"`
+	EffortLevels []string `json:"effortLevels"`
+}
+
+// defaults returns the global model and effort, read-only, and the choices.
+func (s *server) defaults(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, defaultsView{Defaults: s.svc.Defaults(), ModelAliases: core.ModelAliases, EffortLevels: core.EffortLevels})
 }
 
 func (s *server) listBots(w http.ResponseWriter, r *http.Request) {
@@ -210,12 +264,14 @@ func (s *server) createBot(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name         string `json:"name"`
 		Instructions string `json:"instructions"`
+		Model        string `json:"model"`
+		Effort       string `json:"effort"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	bot, err := s.svc.CreateBot(r.Context(), in.Name, in.Instructions)
+	bot, err := s.svc.CreateBotWithModel(r.Context(), in.Name, in.Instructions, in.Model, in.Effort)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -252,12 +308,14 @@ func (s *server) updateBot(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name         *string `json:"name"`
 		Instructions *string `json:"instructions"`
+		Model        *string `json:"model"`
+		Effort       *string `json:"effort"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	bot, err := s.svc.UpdateBot(r.Context(), r.PathValue("id"), in.Name, in.Instructions)
+	bot, err := s.svc.UpdateBotSettings(r.Context(), r.PathValue("id"), core.BotPatch{Name: in.Name, Instructions: in.Instructions, Model: in.Model, Effort: in.Effort})
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -420,18 +478,22 @@ func (s *server) setRoomMembers(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name         string   `json:"name"`
-		Instructions string   `json:"instructions"`
-		MemberIDs    []string `json:"memberIds"`
-		LeadID       string   `json:"leadId"`
-		Agreement    string   `json:"agreement"`
-		GoalBudget   int64    `json:"goalBudget"`
+		Name          string   `json:"name"`
+		Instructions  string   `json:"instructions"`
+		MemberIDs     []string `json:"memberIds"`
+		LeadID        string   `json:"leadId"`
+		Agreement     string   `json:"agreement"`
+		GoalBudget    int64    `json:"goalBudget"`
+		DefaultModel  string   `json:"defaultModel"`
+		DefaultEffort string   `json:"defaultEffort"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	team, err := s.svc.CreateTeam(r.Context(), in.Name, in.Instructions, in.MemberIDs, core.TeamSettings{LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget})
+	team, err := s.svc.CreateTeam(r.Context(), in.Name, in.Instructions, in.MemberIDs, core.TeamSettings{
+		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
+	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -441,15 +503,19 @@ func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		LeadID     *string `json:"leadId"`
-		Agreement  *string `json:"agreement"`
-		GoalBudget *int64  `json:"goalBudget"`
+		LeadID        *string `json:"leadId"`
+		Agreement     *string `json:"agreement"`
+		GoalBudget    *int64  `json:"goalBudget"`
+		DefaultModel  *string `json:"defaultModel"`
+		DefaultEffort *string `json:"defaultEffort"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget})
+	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{
+		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
+	})
 	if err != nil {
 		s.fail(w, r, err)
 		return

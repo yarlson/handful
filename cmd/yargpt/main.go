@@ -49,6 +49,7 @@ type options struct {
 	tray       bool
 	set        map[string]bool // flags given on the command line
 	claudePath string
+	defaults   core.Defaults
 }
 
 func run(args []string) error {
@@ -117,6 +118,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.dataDir, "data", filepath.Join(home, ".yargpt"), "directory for the database, bot workspaces and skills")
 	fs.StringVar(&o.Claude, "claude", "claude", "path to the Claude Code CLI")
 	fs.StringVar(&o.Model, "model", "", "model alias for every bot (default: Claude Code's default)")
+	fs.StringVar(&o.Effort, "effort", "", "reasoning effort for every bot: low, medium, high, xhigh or max (default: the model's own)")
 	fs.IntVar(&o.MaxParallel, "max-parallel", 3, "turns that may run at once across all bots")
 	fs.BoolVar(&o.loginEnv, "login-env", false, "take the environment, such as PATH, from the user's login shell (launchd starts the server with a minimal PATH)")
 	fs.BoolVar(&o.tray, "tray", false, "show a menu-bar icon whose Exit server item stops the server (macOS)")
@@ -130,6 +132,10 @@ func parseFlags(args []string) (options, error) {
 // prepare applies the config file, checks the address and finds Claude Code.
 func prepare(o *options) error {
 	if err := applyConfigFile(filepath.Join(o.dataDir, "config.json"), o.set, &o.settings); err != nil {
+		return err
+	}
+	var err error
+	if o.defaults, err = globalDefaults(&o.settings, o.set, os.Getenv); err != nil {
 		return err
 	}
 	host, _, err := net.SplitHostPort(o.addr)
@@ -167,7 +173,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		return err
 	}
 	defer conn.Close()
-	svc, err := core.New(conn, o.dataDir, time.Local)
+	svc, err := core.New(conn, o.dataDir, time.Local, core.WithDefaults(o.defaults))
 	if err != nil {
 		return err
 	}

@@ -40,6 +40,8 @@ type Setup struct {
 type SetupBot struct {
 	Name         string
 	Instructions string
+	Model        string // "" inherits
+	Effort       string // "" inherits
 }
 
 type SetupTeam struct {
@@ -49,6 +51,9 @@ type SetupTeam struct {
 	Lead       string // the first member leads when it is empty
 	Agreement  string
 	GoalBudget int64 // DefaultGoalBudget when 0
+	// DefaultModel and DefaultEffort are the members' defaults in the team.
+	DefaultModel  string
+	DefaultEffort string
 }
 
 type SetupRoom struct {
@@ -111,7 +116,7 @@ func (s *Service) CreateSetup(ctx context.Context, setup Setup) ([]Bot, error) {
 func (p plannedSetup) setup() Setup {
 	var s Setup
 	for _, b := range p.bots {
-		s.Bots = append(s.Bots, SetupBot{Name: b.Name, Instructions: b.Instructions})
+		s.Bots = append(s.Bots, SetupBot{Name: b.Name, Instructions: b.Instructions, Model: b.Model, Effort: b.Effort})
 	}
 	for _, r := range p.rooms {
 		names := make([]string, len(r.members))
@@ -126,7 +131,10 @@ func (p plannedSetup) setup() Setup {
 			s.Rooms = append(s.Rooms, SetupRoom{Name: r.name, Purpose: r.purpose, Members: names})
 			continue
 		}
-		s.Teams = append(s.Teams, SetupTeam{Name: r.name, Purpose: r.purpose, Members: names, Lead: lead, Agreement: r.team.Agreement, GoalBudget: r.team.GoalBudget})
+		s.Teams = append(s.Teams, SetupTeam{
+			Name: r.name, Purpose: r.purpose, Members: names, Lead: lead, Agreement: r.team.Agreement, GoalBudget: r.team.GoalBudget,
+			DefaultModel: r.team.DefaultModel, DefaultEffort: r.team.DefaultEffort,
+		})
 	}
 	return s
 }
@@ -197,7 +205,7 @@ func newSetupNames(existing []Bot) setupNames {
 			n.builders[key] = true
 			continue
 		}
-		n.bots[key] = append(n.bots[key], Member{ID: b.ID, Name: b.Name})
+		n.bots[key] = append(n.bots[key], Member{ID: b.ID, Name: b.Name, Model: b.Model, Effort: b.Effort})
 	}
 	return n
 }
@@ -219,12 +227,16 @@ func (n setupNames) newBot(b SetupBot) (Bot, error) {
 	if err != nil {
 		return Bot{}, err
 	}
+	model, effort, err := validModelEffort(b.Model, b.Effort)
+	if err != nil {
+		return Bot{}, err
+	}
 	if err := n.claim(name); err != nil {
 		return Bot{}, err
 	}
-	bot := Bot{ID: uuid.NewString(), Kind: kindAgentBot, Name: name, Instructions: instructions}
+	bot := Bot{ID: uuid.NewString(), Kind: kindAgentBot, Name: name, Instructions: instructions, Model: model, Effort: effort}
 	key := strings.ToLower(name)
-	n.bots[key] = append(n.bots[key], Member{ID: bot.ID, Name: name})
+	n.bots[key] = append(n.bots[key], Member{ID: bot.ID, Name: name, Model: model, Effort: effort})
 	return bot, nil
 }
 
@@ -236,7 +248,7 @@ func (n setupNames) newTeam(t SetupTeam) (plannedRoom, error) {
 	if err != nil {
 		return plannedRoom{}, err
 	}
-	set := TeamSettings{Agreement: t.Agreement, GoalBudget: t.GoalBudget}
+	set := TeamSettings{Agreement: t.Agreement, GoalBudget: t.GoalBudget, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort}
 	if strings.TrimSpace(t.Lead) != "" {
 		lead, err := n.member(t.Lead)
 		if err != nil {
@@ -361,7 +373,7 @@ func removeDirs(dirs []string) error {
 func insertSetup(ctx context.Context, q *db.Queries, plan plannedSetup, now int64) ([]Bot, error) {
 	var created []Bot
 	for _, b := range plan.bots {
-		row, err := q.CreateBot(ctx, db.CreateBotParams{ID: b.ID, Name: b.Name, Instructions: b.Instructions, Kind: kindAgentBot, CreatedAt: now, UpdatedAt: now})
+		row, err := q.CreateBot(ctx, db.CreateBotParams{ID: b.ID, Name: b.Name, Instructions: b.Instructions, Kind: kindAgentBot, Model: b.Model, Effort: b.Effort, CreatedAt: now, UpdatedAt: now})
 		if err != nil {
 			return nil, fmt.Errorf("create bot %q: %w", b.Name, err)
 		}

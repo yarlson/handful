@@ -30,8 +30,12 @@ const (
 
 // Member is a bot in a room.
 type Member struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Model  string `json:"-"` // the bot's own model, for Resolve
+	Effort string `json:"-"` // the bot's own effort, for Resolve
+	// Effective is the member's model and effort in the room; the API fills it.
+	Effective *Effective `json:"effective,omitempty"`
 }
 
 // RoomSeat is a member's state in a room: its Claude session for the room and
@@ -93,7 +97,7 @@ func insertRoom(ctx context.Context, q *db.Queries, id, name, instructions strin
 		}
 	}
 	if team != nil {
-		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget}); err != nil {
+		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort}); err != nil {
 			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
 		}
 	}
@@ -168,7 +172,7 @@ func (s *Service) validMembers(ctx context.Context, ids []string) ([]Member, err
 		if b.IsRoom() {
 			return nil, invalid("a room cannot be a member of a room")
 		}
-		members = append(members, Member{ID: b.ID, Name: b.Name})
+		members = append(members, Member{ID: b.ID, Name: b.Name, Model: b.Model, Effort: b.Effort})
 	}
 	if len(members) == 0 {
 		return nil, invalid("a room needs at least 1 member bot")
@@ -204,7 +208,7 @@ func (s *Service) RoomSeats(ctx context.Context, roomID string) ([]RoomSeat, err
 	}
 	out := make([]RoomSeat, len(rows))
 	for i, r := range rows {
-		out[i] = RoomSeat{ID: r.BotID, Name: r.Name, ClaudeSessionID: r.ClaudeSessionID, LastSeenSeq: r.LastSeenSeq}
+		out[i] = RoomSeat{ID: r.BotID, Name: r.Name, Model: r.Model, Effort: r.Effort, ClaudeSessionID: r.ClaudeSessionID, LastSeenSeq: r.LastSeenSeq}
 	}
 	return out, nil
 }

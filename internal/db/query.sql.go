@@ -310,9 +310,9 @@ func (q *Queries) CountTurnReplies(ctx context.Context, turnID string) (int64, e
 }
 
 const createBot = `-- name: CreateBot :one
-INSERT INTO bots (id, name, instructions, kind, position, created_at, updated_at)
-VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(b.position), 0) + 1 FROM bots b), ?, ?)
-RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role
+INSERT INTO bots (id, name, instructions, kind, model, effort, position, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(b.position), 0) + 1 FROM bots b), ?, ?)
+RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role, model, effort
 `
 
 type CreateBotParams struct {
@@ -320,6 +320,8 @@ type CreateBotParams struct {
 	Name         string `json:"name"`
 	Instructions string `json:"instructions"`
 	Kind         string `json:"kind"`
+	Model        string `json:"model"`
+	Effort       string `json:"effort"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
 }
@@ -330,6 +332,8 @@ func (q *Queries) CreateBot(ctx context.Context, arg CreateBotParams) (Bot, erro
 		arg.Name,
 		arg.Instructions,
 		arg.Kind,
+		arg.Model,
+		arg.Effort,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -344,6 +348,8 @@ func (q *Queries) CreateBot(ctx context.Context, arg CreateBotParams) (Bot, erro
 		&i.Kind,
 		&i.Position,
 		&i.Role,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -396,14 +402,16 @@ func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (R
 }
 
 const createTeam = `-- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget) VALUES (?, ?, ?, ?)
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort) VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type CreateTeamParams struct {
-	TeamID     string `json:"team_id"`
-	LeadBotID  string `json:"lead_bot_id"`
-	Agreement  string `json:"agreement"`
-	GoalBudget int64  `json:"goal_budget"`
+	TeamID        string `json:"team_id"`
+	LeadBotID     string `json:"lead_bot_id"`
+	Agreement     string `json:"agreement"`
+	GoalBudget    int64  `json:"goal_budget"`
+	DefaultModel  string `json:"default_model"`
+	DefaultEffort string `json:"default_effort"`
 }
 
 func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
@@ -412,6 +420,8 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
 		arg.LeadBotID,
 		arg.Agreement,
 		arg.GoalBudget,
+		arg.DefaultModel,
+		arg.DefaultEffort,
 	)
 	return err
 }
@@ -564,7 +574,7 @@ func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) 
 }
 
 const getBot = `-- name: GetBot :one
-SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role FROM bots WHERE id = ?
+SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role, model, effort FROM bots WHERE id = ?
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -580,6 +590,8 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.Kind,
 		&i.Position,
 		&i.Role,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -696,7 +708,7 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 }
 
 const getTeam = `-- name: GetTeam :one
-SELECT team_id, lead_bot_id, agreement, goal_budget FROM teams WHERE team_id = ?
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort FROM teams WHERE team_id = ?
 `
 
 func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
@@ -707,6 +719,8 @@ func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
 		&i.LeadBotID,
 		&i.Agreement,
 		&i.GoalBudget,
+		&i.DefaultModel,
+		&i.DefaultEffort,
 	)
 	return i, err
 }
@@ -1089,7 +1103,7 @@ func (q *Queries) LastGoalTurnStatus(ctx context.Context, goalID string) (string
 }
 
 const listAllRoomMembers = `-- name: ListAllRoomMembers :many
-SELECT rm.room_id, rm.bot_id, b.name
+SELECT rm.room_id, rm.bot_id, b.name, b.model, b.effort
 FROM room_members rm JOIN bots b ON b.id = rm.bot_id
 ORDER BY b.position, b.created_at, b.rowid
 `
@@ -1098,6 +1112,8 @@ type ListAllRoomMembersRow struct {
 	RoomID string `json:"room_id"`
 	BotID  string `json:"bot_id"`
 	Name   string `json:"name"`
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
 }
 
 func (q *Queries) ListAllRoomMembers(ctx context.Context) ([]ListAllRoomMembersRow, error) {
@@ -1109,7 +1125,13 @@ func (q *Queries) ListAllRoomMembers(ctx context.Context) ([]ListAllRoomMembersR
 	var items []ListAllRoomMembersRow
 	for rows.Next() {
 		var i ListAllRoomMembersRow
-		if err := rows.Scan(&i.RoomID, &i.BotID, &i.Name); err != nil {
+		if err := rows.Scan(
+			&i.RoomID,
+			&i.BotID,
+			&i.Name,
+			&i.Model,
+			&i.Effort,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1151,7 +1173,7 @@ func (q *Queries) ListArtifactTags(ctx context.Context, artifactID string) ([]st
 }
 
 const listBots = `-- name: ListBots :many
-SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role FROM bots ORDER BY position, created_at, rowid
+SELECT id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role, model, effort FROM bots ORDER BY position, created_at, rowid
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -1173,6 +1195,8 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.Kind,
 			&i.Position,
 			&i.Role,
+			&i.Model,
+			&i.Effort,
 		); err != nil {
 			return nil, err
 		}
@@ -1710,7 +1734,7 @@ func (q *Queries) ListQueuedTurns(ctx context.Context, limit int64) ([]Turn, err
 }
 
 const listRoomMembers = `-- name: ListRoomMembers :many
-SELECT rm.room_id, rm.bot_id, rm.claude_session_id, rm.last_seen_seq, b.name
+SELECT rm.room_id, rm.bot_id, rm.claude_session_id, rm.last_seen_seq, b.name, b.model, b.effort
 FROM room_members rm JOIN bots b ON b.id = rm.bot_id
 WHERE rm.room_id = ?
 ORDER BY b.position, b.created_at, b.rowid
@@ -1722,6 +1746,8 @@ type ListRoomMembersRow struct {
 	ClaudeSessionID string `json:"claude_session_id"`
 	LastSeenSeq     int64  `json:"last_seen_seq"`
 	Name            string `json:"name"`
+	Model           string `json:"model"`
+	Effort          string `json:"effort"`
 }
 
 func (q *Queries) ListRoomMembers(ctx context.Context, roomID string) ([]ListRoomMembersRow, error) {
@@ -1739,6 +1765,8 @@ func (q *Queries) ListRoomMembers(ctx context.Context, roomID string) ([]ListRoo
 			&i.ClaudeSessionID,
 			&i.LastSeenSeq,
 			&i.Name,
+			&i.Model,
+			&i.Effort,
 		); err != nil {
 			return nil, err
 		}
@@ -1754,7 +1782,7 @@ func (q *Queries) ListRoomMembers(ctx context.Context, roomID string) ([]ListRoo
 }
 
 const listRoomsOfBot = `-- name: ListRoomsOfBot :many
-SELECT b.id, b.name, b.instructions, b.claude_session_id, b.created_at, b.updated_at, b.kind, b.position, b.role FROM bots b JOIN room_members rm ON rm.room_id = b.id
+SELECT b.id, b.name, b.instructions, b.claude_session_id, b.created_at, b.updated_at, b.kind, b.position, b.role, b.model, b.effort FROM bots b JOIN room_members rm ON rm.room_id = b.id
 WHERE rm.bot_id = ?
 ORDER BY b.position, b.created_at, b.rowid
 `
@@ -1778,6 +1806,8 @@ func (q *Queries) ListRoomsOfBot(ctx context.Context, botID string) ([]Bot, erro
 			&i.Kind,
 			&i.Position,
 			&i.Role,
+			&i.Model,
+			&i.Effort,
 		); err != nil {
 			return nil, err
 		}
@@ -1925,7 +1955,7 @@ func (q *Queries) ListTeamRequests(ctx context.Context, teamID string) ([]ListTe
 }
 
 const listTeams = `-- name: ListTeams :many
-SELECT team_id, lead_bot_id, agreement, goal_budget FROM teams
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort FROM teams
 `
 
 func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
@@ -1942,6 +1972,8 @@ func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
 			&i.LeadBotID,
 			&i.Agreement,
 			&i.GoalBudget,
+			&i.DefaultModel,
+			&i.DefaultEffort,
 		); err != nil {
 			return nil, err
 		}
@@ -2371,14 +2403,16 @@ func (q *Queries) UpdateArtifact(ctx context.Context, arg UpdateArtifactParams) 
 }
 
 const updateBotProfile = `-- name: UpdateBotProfile :one
-UPDATE bots SET name = ?, instructions = ?, updated_at = ?
+UPDATE bots SET name = ?, instructions = ?, model = ?, effort = ?, updated_at = ?
 WHERE id = ?
-RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role
+RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role, model, effort
 `
 
 type UpdateBotProfileParams struct {
 	Name         string `json:"name"`
 	Instructions string `json:"instructions"`
+	Model        string `json:"model"`
+	Effort       string `json:"effort"`
 	UpdatedAt    int64  `json:"updated_at"`
 	ID           string `json:"id"`
 }
@@ -2387,6 +2421,8 @@ func (q *Queries) UpdateBotProfile(ctx context.Context, arg UpdateBotProfilePara
 	row := q.db.QueryRowContext(ctx, updateBotProfile,
 		arg.Name,
 		arg.Instructions,
+		arg.Model,
+		arg.Effort,
 		arg.UpdatedAt,
 		arg.ID,
 	)
@@ -2401,6 +2437,8 @@ func (q *Queries) UpdateBotProfile(ctx context.Context, arg UpdateBotProfilePara
 		&i.Kind,
 		&i.Position,
 		&i.Role,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -2519,14 +2557,16 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 }
 
 const updateTeam = `-- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ? WHERE team_id = ?
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ? WHERE team_id = ?
 `
 
 type UpdateTeamParams struct {
-	LeadBotID  string `json:"lead_bot_id"`
-	Agreement  string `json:"agreement"`
-	GoalBudget int64  `json:"goal_budget"`
-	TeamID     string `json:"team_id"`
+	LeadBotID     string `json:"lead_bot_id"`
+	Agreement     string `json:"agreement"`
+	GoalBudget    int64  `json:"goal_budget"`
+	DefaultModel  string `json:"default_model"`
+	DefaultEffort string `json:"default_effort"`
+	TeamID        string `json:"team_id"`
 }
 
 func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
@@ -2534,6 +2574,8 @@ func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
 		arg.LeadBotID,
 		arg.Agreement,
 		arg.GoalBudget,
+		arg.DefaultModel,
+		arg.DefaultEffort,
 		arg.TeamID,
 	)
 	return err

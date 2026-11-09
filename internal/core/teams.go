@@ -32,6 +32,10 @@ type Team struct {
 	LeadID     string `json:"leadId"`
 	Agreement  string `json:"agreement"`
 	GoalBudget int64  `json:"goalBudget"`
+	// DefaultModel and DefaultEffort fill in the model and effort of members
+	// without their own, for their turns in the team. "" inherits.
+	DefaultModel  string `json:"defaultModel"`
+	DefaultEffort string `json:"defaultEffort"`
 }
 
 func (b Bot) IsTeam() bool { return b.Team != nil }
@@ -52,16 +56,20 @@ func (b Bot) Lead() (Member, bool) {
 // TeamSettings are what the user sets on a team. An empty LeadID means the
 // first member; a zero GoalBudget means DefaultGoalBudget.
 type TeamSettings struct {
-	LeadID     string
-	Agreement  string
-	GoalBudget int64
+	LeadID        string
+	Agreement     string
+	GoalBudget    int64
+	DefaultModel  string
+	DefaultEffort string
 }
 
 // TeamPatch changes the settings of a team. A nil field keeps its value.
 type TeamPatch struct {
-	LeadID     *string
-	Agreement  *string
-	GoalBudget *int64
+	LeadID        *string
+	Agreement     *string
+	GoalBudget    *int64
+	DefaultModel  *string
+	DefaultEffort *string
 }
 
 // TeamWorkspace is the shared folder of a team. Every turn in the team runs there.
@@ -92,21 +100,14 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	if !team.IsTeam() {
 		return Bot{}, invalid("%s is not a team", team.Name)
 	}
-	set := TeamSettings{LeadID: team.Team.LeadID, Agreement: team.Team.Agreement, GoalBudget: team.Team.GoalBudget}
-	if p.LeadID != nil {
-		set.LeadID = *p.LeadID
-	}
-	if p.Agreement != nil {
-		set.Agreement = *p.Agreement
-	}
-	if p.GoalBudget != nil {
-		set.GoalBudget = *p.GoalBudget
-	}
-	updated, err := validTeam(set, team.Members)
+	updated, err := validTeam(p.apply(*team.Team), team.Members)
 	if err != nil {
 		return Bot{}, err
 	}
-	if err := s.q.UpdateTeam(ctx, db.UpdateTeamParams{LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget, TeamID: id}); err != nil {
+	if err := s.q.UpdateTeam(ctx, db.UpdateTeamParams{
+		LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
+		DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, TeamID: id,
+	}); err != nil {
 		return Bot{}, fmt.Errorf("update team %s: %w", id, err)
 	}
 	newLead := updated.LeadID != team.Team.LeadID
@@ -118,6 +119,24 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	}
 	s.hub.Publish(Event{Type: "bots"})
 	return team, nil
+}
+
+// apply returns the settings of team t with the patch's fields.
+func (p TeamPatch) apply(t Team) TeamSettings {
+	set := TeamSettings(t)
+	setIf(&set.LeadID, p.LeadID)
+	setIf(&set.Agreement, p.Agreement)
+	setIf(&set.GoalBudget, p.GoalBudget)
+	setIf(&set.DefaultModel, p.DefaultModel)
+	setIf(&set.DefaultEffort, p.DefaultEffort)
+	return set
+}
+
+// setIf sets *dst to *v unless v is nil.
+func setIf[T any](dst *T, v *T) {
+	if v != nil {
+		*dst = *v
+	}
 }
 
 // validTeam checks team settings against the members and fills in the defaults.
@@ -140,7 +159,11 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if !slices.ContainsFunc(members, func(m Member) bool { return m.ID == lead }) {
 		return nil, invalid("the lead must be a member of the team")
 	}
-	return &Team{LeadID: lead, Agreement: agreement, GoalBudget: budget}, nil
+	model, effort, err := validModelEffort(set.DefaultModel, set.DefaultEffort)
+	if err != nil {
+		return nil, err
+	}
+	return &Team{LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort}, nil
 }
 
 // teamOf returns the team settings of a room, or nil when the room is no team.
@@ -163,7 +186,7 @@ func toTeam(row db.Team, members []Member) *Team {
 			lead = members[0].ID
 		}
 	}
-	return &Team{LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget}
+	return &Team{LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort}
 }
 
 // TurnTeam returns roomID when it is a team, and "" when it is a plain room

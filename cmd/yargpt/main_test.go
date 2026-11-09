@@ -38,14 +38,14 @@ func freeAddr(t *testing.T) string {
 }
 
 func TestParseFlagsKeepsDefaultsAndRecordsGivenFlags(t *testing.T) {
-	o, err := parseFlags([]string{"-model", "sonnet", "-max-parallel", "5"})
+	o, err := parseFlags([]string{"-model", "sonnet", "-effort", "max", "-max-parallel", "5"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, ".yargpt") {
+	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.Effort != "max" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, ".yargpt") {
 		t.Fatalf("options = %+v; want the default address, data folder and claude, model sonnet and 5 parallel turns", o)
 	}
-	if !o.set["model"] || !o.set["max-parallel"] || o.set["addr"] {
+	if !o.set["model"] || !o.set["effort"] || !o.set["max-parallel"] || o.set["addr"] {
 		t.Fatalf("set = %v; want model and max-parallel only", o.set)
 	}
 }
@@ -91,6 +91,24 @@ func TestPrepareStopsOnAnInvalidConfigFile(t *testing.T) {
 	o := options{addr: "127.0.0.1:7777", dataDir: dir, Claude: fakeClaude(t), MaxParallel: 3}
 	if err := prepare(&o); err == nil || !strings.Contains(err.Error(), "maxParallel") {
 		t.Fatalf("prepare = %v; want the config file error", err)
+	}
+}
+
+func TestPrepareStopsOnABadEffortAndKeepsGoodDefaults(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"effort": "huge"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := options{addr: "127.0.0.1:7777", dataDir: dir, Claude: fakeClaude(t), MaxParallel: 3, set: map[string]bool{}}
+	if err := prepare(&o); err == nil || err.Error() != `config.json: "effort" must be one of low, medium, high, xhigh, max` {
+		t.Fatalf("prepare = %v; want the effort error naming the key", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"effort": "High"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o = options{addr: "127.0.0.1:7777", dataDir: dir, Claude: fakeClaude(t), MaxParallel: 3, set: map[string]bool{}}
+	if err := prepare(&o); err != nil || o.Effort != "high" || o.defaults.Effort != "high" || o.defaults.EffortSource != "config" {
+		t.Fatalf("prepare = %v, %+v; want the config effort", err, o.defaults)
 	}
 }
 

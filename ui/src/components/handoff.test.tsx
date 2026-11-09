@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
 import type { Bot, Goal } from "@/lib/api"
-import { HandedOverSection, HandOverDialog, IncomingSection } from "./handoff.tsx"
+import { ArtifactPicker, HandedOverSection, HandOverDialog, IncomingSection } from "./handoff.tsx"
 
 const act = async () => true
 const name = (id: string) => ({ s: "Support", d: "Dev" })[id] ?? "a deleted team"
@@ -89,4 +89,28 @@ test("a closed hand-over dialog renders nothing", () => {
     renderToStaticMarkup(<HandOverDialog open={false} onOpenChange={() => {}} from={null} teams={teams} />),
     "",
   )
+})
+
+test("a long artifact title wraps inside the hand-over dialog, with its full text in the tooltip", () => {
+  const long = "Spec: " + "a very long artifact title that goes on and on ".repeat(5)
+  const word = "x".repeat(80)
+  const html = renderToStaticMarkup(
+    <ArtifactPicker
+      artifacts={[
+        { id: "a1", title: long },
+        { id: "a2", title: word },
+      ]}
+      picked={[]}
+      onPick={() => {}}
+    />,
+  )
+  assert.isAbove(long.length, 200)
+  // A fieldset is at least as wide as its content unless told otherwise.
+  assert.match(html, /<fieldset class="[^"]*\bmin-w-0\b/)
+  assert.match(html, /<label class="[^"]*\bmin-w-0\b/)
+  for (const t of [long, word]) {
+    assert.include(html, `title="${t}"`)
+    assert.include(html, `class="line-clamp-2 min-w-0 flex-1 [overflow-wrap:anywhere]" title="${t}"`)
+  }
+  assert.equal(renderToStaticMarkup(<ArtifactPicker artifacts={[]} picked={[]} onPick={() => {}} />), "")
 })

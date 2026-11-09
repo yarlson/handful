@@ -108,11 +108,15 @@ func TestBusyNamesEachBotOnceAndSortsByNameThenID(t *testing.T) {
 	r.sessions[sessionKey{amy1.ID, ""}] = &session{key: sessionKey{amy1.ID, ""}, waking: true}
 	r.sessions[sessionKey{"gone", ""}] = &session{key: sessionKey{"gone", ""}, tasks: []core.BackgroundTask{{ID: "t2"}}}
 	r.sessions[sessionKey{zed.ID, ""}] = &session{key: sessionKey{zed.ID, ""}, bot: zed}
+	// Aaron's id sorts after every other id, but his name sorts first.
+	r.running["~aaron"] = runningTurn{}
+	r.sessions[sessionKey{"~aaron", ""}] = &session{key: sessionKey{"~aaron", ""}, bot: core.Bot{ID: "~aaron", Name: "Aaron"}}
 	// An idle process, with no turn and no task, keeps nothing waiting.
 	r.sessions[sessionKey{"idle", ""}] = &session{key: sessionKey{"idle", ""}, tasks: []core.BackgroundTask{}}
 	r.mu.Unlock()
 
 	want := []core.Busy{
+		{BotID: "~aaron", Name: "Aaron", Kind: core.BusyTurn},
 		{BotID: amy1.ID, Name: "Amy", Kind: core.BusyTask},
 		{BotID: amy2.ID, Name: "Amy", Kind: core.BusyTurn},
 		{BotID: zed.ID, Name: "Zed", Kind: core.BusyTurn},

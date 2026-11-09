@@ -3839,6 +3839,8 @@ func TestRevokingATokenClosesItsMCPSessions(t *testing.T) {
 	if n := sessions(); n != 1 {
 		t.Fatalf("server sessions of the live token = %d; want 1", n)
 	}
+	var logs syncBuffer
+	h.runner.tokens.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	h.runner.tokens.mu.Lock()
 	servers := slices.Clone(h.runner.tokens.servers[token])
 	h.runner.tokens.mu.Unlock()
@@ -3850,6 +3852,9 @@ func TestRevokingATokenClosesItsMCPSessions(t *testing.T) {
 	}
 	if n := sessions(); n != 0 {
 		t.Fatalf("server sessions kept for the revoked token = %d; want 0", n)
+	}
+	if got := logs.String(); got != "" {
+		t.Fatalf("closing a live session logged %q; want nothing", got)
 	}
 }
 

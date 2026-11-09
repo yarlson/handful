@@ -99,7 +99,7 @@ func TestKilledByNamesTheSignal(t *testing.T) {
 
 func TestATurnStoppedFromOutsideNamesTheSignal(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, "sleep")
+	h := newHarness(t, "wait-for-kill")
 	ctx := context.Background()
 	bot := h.newBot(t)
 	h.start(t)

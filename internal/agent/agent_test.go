@@ -73,6 +73,15 @@ reply)
   result "final text"
   lifecycle completed
   ;;
+wait-for-kill)
+  # Every process of the group runs before the pid is written, so a signal
+  # to the group reaches them all and none keeps stdout open.
+  lifecycle started
+  init
+  sleep 30 &
+  echo $$ > "$dir/pid"
+  wait
+  ;;
 sleep)
   echo $$ > "$dir/pid"
   lifecycle started

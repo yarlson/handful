@@ -105,10 +105,7 @@ func eventActorName(ctx context.Context, q *db.Queries, a Actor) (string, error)
 // cut shortens text to at most n characters.
 func cut(text string, n int) string {
 	r := []rune(text)
-	if len(r) <= n {
-		return text
-	}
-	return string(r[:n])
+	return string(r[:min(len(r), n)])
 }
 
 // ItemEvents returns the history of an item, oldest first.
@@ -156,13 +153,18 @@ func (s *Service) withHistory(ctx context.Context, items []Item) error {
 		if err != nil {
 			return err
 		}
-		items[i].EventCount = int64(len(events))
-		if len(events) > 0 {
-			items[i].HistoryFrom = events[0].CreatedAt
-		}
+		items[i].EventCount, items[i].HistoryFrom = int64(len(events)), firstAt(events)
 		items[i].LatestChange = latestChange(events)
 	}
 	return nil
+}
+
+// firstAt is when the first of events happened, or 0 when there is none.
+func firstAt(events []ItemEvent) int64 {
+	for _, e := range events {
+		return e.CreatedAt
+	}
+	return 0
 }
 
 // latestChange returns the latest change request when no submission came

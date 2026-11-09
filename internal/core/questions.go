@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"yargpt/internal/db"
@@ -29,10 +28,11 @@ const (
 	MaxOpenQuestions = 20
 	// maxQuestionLen is the length of a question's one-line summary.
 	maxQuestionLen = 140
-	// reopenWindow is how long after a dismissal the user can undo it.
-	reopenWindow = 10 * time.Second
-	// closedWindow is how far back the Waiting view counts closed questions.
-	closedWindow = 7 * 24 * time.Hour
+	// reopenWindowMs is how long (ms) after a dismissal the user can undo it.
+	reopenWindowMs = 10_000
+	// closedWindowMs is how far back (ms) the Waiting view counts closed
+	// questions: 7 days.
+	closedWindowMs = 604_800_000
 )
 
 // OpenQuestion is a question that waits for the user.
@@ -219,7 +219,7 @@ func (s *Service) Waiting(ctx context.Context) (Waiting, error) {
 	if err != nil {
 		return Waiting{}, fmt.Errorf("list teams with paused goals: %w", err)
 	}
-	closed, err := s.q.CountClosedQuestionsSince(ctx, s.now().Add(-closedWindow).UnixMilli())
+	closed, err := s.q.CountClosedQuestionsSince(ctx, s.nowMs()-closedWindowMs)
 	if err != nil {
 		return Waiting{}, fmt.Errorf("count closed questions: %w", err)
 	}
@@ -319,8 +319,8 @@ func (s *Service) DismissQuestion(ctx context.Context, entryID string) (Entry, e
 // ReopenQuestion undoes a dismissal within 10 seconds.
 func (s *Service) ReopenQuestion(ctx context.Context, entryID string) (Entry, error) {
 	return s.moveQuestion(ctx, entryID, QuestionDismissed, QuestionOpen, func(b questionBody) error {
-		if s.nowMs()-b.ClosedAt > reopenWindow.Milliseconds() {
-			return invalid("a dismissal can be undone only within %d seconds", int(reopenWindow.Seconds()))
+		if s.nowMs()-b.ClosedAt > reopenWindowMs {
+			return invalid("a dismissal can be undone only within %d seconds", reopenWindowMs/1000)
 		}
 		return nil
 	})
@@ -443,21 +443,18 @@ func (s *Service) closeDelivery(ctx context.Context, teamID, goalID string) erro
 		if err != nil {
 			return fmt.Errorf("list the open questions of %s: %w", teamID, err)
 		}
+		var delivery answered
 		for _, row := range rows {
 			b, err := parseQuestion(row)
 			if err != nil {
 				return err
 			}
-			if b.GoalID != goalID {
-				continue
+			if b.GoalID == goalID {
+				delivery.rows = append(delivery.rows, row)
 			}
-			e, err := setQuestion(ctx, q, row, QuestionAnswered, "", s.nowMs())
-			if err != nil {
-				return err
-			}
-			changed = append(changed, e)
 		}
-		return nil
+		changed, err = s.closeAnswered(ctx, q, delivery, "")
+		return err
 	})
 	if err != nil {
 		return err

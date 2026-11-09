@@ -232,7 +232,7 @@ func TestTheUserDismissesAQuestionAndCanUndoItBriefly(t *testing.T) {
 	if gone, _ := svc.DismissalsSince(ctx, ana.ID, bots["Bo"].ID, before); len(gone) != 0 {
 		t.Fatalf("another bot's dismissals = %+v; want none", gone)
 	}
-	svc.now = func() time.Time { return frozen.Add(reopenWindow) }
+	svc.now = func() time.Time { return frozen.Add(10 * time.Second) }
 	if _, err := svc.ReopenQuestion(ctx, q.ID); err != nil {
 		t.Fatalf("reopen at 10 s: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestTheUserDismissesAQuestionAndCanUndoItBriefly(t *testing.T) {
 	if _, err := svc.DismissQuestion(ctx, q.ID); err != nil {
 		t.Fatal(err)
 	}
-	svc.now = func() time.Time { return frozen.Add(2*reopenWindow + time.Millisecond) }
+	svc.now = func() time.Time { return frozen.Add(20*time.Second + time.Millisecond) }
 	if _, err := svc.ReopenQuestion(ctx, q.ID); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("reopen after 10 s: err = %v; want ErrInvalid", err)
 	}
@@ -417,7 +417,7 @@ func TestWaitingListsWhatWaitsForTheUser(t *testing.T) {
 	if err != nil || len(w.Questions) != 2 || w.ClosedRecently != 1 {
 		t.Fatalf("waiting = %+v, %v; want 2 questions and 1 closed", w, err)
 	}
-	svc.now = func() time.Time { return time.Now().Add(closedWindow + time.Minute) }
+	svc.now = func() time.Time { return time.Now().Add(7*24*time.Hour + time.Minute) }
 	if w, _ := svc.Waiting(ctx); w.ClosedRecently != 0 {
 		t.Fatalf("closed a week later = %d; want 0", w.ClosedRecently)
 	}
@@ -430,5 +430,80 @@ func TestWaitingListsWhatWaitsForTheUser(t *testing.T) {
 	}
 	if w, err := f.svc.Waiting(ctx); err != nil || w.PausedGoals != 1 {
 		t.Fatalf("waiting with a paused goal = %+v, %v", w, err)
+	}
+}
+
+// published collects the entry and bots events that act publishes.
+func published(t *testing.T, svc *Service, act func()) (entries []string, bots int) {
+	t.Helper()
+	events, stop := svc.Hub().Subscribe()
+	defer stop()
+	act()
+	for {
+		select {
+		case e := <-events:
+			if e.Type == "entry" {
+				entries = append(entries, e.Entry.ID)
+			}
+			if e.Type == "bots" {
+				bots++
+			}
+		default:
+			return entries, bots
+		}
+	}
+}
+
+func TestClosingQuestionsShowsEachChange(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	ana := newAgents(t, svc, "Ana")["Ana"]
+	first, second := ask(t, svc, ana.ID, "One?", ""), ask(t, svc, ana.ID, "Two?", "")
+	entries, bots := published(t, svc, func() {
+		if _, _, err := svc.SubmitAnswer(ctx, ana.ID, "Both.", "n1", []string{second.ID, first.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !slices.Contains(entries, first.ID) || !slices.Contains(entries, second.ID) || bots == 0 {
+		t.Fatalf("published %q and %d bots events; want both questions and the attention", entries, bots)
+	}
+	for _, q := range []Entry{first, second} {
+		if state, _, _ := questionOf(t, svc, q.ID); state != QuestionAnswered {
+			t.Fatalf("question %s = %s; want answered", q.ID, state)
+		}
+	}
+	third := ask(t, svc, ana.ID, "Three?", "")
+	if entries, bots := published(t, svc, func() {
+		if err := svc.WithdrawQuestions(ctx, ana.ID, ana.ID, nil); err != nil {
+			t.Fatal(err)
+		}
+	}); len(entries) != 0 || bots != 0 {
+		t.Fatalf("an empty withdrawal published %q and %d bots events; want nothing", entries, bots)
+	}
+	if entries, bots := published(t, svc, func() {
+		if err := svc.WithdrawQuestions(ctx, ana.ID, ana.ID, []int64{third.Seq}); err != nil {
+			t.Fatal(err)
+		}
+	}); !slices.Equal(entries, []string{third.ID}) || bots != 1 {
+		t.Fatalf("a withdrawal published %q and %d bots events", entries, bots)
+	}
+}
+
+func TestEndingAGoalShowsItsDeliveryClosed(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	ctx := context.Background()
+	parse := f.create(t, f.lead, item("Parse", f.ana.ID, ""))
+	f.finish(t, parse, f.ana)
+	if _, err := f.svc.DeliverGoal(ctx, f.lead, "Done."); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := f.svc.OpenQuestions(ctx, f.team.ID)
+	entries, _ := published(t, f.svc, func() {
+		if err := f.svc.EndGoal(ctx, f.goal.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if len(open) != 1 || !slices.Contains(entries, open[0].EntryID) {
+		t.Fatalf("published %q; want the delivery %+v closed", entries, open)
 	}
 }

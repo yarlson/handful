@@ -28,10 +28,11 @@ const maxBodyBytes = 1 << 20
 var maxMessageBodyBytes = int64(maxBodyBytes + base64.StdEncoding.EncodedLen(core.MaxMediaBytes))
 
 type server struct {
-	svc    *core.Service
-	runner *agent.Runner
-	log    *slog.Logger
-	models ModelReporter // nil: no model IDs are known
+	svc     *core.Service
+	runner  *agent.Runner
+	log     *slog.Logger
+	models  ModelReporter // nil: no model IDs are known
+	updates Updates
 }
 
 // ModelReporter tells which model Claude Code ran in a bot's latest run in a
@@ -50,12 +51,16 @@ func WithModelReporter(r ModelReporter) Option {
 
 // New returns the HTTP handler. ui holds the built web app; it may be nil.
 func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, opts ...Option) http.Handler {
-	s := &server{svc: svc, runner: runner, log: log}
+	s := &server{svc: svc, runner: runner, log: log, updates: DefaultUpdates()}
 	for _, o := range opts {
 		o(s)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/defaults", s.defaults)
+	mux.HandleFunc("GET /api/version", s.version)
+	mux.HandleFunc("POST /api/drain", s.setDrain(true))
+	mux.HandleFunc("DELETE /api/drain", s.setDrain(false))
+	mux.HandleFunc("GET /api/settings/updates", s.updateSettings)
 	mux.HandleFunc("GET /api/bots", s.listBots)
 	mux.HandleFunc("POST /api/bots", s.createBot)
 	mux.HandleFunc("PUT /api/bots/order", s.reorderBots)

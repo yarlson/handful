@@ -7,12 +7,13 @@ import (
 
 // Event is one change that clients receive on the event stream.
 type Event struct {
-	Type        string            `json:"type"` // "entry", "state", "tasks", "bots" or "pause"
+	Type        string            `json:"type"` // "entry", "state", "tasks", "bots", "pause" or "drain"
 	BotID       string            `json:"botId,omitempty"`
 	Entry       *Entry            `json:"entry,omitempty"`
 	Running     *bool             `json:"running,omitempty"`
 	Tasks       *[]BackgroundTask `json:"tasks,omitempty"`
 	PausedUntil *time.Time        `json:"pausedUntil,omitempty"` // pause: absent when the pause ended
+	Draining    *bool             `json:"draining,omitempty"`    // drain: whether drain mode is on
 }
 
 const subscriberBuffer = 256

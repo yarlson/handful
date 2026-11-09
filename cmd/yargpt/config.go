@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"yargpt/internal/core"
+	"yargpt/internal/httpapi"
 )
 
 const maxConfigFile = 64 << 10
@@ -20,7 +21,14 @@ type settings struct {
 	Model       string
 	Effort      string
 	MaxParallel int
+	Updates     httpapi.UpdateSettings
 }
+
+// Limits of the "updates" "drainMinutes" setting, which values outside clamp to.
+const (
+	minDrainMinutes = 5
+	maxDrainMinutes = 240
+)
 
 // applyConfigFile reads the config file at path into s, except the settings
 // whose flags were given on the command line (set, by flag name). A missing
@@ -39,6 +47,11 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 		Model       *string `json:"model"`
 		Effort      *string `json:"effort"`
 		MaxParallel *int    `json:"maxParallel"`
+		Updates     *struct {
+			AutoCheck    *bool `json:"autoCheck"`
+			DrainMinutes *int  `json:"drainMinutes"`
+		} `json:"updates"`
+		UpdateCheck *bool `json:"updateCheck"`
 	}
 	dec := json.NewDecoder(io.LimitReader(f, maxConfigFile))
 	dec.DisallowUnknownFields()
@@ -55,7 +68,20 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 	fromFile(&s.Model, file.Model, set["model"])
 	fromFile(&s.Effort, file.Effort, set["effort"])
 	fromFile(&s.MaxParallel, file.MaxParallel, set["max-parallel"])
+	fromFile(&s.Updates.UpdateCheck, file.UpdateCheck, false)
+	if u := file.Updates; u != nil {
+		fromFile(&s.Updates.AutoCheck, u.AutoCheck, false)
+		applyDrainMinutes(&s.Updates, u.DrainMinutes)
+	}
 	return nil
+}
+
+// applyDrainMinutes sets the file's drain limit, if it has one, clamped to
+// minDrainMinutes..maxDrainMinutes.
+func applyDrainMinutes(u *httpapi.UpdateSettings, minutes *int) {
+	if minutes != nil {
+		u.DrainMinutes = min(max(*minutes, minDrainMinutes), maxDrainMinutes)
+	}
 }
 
 // fromFile sets *dst to the file's value v, unless the file lacks it or its

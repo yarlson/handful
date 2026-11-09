@@ -57,6 +57,9 @@ type session struct {
 	waking  bool                // a task turn runs
 	pending map[string]*command // turn id -> message on stdin that has not completed
 	tasks   []core.BackgroundTask
+	// busySince is when the process last became busy with a task turn or
+	// background tasks, for the update's list of running work.
+	busySince time.Time
 	// taskHops is the most hops of a turn that changed the background tasks.
 	// A task turn starts at it, as the turn that started the task.
 	taskHops int64
@@ -448,6 +451,7 @@ func (r *Runner) startTask(s *session) *activeTurn {
 	}
 	r.tokens.set(s.token, runContext{BotID: s.bot.ID, BotName: s.bot.Name, TurnID: t.ID, RoomID: s.key.roomID, Hops: t.Hops, Post: s.flags.post})
 	r.mu.Lock()
+	markBusy(s)
 	s.waking = true
 	r.mu.Unlock()
 	r.publishState(s.key.botID, s.key.roomID)
@@ -512,6 +516,7 @@ func (r *Runner) setTasks(s *session, list []streamTask) {
 	// The token holds the turn whose run reported the change.
 	rc, _ := r.tokens.get(s.token)
 	r.mu.Lock()
+	markBusy(s) // an idle process that gets no tasks stays idle and unlisted
 	s.tasks = tasks
 	s.taskHops = max(s.taskHops, rc.Hops)
 	r.mu.Unlock()
@@ -635,4 +640,12 @@ func killedBy(exitErr error) (string, bool) {
 		return name, true
 	}
 	return fmt.Sprintf("signal %d", int(ws.Signal())), true
+}
+
+// markBusy notes, under Runner.mu, when an idle process becomes busy with a
+// task turn or background tasks.
+func markBusy(s *session) {
+	if !s.waking && len(s.tasks) == 0 {
+		s.busySince = time.Now()
+	}
 }

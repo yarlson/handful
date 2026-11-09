@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yargpt/internal/httpapi"
 )
 
 // fakeClaude writes an executable named claude and returns its path.
@@ -44,6 +46,9 @@ func TestParseFlagsKeepsDefaultsAndRecordsGivenFlags(t *testing.T) {
 	}
 	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.Effort != "max" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, ".yargpt") {
 		t.Fatalf("options = %+v; want the default address, data folder and claude, model sonnet and 5 parallel turns", o)
+	}
+	if o.Updates != httpapi.DefaultUpdates().Settings {
+		t.Fatalf("update settings = %+v; want the defaults", o.Updates)
 	}
 	if !o.set["model"] || !o.set["effort"] || !o.set["max-parallel"] || o.set["addr"] {
 		t.Fatalf("set = %v; want model and max-parallel only", o.set)
@@ -113,7 +118,7 @@ func TestPrepareStopsOnABadEffortAndKeepsGoodDefaults(t *testing.T) {
 }
 
 func TestServeAnswersUntilTheContextEnds(t *testing.T) {
-	o := options{addr: freeAddr(t), dataDir: t.TempDir(), MaxParallel: 3, claudePath: fakeClaude(t)}
+	o := options{addr: freeAddr(t), dataDir: t.TempDir(), claudePath: fakeClaude(t), MaxParallel: 3, Updates: httpapi.UpdateSettings{AutoCheck: true, DrainMinutes: 45}}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- serve(ctx, o, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
@@ -144,6 +149,19 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 	}
 	if len(bots) != 1 || bots[0].Name != "Builder" || bots[0].Role != "builder" {
 		t.Fatalf("bots of a new data directory = %+v; want only Builder", bots)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+o.addr+"/api/settings/updates", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if want := `{"autoCheck":true,"drainMinutes":45,"updateCheck":false}` + "\n"; string(body) != want {
+		t.Fatalf("update settings = %s; want the server's own %s", body, want)
 	}
 
 	cancel()

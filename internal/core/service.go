@@ -149,6 +149,7 @@ type Service struct {
 	// modelAttention holds the bots whose model failed or was replaced in
 	// their latest run, as the runner reports it.
 	modelAttention *modelFlags
+	drain          drain
 }
 
 // Option changes a new Service.

@@ -110,5 +110,5 @@ func agentPrompt(from Bot, text string) string {
 	return fmt.Sprintf(`[agent] Message from %s (id %s), sent with priority:
 %s
 
-This comes from another of the user's bots, not from the user. Act on it if it asks something of you. If it asks a question or a task, %s is waiting: send the answer or result with send_to_agent (target_id %s) and priority true, so it reaches them now. If there is nothing to answer, end without replying, so bots never trade acknowledgements. Tell the user with send_to_user only what they would want to know. Your name is shown with your messages, so do not start them with it.`, from.Name, from.ID, text, from.Name, from.ID)
+This comes from another of the user's bots, not from the user. Act on it if it asks something of you. A task from a teammate is work for the user: do it as you would the user's own request, and invoke a listed skill when one covers it. If it asks a question or a task, %s is waiting: send the answer or result with send_to_agent (target_id %s) and priority true, so it reaches them now. If there is nothing to answer, end without replying, so bots never trade acknowledgements. Tell the user with send_to_user only what they would want to know. Your name is shown with your messages, so do not start them with it.`, from.Name, from.ID, text, from.Name, from.ID)
 }

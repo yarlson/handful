@@ -297,14 +297,16 @@ func nameRune(r rune) bool {
 // per room at a time), so each sees the replies before it.
 func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string, askers ...string) error {
 	targets := mentioned(text, room.Members, "")
-	// A member the user @mentions in a team works on the team's Now task;
-	// the lead woken by a post without mentions answers the user, on no task.
-	now := ""
-	if len(targets) > 0 {
-		var err error
-		if now, err = s.nowTask(ctx, room); err != nil {
-			return err
-		}
+	// A member the user @mentions in a team works on the team's Now task when
+	// the member owns or reviews one of its steps; any other turn the post
+	// wakes is not on a task.
+	now, onSteps, err := s.nowTask(ctx, room)
+	if err != nil {
+		return err
+	}
+	onNow := map[string]bool{}
+	for _, m := range targets {
+		onNow[m.ID] = onSteps[m.ID]
 	}
 	for _, m := range room.Members {
 		if slices.Contains(askers, m.ID) && !slices.Contains(targets, m) {
@@ -320,7 +322,11 @@ func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string, as
 	// A member that already has a turn waiting for an earlier post gets no
 	// second one: that turn shows every post since its last turn.
 	for _, m := range targets {
-		if _, err := s.q.QueueUserPostTurn(ctx, db.QueueUserPostTurnParams{ID: uuid.NewString(), BotID: m.ID, Prompt: "The user posted a new message.", RoomID: room.ID, GoalID: now, CreatedAt: s.nowMs()}); err != nil {
+		goalID := ""
+		if onNow[m.ID] {
+			goalID = now
+		}
+		if _, err := s.q.QueueUserPostTurn(ctx, db.QueueUserPostTurnParams{ID: uuid.NewString(), BotID: m.ID, Prompt: "The user posted a new message.", RoomID: room.ID, GoalID: goalID, CreatedAt: s.nowMs()}); err != nil {
 			return fmt.Errorf("queue room turn for bot %s: %w", m.ID, err)
 		}
 	}

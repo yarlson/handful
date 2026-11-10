@@ -101,16 +101,32 @@ func TestATaskTurnCarriesTheWorkOfTheTurnThatStartedTheBackgroundTask(t *testing
 	}
 }
 
-// A member the user @mentions in a team works on the Now task; the lead
-// woken by a post without mentions, and a plain room, carry none.
+// A member the user @mentions in a team works on the Now task when it owns
+// or reviews one of its steps; a mentioned member on no step, the lead woken
+// by a post without mentions, and a plain room carry none.
 func TestAUserMentionInATeamCarriesTheNowTask(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
-	if _, _, err := f.svc.SubmitUserMessage(ctx, f.team.ID, "@Ana how is it going?", "n1"); err != nil {
+	if _, _, err := f.svc.SubmitUserMessage(ctx, f.team.ID, "@Ana how is it going?", "n0"); err != nil {
+		t.Fatal(err)
+	}
+	if got := queuedOf(t, f.svc, f.ana.ID); got.GoalID != "" {
+		t.Errorf("Ana's turn before she has a step = %+v; want no task", got)
+	}
+	finishQueued(t, f.svc)
+	f.create(t, f.lead, item("Parse", f.ana.ID, f.cy.ID))
+	finishQueued(t, f.svc)
+	if _, _, err := f.svc.SubmitUserMessage(ctx, f.team.ID, "@Ana @Cy @Bo how is it going?", "n1"); err != nil {
 		t.Fatal(err)
 	}
 	if got := queuedOf(t, f.svc, f.ana.ID); got.GoalID != f.goal.ID || got.ItemID != "" {
-		t.Errorf("Ana's turn = %+v; want the Now task", got)
+		t.Errorf("the owner's turn = %+v; want the Now task", got)
+	}
+	if got := queuedOf(t, f.svc, f.cy.ID); got.GoalID != f.goal.ID {
+		t.Errorf("the reviewer's turn = %+v; want the Now task", got)
+	}
+	if got := queuedOf(t, f.svc, f.bo.ID); got.GoalID != "" {
+		t.Errorf("the turn of Bo, on no step = %+v; want no task", got)
 	}
 	finishQueued(t, f.svc)
 	if _, _, err := f.svc.SubmitUserMessage(ctx, f.team.ID, "How is it going?", "n2"); err != nil {

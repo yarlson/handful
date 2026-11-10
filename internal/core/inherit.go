@@ -47,14 +47,23 @@ func inheritedWork(ctx context.Context, q *db.Queries, turnID, botID string) (wo
 	return w, nil
 }
 
-// nowTask is the team's Now task: its active goal; "" when it has none.
-func (s *Service) nowTask(ctx context.Context, room Bot) (string, error) {
+// nowTask is the team's Now task, its active goal, and the members who own or
+// review one of its steps; "" and none when the team has no active goal.
+func (s *Service) nowTask(ctx context.Context, room Bot) (string, map[string]bool, error) {
 	if !room.IsTeam() {
-		return "", nil
+		return "", nil, nil
 	}
 	g, ok, err := s.latestGoal(ctx, room.ID)
 	if err != nil || !ok || g.State != GoalActive {
-		return "", err
+		return "", nil, err
 	}
-	return g.ID, nil
+	items, err := s.q.ListGoalItems(ctx, g.ID)
+	if err != nil {
+		return "", nil, fmt.Errorf("list the steps of task %s: %w", g.ID, err)
+	}
+	onSteps := map[string]bool{}
+	for _, it := range items {
+		onSteps[it.OwnerID], onSteps[it.ReviewerID] = true, true
+	}
+	return g.ID, onSteps, nil
 }

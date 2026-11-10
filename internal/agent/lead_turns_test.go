@@ -8,16 +8,17 @@ import (
 	"yargpt/internal/core"
 )
 
-// otherTeam makes a second team, led by a new bot. Make it before queueing
-// the turns a test controls: newNamedBot drops every queued turn.
-func otherTeam(t *testing.T, h *harness) (core.Bot, core.Actor) {
+// otherLead makes a second team, led by a new bot, and returns its lead.
+// Make it before queueing the turns a test controls: newNamedBot drops
+// every queued turn.
+func otherLead(t *testing.T, h *harness) core.Actor {
 	t.Helper()
 	dee := h.newNamedBot(t, "Dee")
 	docs, err := h.svc.CreateTeam(context.Background(), "Docs", "Write docs.", []string{dee.ID}, core.TeamSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return docs, core.Actor{BotID: dee.ID, TeamID: docs.ID, Role: core.RoleLead}
+	return core.Actor{BotID: dee.ID, TeamID: docs.ID, Role: core.RoleLead}
 }
 
 // leadWake hands work from the other team over to team, which queues a
@@ -36,7 +37,7 @@ func TestALeadDecisionStartsWhileTheRoomsChatRuns(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "slow")
 	team, _, _, _ := h.newTeam(t)
-	_, docsLead := otherTeam(t, h)
+	docsLead := otherLead(t, h)
 	h.start(t)
 	if _, _, err := h.svc.SubmitUserMessage(context.Background(), team.ID, "@Bo LONG review the parser", "n1"); err != nil {
 		t.Fatal(err)
@@ -57,7 +58,7 @@ func TestALeadDecisionGoesAheadOfAnOlderQueuedTurn(t *testing.T) {
 	h := newHarness(t, "slow")
 	h.runner.cfg.MaxParallel = 1
 	team, _, bo, _ := h.newTeam(t)
-	_, docsLead := otherTeam(t, h)
+	docsLead := otherLead(t, h)
 	if _, _, err := h.svc.SubmitUserMessage(context.Background(), bo.ID, "LONG review the parser", "n1"); err != nil {
 		t.Fatal(err)
 	}

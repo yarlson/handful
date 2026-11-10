@@ -70,6 +70,8 @@ func TestSweepStopsTheGroupOfAClaudeProcessThatAGoneServerLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := writeRecord(t, r, goneServer(rec))
+	var logs strings.Builder
+	r.log = slog.New(slog.NewTextHandler(&logs, nil))
 	r.stopLeftoverProcesses()
 	select {
 	case <-exited:
@@ -78,6 +80,9 @@ func TestSweepStopsTheGroupOfAClaudeProcessThatAGoneServerLeft(t *testing.T) {
 	}
 	if exists(path) {
 		t.Fatal("the record of the stopped process is still there")
+	}
+	if strings.Contains(logs.String(), "stop claude process group") {
+		t.Fatalf("a group that stopped logged a failure: %s", logs.String())
 	}
 }
 

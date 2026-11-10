@@ -697,7 +697,7 @@ func (s *Service) AskTask(ctx context.Context, a Actor, goalID, text string) (Go
 		if g.FromBotID == "" || from.ID == "" {
 			return nil
 		}
-		return s.wakeLead(ctx, q, from, Goal{}, fmt.Sprintf("Team %s asks about your task %q: %s Answer it with answer_task.", team.Name, g.Text, text))
+		return s.wakeLead(ctx, q, from, Goal{}, senderDecision(team.Name, "asked about", g.Text, text))
 	})
 	if err != nil {
 		return Goal{}, err
@@ -858,7 +858,10 @@ func (s *Service) PushBack(ctx context.Context, a Actor, goalID, reason string) 
 		if err := s.taskEvent(ctx, q, a, g, TaskPushedBack, reason); err != nil {
 			return err
 		}
-		return s.wakeSender(ctx, q, g, from, note)
+		if g.FromBotID == "" || from.ID == "" {
+			return nil
+		}
+		return s.wakeLead(ctx, q, from, Goal{}, senderDecision(team.Name, "pushed back", g.Text, reason))
 	})
 	if err != nil {
 		return Goal{}, err
@@ -896,6 +899,16 @@ func (s *Service) blockWaiting(ctx context.Context, g Goal, note string) error {
 // errNotWaiting is a step that no longer waits on a task: it is done,
 // dropped or blocked already.
 var errNotWaiting = errors.New("the step no longer waits")
+
+// senderDecision is what the lead of the team that sent a task reads about
+// a decision on it (spec 9cf81412 §8): verb is "asked about" or "pushed back".
+func senderDecision(team, verb, task, text string) string {
+	text = strings.TrimSpace(text)
+	if !strings.HasSuffix(text, ".") && !strings.HasSuffix(text, "?") && !strings.HasSuffix(text, "!") {
+		text += "."
+	}
+	return fmt.Sprintf("Team %s %s your task %q: %s Answer a question with answer_task. If a task of yours waits on it, re-plan when it is pushed back.", team, verb, task, text)
+}
 
 // wakeSender wakes the lead of the team that sent g, with q, in a turn that
 // no goal pays for. The user's tasks wake no lead.

@@ -789,7 +789,10 @@ func (r *Runner) teamBoard(ctx context.Context, room core.Bot, t core.Turn) (cor
 	if err != nil || board.Goal == nil {
 		return board, err
 	}
-	if !board.Goal.Open() || (t.GoalID != "" && t.GoalID != board.Goal.ID) {
+	// A turn for another goal (work on a request, or its lead's wake for
+	// it) shows no goal of the team; a lead's decision on an inbox task
+	// shows the Now task beside the inbox.
+	if !board.Goal.Open() || (t.GoalID != "" && t.GoalID != board.Goal.ID && !t.Decision) {
 		board.Goal, board.Items = nil, nil
 	}
 	return board, nil

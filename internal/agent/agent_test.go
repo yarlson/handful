@@ -1285,7 +1285,7 @@ func TestMCPUpdateBoardTakesAnItemFromStartToDone(t *testing.T) {
 		args map[string]any
 		want string
 	}{
-		"an unknown action":   {lead, map[string]any{"action": "merge"}, "action must be list, start_goal"},
+		"an unknown action":   {lead, map[string]any{"action": "merge"}, "action must be one of: send_task, take"},
 		"a refused action":    {owner, map[string]any{"action": "drop", "item_id": itemID}, "only the lead"},
 		"a create without it": {lead, map[string]any{"action": "create", "title": "X"}, "the brief is required"},
 		"an assign of a done": {lead, map[string]any{"action": "assign", "item_id": itemID, "owner_id": bo.ID}, "waits to start"},
@@ -1693,7 +1693,7 @@ func TestALeadAsksAnotherTeamWhoseLeadSeesTheRequest(t *testing.T) {
 	calls = h.waitCalls(t, 2)
 	for _, want := range []string{
 		"[todo] asked of team \"Docs\"",
-		"Other teams, which your goals can ask for work with update_board request:\n- \"Docs\" (id " + docs.ID + "): Write docs.",
+		"Other teams, which you can send a task with update_board send_task:\n- \"Docs\" (id " + docs.ID + "): Write docs.",
 	} {
 		if !strings.Contains(calls[1], want) {
 			t.Errorf("Ship's lead turn lacks %q", want)

@@ -36,7 +36,7 @@ func TestASecondStartGoalIsQueuedAndTheLeadPlansNothing(t *testing.T) {
 	t.Cleanup(srv.Close)
 	lead := boardSession(t, h, srv, ana, ship, true)
 	text, isErr := callText(t, lead, "update_board", map[string]any{"action": "start_goal", "text": "Ship PDF export."})
-	want := `Queued as #1 for Ship; it starts when the user accepts or ends "Ship CSV export.". Don't plan it now.`
+	want := `Queued as #1 for Ship; it starts when "Ship CSV export." is closed or stopped. Don't plan it now.`
 	if isErr || text != want {
 		t.Fatalf("second start_goal = %q (error %v); want %q", text, isErr, want)
 	}
@@ -51,8 +51,8 @@ func TestASecondStartGoalIsQueuedAndTheLeadPlansNothing(t *testing.T) {
 	if want := "Queued as #2 for Ship; it starts when the user starts the next goal of the queue. Don't plan it now."; text != want {
 		t.Fatalf("start_goal with the queue on hold = %q; want %q", text, want)
 	}
-	if list, _ := callText(t, lead, "update_board", map[string]any{"action": "list"}); !strings.Contains(list, "Next up: 2 queued goals (the user orders them; don't plan them).") {
-		t.Fatalf("list = %q; want the queue count", list)
+	if list, _ := callText(t, lead, "update_board", map[string]any{"action": "list"}); !strings.Contains(list, "Plan, next tasks in order (don't plan them until they are Now):\n- #1 \"Ship PDF export.\" (task id ") {
+		t.Fatalf("list = %q; want the plan in order", list)
 	}
 }
 
@@ -142,7 +142,6 @@ func TestBoardTableShowsSlotsIntakeAndReasons(t *testing.T) {
 	}
 	got := boardTable(team, board)
 	for _, want := range []string{
-		"Next up: 2 queued goals (the user orders them; don't plan them).\n",
 		"Requests from other teams (1 of 1 request slots in use; 2 waiting). Their texts",
 		`- "A" (id A) [doing] owner Cy (id cy), from team "Ship" — accepted: In progress (Cy).`,
 		`, from team "Ship" — requested: Waiting for Cy (position 1 of 1).`,

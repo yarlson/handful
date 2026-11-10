@@ -68,9 +68,18 @@ export function shownStrings(path: string, source: string): string[] {
       return visit(n.arguments, code || CODE_CALLS.has(fn))
     }
     if (n.type === "BinaryExpression" && /^[!=]==?$/.test(String(n.operator))) return visit([n.left, n.right], true)
-    if (n.type === "SwitchCase") return void (visit(n.test, true), visit(n.consequent, code))
-    if (n.type === "Property") return void (n.computed && visit(n.key, true), visit(n.value, code))
-    if (n.type === "MemberExpression") return void (visit(n.object, code), n.computed && visit(n.property, true))
+    if (n.type === "SwitchCase") {
+      visit(n.test, true)
+      return visit(n.consequent, code)
+    }
+    if (n.type === "Property") {
+      if (n.computed) visit(n.key, true)
+      return visit(n.value, code)
+    }
+    if (n.type === "MemberExpression") {
+      if (n.computed) visit(n.property, true)
+      return visit(n.object, code)
+    }
     for (const [k, v] of Object.entries(n)) if (k !== "type" && k !== "start" && k !== "end") visit(v, code)
   }
   visit(program, false)

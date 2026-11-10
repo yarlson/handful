@@ -336,9 +336,12 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 
 const countGoalTurns = `-- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns
-WHERE goal_id = ? AND started_at IS NOT NULL AND board_role NOT IN ('', 'retro') AND decision = 0
+WHERE goal_id = ?1 AND started_at IS NOT NULL AND board_role NOT IN ('', 'retro') AND decision = 0
+  AND room_id = (SELECT g.team_id FROM goals g WHERE g.id = ?1)
 `
 
+// The goal's turns so far: its board turns in its own team's room. Another
+// team's work on a request of the goal counts on that team's daily budget.
 func (q *Queries) CountGoalTurns(ctx context.Context, goalID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countGoalTurns, goalID)
 	var count int64
@@ -511,6 +514,31 @@ func (q *Queries) CountReviewsBy(ctx context.Context, arg CountReviewsByParams) 
 	return count, err
 }
 
+const countTeamTurnsBetween = `-- name: CountTeamTurnsBetween :one
+SELECT COUNT(*) FROM turns t
+WHERE t.started_at >= CAST(?1 AS INTEGER) AND t.started_at < CAST(?2 AS INTEGER)
+  AND t.decision = 0 AND NOT (t.board_role = 'lead' AND t.goal_id = '')
+  AND (t.room_id = ?3
+    OR (t.room_id = '' AND t.goal_id IN (SELECT g.id FROM goals g WHERE g.team_id = ?3)))
+`
+
+type CountTeamTurnsBetweenParams struct {
+	FromMs int64  `json:"from_ms"`
+	ToMs   int64  `json:"to_ms"`
+	TeamID string `json:"team_id"`
+}
+
+// The turns that count against a team's daily budget and started in
+// [from_ms, to_ms): every turn in the team's room (chat, inherited and board
+// work), or of a task of the team outside any room. Left out: the lead's
+// decisions and its other board wakes on no task, which are free.
+func (q *Queries) CountTeamTurnsBetween(ctx context.Context, arg CountTeamTurnsBetweenParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTeamTurnsBetween, arg.FromMs, arg.ToMs, arg.TeamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countTurnReplies = `-- name: CountTurnReplies :one
 SELECT COUNT(*) FROM entries WHERE turn_id = ? AND kind = 'bot'
 `
@@ -620,7 +648,7 @@ func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (R
 }
 
 const createTeam = `-- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender, decision_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTeamParams struct {
@@ -634,6 +662,8 @@ type CreateTeamParams struct {
 	InboxMax        int64  `json:"inbox_max"`
 	InboxPerSender  int64  `json:"inbox_per_sender"`
 	DecisionMinutes int64  `json:"decision_minutes"`
+	DailyBudget     int64  `json:"daily_budget"`
+	BudgetSince     int64  `json:"budget_since"`
 }
 
 func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
@@ -648,6 +678,8 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
 		arg.InboxMax,
 		arg.InboxPerSender,
 		arg.DecisionMinutes,
+		arg.DailyBudget,
+		arg.BudgetSince,
 	)
 	return err
 }
@@ -1001,7 +1033,7 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 }
 
 const getTeam = `-- name: GetTeam :one
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes FROM teams WHERE team_id = ?
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams WHERE team_id = ?
 `
 
 func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
@@ -1019,6 +1051,10 @@ func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
 		&i.InboxMax,
 		&i.InboxPerSender,
 		&i.DecisionMinutes,
+		&i.DailyBudget,
+		&i.BudgetSince,
+		&i.BudgetNotedOn,
+		&i.BudgetWaitedOn,
 	)
 	return i, err
 }
@@ -3586,7 +3622,7 @@ func (q *Queries) ListTeamRequests(ctx context.Context, teamID string) ([]ListTe
 }
 
 const listTeams = `-- name: ListTeams :many
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes FROM teams
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams
 `
 
 func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
@@ -3610,6 +3646,10 @@ func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
 			&i.InboxMax,
 			&i.InboxPerSender,
 			&i.DecisionMinutes,
+			&i.DailyBudget,
+			&i.BudgetSince,
+			&i.BudgetNotedOn,
+			&i.BudgetWaitedOn,
 		); err != nil {
 			return nil, err
 		}
@@ -3718,6 +3758,25 @@ func (q *Queries) MissDecision(ctx context.Context, arg MissDecisionParams) (int
 	return result.RowsAffected()
 }
 
+const noteTeamBudgetPause = `-- name: NoteTeamBudgetPause :execrows
+UPDATE teams SET budget_noted_on = ?1 WHERE team_id = ?2 AND budget_noted_on <> ?1
+`
+
+type NoteTeamBudgetPauseParams struct {
+	Day    string `json:"day"`
+	TeamID string `json:"team_id"`
+}
+
+// Marks the local day whose budget pause the team's channel was told of; no
+// row changes when it was told already.
+func (q *Queries) NoteTeamBudgetPause(ctx context.Context, arg NoteTeamBudgetPauseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, noteTeamBudgetPause, arg.Day, arg.TeamID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const offTaskShare = `-- name: OffTaskShare :many
 SELECT tm.team_id,
   CAST(COALESCE(SUM(t.goal_id = ''), 0) AS INTEGER) AS off_task,
@@ -3791,24 +3850,6 @@ func (q *Queries) PassGoal(ctx context.Context, arg PassGoalParams) (int64, erro
 		arg.ID,
 		arg.FromTeamID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const pauseGoalAtBudget = `-- name: PauseGoalAtBudget :execrows
-UPDATE goals SET state = 'paused'
-WHERE id = ?1 AND state = 'active' AND budget <= ?2
-`
-
-type PauseGoalAtBudgetParams struct {
-	ID   string `json:"id"`
-	Used int64  `json:"used"`
-}
-
-func (q *Queries) PauseGoalAtBudget(ctx context.Context, arg PauseGoalAtBudgetParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, pauseGoalAtBudget, arg.ID, arg.Used)
 	if err != nil {
 		return 0, err
 	}
@@ -4465,7 +4506,7 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 }
 
 const updateTeam = `-- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ?, decision_minutes = ? WHERE team_id = ?
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ?, decision_minutes = ?, daily_budget = ? WHERE team_id = ?
 `
 
 type UpdateTeamParams struct {
@@ -4478,6 +4519,7 @@ type UpdateTeamParams struct {
 	InboxMax        int64  `json:"inbox_max"`
 	InboxPerSender  int64  `json:"inbox_per_sender"`
 	DecisionMinutes int64  `json:"decision_minutes"`
+	DailyBudget     int64  `json:"daily_budget"`
 	TeamID          string `json:"team_id"`
 }
 
@@ -4492,7 +4534,26 @@ func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
 		arg.InboxMax,
 		arg.InboxPerSender,
 		arg.DecisionMinutes,
+		arg.DailyBudget,
 		arg.TeamID,
 	)
 	return err
+}
+
+const waitTeamBudget = `-- name: WaitTeamBudget :execrows
+UPDATE teams SET budget_waited_on = ?1 WHERE team_id = ?2
+`
+
+type WaitTeamBudgetParams struct {
+	Day    string `json:"day"`
+	TeamID string `json:"team_id"`
+}
+
+// The user waits out the team's budget pause until the local day ends.
+func (q *Queries) WaitTeamBudget(ctx context.Context, arg WaitTeamBudgetParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, waitTeamBudget, arg.Day, arg.TeamID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

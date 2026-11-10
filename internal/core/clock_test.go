@@ -223,8 +223,14 @@ func TestABudgetPauseDoesNotStopTheDecisionClock(t *testing.T) {
 	c := newClockFixture(t)
 	g := c.handOver(t, c.docsLead, c.docs, c.team, "Review it.")
 	finishQueued(t, c.svc)
-	if _, err := c.svc.sqlDB.ExecContext(context.Background(), `UPDATE goals SET state = 'paused', budget = 0 WHERE id = ?`, c.goal.ID); err != nil {
+	// Ship used its one turn for today: its work waits, its lead's decisions don't.
+	one := int64(1)
+	if _, err := c.svc.UpdateTeam(context.Background(), c.team.ID, TeamPatch{DailyBudget: &one}); err != nil {
 		t.Fatal(err)
+	}
+	storeTurn(t, c.svc, turnSpec{id: "chat", bot: c.ana.ID, room: c.team.ID, hops: 1, started: c.clock})
+	if ok, err := c.svc.TeamAllows(context.Background(), Turn{BotID: c.ana.ID, RoomID: c.team.ID}); err != nil || ok {
+		t.Fatalf("TeamAllows of Ship's chat at its budget = %v, %v; want false", ok, err)
 	}
 	c.tick(t, 0, LeadState{})
 	c.ticks(t, 30*time.Minute, LeadState{})

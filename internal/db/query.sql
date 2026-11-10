@@ -294,7 +294,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender, decision_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -303,7 +303,27 @@ SELECT * FROM teams WHERE team_id = ?;
 SELECT * FROM teams;
 
 -- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ?, decision_minutes = ? WHERE team_id = ?;
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ?, decision_minutes = ?, daily_budget = ? WHERE team_id = ?;
+
+-- name: CountTeamTurnsBetween :one
+-- The turns that count against a team's daily budget and started in
+-- [from_ms, to_ms): every turn in the team's room (chat, inherited and board
+-- work), or of a task of the team outside any room. Left out: the lead's
+-- decisions and its other board wakes on no task, which are free.
+SELECT COUNT(*) FROM turns t
+WHERE t.started_at >= CAST(sqlc.arg(from_ms) AS INTEGER) AND t.started_at < CAST(sqlc.arg(to_ms) AS INTEGER)
+  AND t.decision = 0 AND NOT (t.board_role = 'lead' AND t.goal_id = '')
+  AND (t.room_id = sqlc.arg(team_id)
+    OR (t.room_id = '' AND t.goal_id IN (SELECT g.id FROM goals g WHERE g.team_id = sqlc.arg(team_id))));
+
+-- name: NoteTeamBudgetPause :execrows
+-- Marks the local day whose budget pause the team's channel was told of; no
+-- row changes when it was told already.
+UPDATE teams SET budget_noted_on = sqlc.arg(day) WHERE team_id = sqlc.arg(team_id) AND budget_noted_on <> sqlc.arg(day);
+
+-- name: WaitTeamBudget :execrows
+-- The user waits out the team's budget pause until the local day ends.
+UPDATE teams SET budget_waited_on = sqlc.arg(day) WHERE team_id = sqlc.arg(team_id);
 
 -- name: SetRequestSlots :exec
 UPDATE teams SET request_slots = ? WHERE team_id = ?;
@@ -460,16 +480,15 @@ WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 -- name: SetGoalBudget :exec
 UPDATE goals SET budget = ? WHERE id = ?;
 
--- name: PauseGoalAtBudget :execrows
-UPDATE goals SET state = 'paused'
-WHERE id = sqlc.arg(id) AND state = 'active' AND budget <= sqlc.arg(used);
-
 -- name: GetTurnGoal :one
 SELECT goal_id FROM turns WHERE id = ?;
 
 -- name: CountGoalTurns :one
+-- The goal's turns so far: its board turns in its own team's room. Another
+-- team's work on a request of the goal counts on that team's daily budget.
 SELECT COUNT(*) FROM turns
-WHERE goal_id = ? AND started_at IS NOT NULL AND board_role NOT IN ('', 'retro') AND decision = 0;
+WHERE goal_id = sqlc.arg(goal_id) AND started_at IS NOT NULL AND board_role NOT IN ('', 'retro') AND decision = 0
+  AND room_id = (SELECT g.team_id FROM goals g WHERE g.id = sqlc.arg(goal_id));
 
 -- name: CancelQueuedGoalTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'the goal ended', finished_at = ?

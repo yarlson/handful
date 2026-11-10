@@ -47,6 +47,9 @@ type Team struct {
 	// DecisionMinutes is how long a task may wait in the inbox for its lead's
 	// decision, counting only time when the lead could act.
 	DecisionMinutes int64 `json:"decisionMinutes"`
+	// DailyBudget is how many turns the team may start in a local day; 0 is
+	// no limit, where every team starts (the budget is watched only).
+	DailyBudget int64 `json:"dailyBudget"`
 }
 
 func (b Bot) IsTeam() bool { return b.Team != nil }
@@ -79,6 +82,8 @@ type TeamSettings struct {
 	InboxPerSender int64
 	// Zero DecisionMinutes means DefaultDecisionMinutes.
 	DecisionMinutes int64
+	// Zero DailyBudget means no limit.
+	DailyBudget int64
 }
 
 // TeamPatch changes the settings of a team. A nil field keeps its value.
@@ -92,6 +97,7 @@ type TeamPatch struct {
 	InboxMax        *int64
 	InboxPerSender  *int64
 	DecisionMinutes *int64
+	DailyBudget     *int64
 }
 
 // TeamWorkspace is the shared folder of a team. Every turn in the team runs there.
@@ -136,7 +142,7 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 		if err := q.UpdateTeam(ctx, db.UpdateTeamParams{
 			LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
 			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots,
-			InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, TeamID: id,
+			InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, DailyBudget: updated.DailyBudget, TeamID: id,
 		}); err != nil {
 			return fmt.Errorf("update team %s: %w", id, err)
 		}
@@ -169,6 +175,7 @@ func (p TeamPatch) apply(t Team) TeamSettings {
 	setIf(&set.InboxMax, p.InboxMax)
 	setIf(&set.InboxPerSender, p.InboxPerSender)
 	setIf(&set.DecisionMinutes, p.DecisionMinutes)
+	setIf(&set.DailyBudget, p.DailyBudget)
 	return set
 }
 
@@ -214,14 +221,26 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if err != nil {
 		return nil, err
 	}
-	decision, err := validDecisionMinutes(set.DecisionMinutes)
+	decision, daily, err := validTimes(set.DecisionMinutes, set.DailyBudget)
 	if err != nil {
 		return nil, err
 	}
 	return &Team{
 		LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots,
-		InboxMax: inboxMax, InboxPerSender: perSender, DecisionMinutes: decision,
+		InboxMax: inboxMax, InboxPerSender: perSender, DecisionMinutes: decision, DailyBudget: daily,
 	}, nil
+}
+
+// validTimes checks a team's decision time and daily budget.
+func validTimes(decisionMinutes, dailyBudget int64) (int64, int64, error) {
+	decision, err := validDecisionMinutes(decisionMinutes)
+	if err != nil {
+		return 0, 0, err
+	}
+	if dailyBudget < 0 || dailyBudget > maxDailyBudget {
+		return 0, 0, invalid("A team's turns per day must be 0 (no limit) to %d.", maxDailyBudget)
+	}
+	return decision, dailyBudget, nil
 }
 
 // errDecisionMinutes is the error of a decision time out of range.
@@ -278,7 +297,7 @@ func toTeam(row db.Team, members []Member) *Team {
 	return &Team{
 		LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
 		RequestSlots: clampSlots(row.RequestSlots, len(members)), InboxMax: row.InboxMax, InboxPerSender: row.InboxPerSender,
-		DecisionMinutes: row.DecisionMinutes,
+		DecisionMinutes: row.DecisionMinutes, DailyBudget: row.DailyBudget,
 	}
 }
 

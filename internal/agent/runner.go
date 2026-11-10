@@ -445,6 +445,9 @@ func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
 	if t.RoomID != "" && !stepTurn(t) && !leadsTurn(t) && r.chatBusyLocked(t.RoomID) {
 		return false
 	}
+	if !r.teamAllows(ctx, t) {
+		return false
+	}
 	if !boardTurn(t) {
 		return true
 	}
@@ -458,6 +461,17 @@ func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
 	ok, err := r.svc.GoalAllows(ctx, t)
 	if err != nil {
 		r.log.Error("check the goal of a turn", "turn", t.ID, "goal", t.GoalID, "err", err)
+	}
+	return ok
+}
+
+// teamAllows reports whether turn t may start under its team's daily
+// budget: a team that used today's turns starts only its lead's decisions.
+// The check only reads, so it may run under r.mu.
+func (r *Runner) teamAllows(ctx context.Context, t core.Turn) bool {
+	ok, err := r.svc.TeamAllows(ctx, t)
+	if err != nil {
+		r.log.Error("check the daily budget of a turn's team", "turn", t.ID, "room", t.RoomID, "goal", t.GoalID, "err", err)
 	}
 	return ok
 }

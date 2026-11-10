@@ -57,7 +57,8 @@ type Goal struct {
 	Text   string `json:"text"`
 	State  string `json:"state"`
 	Budget int64  `json:"budget"`
-	// Used is how many turns of the goal have started; at Budget, the goal pauses.
+	// Used is how many turns of the goal have started in its team's room, for
+	// information: the team's daily budget limits work, not Budget.
 	Used int64 `json:"used"`
 	// QueuePos is the goal's place in its team's queue, from 1; 0 unless queued.
 	QueuePos  int64 `json:"queuePos"`
@@ -76,11 +77,11 @@ func (g Goal) Now() bool {
 	return g.State == GoalActive || g.State == GoalPaused
 }
 
-// Stopped reports whether the user stopped the task: it is paused with turns
-// of its budget left. A task paused at its budget is not stopped, because
-// its lead's decisions still run.
+// Stopped reports whether the user stopped the task: it is paused. A task
+// no longer pauses at its budget; a team at its daily budget keeps its task
+// active, and its lead's decisions still run.
 func (g Goal) Stopped() bool {
-	return g.State == GoalPaused && g.Used < g.Budget
+	return g.State == GoalPaused
 }
 
 // Item is one piece of a goal's work.
@@ -160,6 +161,8 @@ type Board struct {
 	Stopped []Goal `json:"stopped"`
 	// OffTask is the team's work in the last hour that was on no task.
 	OffTask OffTask `json:"offTask"`
+	// Budget is the team's use of its daily budget today.
+	Budget BudgetView `json:"budget"`
 	// Teams names the other teams that the board's items and requests involve.
 	Teams map[string]string `json:"teams"`
 }
@@ -299,6 +302,9 @@ func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
 		return Board{}, err
 	}
 	if board.OffTask, err = s.boardOffTask(ctx, teamID); err != nil {
+		return Board{}, err
+	}
+	if board.Budget, err = s.TeamBudget(ctx, teamID); err != nil {
 		return Board{}, err
 	}
 	return board, s.nameTeams(ctx, teamID, &board)
@@ -1239,10 +1245,10 @@ func (s *Service) StartItemWork(ctx context.Context, itemID, botID string) error
 	return nil
 }
 
-// GoalAllows reports whether a board turn may start: its goal is active and
-// has turns left. At the budget, it pauses the goal. A turn of a goal that is
-// over or gone is cancelled. A retro turn and a lead's decision turn always
-// may start.
+// GoalAllows reports whether a board turn may start: its goal is active. A
+// goal's budget no longer stops it: the team's daily budget does (TeamAllows).
+// A turn of a goal that is over or gone is cancelled. A retro turn and a
+// lead's decision turn always may start.
 func (s *Service) GoalAllows(ctx context.Context, t Turn) (bool, error) {
 	if t.BoardRole == RoleRetro || t.Decision {
 		return true, nil
@@ -1251,13 +1257,7 @@ func (s *Service) GoalAllows(ctx context.Context, t Turn) (bool, error) {
 	if errors.Is(err, ErrNotFound) || (err == nil && !g.Open()) {
 		return false, s.cancelTurn(ctx, t.ID, "the goal is over")
 	}
-	if err != nil || g.State != GoalActive {
-		return false, err
-	}
-	if g.Used < g.Budget {
-		return true, nil
-	}
-	return false, s.pauseAtBudget(ctx, g)
+	return err == nil && g.State == GoalActive, err
 }
 
 func (s *Service) cancelTurn(ctx context.Context, id, reason string) error {
@@ -1265,28 +1265,6 @@ func (s *Service) cancelTurn(ctx context.Context, id, reason string) error {
 		return fmt.Errorf("cancel turn %s: %w", id, err)
 	}
 	return nil
-}
-
-// pauseAtBudget pauses a goal that used its budget. When the budget grew
-// meanwhile, the goal stays active.
-func (s *Service) pauseAtBudget(ctx context.Context, g Goal) error {
-	paused := false
-	err := s.inTx(ctx, func(q *db.Queries) error {
-		n, err := q.PauseGoalAtBudget(ctx, db.PauseGoalAtBudgetParams{ID: g.ID, Used: g.Used})
-		if err != nil || n == 0 {
-			return err
-		}
-		paused = true
-		if err := s.cancelGoalTurns(ctx, q, g.ID); err != nil {
-			return err
-		}
-		return s.goalChanged(ctx, q, g, GoalPaused)
-	})
-	if err != nil || !paused {
-		return err
-	}
-	s.hub.Publish(Event{Type: "bots"})
-	return s.boardNote(ctx, g.TeamID, fmt.Sprintf("The goal used its budget of %d turns and is paused. Add turns to go on, or end the goal.", g.Budget))
 }
 
 func (s *Service) cancelGoalTurns(ctx context.Context, q *db.Queries, goalID string) error {
@@ -1720,6 +1698,9 @@ func (s *Service) SettleItems(ctx context.Context, live func(botID, teamID strin
 		return err
 	}
 	if err := s.runDecisionClocks(ctx, state); err != nil {
+		return err
+	}
+	if err := s.noteBudgetPauses(ctx); err != nil {
 		return err
 	}
 	return s.settleActiveGoals(ctx, live)

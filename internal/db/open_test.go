@@ -40,8 +40,8 @@ func TestOpenMigratesAnUnversionedV1Database(t *testing.T) {
 	}
 	defer conn.Close()
 	var version int
-	if err := conn.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 17 {
-		t.Fatalf("user_version = %d, %v; want 17", version, err)
+	if err := conn.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 18 {
+		t.Fatalf("user_version = %d, %v; want 18", version, err)
 	}
 	q := New(conn)
 	bot, err := q.GetBot(ctx, "b1")

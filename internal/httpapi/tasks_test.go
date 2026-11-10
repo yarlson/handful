@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -252,5 +253,57 @@ func TestOffTaskTurnsAreListedAndMadeIntoATask(t *testing.T) {
 	rec = do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"offTask":{"count":0,"turns":[]}`) {
 		t.Fatalf("board after the make = %d %s; want no turns on no task", rec.Code, rec.Body)
+	}
+}
+
+func TestATeamsDailyBudgetIsSetWarnedAndWaitedOut(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := svc.CreateTeam(ctx, "Ship", "", []string{ana.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for body, want := range map[string]int{`{"dailyBudget":0}`: 200, `{"dailyBudget":10000}`: 200, `{"dailyBudget":-1}`: 400, `{"dailyBudget":10001}`: 400} {
+		if rec := do(h, "PATCH", "/api/teams/"+team.ID, body, jsonHeader); rec.Code != want {
+			t.Errorf("PATCH %s = %d %s; want %d", body, rec.Code, rec.Body, want)
+		}
+	}
+	if rec := do(h, "PATCH", "/api/teams/"+team.ID, `{"dailyBudget":1}`, jsonHeader); !strings.Contains(rec.Body.String(), `"dailyBudget":1`) {
+		t.Fatalf("PATCH 1 = %s; want the team with a budget of 1", rec.Body)
+	}
+	// Ana's turn for the user's post uses the one turn of today.
+	if _, _, err := svc.SubmitUserMessage(ctx, team.ID, "Hello.", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := svc.QueuedTurns(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(turns, func(tr core.Turn) bool { return tr.RoomID == team.ID })
+	if i < 0 {
+		t.Fatalf("queued = %+v; want Ana's turn in Ship", turns)
+	}
+	if _, err := svc.StartTurn(ctx, turns[i].ID); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "GET", "/api/needs-you", "", nil)
+	var needs []core.NeedsYou
+	if err := json.Unmarshal(rec.Body.Bytes(), &needs); err != nil || len(needs) != 1 || needs[0].Kind != core.NeedBudgetReached || needs[0].ChatID != team.ID || needs[0].Text != "Budget: Ship used 1 of 1 turns today" {
+		t.Fatalf("needs you = %d %s; want Ship's budget reached", rec.Code, rec.Body)
+	}
+	rec = do(h, "POST", "/api/teams/"+team.ID+"/budget/wait", `{}`, jsonHeader)
+	var b core.BudgetView
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); rec.Code != http.StatusOK || err != nil || !b.Paused || b.Today != 1 || b.Limit != 1 {
+		t.Fatalf("wait = %d %s; want Ship's paused budget", rec.Code, rec.Body)
+	}
+	if rec := do(h, "GET", "/api/needs-you", "", nil); rec.Body.String() != "[]\n" {
+		t.Fatalf("needs you after the wait = %s; want nothing today", rec.Body)
+	}
+	if rec := do(h, "POST", "/api/teams/missing/budget/wait", `{}`, jsonHeader); rec.Code != http.StatusNotFound {
+		t.Fatalf("wait for a missing team = %d; want 404", rec.Code)
 	}
 }

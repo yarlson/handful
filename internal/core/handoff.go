@@ -51,6 +51,9 @@ type Handoff struct {
 	FromGoalID  string   `json:"fromGoalId,omitempty"`
 	Brief       string   `json:"brief,omitempty"`
 	ArtifactIDs []string `json:"artifactIds,omitempty"`
+	// PaidBy names the team whose daily budget pays for a task this team sent:
+	// the team that does it. Set on a board's Sent list only.
+	PaidBy string `json:"paidBy,omitempty"`
 	// IntakeNote is the lead's latest question, deferral note or push-back reason.
 	IntakeNote string `json:"intakeNote,omitempty"`
 	// AskedAt > 0 while a question waits for the sender's answer.
@@ -1038,7 +1041,14 @@ func (s *Service) fillHandoffs(ctx context.Context, teamID string, board *Board)
 		return err
 	}
 	board.Plan = board.Queue
-	return s.nameHandoffTeams(ctx, board)
+	if err := s.nameHandoffTeams(ctx, board); err != nil {
+		return err
+	}
+	// The team that does a sent task pays for it.
+	for i, g := range board.Sent {
+		board.Sent[i].PaidBy = board.Teams[g.TeamID]
+	}
+	return nil
 }
 
 // fillStopped adds the team's tasks stopped in the last 30 days.

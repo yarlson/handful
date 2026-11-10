@@ -106,7 +106,7 @@ func TestTheLeadsBoardShowsEachInboxTasksDecisionClock(t *testing.T) {
 	}
 	running := core.Goal{ID: "now", Text: "Ship.", State: core.GoalActive, Used: 3, Budget: 10}
 	stopped := core.Goal{ID: "now", Text: "Ship.", State: core.GoalPaused, Used: 3, Budget: 10}
-	atBudget := core.Goal{ID: "now", Text: "Ship.", State: core.GoalPaused, Used: 10, Budget: 10}
+	pastBudget := core.Goal{ID: "now", Text: "Ship.", State: core.GoalPaused, Used: 12, Budget: 10}
 	for _, c := range []struct {
 		name  string
 		board core.Board
@@ -118,7 +118,7 @@ func TestTheLeadsBoardShowsEachInboxTasksDecisionClock(t *testing.T) {
 		{"after midnight", inbox(core.Handoff{}, 0), time.Date(2026, 11, 10, 23, 50, 0, 0, eet), " — decide by Wed 00:20\n"},
 		{"the user stopped the team", func() core.Board { b := inbox(core.Handoff{}, 0); b.Goal = &stopped; return b }(), afternoon, " — clock paused: the user stopped the team's task\n"},
 		{"the Now task runs", func() core.Board { b := inbox(core.Handoff{}, 0); b.Goal = &running; return b }(), afternoon, " — decide by 14:30\n"},
-		{"the Now task is paused at its budget", func() core.Board { b := inbox(core.Handoff{}, 0); b.Goal = &atBudget; return b }(), afternoon, " — decide by 14:30\n"},
+		{"a stopped task past its turns so far", func() core.Board { b := inbox(core.Handoff{}, 0); b.Goal = &pastBudget; return b }(), afternoon, " — clock paused: the user stopped the team's task\n"},
 		{"a question to the sender waits", inbox(core.Handoff{AskedAt: 5, AskRounds: 1, IntakeNote: "Which page?"}, 0), afternoon, " — you asked (1 of 3): Which page?; wait for the answer; clock paused: waiting for the sender's answer\n"},
 		{"missed", inbox(core.Handoff{MissedAt: 9, NeedsUser: true}, (30 * time.Minute).Milliseconds()), afternoon, " — missed — waiting for the user\n"},
 	} {

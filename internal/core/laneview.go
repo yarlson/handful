@@ -276,7 +276,7 @@ func (c reasonContext) accepted(r laneRequest) (Reason, int64, int64) {
 	}
 	n, m := place(c.waiting, r)
 	if r.goalState == GoalPaused {
-		return Reason{Code: ReasonAskingPaused, Text: "On hold: the asking goal is paused at its budget."}, n, m
+		return Reason{Code: ReasonAskingPaused, Text: "On hold: the asking goal is paused."}, n, m
 	}
 	if r.JumpedAt > 0 {
 		return jumped, n, m

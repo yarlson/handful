@@ -1097,32 +1097,49 @@ func TestAChatTurnInATeamRunsBesideItemWork(t *testing.T) {
 	}
 }
 
-func TestTheBudgetOfAGoalHoldsItsTurnsBack(t *testing.T) {
+// A team at its daily budget starts no turn but its lead's decisions; a
+// higher budget lets the rest start again.
+func TestADailyBudgetHoldsATeamsTurnsBackButNotItsLeadsDecisions(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
 	ctx := context.Background()
-	team, ana, bo, _ := h.newTeam(t)
-	budget := int64(1)
-	if _, err := h.svc.UpdateTeam(ctx, team.ID, core.TeamPatch{GoalBudget: &budget}); err != nil {
+	team, _, bo, _ := h.newTeam(t)
+	h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	turns, err := h.svc.QueuedTurns(ctx, 10)
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("queued turns = %+v, %v; want Bo's work", turns, err)
+	}
+	work := turns[0]
+	one := int64(1)
+	if _, err := h.svc.UpdateTeam(ctx, team.ID, core.TeamPatch{DailyBudget: &one}); err != nil {
 		t.Fatal(err)
 	}
-	team, _ = h.svc.GetBot(ctx, team.ID)
-	items := h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""), boardItem("Docs", "Write it.", ana.ID, ""))
-	h.start(t)
-
-	waitFor(t, "the goal to pause", func() bool {
-		board, _ := h.svc.Board(ctx, team.ID)
-		return board.Goal.State == core.GoalPaused
-	})
-	board, _ := h.svc.Board(ctx, team.ID)
-	if board.Goal.Used != 1 {
-		t.Fatalf("goal = %+v; want it paused after its 1 turn", board.Goal)
+	now := time.Now().UnixMilli()
+	if _, err := h.conn.ExecContext(ctx, `INSERT INTO turns (id, bot_id, source, prompt, status, room_id, created_at, started_at) VALUES ('chat', ?, 'room', '', 'done', ?, ?, ?)`, bo.ID, team.ID, now, now); err != nil {
+		t.Fatal(err)
 	}
-	if turns, _ := h.svc.QueuedTurns(ctx, 10); len(turns) != 0 {
-		t.Fatalf("queued turns of the paused goal = %+v; want none: a resume queues them again", turns)
+	var logs bytes.Buffer
+	h.runner.log = slog.New(slog.NewTextHandler(&logs, nil))
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+	if h.runner.mayStartLocked(ctx, work) || logs.Len() != 0 {
+		t.Fatalf("Bo's work with the team at its budget: may start true, or log %q; want it held quietly", logs.String())
 	}
-	if board.Items[1].State != core.ItemTodo || board.Items[1].ID != items[1].ID {
-		t.Fatalf("Docs = %+v; want it to wait for its turn", board.Items[1])
+	decision := work
+	decision.ItemID, decision.BoardRole, decision.Decision = "", core.RoleLead, true
+	if !h.runner.mayStartLocked(ctx, decision) {
+		t.Fatal("a lead's decision with the team at its budget: may start false; want it to start")
+	}
+	direct := core.Turn{ID: "d", BotID: bo.ID, Source: core.SourceUser}
+	if !h.runner.mayStartLocked(ctx, direct) {
+		t.Fatal("Bo's direct chat with the team at its budget: may start false; want it to start")
+	}
+	two := int64(2)
+	if _, err := h.svc.UpdateTeam(ctx, team.ID, core.TeamPatch{DailyBudget: &two}); err != nil {
+		t.Fatal(err)
+	}
+	if !h.runner.mayStartLocked(ctx, work) {
+		t.Fatal("Bo's work under a raised budget: may start false; want it to start")
 	}
 }
 
@@ -1514,7 +1531,7 @@ func TestABoardTurnStartsOnlyWhenItsGoalAllowsIt(t *testing.T) {
 		t.Fatalf("queued turns = %+v; want the turn of the missing goal cancelled", left)
 	}
 	h.conn.Close()
-	if h.runner.mayStartLocked(ctx, turns[0]) || !strings.Contains(logs.String(), "check the goal of a turn") {
+	if h.runner.mayStartLocked(ctx, turns[0]) || !strings.Contains(logs.String(), "check the daily budget of a turn's team") {
 		t.Fatalf("a turn while the database fails: may start true, or log %q; want it held and the error logged", logs.String())
 	}
 }

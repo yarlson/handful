@@ -978,6 +978,7 @@ export function Chat({
   onAnswer = () => {},
   pill = null,
   draining = false,
+  pause = "Paused for update",
 }: {
   bot: Bot
   entries: Entry[]
@@ -988,6 +989,7 @@ export function Chat({
   // to restart for an update.
   pill?: ReactNode
   draining?: boolean
+  pause?: string
   // answering is the question the next message in this chat answers.
   answering?: Asked | null
   onAnswer?: (q: Asked | null) => void
@@ -1158,7 +1160,7 @@ export function Chat({
             <div className="text-muted-foreground flex items-center gap-2 text-xs">
               <Loader2 className="size-3 animate-spin" />{" "}
               {draining
-                ? `${bot.kind === "room" ? "Members are" : `${bot.name} is`} finishing. Paused for update: new turns wait.`
+                ? `${bot.kind === "room" ? "Members are" : `${bot.name} is`} finishing. ${pause}: new turns wait.`
                 : bot.kind === "room"
                   ? "Members are working…"
                   : `${bot.name} is working…`}

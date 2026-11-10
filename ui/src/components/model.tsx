@@ -16,6 +16,7 @@ import {
   type Inherited,
 } from "@/lib/model"
 import { Input } from "@/components/ui/input"
+import { openSettingsPage } from "@/components/settings"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
@@ -143,6 +144,13 @@ export function ModelEffortFields({
           </p>
         )}
       </div>
+      <button
+        type="button"
+        className="text-muted-foreground self-start text-xs underline"
+        onClick={() => openSettingsPage("general")}
+      >
+        Change the defaults in Settings
+      </button>
     </>
   )
 }

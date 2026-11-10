@@ -1009,9 +1009,14 @@ func TestWaitingAndDeferredRequestsBillNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	runQueued(t, l.svc) // Eve's work on Guide and Bo's wake on the deferral
+	// The asking goal pays only for its own team's turns: the asking lead's
+	// wake. Docs's triage and Guide's work count on Docs's daily budget.
 	used := l.goalNow(t, l.goal.ID).Used
-	if used != 3 {
-		t.Fatalf("used = %d; want 3: the triage, Guide's work and the asking lead's wake", used)
+	if used != 1 {
+		t.Fatalf("used = %d; want 1: the asking lead's wake", used)
+	}
+	if b, err := l.svc.TeamBudget(ctx, l.docs.ID); err != nil || b.Today != 2 {
+		t.Fatalf("Docs's budget = %+v, %v; want 2 turns today: the triage and Guide's work", b, err)
 	}
 	for range 3 {
 		if err := l.svc.SettleItems(ctx, func(string, string) bool { return false }, LeadState{}); err != nil {
@@ -1024,8 +1029,11 @@ func TestWaitingAndDeferredRequestsBillNothing(t *testing.T) {
 			t.Fatalf("%q = %+v; want it not blocked while it waits", it.Title, got)
 		}
 	}
-	if got := l.goalNow(t, l.goal.ID).Used; got != used+1 {
-		t.Fatalf("used after the settles = %d; want %d: only Guide, whose owner stopped, wakes a lead", got, used+1)
+	if got := l.goalNow(t, l.goal.ID).Used; got != used {
+		t.Fatalf("used after the settles = %d; want %d: Docs's work bills Docs", got, used)
+	}
+	if b, err := l.svc.TeamBudget(ctx, l.docs.ID); err != nil || b.Today != 3 {
+		t.Fatalf("Docs's budget after the settles = %+v, %v; want 3: only Guide, whose owner stopped, wakes Docs's lead", b, err)
 	}
 }
 
@@ -1053,7 +1061,7 @@ func TestPausingTheAskingGoalFreesItsSlots(t *testing.T) {
 	if got := l.itemNow(t, runbook.ID); got.SlotAt == 0 {
 		t.Fatalf("Runbook = %+v; want the freed slot", got)
 	}
-	if r := l.request(t, l.docs.ID, faq); r.Reason != (Reason{Code: ReasonAskingPaused, Text: "On hold: the asking goal is paused at its budget."}) || r.Position != 2 {
+	if r := l.request(t, l.docs.ID, faq); r.Reason != (Reason{Code: ReasonAskingPaused, Text: "On hold: the asking goal is paused."}) || r.Position != 2 {
 		t.Fatalf("FAQ = %+v; want it on hold behind Guide", r)
 	}
 	l.work(t, runbook, l.dee)
@@ -1103,7 +1111,7 @@ func TestTheRequestersSeeWhatTheirRequestsWaitOn(t *testing.T) {
 	}
 }
 
-func TestAGoalPausedAtItsBudgetFreesTheSlotsOfEveryServingTeam(t *testing.T) {
+func TestAPausedGoalFreesTheSlotsOfEveryServingTeam(t *testing.T) {
 	l := newLaneFixture(t, true)
 	ctx := context.Background()
 	ops := newGoalOf(t, l.svc, "Ops", "Olga", "Oz", "Run it.")
@@ -1117,13 +1125,11 @@ func TestAGoalPausedAtItsBudgetFreesTheSlotsOfEveryServingTeam(t *testing.T) {
 	if g, r := l.itemNow(t, guide.ID), l.itemNow(t, runbook.ID); g.SlotAt == 0 || r.SlotAt == 0 {
 		t.Fatalf("Guide = %+v, Runbook = %+v; want both in a slot", g, r)
 	}
-	spent := l.goalNow(t, l.goal.ID)
-	spent.Used = spent.Budget
-	if err := l.svc.pauseAtBudget(ctx, spent); err != nil {
+	if err := l.svc.StopTeam(ctx, l.team.ID); err != nil {
 		t.Fatal(err)
 	}
 	if g := l.goalNow(t, l.goal.ID); g.State != GoalPaused {
-		t.Fatalf("goal = %+v; want it paused at its budget", g)
+		t.Fatalf("goal = %+v; want it paused", g)
 	}
 	if g, r := l.itemNow(t, guide.ID), l.itemNow(t, runbook.ID); g.SlotAt != 0 || r.SlotAt != 0 {
 		t.Fatalf("after the pause Guide = %+v, Runbook = %+v; want both slots free", g, r)

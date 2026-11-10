@@ -490,17 +490,13 @@ func TestTheLeadNeedsNoTurnForItsOwnChangesButDoesForItsWorkAsAMember(t *testing
 	f.wantQueued(t, "the lead added an item without an owner")
 }
 
-func TestTheBudgetPausesTheGoalAndMoreTurnsResumeIt(t *testing.T) {
+func TestAGoalsBudgetIsTurnsSoFarAndNoLongerPausesIt(t *testing.T) {
 	f := newBoardFixture(t, 2)
 	ctx := context.Background()
-	parse := f.create(t, f.lead, item("Parse", f.ana.ID, ""))
+	f.create(t, f.lead, item("Parse", f.ana.ID, ""))
 	turns, _ := f.svc.QueuedTurns(ctx, 10)
 	work := turns[0]
-
-	for i := range 2 {
-		if ok, err := f.svc.GoalAllows(ctx, work); err != nil || !ok {
-			t.Fatalf("GoalAllows with %d of 2 turns used = %v, %v; want true", i, ok, err)
-		}
+	for range 3 {
 		id, err := f.svc.queueTurn(ctx, f.svc.q, Turn{BotID: f.bo.ID, Source: SourceRoom, RoomID: f.team.ID, GoalID: f.goal.ID, BoardRole: RoleLead})
 		if err != nil {
 			t.Fatal(err)
@@ -509,50 +505,23 @@ func TestTheBudgetPausesTheGoalAndMoreTurnsResumeIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if ok, err := f.svc.GoalAllows(ctx, work); err != nil || ok {
-		t.Fatalf("GoalAllows with 2 of 2 turns used = %v, %v; want false", ok, err)
+	if ok, err := f.svc.GoalAllows(ctx, work); err != nil || !ok {
+		t.Fatalf("GoalAllows past the goal's budget = %v, %v; want true: the team's daily budget limits work", ok, err)
 	}
 	board, _ := f.svc.Board(ctx, f.team.ID)
-	if board.Goal.State != GoalPaused || board.Goal.Used != 2 {
-		t.Fatalf("goal at its budget = %+v; want it paused with 2 turns used", board.Goal)
-	}
-	if text := lastEventText(t, f.svc, f.team.ID); !strings.HasPrefix(text, "The goal used its budget of 2 turns and is paused.") {
-		t.Fatalf("channel event = %q", text)
-	}
-	if got := attentionOf(t, f.svc, f.team.ID); got != AttentionGoal {
-		t.Fatalf("team attention = %q; want %q", got, AttentionGoal)
-	}
-	if ok, _ := f.svc.GoalAllows(ctx, work); ok {
-		t.Fatal("GoalAllows of a paused goal = true; want false")
+	if board.Goal.State != GoalActive || board.Goal.Used != 3 {
+		t.Fatalf("goal past its budget = %+v; want it active with 3 turns so far", board.Goal)
 	}
 	if ok, _ := f.svc.GoalAllows(ctx, Turn{GoalID: f.goal.ID, BoardRole: RoleRetro}); !ok {
 		t.Fatal("GoalAllows of a retro turn = false; want true")
 	}
-
 	for _, turns := range []int64{-1, maxGoalBudget} {
 		if _, err := f.svc.ExtendGoal(ctx, f.goal.ID, turns); !errors.Is(err, ErrInvalid) {
 			t.Errorf("ExtendGoal(%d): err = %v; want ErrInvalid", turns, err)
 		}
 	}
-	g, err := f.svc.ExtendGoal(ctx, f.goal.ID, 5)
-	if err != nil || g.State != GoalActive || g.Budget != 7 {
-		t.Fatalf("ExtendGoal(5) = %+v, %v; want an active goal with 7 turns", g, err)
-	}
-	f.wantQueued(t, "the goal resumed", "Ana work Parse", "Bo lead")
-	if ok, err := f.svc.GoalAllows(ctx, work); err != nil || !ok {
-		t.Fatalf("GoalAllows after more turns = %v, %v; want true", ok, err)
-	}
-	if got := attentionOf(t, f.svc, f.team.ID); got != "" {
-		t.Fatalf("team attention after resume = %q; want none", got)
-	}
-	if g, err := f.svc.ExtendGoal(ctx, f.goal.ID, 3); err != nil || g.State != GoalActive || g.Budget != 10 {
-		t.Fatalf("ExtendGoal of an active goal = %+v, %v; want 10 turns", g, err)
-	}
-	if g, err := f.svc.ExtendGoal(ctx, f.goal.ID, maxGoalBudget-10); err != nil || g.Budget != maxGoalBudget {
-		t.Fatalf("ExtendGoal to %d turns = %+v, %v; want it accepted", maxGoalBudget, g, err)
-	}
-	if got := f.state(t, parse); got.State != ItemTodo {
-		t.Fatalf("Parse = %s; want it to wait for its turn", got.State)
+	if g, err := f.svc.ExtendGoal(ctx, f.goal.ID, 5); err != nil || g.State != GoalActive || g.Budget != 7 {
+		t.Fatalf("ExtendGoal of an active goal = %+v, %v; want 7 turns", g, err)
 	}
 }
 
@@ -1363,22 +1332,6 @@ func TestWorkStartsOnlyForTheCurrentOwner(t *testing.T) {
 	}
 	if got := f.state(t, parse); got.State != ItemTodo || got.OwnerID != f.cy.ID {
 		t.Fatalf("Parse = %+v; want it to wait for Cy", got)
-	}
-}
-
-func TestThePauseAtTheBudgetYieldsToMoreTurns(t *testing.T) {
-	f := newBoardFixture(t, 2)
-	ctx := context.Background()
-	stale := f.goal
-	stale.Used = 2
-	if _, err := f.svc.ExtendGoal(ctx, f.goal.ID, 5); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.svc.pauseAtBudget(ctx, stale); err != nil {
-		t.Fatal(err)
-	}
-	if board, _ := f.svc.Board(ctx, f.team.ID); board.Goal.State != GoalActive {
-		t.Fatalf("goal after a pause with an old budget = %+v; want it still active", board.Goal)
 	}
 }
 

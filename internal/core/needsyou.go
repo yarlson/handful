@@ -37,8 +37,8 @@ type NeedsYou struct {
 
 // NeedsYou lists what waits for the user, oldest first: the user's done
 // tasks to approve, tasks whose leads did not decide in time or could not
-// settle them, and open questions. A question about a task that is listed
-// shows as that task.
+// settle them, teams near or at their daily budget, and open questions. A
+// question about a task that is listed shows as that task.
 func (s *Service) NeedsYou(ctx context.Context) ([]NeedsYou, error) {
 	out, err := s.tasksToApprove(ctx)
 	if err != nil {
@@ -49,6 +49,11 @@ func (s *Service) NeedsYou(ctx context.Context) ([]NeedsYou, error) {
 		return nil, err
 	}
 	out = append(out, stuck...)
+	budgets, err := s.budgetsForTheUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, budgets...)
 	questions, err := s.questionsBesides(ctx, out)
 	if err != nil {
 		return nil, err

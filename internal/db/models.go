@@ -177,6 +177,10 @@ type Team struct {
 	InboxMax        int64  `json:"inbox_max"`
 	InboxPerSender  int64  `json:"inbox_per_sender"`
 	DecisionMinutes int64  `json:"decision_minutes"`
+	DailyBudget     int64  `json:"daily_budget"`
+	BudgetSince     int64  `json:"budget_since"`
+	BudgetNotedOn   string `json:"budget_noted_on"`
+	BudgetWaitedOn  string `json:"budget_waited_on"`
 }
 
 type ToolGrant struct {

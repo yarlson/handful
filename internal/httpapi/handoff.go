@@ -132,6 +132,21 @@ func (s *server) offTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, off)
 }
 
+// waitForBudget is the user's "Wait until midnight" on a team at its daily
+// budget: Needs you no longer lists the pause today.
+func (s *server) waitForBudget(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.WaitForBudget(r.Context(), r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	budget, err := s.svc.TeamBudget(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, budget)
+}
+
 // takeTask is the user's take of a task from a team's inbox into its plan.
 func (s *server) takeTask(w http.ResponseWriter, r *http.Request) {
 	var in struct {

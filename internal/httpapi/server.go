@@ -103,6 +103,7 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("POST /api/teams/{id}/tasks", s.userTask)
 	mux.HandleFunc("POST /api/teams/{id}/tasks/from-turns", s.makeTask)
 	mux.HandleFunc("GET /api/teams/{id}/off-task", s.offTask)
+	mux.HandleFunc("POST /api/teams/{id}/budget/wait", s.waitForBudget)
 	mux.HandleFunc("POST /api/teams/{id}/plan", s.orderPlan)
 	mux.HandleFunc("POST /api/tasks/{id}/take", s.takeTask)
 	mux.HandleFunc("POST /api/tasks/{id}/push-back", s.handoffAction(pushBack, true))
@@ -575,6 +576,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 		InboxMax        *int64  `json:"inboxMax"`
 		InboxPerSender  *int64  `json:"inboxPerSender"`
 		DecisionMinutes *int64  `json:"decisionMinutes"`
+		DailyBudget     *int64  `json:"dailyBudget"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
@@ -583,6 +585,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{
 		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
 		RequestSlots: in.RequestSlots, InboxMax: in.InboxMax, InboxPerSender: in.InboxPerSender, DecisionMinutes: in.DecisionMinutes,
+		DailyBudget: in.DailyBudget,
 	})
 	if err != nil {
 		s.fail(w, r, err)

@@ -1,6 +1,6 @@
 // The YarGPT app: a window on the server, which runs as a launch agent of
 // this bundle, so that it keeps running when the app quits.
-const { app, BrowserWindow, Menu, clipboard, dialog, session, shell } = require("electron")
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, session, shell } = require("electron")
 const { execFile } = require("node:child_process")
 const crypto = require("node:crypto")
 const fs = require("node:fs")
@@ -9,6 +9,9 @@ const path = require("node:path")
 const { setTimeout: sleep } = require("node:timers/promises")
 const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
 const { contextMenuTemplate } = require("./context-menu")
+const { appMenuTemplate } = require("./menu")
+const { lastStartupErrorIn, serverErrorDialog } = require("./server-log")
+const { createSettingsBridge, registerSettingsIPC, settingsAPI } = require("./settings-bridge")
 const { createUpdater } = require("./updater")
 const { bundleChangeAction, finishingTurnsText, serverVersionAction } = require("./updater-state")
 const { runningOf, serverAPI } = require("./updater-io")
@@ -18,6 +21,7 @@ const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
 const agentTarget = `gui/${process.getuid()}/${agentLabel}`
 const serverBinary = path.join(process.resourcesPath, "yargpt")
 const dataDir = path.join(os.homedir(), ".yargpt")
+const configFile = path.join(dataDir, "config.json")
 const logFile = path.join(os.homedir(), "Library", "Logs", "YarGPT", "server.log")
 // The page copies messages to the clipboard and plays videos full screen.
 // Electron grants every other permission too, unless a handler refuses it.
@@ -29,15 +33,35 @@ let window = null
 let opening = null
 let serverVersionChecked = false
 
+// isTrusted reports whether an IPC call comes from the main frame of the
+// app's page; the updater and the settings bridge answer only it.
+const isTrusted = (event) => isTrustedFrame(event.senderFrame?.url, !!event.senderFrame && event.senderFrame.parent === null)
+
 const updater = createUpdater({
   serverURL,
   dataDir,
   isAppURL,
-  isTrusted: (event) => isTrustedFrame(event.senderFrame?.url, !!event.senderFrame && event.senderFrame.parent === null),
+  isTrusted,
   onStateChange: () => {
     if (app.isReady()) Menu.setApplicationMenu(buildMenu())
   },
   getWindow: () => window,
+})
+
+// The Settings page's window.yargptSettings. Restart now registers the agent
+// again, as a new server does, and waits for the server to answer.
+const settingsBridge = createSettingsBridge({
+  api: settingsAPI(serverURL),
+  registerAgent,
+  startServer: async () => agentStatus() === "enabled" && startServer(serverDigest(), true),
+  dialog: {
+    showOpenDialog: (options) => (window ? dialog.showOpenDialog(window, options) : dialog.showOpenDialog(options)),
+    showErrorBox: (title, text) => dialog.showErrorBox(title, text),
+  },
+  shell,
+  ensureSettingsFile: () => ensureSettingsFile(dataDir),
+  configFile,
+  logFile,
 })
 
 if (!app.requestSingleInstanceLock()) {
@@ -60,6 +84,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", (event) => updater.handleBeforeQuit(event))
   app.whenReady().then(() => {
     Menu.setApplicationMenu(buildMenu())
+    registerSettingsIPC(ipcMain, settingsBridge, isTrusted)
     void updater.start().catch((err) => console.error("start the updater:", err))
     session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
       callback(pagePermissions.has(permission) && isAppURL(details.requestingUrl)),
@@ -246,10 +271,14 @@ async function startServer(digest, registerAgain) {
 }
 
 // showWindow makes the server run, then shows the window or creates it.
-// activate also fires at launch, so a second call waits for the first.
+// activate also fires at launch, so a second call waits for the first. It
+// resolves whether the window shows the server's page.
 function showWindow() {
   opening ??= openWindow()
-    .catch((err) => dialog.showErrorBox("YarGPT could not open its window", err.message))
+    .catch((err) => {
+      dialog.showErrorBox("YarGPT could not open its window", err.message)
+      return false
+    })
     .finally(() => {
       opening = null
     })
@@ -259,16 +288,16 @@ function showWindow() {
 async function openWindow() {
   if (!(await ensureServer())) {
     showServerError()
-    return
+    return false
   }
   await checkServerVersion()
   if (window) {
     window.show()
     window.focus()
-    return
+    return true
   }
   // Hidden until the page paints, so a dark-mode window does not flash white.
-  // The preload script gives the page window.yargptUpdater.
+  // The preload script gives the page window.yargptUpdater and window.yargptSettings.
   window = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -289,6 +318,7 @@ async function openWindow() {
     window.destroy()
     throw err
   }
+  return true
 }
 
 function showServerError() {
@@ -307,13 +337,12 @@ function showServerError() {
     dialog.showErrorBox("YarGPT could not register its server", `macOS reports its launch agent as ${status}. Open YarGPT again to try again.`)
     return
   }
-  const choice = dialog.showMessageBoxSync({
-    type: "error",
-    message: "The YarGPT server did not start",
-    detail: `Its log is ${logFile}.`,
-    buttons: ["Open Log", "Close"],
-  })
-  if (choice === 0) void openFile(logFile, "the server log")
+  // The detail shows the server's last startup error, such as an invalid
+  // config.json.
+  const { options, actions } = serverErrorDialog(lastStartupErrorIn(logFile), logFile)
+  const action = actions[dialog.showMessageBoxSync(options)]
+  if (action === "openSettingsFile") void openSettings()
+  else if (action === "openLog") void openFile(logFile, "the server log")
 }
 
 function openInBrowser(url) {
@@ -380,27 +409,18 @@ async function openSettings() {
   await openFile(file, "the settings file")
 }
 
+// openSettingsPage shows the window on the Settings page.
+async function openSettingsPage() {
+  if (!(await showWindow()) || !window) return
+  try {
+    await window.loadURL(`${serverURL}/settings`)
+  } catch (err) {
+    console.error("open the Settings page:", err)
+  }
+}
+
 function buildMenu() {
-  return Menu.buildFromTemplate([
-    {
-      label: app.name,
-      submenu: [
-        { role: "about" },
-        updater.menuItem(),
-        { type: "separator" },
-        { id: "settings", label: "Settings…", accelerator: "Command+,", click: () => void openSettings() },
-        { type: "separator" },
-        { role: "services" },
-        { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
-        { type: "separator" },
-        { role: "quit" },
-      ],
-    },
-    { role: "editMenu" },
-    { role: "viewMenu" },
-    { role: "windowMenu" },
-  ])
+  return Menu.buildFromTemplate(
+    appMenuTemplate({ appName: app.name, updateItem: updater.menuItem(), openSettingsPage, openSettingsFile: openSettings }),
+  )
 }

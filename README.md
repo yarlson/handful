@@ -35,7 +35,9 @@ To build the app yourself, run `make app` and move `desktop/dist/mac-arm64/YarGP
 
 - The server keeps running when you quit the app, and starts at every login. It has no login of its own, so use the app only on a Mac that one person uses: see [Security](#security).
 - The icon in the menu bar has two items. **Check for updates…** opens the app and checks for a new version. **Exit server** stops the server, which then stays stopped until you open the app again or log in again.
-- **YarGPT › Settings…** (⌘,) opens `~/.yargpt/config.json` in your default editor. A change applies when the server starts again: choose **Exit server**, then open the app.
+- **YarGPT › Settings…** (⌘,) opens the Settings page. A change that needs a restart says so. **Restart server** restarts the server at once, or, if you choose, waits for the running bots first.
+- **YarGPT › Open Settings File** opens `~/.yargpt/config.json` in your default editor.
+- When the server can't start, the error screen shows its last error and offers **Open config.json**.
 - Links in chats open in your default browser.
 - The server writes its log to `~/Library/Logs/YarGPT/server.log`.
 - To remove the app, turn off YarGPT in System Settings › General › Login Items & Extensions, then delete `YarGPT.app`. Your bots and chats stay in `~/.yargpt`. The app also leaves `~/Library/Logs/YarGPT` and `~/Library/Application Support/YarGPT`; delete them too to remove everything.

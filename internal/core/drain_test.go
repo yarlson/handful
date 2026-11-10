@@ -66,3 +66,14 @@ func TestDrainModeKeepsItsStartAndTellsClientsOfEachChange(t *testing.T) {
 		t.Fatal("leaving drain mode did not signal the queued turns")
 	}
 }
+
+func TestARestartEventCarriesItsState(t *testing.T) {
+	svc := newTestService(t)
+	events, stop := svc.Hub().Subscribe()
+	defer stop()
+	svc.PublishRestart(RestartExpired)
+	e := <-events
+	if e.Type != "restart" || e.State != RestartExpired {
+		t.Fatalf("event = %+v; want a restart event with state %q", e, RestartExpired)
+	}
+}

@@ -40,12 +40,40 @@ type Settings struct {
 	// CancelRestart drops an idle restart that waits, when drain mode ends.
 	// It is nil when Restart is.
 	CancelRestart func()
+	// RestartState reports the idle restart that waits (nil when none), and
+	// whether the last one expired. It is nil when Restart is.
+	RestartState func() (wait *RestartWait, expired bool)
 	// StartupCheck reports why a server started again now would not start
 	// with the config file: the config key to blame ("" for the whole file)
 	// and the startup error, or nil. nil skips the check.
 	StartupCheck func() (key string, err error)
 	// LookPath finds the Claude Code program; nil skips the check.
 	LookPath func(string) (string, error)
+}
+
+// RestartWait is an idle restart that waits for the running work to end:
+// since when, and until when (ms) before it gives up.
+type RestartWait struct {
+	Since    int64 `json:"since"`
+	Deadline int64 `json:"deadline"`
+}
+
+// restartView is the state of an idle restart that the views report.
+type restartView struct {
+	// RestartWait is set while an idle restart waits. It is not "restart",
+	// which the settings view uses for the restart mode.
+	RestartWait *RestartWait `json:"restartWait,omitempty"`
+	// RestartExpired is true after the time limit passed with work still
+	// running, until the next restart request.
+	RestartExpired bool `json:"restartExpired,omitempty"`
+}
+
+func (s *server) restartView() restartView {
+	if s.settings.RestartState == nil {
+		return restartView{}
+	}
+	wait, expired := s.settings.RestartState()
+	return restartView{RestartWait: wait, RestartExpired: expired}
 }
 
 // RuntimeValue is a value of the command line that the page shows but
@@ -67,9 +95,10 @@ type settingsView struct {
 	Restart string   `json:"restart"` // "launchd" or "manual"
 	// StartError is the error a server started again now would stop with;
 	// absent when it would start. Every restart path refuses while it is set.
-	StartError string         `json:"startError,omitempty"`
-	Values     orderedValues  `json:"values"`
-	Runtime    []RuntimeValue `json:"runtime"`
+	StartError string `json:"startError,omitempty"`
+	restartView
+	Values  orderedValues  `json:"values"`
+	Runtime []RuntimeValue `json:"runtime"`
 }
 
 type fileView struct {
@@ -153,6 +182,7 @@ func (s *server) settingsView() settingsView {
 	if err != nil {
 		v.File.Error = err.Error()
 	}
+	v.restartView = s.restartView()
 	if _, startErr := s.wouldNotStart(); startErr != nil {
 		v.StartError = startErr.Error()
 	}

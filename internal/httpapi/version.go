@@ -37,6 +37,7 @@ type versionInfo struct {
 	Latest        string      `json:"latest,omitempty"`
 	ReleaseURL    string      `json:"releaseUrl,omitempty"`
 	SourceBuild   bool        `json:"sourceBuild"`
+	restartView
 }
 
 // version reports the server's version, whether it drains, and the work that
@@ -47,7 +48,7 @@ func (s *server) version(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) versionInfo(r *http.Request) versionInfo {
 	draining, since := s.svc.Draining()
-	v := versionInfo{Version: s.updates.Version, Draining: draining, DrainingSince: since, Running: s.runner.Busy(r.Context()), SourceBuild: s.updates.SourceBuild}
+	v := versionInfo{Version: s.updates.Version, Draining: draining, DrainingSince: since, Running: s.runner.Busy(r.Context()), SourceBuild: s.updates.SourceBuild, restartView: s.restartView()}
 	if s.updates.Latest != nil {
 		v.Latest = s.updates.Latest()
 	}

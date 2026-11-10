@@ -194,7 +194,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		assets = nil
 	}
 	updates := startUpdateNotice(ctx, o, log)
-	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, log)
+	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, svc.PublishRestart, log)
 	srv := &http.Server{
 		Addr:              o.addr,
 		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings)),

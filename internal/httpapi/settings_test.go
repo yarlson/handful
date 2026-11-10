@@ -408,3 +408,35 @@ func TestAServerWithoutASettingsFileHasNoSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestAWaitingRestartShowsOnEveryReadSoAReloadFindsIt(t *testing.T) {
+	wait := &RestartWait{Since: 1_000, Deadline: 1_801_000}
+	expired := false
+	h, _, _ := settingsHandler(t, "", func(s *Settings) {
+		s.Restart = func(bool) {}
+		s.RestartState = func() (*RestartWait, bool) { return wait, expired }
+	})
+	for _, target := range []string{"/api/settings", "/api/version"} {
+		rec := do(h, "GET", target, "", nil)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"restartWait":{"since":1000,"deadline":1801000}`) || strings.Contains(rec.Body.String(), "restartExpired") {
+			t.Fatalf("GET %s while a restart waits = %d %s; want restartWait and no expiry", target, rec.Code, rec.Body)
+		}
+	}
+	wait, expired = nil, true
+	for _, target := range []string{"/api/settings", "/api/version"} {
+		rec := do(h, "GET", target, "", nil)
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "restartWait") || !strings.Contains(rec.Body.String(), `"restartExpired":true`) {
+			t.Fatalf("GET %s after the limit = %d %s; want restartExpired and no restartWait", target, rec.Code, rec.Body)
+		}
+	}
+}
+
+func TestAServerWithoutARestarterReportsNoRestartState(t *testing.T) {
+	h, _, _ := settingsHandler(t, "", nil)
+	for _, target := range []string{"/api/settings", "/api/version"} {
+		rec := do(h, "GET", target, "", nil)
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "restartWait") || strings.Contains(rec.Body.String(), "restartExpired") {
+			t.Fatalf("GET %s = %d %s; want no restart state", target, rec.Code, rec.Body)
+		}
+	}
+}

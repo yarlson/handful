@@ -122,7 +122,7 @@ func codesignInfo(bundle string) string {
 
 // settingsOf returns what the Settings page needs of the server, and the
 // restarter of a server under launchd (nil otherwise), which stop ends.
-func (o options) settingsOf(stop context.CancelFunc, getenv func(string) string, getppid func() int, publish func(string), log *slog.Logger) (*restarter, httpapi.Settings) {
+func (o options) settingsOf(stop context.CancelFunc, getenv func(string) string, getppid func() int, publish func(string), hold func(bool), log *slog.Logger) (*restarter, httpapi.Settings) {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = ""
@@ -136,7 +136,7 @@ func (o options) settingsOf(stop context.CancelFunc, getenv func(string) string,
 	if !launchd {
 		return nil, s
 	}
-	r := newRestarter(stop, check, o.drainLimit, publish, log)
+	r := newRestarter(stop, check, o.drainLimit, publish, hold, log)
 	s.Restart, s.CancelRestart, s.RestartState = r.restart, r.cancel, r.state
 	return r, s
 }
@@ -156,7 +156,7 @@ func (o options) drainLimit() time.Duration {
 
 // watch starts waitIdle for the runner's work, until ctx ends, and returns
 // a func that waits for it to stop. A nil restarter watches nothing.
-func (r *restarter) watch(ctx context.Context, svc *core.Service, runner *agent.Runner) (wait func()) {
+func (r *restarter) watch(ctx context.Context, runner *agent.Runner) (wait func()) {
 	if r == nil {
 		return func() {}
 	}
@@ -165,8 +165,7 @@ func (r *restarter) watch(ctx context.Context, svc *core.Service, runner *agent.
 		defer close(done)
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
-		draining := func() bool { on, _ := svc.Draining(); return on }
-		r.waitIdle(ctx, tick.C, draining, func() int { return len(runner.Busy(ctx)) }, func() { svc.SetDraining(false) })
+		r.waitIdle(ctx, tick.C, func() int { return len(runner.Busy(ctx)) })
 	}()
 	return func() { <-done }
 }
@@ -186,6 +185,7 @@ type restarter struct {
 	limit   func() time.Duration   // how long an idle restart waits for the work to end
 	clock   func() time.Time
 	publish func(state string) // tells the clients of a change, as core.Service.PublishRestart
+	hold    func(on bool)      // holds drain mode while a restart waits, as core.Service.HoldDrain
 	log     *slog.Logger
 	asked   atomic.Bool // the server ends to restart
 
@@ -194,8 +194,8 @@ type restarter struct {
 	expired bool                 // the last idle restart passed its limit
 }
 
-func newRestarter(stop context.CancelFunc, check func() (string, error), limit func() time.Duration, publish func(string), log *slog.Logger) *restarter {
-	return &restarter{stop: stop, check: check, limit: limit, clock: time.Now, publish: publish, log: log}
+func newRestarter(stop context.CancelFunc, check func() (string, error), limit func() time.Duration, publish func(string), hold func(bool), log *slog.Logger) *restarter {
+	return &restarter{stop: stop, check: check, limit: limit, clock: time.Now, publish: publish, hold: hold, log: log}
 }
 
 // state reports the idle restart that waits, and whether the last expired.
@@ -209,8 +209,10 @@ func (r *restarter) state() (*httpapi.RestartWait, bool) {
 	return &w, r.expired
 }
 
-// end clears the waiting restart, if one waits, with state, and tells the
-// clients. A restart now also clears an expiry that no restart waits for.
+// end clears the waiting restart, if one waits, with state, lets go of its
+// hold on drain mode, and tells the clients. A restart now also clears an
+// expiry that no restart waits for. The server that ends keeps its hold:
+// no turn starts before it exits.
 func (r *restarter) end(state string) {
 	r.mu.Lock()
 	waited := r.wait != nil
@@ -219,12 +221,16 @@ func (r *restarter) end(state string) {
 		r.expired = state == core.RestartExpired
 	}
 	r.mu.Unlock()
-	if waited {
-		r.publish(state)
+	if !waited {
+		return
 	}
+	if state != core.RestartRestarting {
+		r.hold(false)
+	}
+	r.publish(state)
 }
 
-// cancel drops a pending idle restart, as leaving drain mode does.
+// cancel drops a pending idle restart and its hold on drain mode.
 func (r *restarter) cancel() { r.end(core.RestartCancelled) }
 
 // restart ends the server now, or asks waitIdle to end it once no work runs
@@ -244,6 +250,7 @@ func (r *restarter) restart(idle bool) {
 	}
 	r.mu.Unlock()
 	if started {
+		r.hold(true)
 		r.publish(core.RestartWaiting)
 	}
 }
@@ -254,15 +261,15 @@ func (r *restarter) exit() {
 }
 
 // waitIdle ends the server once an idle restart is pending and busy reports
-// no running work, checked at each tick. Leaving drain mode cancels the
-// pending restart. It returns when ctx ends or the server ends.
-func (r *restarter) waitIdle(ctx context.Context, tick <-chan time.Time, draining func() bool, busy func() int, undrain func()) {
+// no running work, checked at each tick. It returns when ctx ends or the
+// server ends.
+func (r *restarter) waitIdle(ctx context.Context, tick <-chan time.Time, busy func() int) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick:
-			if r.idleTick(draining, busy, undrain) {
+			if r.idleTick(busy) {
 				return
 			}
 		}
@@ -272,27 +279,22 @@ func (r *restarter) waitIdle(ctx context.Context, tick <-chan time.Time, drainin
 // idleTick handles one tick of waitIdle and reports whether the server ends.
 // Work still running at the deadline gives the restart up. The file may have
 // changed while the work ran: a server that would not start with it gives
-// the restart up too. Either way the server leaves drain mode.
-func (r *restarter) idleTick(draining func() bool, busy func() int, undrain func()) bool {
+// the restart up too. Either way the restart lets go of drain mode, which
+// stays on while the updater holds it.
+func (r *restarter) idleTick(busy func() int) bool {
 	wait, _ := r.state()
 	if wait == nil {
-		return false
-	}
-	if !draining() {
-		r.end(core.RestartCancelled)
 		return false
 	}
 	if busy() != 0 {
 		if r.clock().UnixMilli() >= wait.Deadline {
 			r.end(core.RestartExpired)
-			undrain()
 			r.log.Warn("restart given up: work still ran at the time limit")
 		}
 		return false
 	}
 	if _, err := r.check(); err != nil {
 		r.end(core.RestartCancelled)
-		undrain()
 		r.log.Warn("restart given up: the server would not start with its config file", "err", err)
 		return false
 	}

@@ -194,7 +194,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		assets = nil
 	}
 	updates := startUpdateNotice(ctx, o, log)
-	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, svc.PublishRestart, log)
+	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, svc.PublishRestart, func(on bool) { svc.HoldDrain(core.DrainRestart, on) }, log)
 	srv := &http.Server{
 		Addr:              o.addr,
 		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings)),
@@ -205,7 +205,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 
 	runnerDone := make(chan struct{})
 	go func() { runner.Run(ctx); close(runnerDone) }()
-	waitRestarts := restarts.watch(ctx, svc, runner)
+	waitRestarts := restarts.watch(ctx, runner)
 	defer func() { stop(); waitRestarts() }()
 
 	serveErr := make(chan error, 1)

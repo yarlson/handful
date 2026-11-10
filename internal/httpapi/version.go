@@ -58,15 +58,12 @@ func (s *server) versionInfo(r *http.Request) versionInfo {
 	return v
 }
 
-// setDrain turns drain mode on (POST) or off (DELETE) and reports the version
+// setDrain turns the updater's hold on drain mode on (POST) or off (DELETE),
+// which a waiting restart's own hold outlasts, and reports the version
 // as GET /api/version does.
 func (s *server) setDrain(on bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.svc.SetDraining(on)
-		if !on && s.settings.CancelRestart != nil {
-			// At once: the updater may turn drain mode on again before the restarter's next look.
-			s.settings.CancelRestart()
-		}
 		writeJSON(w, http.StatusOK, s.versionInfo(r))
 	}
 }

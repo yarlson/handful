@@ -77,3 +77,21 @@ func TestARestartEventCarriesItsState(t *testing.T) {
 		t.Fatalf("event = %+v; want a restart event with state %q", e, RestartExpired)
 	}
 }
+
+func TestDrainModeStaysOnWhileAnyHolderHoldsIt(t *testing.T) {
+	svc := newTestService(t)
+	start := time.UnixMilli(1_800_000_000_000)
+	now := start
+	svc.now = func() time.Time { return now }
+	svc.HoldDrain(DrainRestart, true)
+	now = start.Add(time.Minute)
+	svc.SetDraining(true)
+	svc.HoldDrain(DrainRestart, false)
+	if on, since := svc.Draining(); !on || since != start.UnixMilli() {
+		t.Fatalf("drain after the restart let go = %v since %d; want on since %d, held by the updater", on, since, start.UnixMilli())
+	}
+	svc.SetDraining(false)
+	if on, since := svc.Draining(); on || since != 0 {
+		t.Fatalf("drain after both let go = %v since %d; want off", on, since)
+	}
+}

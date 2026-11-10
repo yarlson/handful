@@ -37,8 +37,8 @@ type Settings struct {
 	// once no work runs (idle), after the handler turned on drain mode. It
 	// is nil when the server does not run under launchd.
 	Restart func(idle bool)
-	// CancelRestart drops an idle restart that waits, when drain mode ends.
-	// It is nil when Restart is.
+	// CancelRestart drops an idle restart that waits, and its hold on drain
+	// mode (DELETE /api/restart). It is nil when Restart is.
 	CancelRestart func()
 	// RestartState reports the idle restart that waits (nil when none), and
 	// whether the last one expired. It is nil when Restart is.
@@ -333,13 +333,26 @@ func (s *server) restart(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusConflict, key, "YarGPT wouldn't start after a restart: "+err.Error()+". Fix it, then restart.")
 		return
 	}
-	idle := in.When == "idle"
-	if idle {
-		s.svc.SetDraining(true)
+	if in.When == "idle" {
+		// The restarter holds drain mode; the answer shows it and the wait.
+		s.settings.Restart(true)
+		writeJSON(w, http.StatusAccepted, s.versionInfo(r))
+		return
 	}
 	// Answer first: a restart now ends the request's context.
 	writeJSON(w, http.StatusAccepted, s.versionInfo(r))
-	s.settings.Restart(idle)
+	s.settings.Restart(false)
+}
+
+// cancelRestart drops the idle restart that waits, and its hold on drain
+// mode; a hold of the updater stays.
+func (s *server) cancelRestart(w http.ResponseWriter, r *http.Request) {
+	if s.settings.CancelRestart == nil {
+		writeProblem(w, http.StatusNotImplemented, "", "This server doesn't run under launchd. Stop it and start ./bin/yargpt again.")
+		return
+	}
+	s.settings.CancelRestart()
+	writeJSON(w, http.StatusOK, s.versionInfo(r))
 }
 
 // wouldNotStart runs the startup check of the settings, if there is one.

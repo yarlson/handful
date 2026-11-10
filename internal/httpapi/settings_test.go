@@ -297,7 +297,16 @@ func TestRestartUnderLaunchdAnswersAndThenEndsTheServer(t *testing.T) {
 		t.Fatalf("restart mode = %q; want manual", got.Restart)
 	}
 	var asked []bool
-	h, svc, _ := settingsHandler(t, "", func(s *Settings) { s.Restart = func(idle bool) { asked = append(asked, idle) } })
+	var svc *core.Service
+	h, svc, _ = settingsHandler(t, "", func(s *Settings) {
+		// As the restarter does: an idle restart holds drain mode before the answer.
+		s.Restart = func(idle bool) {
+			asked = append(asked, idle)
+			if idle {
+				svc.HoldDrain(core.DrainRestart, true)
+			}
+		}
+	})
 	if got := readSettings(t, h); got.Restart != "launchd" {
 		t.Fatalf("restart mode = %q; want launchd", got.Restart)
 	}
@@ -363,17 +372,23 @@ func TestSettingsHaveNoStartErrorWhenTheServerWouldStart(t *testing.T) {
 	}
 }
 
-func TestLeavingDrainModeDropsAWaitingRestartAtOnce(t *testing.T) {
+func TestOnlyDeleteRestartCancelsAWaitingRestart(t *testing.T) {
 	cancelled := 0
 	h, _, _ := settingsHandler(t, "", func(s *Settings) {
 		s.Restart = func(bool) {}
 		s.CancelRestart = func() { cancelled++ }
 	})
-	if rec := do(h, "POST", "/api/drain", `{}`, jsonHeader); rec.Code != http.StatusOK || cancelled != 0 {
-		t.Fatalf("drain on = %d, cancelled %d; want 200 and nothing cancelled", rec.Code, cancelled)
+	// The updater's drain is its own: ending it leaves a waiting restart.
+	do(h, "POST", "/api/drain", `{}`, jsonHeader)
+	if rec := do(h, "DELETE", "/api/drain", "", nil); rec.Code != http.StatusOK || cancelled != 0 {
+		t.Fatalf("drain off = %d, cancelled %d; want 200 and the restart left waiting", rec.Code, cancelled)
 	}
-	if rec := do(h, "DELETE", "/api/drain", "", nil); rec.Code != http.StatusOK || cancelled != 1 {
-		t.Fatalf("drain off = %d, cancelled %d; want 200 and the waiting restart dropped", rec.Code, cancelled)
+	if rec := do(h, "DELETE", "/api/restart", "", nil); rec.Code != http.StatusOK || cancelled != 1 || !strings.Contains(rec.Body.String(), `"version"`) {
+		t.Fatalf("cancel restart = %d %s, cancelled %d; want 200 with the version body and the restart dropped", rec.Code, rec.Body, cancelled)
+	}
+	h, _, _ = settingsHandler(t, "", nil)
+	if rec := do(h, "DELETE", "/api/restart", "", nil); rec.Code != http.StatusNotImplemented {
+		t.Fatalf("cancel restart outside launchd = %d; want 501", rec.Code)
 	}
 }
 
@@ -383,6 +398,7 @@ func TestSettingsWritesNeedTheAppsOwnOrigin(t *testing.T) {
 		{"PATCH", "/api/settings", `{"model": "haiku"}`},
 		{"PUT", "/api/settings/file", `{}`},
 		{"POST", "/api/restart", `{"when": "now"}`},
+		{"DELETE", "/api/restart", ""},
 	} {
 		foreign := do(h, c.method, c.target, c.body, map[string]string{"Content-Type": "application/json", "Origin": "http://evil.example"})
 		req := httptest.NewRequestWithContext(t.Context(), c.method, "http://evil.example:7777"+c.target, strings.NewReader(c.body))

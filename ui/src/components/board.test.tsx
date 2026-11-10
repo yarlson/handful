@@ -337,3 +337,31 @@ test("a task from another team says where it came from, and the sent section fol
   assert.include(html, "Ops is on it")
   assert.include(html, "To Ops · 12 turns, paid by Ops")
 })
+
+test("every stopped task but the latest is listed with Reopen and its history", () => {
+  const html = render(
+    board({
+      goal: goal("s0", "Latest stopped", "stopped"),
+      stopped: [goal("s0", "Latest stopped", "stopped"), { ...goal("s1", "Older stopped", "stopped"), used: 7 }],
+    }),
+  )
+  assert.include(html, "Stopped (1)")
+  assert.include(html, 'aria-label="Reopen: Older stopped"')
+  assert.notInclude(html, 'aria-label="Reopen: Latest stopped"')
+  assert.include(html, "7 turns used · Reopen puts it back in the inbox.")
+  assert.include(html, 'aria-label="History: Older stopped"')
+  assert.include(html, 'aria-label="History: Latest stopped"')
+})
+
+test("no stopped tasks hide the section", () => {
+  assert.notInclude(render(board({ stopped: [] })), "Stopped (")
+  assert.notInclude(render(board({})), "Stopped (")
+})
+
+test("the Now task, planned and done tasks each open their history", () => {
+  const html = render(
+    board({ plan: [goal("q1", "Add PDF export", "queued", 1)], done: [goal("d1", "Spec the updater", "delivered")] }),
+  )
+  for (const t of ["Ship CSV export", "Add PDF export", "Spec the updater"])
+    assert.include(html, `aria-label="History: ${t}"`)
+})

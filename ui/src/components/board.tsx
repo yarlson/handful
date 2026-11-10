@@ -7,6 +7,7 @@ import {
   SendTaskDialog,
   SentSection,
   SourceChip,
+  TaskHistory,
   TextAction,
   when,
   WithdrawAction,
@@ -507,6 +508,7 @@ function PlanList({
               </Button>
               <WithdrawAction g={g} to={team.name} act={act} />
             </div>
+            <TaskHistory goal={g} />
           </li>
         ))}
       </ol>
@@ -555,6 +557,43 @@ function DoneList({ done, act, names }: { done: Goal[]; act: Act; names: Names }
                 onSubmit={(text) => act(() => api.changesTask(g.id, text))}
               />
             </div>
+            <TaskHistory goal={g} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// StoppedList shows the team's stopped tasks: their steps stay, and Reopen puts one back in
+// the inbox for the lead to decide on again. The latest task, when stopped, shows in Now.
+function StoppedList({ stopped, act, names }: { stopped: Goal[]; act: Act; names: Names }) {
+  if (stopped.length === 0) return null
+  return (
+    <section className="flex flex-col gap-1.5" aria-labelledby="stopped-heading">
+      <h3 id="stopped-heading" className="text-muted-foreground text-xs font-medium uppercase">
+        Stopped ({stopped.length})
+      </h3>
+      <ul className="flex flex-col gap-1.5">
+        {stopped.map((g) => (
+          <li key={g.id} className="flex flex-col gap-1.5 rounded-md border p-2 text-sm">
+            <div className="flex items-start gap-2">
+              <span className="flex-1 font-medium">{g.text}</span>
+              <FromChip goal={g} names={names} />
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {g.used} {g.used === 1 ? "turn" : "turns"} used · Reopen puts it back in the inbox.
+            </p>
+            <Button
+              size="xs"
+              variant="outline"
+              className="self-start"
+              aria-label={`Reopen: ${g.text}`}
+              onClick={() => void act(() => api.reopenTask(g.id))}
+            >
+              Reopen
+            </Button>
+            <TaskHistory goal={g} />
           </li>
         ))}
       </ul>
@@ -635,6 +674,7 @@ export function BoardView({
             <p className="text-muted-foreground text-xs">
               {goal.used} {goal.used === 1 ? "turn" : "turns"} so far · started {clock(goal.createdAt)}
             </p>
+            <TaskHistory goal={goal} steps={items} version={String(items.length)} />
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
@@ -658,6 +698,7 @@ export function BoardView({
         )
       })}
       <DoneList done={data.done ?? []} act={act} names={names} />
+      <StoppedList stopped={(data.stopped ?? []).filter((g) => g.id !== goal?.id)} act={act} names={names} />
       {plan.length > 0 && <PlanList team={team} plan={plan} held={!now && plan.length > 0} act={act} names={names} />}
       <section className="flex flex-col gap-1.5" aria-labelledby="inbox-heading">
         <h3 id="inbox-heading" className="text-muted-foreground text-xs font-medium uppercase">

@@ -1,6 +1,8 @@
 // A team's tasks: how the UI words their states, the lead's decision clock and what needs
 // the user. The server decides every state; this file only names and arranges them.
 
+import { eventLabel } from "./questions"
+
 // MAX_ROUNDS is how often a lead may ask a task's sender, and how often a task may be passed
 // on, before only the user decides on it.
 export const MAX_ROUNDS = 3
@@ -326,4 +328,34 @@ export function memberName(team: TeamLike, id: string): string {
 // leadName names a team's lead.
 export function leadName(team: TeamLike): string {
   return team.team?.leadId ? memberName(team, team.team.leadId) : "The lead"
+}
+
+const TASK_EVENTS: Record<string, string> = {
+  sent: "Sent",
+  proposed: "Proposed",
+  taken: "Taken",
+  ordered: "Moved in the plan",
+  pinned: "Pinned",
+  unpinned: "Unpinned",
+  asked: "Asked the sender",
+  answered: "Answered",
+  later: "Deferred",
+  due: "Back in the inbox",
+  passed: "Passed on",
+  pushed_back: "Pushed back",
+  closed: "Closed",
+  approved: "Approved",
+  changes: "Changes asked",
+  stopped: "Stopped",
+  reopened: "Reopened",
+  withdrawn: "Withdrawn",
+  missed: "Decision missed",
+}
+
+// taskEventLabel names an event in a task's history: a decision on the task, or an event of
+// one of its steps, led by the step's title. A step event has no goalId; step is its title,
+// when the board still lists it.
+export function taskEventLabel(e: { kind: string; round: number; goalId?: string }, step?: string): string {
+  if (e.goalId) return TASK_EVENTS[e.kind] ?? e.kind
+  return `${step ?? "A step"}: ${eventLabel(e)}`
 }

@@ -1,7 +1,17 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
 import type { Board, Bot, Goal, NeedsYouItem } from "@/lib/api"
-import { AcrossTeams, ArtifactPicker, InboxView, SendTaskDialog, SentSection, type InboxContext } from "./tasks.tsx"
+import {
+  AcrossTeams,
+  ArtifactPicker,
+  InboxView,
+  SendTaskDialog,
+  SentSection,
+  TaskHistory,
+  TaskHistoryList,
+  type InboxContext,
+} from "./tasks.tsx"
+import type { ItemEvent } from "@/lib/questions"
 
 const act = async () => true
 const names = {
@@ -283,4 +293,93 @@ test("a long artifact title wraps inside the send dialog, with its full text in 
     assert.include(html, `class="line-clamp-2 min-w-0 flex-1 [overflow-wrap:anywhere]" title="${t}"`)
   }
   assert.equal(renderToStaticMarkup(<ArtifactPicker artifacts={[]} picked={[]} onPick={() => {}} />), "")
+})
+
+const event = (x: Partial<ItemEvent>): ItemEvent => ({
+  id: "e",
+  itemId: "",
+  kind: "sent",
+  actorId: "",
+  actorName: "",
+  round: 0,
+  text: "",
+  createdAt: 0,
+  ...x,
+})
+
+test("a task's history lists every event in order, with who, when and its text, under a heading", () => {
+  const html = renderToStaticMarkup(
+    <TaskHistoryList
+      id="task-history-g1"
+      goal={goal({})}
+      steps={[{ id: "i1", title: "Settings API" }]}
+      events={[
+        event({ id: "e1", goalId: "g1", kind: "sent", actorId: "sl", actorName: "Support Lead", createdAt: 1 }),
+        event({
+          id: "e2",
+          goalId: "g1",
+          kind: "asked",
+          actorId: "a",
+          actorName: "Dee",
+          text: "Which build?",
+          createdAt: 2,
+        }),
+        event({ id: "e3", goalId: "g1", kind: "answered", text: "macOS 15.", createdAt: 3 }),
+        event({
+          id: "e4",
+          itemId: "i1",
+          kind: "changes",
+          round: 1,
+          actorName: "Rae",
+          text: "Add a test.",
+          createdAt: 4,
+        }),
+        event({ id: "e5", itemId: "i9", kind: "passed", actorId: "x", createdAt: 5 }),
+        event({ id: "e6", goalId: "g1", kind: "stopped", createdAt: 6 }),
+      ]}
+    />,
+  )
+  assert.match(html, /<section id="task-history-g1" aria-labelledby="task-history-g1-heading"/)
+  assert.include(html, '<h4 id="task-history-g1-heading" class="font-medium">History of Fix the scroll</h4>')
+  const order = [
+    "Sent",
+    "Asked the sender",
+    "Answered",
+    "Settings API: Changes asked · round 1",
+    "A step: Passed",
+    "Stopped",
+  ]
+  const at = order.map((label) => html.indexOf(`>${label}</span>`))
+  for (const [i, label] of order.entries()) assert.isAbove(at[i], -1, label)
+  assert.deepEqual(
+    [...at].sort((a, b) => a - b),
+    at,
+  )
+  assert.include(html, "· Support Lead · ")
+  assert.include(html, "· Dee · ")
+  assert.include(html, "· You · ")
+  assert.include(html, "· a former member · ")
+  assert.include(html, "Which build?")
+  assert.include(html, "macOS 15.")
+  assert.include(html, "Add a test.")
+  assert.include(html, "bg-amber-500/10")
+})
+
+test("an empty history says so, and the history opens from a named button", () => {
+  assert.include(
+    renderToStaticMarkup(<TaskHistoryList id="h" goal={goal({})} events={[]} />),
+    "Nothing has happened to it yet.",
+  )
+  const button = renderToStaticMarkup(<TaskHistory goal={goal({})} />)
+  assert.include(button, 'aria-label="History: Fix the scroll"')
+  assert.include(button, 'aria-expanded="false"')
+  assert.include(button, 'aria-controls="task-history-g1"')
+})
+
+test("inbox and sent cards open each task's history", () => {
+  assert.include(inbox([goal({})]), 'aria-label="History: Fix the scroll"')
+  assert.include(
+    renderToStaticMarkup(<SentSection goals={[goal({ state: "queued" })]} names={names} act={act} />),
+    'aria-label="History: Fix the scroll"',
+  )
 })

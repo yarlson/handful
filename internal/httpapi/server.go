@@ -101,6 +101,8 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("POST /api/goals/{id}/decline-handoff", s.handoffAction(declineHandoff, true))
 	mux.HandleFunc("POST /api/goals/{id}/withdraw-handoff", s.handoffAction(withdrawHandoff, false))
 	mux.HandleFunc("POST /api/teams/{id}/tasks", s.userTask)
+	mux.HandleFunc("POST /api/teams/{id}/tasks/from-turns", s.makeTask)
+	mux.HandleFunc("GET /api/teams/{id}/off-task", s.offTask)
 	mux.HandleFunc("POST /api/teams/{id}/plan", s.orderPlan)
 	mux.HandleFunc("POST /api/tasks/{id}/take", s.takeTask)
 	mux.HandleFunc("POST /api/tasks/{id}/push-back", s.handoffAction(pushBack, true))

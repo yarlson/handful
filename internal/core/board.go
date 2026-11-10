@@ -155,6 +155,8 @@ type Board struct {
 	Plan  []Goal `json:"plan"`
 	Done  []Goal `json:"done"`
 	Sent  []Goal `json:"sent"`
+	// OffTask is the team's work in the last hour that was on no task.
+	OffTask OffTask `json:"offTask"`
 	// Teams names the other teams that the board's items and requests involve.
 	Teams map[string]string `json:"teams"`
 }
@@ -291,6 +293,9 @@ func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
 		return Board{}, err
 	}
 	if err := s.fillHandoffs(ctx, teamID, &board); err != nil {
+		return Board{}, err
+	}
+	if board.OffTask, err = s.boardOffTask(ctx, teamID); err != nil {
 		return Board{}, err
 	}
 	return board, s.nameTeams(ctx, teamID, &board)

@@ -102,6 +102,36 @@ func (s *server) userTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, g)
 }
 
+// makeTask makes a task taken at once from turns of the team that were on
+// no task.
+func (s *server) makeTask(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Text    string   `json:"text"`
+		Brief   string   `json:"brief"`
+		TurnIDs []string `json:"turnIds"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.svc.MakeTask(r.Context(), core.Actor{Role: core.RoleUser}, r.PathValue("id"), core.NewTask{Text: in.Text, Brief: in.Brief}, in.TurnIDs)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, g)
+}
+
+// offTask lists the team's turns of the last hour that were on no task.
+func (s *server) offTask(w http.ResponseWriter, r *http.Request) {
+	off, err := s.svc.RecentOffTask(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, off)
+}
+
 // takeTask is the user's take of a task from a team's inbox into its plan.
 func (s *server) takeTask(w http.ResponseWriter, r *http.Request) {
 	var in struct {

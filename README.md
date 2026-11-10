@@ -165,25 +165,27 @@ To create one, click **+** next to **Teams**. Give the team a name and a purpose
 - To change the lead or the working agreement, open the team panel, then **Settings**. When the lead leaves the team, the first member leads.
 - A bot can be a member of several teams. It keeps a separate Claude Code session for each team.
 
-#### Goals and the board
+#### Tasks and the Work tab
 
-For work with several steps, give the team a goal: type `/goal` and what the team should do in the team's chat, for example `/goal Add CSV export`. When you ask the lead for such work in the chat, the lead can also start a goal.
+For work with several steps, send the team a task: type `/task` and what the team should do in the team's chat, for example `/task Add CSV export`. `/goal` still works. **New task…** in **Across teams** does the same for any team, and its **Start now** box puts the task at the top of the team's plan instead.
 
-- The lead splits the goal into items. Each item has a brief, acceptance criteria and one owner. When the working agreement asks for a check, it also has a reviewer, who is another member.
-- An item starts when it is ready: an item that depends on others waits for them, and independent items run at the same time.
-- The owner submits the result. The reviewer passes it or asks for changes. Every third request for changes blocks the item, and the lead decides.
-- While a bot reviews an item, YarGPT denies it Edit and Write in the team, even when you always allow them. Bash can still change files, so do not always allow Bash for a bot that reviews.
-- When an owner or a reviewer cannot go on, it blocks the item with a question. The lead answers it, and the item goes back to its owner or reviewer, or the lead gives it to another member. The lead can also ask you in the chat.
-- When an owner or a reviewer stops without handing its item on, for example after a failed turn or a restart, the item is blocked, and the lead decides. When a goal has nothing in flight after such a stop, the lead wakes.
-- When a member leaves the team, or you delete it, its items wait for a new owner, and a review that it did not finish is blocked for the lead.
-- When every item is done or dropped, the lead delivers the result to you in the chat. Click **Accept** above the chat, or write what to change: the lead then adds items, and the goal goes on.
-- A team works on one goal at a time. A goal that you or the lead start while the team is busy is **queued**, up to 10. The **Board** tab lists them under **Next up**, where you move them up or down or cancel them; leads can't. The bar above the chat names the next one.
-- The next goal starts when you accept or end the current one, with its own budget. With goals queued, **Accept and start next…** asks whether to start the next goal or hold the queue, and **End goal** has a **Start the next goal** box. A delivered goal never starts the next on its own. While the queue holds, the bar shows **Start now**, and a new goal joins the end of the queue.
-- After you accept a goal, the lead looks back on it once. It is asked to save up to 5 lessons in team memory, and it can suggest a change to the working agreement; only you change the agreement.
-- The **Board** tab of the team panel shows the items by state. The bar above the chat shows the goal and the turns it used.
-- A goal can use 30 turns of the board: the lead's turns, the work and the reviews. Your chat with the team and the bots' @mentions do not count. Change the number for the next goals in the team panel, under **Settings**. At the limit, the goal pauses, and the team shows a pause icon. **Add 10 turns** goes on.
-- **End goal** stops the goal for good, with its turns in every team.
-- **Stop** in the team's chat pauses the goal and blocks the requests of other teams that the team works on. **Resume** goes on with the goal; the team's lead unblocks the requests when you ask it to.
+- Every task lands in the team's **inbox**: yours, another team's, and a member's proposal. The lead decides on each one: it takes the task at a place in the plan, asks the sender a question, defers it to a date, passes it on to another team, or pushes it back with a reason. **Inbox** in the bar above the chat opens the inbox, with the decision clock of each task as text ("decide by 14:30", "clock paused: usage limit").
+- The lead has the team's **decision time** for each task, 30 minutes by default. The clock counts only time when the lead can act. When the time runs out, or the leads asked or passed a task on 3 times, the task needs you: **Take** it at a place in the plan, or **Push back…** with a reason.
+- The lead splits the Now task into steps. Each step has a brief, acceptance criteria and one owner. When the working agreement asks for a check, it also has a reviewer, who is another member.
+- A step starts when it is ready: a step that depends on others waits for them, and independent steps run at the same time.
+- The owner submits the result. The reviewer passes it or asks for changes. Every third request for changes blocks the step, and the lead decides.
+- While a bot reviews a step, YarGPT denies it Edit and Write in the team, even when you always allow them. Bash can still change files, so do not always allow Bash for a bot that reviews.
+- When an owner or a reviewer cannot go on, it blocks the step with a question. The lead answers it, and the step goes back to its owner or reviewer, or the lead gives it to another member. The lead can also ask you in the chat.
+- When an owner or a reviewer stops without handing its step on, for example after a failed turn or a restart, the step is blocked, and the lead decides. When a task has nothing in flight after such a stop, the lead wakes.
+- When a member leaves the team, or you delete it, its steps wait for a new owner, and a review that it did not finish is blocked for the lead.
+- When every step is done or dropped, the lead closes the task with a result, and the next task in the plan starts at once. The done task waits for approval by whoever asked: you for your tasks, the sending team's lead for its tasks. **Approve** it, or **Ask for changes…**: the task comes back as Now, first in the plan.
+- **Across teams**, at the top of the sidebar, shows each team's Now task, how many tasks are next and in its inbox, and whether it is paused. Its **Needs you** list holds what only you settle: results to approve, decisions a lead didn't make in time, tasks asked about or passed on 3 times, and open questions.
+- The **Work** tab of the team panel shows the Now task with its steps and turns, the tasks done and waiting for approval, **Next** in the lead's order, the inbox, and **Sent to other teams**. Move a planned task with the arrows, **Pin** it so the lead can't move it, or **Withdraw…** it.
+- After you approve a task, the lead looks back on it once. It is asked to save up to 5 lessons in team memory, and it can suggest a change to the working agreement; only you change the agreement.
+- The bar above the chat shows the Now task and the turns it used.
+- A task can use 30 turns of the board: the lead's planning, the work and the reviews. The lead's decisions on the inbox, your chat with the team and the bots' @mentions do not count. Change the number for the next tasks in the team panel, under **Settings**. At the limit, the task pauses, and the team shows a pause icon. **Add 10 turns** goes on.
+- **Stop…** in the bar stops the Now task: running turns finish, its steps stay, and the next task in the plan starts. When nothing else is Now, the bar offers **Reopen**, which puts the task back in the inbox.
+- **Stop** in the team's chat pauses the task and blocks the requests of other teams that the team works on. **Resume** goes on with the task; the team's lead unblocks the requests when you ask it to.
 - With `-max-parallel` above 1, the board's turns leave one slot free, so your other bots still answer while a team works.
 - In a team's turns, a member does not see the direct messages that other bots sent it. They wait for its next turn outside the team.
 
@@ -191,16 +193,15 @@ For work with several steps, give the team a goal: type `/goal` and what the tea
 
 Teams pass work to each other in two ways:
 
-- A **handoff** gives another team a whole piece of work as a goal of its own, for example a bug for a Dev team or an approved spec to build. It costs the sending team nothing and needs no goal of its own.
-- A **request** asks another team for a part that items of the sending team's running goal wait on, for example a Release team that asks a Docs team for a guide. It counts against that goal.
+- **Sending a task** gives another team a whole piece of work, for example a bug for a Dev team or an approved spec to build. The receiving team works on it from its own budget, and the sending team needs no task of its own.
+- A **request** asks another team for a part that steps of the sending team's Now task wait on, for example a Release team that asks a Docs team for a guide. It counts against that task.
 
-##### Handoffs
+##### Sending tasks
 
-- A lead hands work over with a brief and any artifacts. You can too: **Hand over…** in a team's goal bar, or **Hand to team…** on an artifact in the **Artifacts** tab.
-- The receiving team's **Board** tab lists it under **Incoming from other teams**, and the sidebar shows a blue count on the team. The receiving lead accepts it, asks the sender a question, or declines it with a reason. After 3 questions on one handoff, the leads stop and you decide: **Accept**, **Answer…** or **Decline…** on the card.
-- An accepted handoff joins the team's goal queue and works under the team's own budget. Under **Accepted handoffs** in the team's **Settings**, choose whether it starts on its own when the team is free (the default) or waits for you to start it. The goal bar and the queue mark handed-over goals with **From <team>**.
-- The sending team's **Board** tab lists its handoffs of the last 30 days under **Handed over**, with each one's state: waiting, asked, queued, active with its turns, delivered, done, declined or ended. **Answer…** replies to the receiver's question, and **Withdraw…** takes back a handoff that hasn't started. The sender's chat gets a note when the work is accepted, declined, delivered or ended.
-- A handoff is independent of the sender's goals: ending them doesn't touch it. Work that came through 3 handoffs, or a team with 10 handoffs waiting, needs you to pass it on.
+- A lead sends a task with a brief and any artifacts. You can too: **Send to a team…** in a team's bar, or **Send to a team…** on an artifact in the **Artifacts** tab.
+- The task lands in the receiving team's inbox, and the sidebar shows a blue count on the team. Its lead decides on it, as on any task.
+- The sending team's **Work** tab lists the tasks it sent in the last 30 days under **Sent to other teams**, with each one's state: in the other team's inbox, asked, later, its place in the other team's plan, being done with its turns ("paid by" the receiving team), done, pushed back with the reason, or withdrawn. **Answer…** replies to the receiver's question, and **Withdraw…** takes back a task that hasn't started.
+- A team's inbox holds at most 10 tasks, and 3 from one team. Change both, and the decision time, in the team's **Settings**. Your own tasks always land. Work that came through 3 teams needs you to send it on.
 
 ##### Requests
 
@@ -211,8 +212,8 @@ The other team's lead accepts a request by assigning it to a member, declines it
 - While a team works on its own goal, it works on at most one request of other teams at a time; accepted requests wait their turn in arrival order. Change the number under **Requests in progress at once** in the team's **Settings**, from 1 to the number of members. Without a goal of its own, a team works on every accepted request. Looking at a new request never waits for a slot.
 - The lead accepts requests oldest first. To take one out of order, it gives a reason, which the asking team sees.
 - A declined, deferred or withdrawn request doesn't count as done: items that depend on it don't start, and the asking lead is told to re-plan.
-- The serving team's **Board** tab shows them under **Requests for other teams' goals**, in groups (in progress, waiting for a slot, awaiting triage, deferred, closed), with each one's place and why it waits. **Bring back** returns a deferred request.
-- The asking team's **Board** tab lists what it asked of other teams under **Asked of other teams**, with each request's state, place and reason. **Withdraw…** takes one back, as can the asking lead. Ending the asking goal withdraws its open requests.
+- The serving team's **Work** tab shows them under **Requests for other teams' goals**, in groups (in progress, waiting for a slot, awaiting triage, deferred, closed), with each one's place and why it waits. **Bring back** returns a deferred request.
+- The asking team's **Work** tab lists what it asked of other teams under **Asked of other teams**, with each request's state, place and reason. **Withdraw…** takes one back, as can the asking lead. Ending the asking goal withdraws its open requests.
 - Both teams' chats show each change of a request.
 - Only leads send requests, and a member talks only to its own team.
 - Deleting a team also deletes the requests that other teams sent to it.

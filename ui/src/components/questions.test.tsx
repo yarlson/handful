@@ -63,7 +63,7 @@ test("the Answer chip names its question and has a labelled clear button", () =>
   assert.include(html, 'aria-label="Stop answering: Ship it?"')
 })
 
-test("Waiting for you groups questions by chat and links approvals and paused goals", () => {
+test("Waiting for you groups questions by chat and links approvals and paused tasks", () => {
   const html = renderToStaticMarkup(
     <WaitingView
       waiting={{
@@ -83,7 +83,7 @@ test("Waiting for you groups questions by chat and links approvals and paused go
   assert.include(html, 'aria-label="Dismiss: Second?"')
   assert.include(html, "Open chat")
   assert.include(html, "Gamma: needs your approval")
-  assert.include(html, "Team: the goal is paused")
+  assert.include(html, "Team: the task is paused")
   assert.include(html, "Answered or dismissed in the last 7 days: 4")
   assert.notInclude(html, "Nothing is waiting")
 })
@@ -105,7 +105,13 @@ test("closed questions are counted, and Show is offered only when there are some
   const view = (closed: OpenQuestion[]) =>
     renderToStaticMarkup(
       <WaitingView
-        waiting={{ questions: [], approvals: 0, pausedGoals: 0, closedRecently: closed.length, closed }}
+        waiting={{
+          questions: [],
+          approvals: 0,
+          pausedGoals: 0,
+          closedRecently: closed.length,
+          closed,
+        }}
         bots={[bot("x", "Alpha")]}
         onOpen={noop}
         onAnswer={noop}

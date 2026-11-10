@@ -16,7 +16,10 @@ export type TeamSettings = {
   defaultModel?: string
   defaultEffort?: string
   requestSlots?: number
-  startHandoffs?: "auto" | "ask" // what an accepted handoff does when the team is free // requests of other teams worked on at once beside its own goal
+  // The team's inbox holds at most inboxMax tasks, and inboxPerSender from one sending team.
+  inboxMax?: number
+  inboxPerSender?: number
+  decisionMinutes?: number // how long a task may wait in the inbox for the lead's decision
 }
 
 export type Bot = {
@@ -88,7 +91,14 @@ export type ApprovalBody = {
 }
 export type Decision = "once" | "always" | "deny"
 
-type EntryBase = { id: string; botId: string; seq: number; rev: number; turnId: string; createdAt: number }
+type EntryBase = {
+  id: string
+  botId: string
+  seq: number
+  rev: number
+  turnId: string
+  createdAt: number
+}
 export type Entry =
   | (EntryBase & { kind: "user"; body: UserBody })
   | (EntryBase & { kind: "bot"; body: BotBody })
@@ -137,23 +147,32 @@ export type Goal = {
   id: string
   teamId: string
   text: string
-  state: "active" | "delivered" | "paused" | "done" | "ended" | "queued" | "incoming" | "declined"
+  // incoming and later are in the inbox; queued is planned; active and paused are Now;
+  // delivered is done and waits for approval; done is approved; declined is pushed back.
+  state: "active" | "delivered" | "paused" | "done" | "ended" | "queued" | "incoming" | "later" | "declined" | "stopped"
   budget: number
   used: number
   queuePos: number // 1-based place in the queue; 0 unless queued
   createdAt: number
-  // A goal that another team, or the user, handed over to this team.
-  origin?: "user" | "handoff"
+  // Where the task came from: the user, another team (or the user for it), or a member.
+  origin?: "user" | "handoff" | "proposal"
   fromTeamId?: string
   fromBotId?: string
   fromGoalId?: string
   brief?: string
   artifactIds?: string[]
-  intakeNote?: string // the receiver's latest question, or why it declined
-  askedAt?: number
+  intakeNote?: string // the lead's latest question, deferral note or push-back reason
+  askedAt?: number // >0 while a question waits for the sender's answer
   askRounds?: number
   depth?: number
-  needsUser?: boolean
+  needsUser?: boolean // only the user decides on it now
+  missedAt?: number // ms when the lead's decision time ran out
+  decisionMs?: number // decision time counted so far
+  pinned?: boolean
+  laterUntil?: number // ms when a deferred task returns to the inbox
+  passes?: number
+  passedBy?: string // "Passed to Dev by Product Lead"
+  waitsOnItemId?: string // the sender's step that waits on it
 }
 
 export type Item = {
@@ -204,10 +223,28 @@ export type Board = {
   queue: Goal[] // queued goals, in order
   slots: Slots
   asked: Request[] // what this team asked of other teams
-  incoming?: Goal[] // handoffs that wait for this team, oldest first
-  handedOver?: Goal[] // this team's handoffs of the last 30 days, newest first
+  handedOver?: Goal[] // the tasks this team sent in the last 30 days, newest first
+  inbox?: Goal[] // tasks that wait for the lead's decision, oldest first
+  plan?: Goal[] // taken tasks, in order
+  done?: Goal[] // closed tasks that wait for approval
   teams: Record<string, string>
 }
+
+// NeedsYouItem is one thing only the user can settle: a result to approve, a decision a
+// lead missed, a task asked about or passed on too often, or an open question.
+export type NeedsYouItem = {
+  kind: "approve" | "missed" | "stuck" | "question"
+  chatId: string
+  goalId?: string
+  entryId: string
+  text: string
+  lead?: string
+  reason?: string
+  at: number
+}
+
+// NewTask is a task the user sends a team; startNow puts it at the top of the plan.
+export type NewTask = { text: string; brief?: string; artifactIds?: string[]; startNow?: boolean }
 
 // Connector is an external MCP server. The API never returns its tokens or headers.
 export type Connector = {
@@ -267,22 +304,23 @@ export const api = {
     request<Bot>("POST", "/api/teams", team),
   updateTeam: (id: string, patch: Partial<TeamSettings>) => request<Bot>("PATCH", `/api/teams/${id}`, patch),
   board: (id: string) => request<Board>("GET", `/api/teams/${id}/board`),
-  startGoal: (id: string, text: string) => request<Goal>("POST", `/api/teams/${id}/goals`, { text }),
   extendGoal: (id: string, turns: number) => request<Goal>("POST", `/api/goals/${id}/extend`, { turns }),
-  endGoal: (id: string, startNext = true) => request<void>("POST", `/api/goals/${id}/end`, { startNext }),
-  acceptGoal: (id: string, startNext = true) => request<Goal>("POST", `/api/goals/${id}/accept`, { startNext }),
-  cancelGoal: (id: string) => request<void>("POST", `/api/goals/${id}/cancel`, {}),
-  reorderGoals: (teamId: string, order: string[]) =>
-    request<void>("POST", `/api/teams/${teamId}/goal-queue`, { order }),
+  startNextGoal: (teamId: string) => request<Goal>("POST", `/api/teams/${teamId}/goal-queue/start`, {}),
   handOver: (toTeamId: string, h: { fromTeamId?: string; text: string; brief?: string; artifactIds?: string[] }) =>
     request<Goal>("POST", `/api/teams/${toTeamId}/handoffs`, h),
-  acceptHandoff: (goalId: string) => request<Goal>("POST", `/api/goals/${goalId}/accept-handoff`, {}),
-  answerHandoff: (goalId: string, text: string) =>
-    request<Goal>("POST", `/api/goals/${goalId}/answer-handoff`, { text }),
-  declineHandoff: (goalId: string, text: string) =>
-    request<Goal>("POST", `/api/goals/${goalId}/decline-handoff`, { text }),
-  withdrawHandoff: (goalId: string) => request<Goal>("POST", `/api/goals/${goalId}/withdraw-handoff`, {}),
-  startNextGoal: (teamId: string) => request<Goal>("POST", `/api/teams/${teamId}/goal-queue/start`, {}),
+  userTask: (teamId: string, t: NewTask) => request<Goal>("POST", `/api/teams/${teamId}/tasks`, t),
+  orderPlan: (teamId: string, order: string[]) => request<void>("POST", `/api/teams/${teamId}/plan`, { order }),
+  // position is the place in the plan, from 1; 0 is the end.
+  takeTask: (id: string, position = 0) => request<Goal>("POST", `/api/tasks/${id}/take`, { position }),
+  pushBack: (id: string, text: string) => request<Goal>("POST", `/api/tasks/${id}/push-back`, { text }),
+  answerTask: (id: string, text: string) => request<Goal>("POST", `/api/tasks/${id}/answer`, { text }),
+  pinTask: (id: string, pinned: boolean) => request<Goal>(pinned ? "POST" : "DELETE", `/api/tasks/${id}/pin`, {}),
+  stopTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/stop`, {}),
+  reopenTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/reopen`, {}),
+  withdrawTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/withdraw`, {}),
+  approveTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/approve`, {}),
+  changesTask: (id: string, text: string) => request<Goal>("POST", `/api/tasks/${id}/changes`, { text }),
+  needsYou: () => request<NeedsYouItem[]>("GET", "/api/needs-you"),
   withdrawItem: (id: string) => request<Item>("POST", `/api/items/${id}/withdraw`, {}),
   undeferItem: (id: string) => request<Item>("POST", `/api/items/${id}/undefer`, {}),
   updateBot: (id: string, patch: { name?: string; instructions?: string; model?: string; effort?: string }) =>

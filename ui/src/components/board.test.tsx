@@ -59,35 +59,73 @@ const board = (b: Partial<Board>): Board => ({
 const render = (b: Board) =>
   renderToStaticMarkup(<BoardView team={team} data={b} error={null} act={async () => true} />)
 
-test("queued goals are listed in order with keyboard controls and an announcer", () => {
+test("planned tasks are listed in the lead's order with move, pin and withdraw controls and an announcer", () => {
   const html = render(
-    board({ queue: [goal("q1", "Add PDF export", "queued", 1), goal("q2", "Fix login", "queued", 2)] }),
+    board({
+      plan: [{ ...goal("q1", "Add PDF export", "queued", 1), pinned: true }, goal("q2", "Fix login", "queued", 2)],
+    }),
   )
-  assert.include(html, "Next up (2)")
+  assert.include(html, "Next, in Ana&#x27;s order (2)")
   assert.isBelow(html.indexOf("Add PDF export"), html.indexOf("Fix login"))
   assert.include(html, 'aria-label="Move Add PDF export up"')
   assert.include(html, 'aria-label="Move Fix login down"')
-  assert.include(html, 'aria-label="Cancel goal Fix login"')
+  assert.include(html, 'aria-label="Unpin Add PDF export"')
+  assert.include(html, 'aria-label="Pin Fix login at #2"')
+  assert.include(html, ">pinned<")
+  assert.include(html, 'aria-label="Withdraw: Fix login"')
   assert.include(html, 'aria-live="polite"')
-  assert.include(html, "Starts when you accept or end the current goal.")
+  assert.include(html, "The first one starts when the Now task is done or stopped.")
   // The first can't go up and the last can't go down.
-  assert.match(html, /id="queue-q1-up"[^>]*disabled/)
-  assert.match(html, /id="queue-q2-down"[^>]*disabled/)
-  assert.notMatch(html, /id="queue-q1-down"[^>]*disabled/)
+  assert.match(html, /id="plan-q1-up"[^>]*disabled/)
+  assert.match(html, /id="plan-q2-down"[^>]*disabled/)
+  assert.notMatch(html, /id="plan-q1-down"[^>]*disabled/)
 })
 
-test("with no open goal the queue is on hold and can start now", () => {
-  const html = render(board({ goal: goal("g0", "Old", "done"), queue: [goal("q1", "Add PDF export", "queued", 1)] }))
+test("with no Now task the plan is on hold and can start now", () => {
+  const html = render(board({ goal: goal("g0", "Old", "done"), plan: [goal("q1", "Add PDF export", "queued", 1)] }))
   assert.include(html, "On hold.")
   assert.include(html, "Start now")
-  assert.notInclude(html, "Starts when you accept")
+  assert.include(html, "Latest task")
+  assert.include(html, ">Approved<")
+  assert.notInclude(html, "The first one starts")
 })
 
-test("no queue, no requests and no asks hide their sections", () => {
+test("an empty plan, no requests and no asks hide their sections, and the inbox says it's empty", () => {
   const html = render(board({}))
-  assert.notInclude(html, "Next up")
+  assert.notInclude(html, "Next, in")
   assert.notInclude(html, "Requests for other teams")
   assert.notInclude(html, "Asked of other teams")
+  assert.notInclude(html, "Sent to other teams")
+  assert.notInclude(html, "Done, waiting for approval")
+  assert.include(html, "Inbox (0)")
+  assert.include(html, "Nothing waits for a decision.")
+})
+
+test("the Now task shows its turns, and the inbox counts what waits for the lead", () => {
+  const html = renderToStaticMarkup(
+    <BoardView
+      team={team}
+      data={board({
+        goal: { ...goal("g1", "Ship CSV export", "active"), used: 38 },
+        inbox: [goal("i1", "Fix a bug", "incoming"), goal("i2", "Fix another", "later")],
+      })}
+      error={null}
+      act={async () => true}
+      onOpenInbox={() => {}}
+    />,
+  )
+  assert.include(html, ">Now<")
+  assert.include(html, "38 turns so far")
+  assert.include(html, "Inbox (2)")
+  assert.include(html, "2 tasks wait for Ana&#x27;s decision.")
+  assert.include(html, "Open inbox")
+})
+
+test("done tasks wait for approval with Approve and Ask for changes", () => {
+  const html = render(board({ done: [goal("d1", "Spec the updater", "delivered")] }))
+  assert.include(html, "Done, waiting for approval (1)")
+  assert.include(html, 'aria-label="Approve: Spec the updater"')
+  assert.include(html, 'aria-label="Ask for changes: Spec the updater"')
 })
 
 test("requests are grouped under the slot header with positions and reason lines", () => {
@@ -111,7 +149,10 @@ test("requests are grouped under the slot header with positions and reason lines
           intake: "requested",
           position: 1,
           total: 1,
-          reason: { code: "triage", text: "Waiting for Ana to accept, decline or defer it (position 1 of 1)." },
+          reason: {
+            code: "triage",
+            text: "Waiting for Ana to accept, decline or defer it (position 1 of 1).",
+          },
         }),
         req("r4", "Later thing", {
           intake: "deferred",
@@ -152,7 +193,11 @@ test("the asking team sees each request's state as text, the reason, and can wit
           intake: "accepted",
           position: 2,
           total: 3,
-          reason: { code: "behind", text: "Accepted, position 2 of 3.", waitsOn: "… waiting on team Support." },
+          reason: {
+            code: "behind",
+            text: "Accepted, position 2 of 3.",
+            waitsOn: "… waiting on team Support.",
+          },
         }),
         req("a2", "Need design", {
           teamId: "t2",
@@ -183,14 +228,10 @@ test("items asked of other teams show only in the asked section", () => {
   assert.include(html, "Write code")
 })
 
-test("cancelling a queued goal asks first: no confirm shows until the ✕ is pressed", () => {
-  const html = render(board({ queue: [goal("q1", "Add PDF export", "queued", 1)] }))
-  assert.include(html, 'aria-label="Cancel goal Add PDF export"')
-  assert.include(html, 'aria-expanded="false"')
-  assert.notInclude(html, "can't be undone")
+const item = (x: Partial<Request>) => ({
+  ...req("i1", "Write code", { goalId: "g1", ownerId: "a" }),
+  ...x,
 })
-
-const item = (x: Partial<Request>) => ({ ...req("i1", "Write code", { goalId: "g1", ownerId: "a" }), ...x })
 
 test("a card with change requests opens its history, and shows the request being worked on", () => {
   const html = render(
@@ -252,24 +293,47 @@ test("the history lists every event with its round, author and whole text", () =
   assert.include(html, "History starts on")
 })
 
-test("a handed-over goal in the queue says where it came from, and incoming and handed-over sections show", () => {
+test("a task from another team says where it came from, and the sent section follows what the team sent", () => {
   const html = renderToStaticMarkup(
     <BoardView
       team={team}
       data={board({
-        queue: [{ ...goal("q1", "Build the spec", "queued", 1), origin: "handoff", fromTeamId: "p1" }],
-        incoming: [{ ...goal("i1", "Fix a bug", "incoming"), origin: "handoff", fromTeamId: "t2" }],
-        handedOver: [{ ...goal("h1", "Write docs", "queued", 1), teamId: "t3", origin: "handoff", fromTeamId: "t1" }],
+        plan: [{ ...goal("q1", "Build the spec", "queued", 1), origin: "handoff", fromTeamId: "p1" }],
+        handedOver: [
+          {
+            ...goal("h1", "Write docs", "queued", 2),
+            teamId: "t3",
+            origin: "handoff",
+            fromTeamId: "t1",
+          },
+          {
+            ...goal("h2", "Copy review", "declined"),
+            teamId: "t2",
+            origin: "handoff",
+            fromTeamId: "t1",
+            intakeNote: "GTM owns copy.",
+          },
+          {
+            ...goal("h3", "Model chip", "active"),
+            teamId: "t3",
+            origin: "handoff",
+            fromTeamId: "t1",
+            used: 12,
+          },
+        ],
       })}
       error={null}
       act={async () => true}
       teams={[{ ...team, id: "p1", name: "Product" }]}
     />,
   )
-  assert.include(html, "From Product")
-  assert.include(html, "Incoming from other teams (1)")
-  assert.include(html, "From Support")
-  assert.include(html, "Handed over (1)")
-  assert.include(html, "To Ops")
-  assert.isBelow(html.indexOf("Incoming from other teams"), html.indexOf("Ship CSV export"))
+  assert.include(html, "from Product")
+  assert.include(html, "Sent to other teams (3)")
+  assert.include(html, "#2 in Ops&#x27;s plan")
+  assert.include(html, 'aria-label="Withdraw: Write docs"')
+  assert.include(html, "Pushed back")
+  assert.include(html, "GTM owns copy.")
+  assert.notInclude(html, 'aria-label="Withdraw: Copy review"')
+  assert.include(html, "Ops is on it")
+  assert.include(html, "To Ops · 12 turns, paid by Ops")
 })

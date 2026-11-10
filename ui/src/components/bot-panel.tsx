@@ -21,10 +21,11 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { slotsError } from "@/lib/queue"
+import { decisionError, inboxError } from "@/lib/tasks"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { cn } from "@/lib/utils"
 import { BoardTab } from "@/components/board"
-import { HandOverDialog } from "@/components/handoff"
+import { SendTaskDialog } from "@/components/tasks"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 
@@ -70,7 +71,11 @@ function AddFactForm({ bot, onAdded, onError }: { bot: Bot; onAdded: () => void;
   const own = bot.team ? "team" : "agent"
   const add = async () => {
     try {
-      await api.addMemory(bot.id, { scope: shared ? "user" : own, tier: always ? "profile" : "log", fact })
+      await api.addMemory(bot.id, {
+        scope: shared ? "user" : own,
+        tier: always ? "profile" : "log",
+        fact,
+      })
       setFact("")
       onAdded()
     } catch (e) {
@@ -102,7 +107,11 @@ function AddFactForm({ bot, onAdded, onError }: { bot: Bot; onAdded: () => void;
   )
 }
 
-const scopeLabel: Record<Memory["scope"], string> = { agent: "this bot", team: "this team", user: "shared" }
+const scopeLabel: Record<Memory["scope"], string> = {
+  agent: "this bot",
+  team: "this team",
+  user: "shared",
+}
 
 function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
   const { data, error, reload, setError } = useLoad(() => api.memory(bot.id), `${bot.id}:${version}`)
@@ -389,7 +398,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
                       setOpen(null)
                     }}
                   >
-                    Hand to team…
+                    Send to a team…
                   </Button>
                 )}
                 <Button variant="destructive" onClick={() => setConfirm(true)}>
@@ -400,7 +409,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <HandOverDialog
+      <SendTaskDialog
         open={handing !== null}
         onOpenChange={(v) => !v && setHanding(null)}
         from={null}
@@ -495,14 +504,16 @@ const deleteNote = {
 }
 
 // TeamSettingsForm edits what a team adds to its room: the lead, the working
-// agreement and the turns per goal. Its key changes with the saved settings,
+// agreement, the turns per task, the decision time and the inbox limits. Its key changes with the saved settings,
 // which resets it.
 function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSettings }) {
   const [lead, setLead] = useState(settings.leadId)
   const [agreement, setAgreement] = useState(settings.agreement)
   const [budget, setBudget] = useState(String(settings.goalBudget))
   const [slots, setSlots] = useState(String(settings.requestSlots ?? 1))
-  const [startHandoffs, setStartHandoffs] = useState(settings.startHandoffs ?? "auto")
+  const [decision, setDecision] = useState(String(settings.decisionMinutes ?? 30))
+  const [inboxMax, setInboxMax] = useState(String(settings.inboxMax ?? 10))
+  const [perSender, setPerSender] = useState(String(settings.inboxPerSender ?? 3))
   const [slotsInvalid, setSlotsInvalid] = useState<string | null>(null)
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
   const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
@@ -513,7 +524,12 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
     try {
       const goalBudget = Number(budget)
       if (!Number.isInteger(goalBudget) || goalBudget < 1 || goalBudget > 500) {
-        setResult(failed("Turns per goal must be a whole number from 1 to 500."))
+        setResult(failed("Turns per task must be a whole number from 1 to 500."))
+        return
+      }
+      const badTask = decisionError(decision) ?? inboxError(inboxMax, perSender)
+      if (badTask) {
+        setResult(failed(badTask))
         return
       }
       const bad = slotsError(slots, members.length)
@@ -528,7 +544,9 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         agreement,
         goalBudget,
         requestSlots: Number(slots),
-        startHandoffs,
+        decisionMinutes: Number(decision),
+        inboxMax: Number(inboxMax),
+        inboxPerSender: Number(perSender),
         defaultModel,
         defaultEffort,
       })
@@ -568,7 +586,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         </p>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="team-settings-budget">Turns per goal</Label>
+        <Label htmlFor="team-settings-budget">Turns per task</Label>
         <Input
           id="team-settings-budget"
           type="number"
@@ -578,7 +596,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           onChange={(e) => setBudget(e.target.value)}
         />
         <p className="text-muted-foreground text-xs">
-          For the next goal. A goal pauses when its turns are used up; add turns above the chat.
+          For the next task. A task pauses when its turns are used up; add turns above the chat.
         </p>
       </div>
       <div className="flex flex-col gap-1.5">
@@ -596,8 +614,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           onChange={(e) => setSlots(e.target.value)}
         />
         <p id="team-settings-slots-help" className="text-muted-foreground text-xs">
-          While your team works on its own goal, it works on at most this many requests from other teams. Without a goal
-          of its own, it takes them all.
+          While your team works on a task, it works on at most this many requests from other teams. Without a task, it
+          takes them all.
         </p>
         {slotsInvalid && (
           <p id="team-settings-slots-error" className="text-destructive text-xs">
@@ -606,20 +624,53 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         )}
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="team-settings-handoffs">Accepted handoffs</Label>
-        <select
-          id="team-settings-handoffs"
-          className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
-          value={startHandoffs}
-          onChange={(e) => setStartHandoffs(e.target.value === "ask" ? "ask" : "auto")}
-        >
-          <option value="auto">Start automatically when the team is free</option>
-          <option value="ask">Wait for me to start them</option>
-        </select>
-        <p className="text-muted-foreground text-xs">
-          Work another team hands over joins the goal queue once the lead accepts it.
+        <Label htmlFor="team-settings-decision">Decision time, in minutes</Label>
+        <Input
+          id="team-settings-decision"
+          type="number"
+          min={5}
+          max={1440}
+          value={decision}
+          aria-describedby="team-settings-decision-help"
+          onChange={(e) => setDecision(e.target.value)}
+        />
+        <p id="team-settings-decision-help" className="text-muted-foreground text-xs">
+          How long a task may wait in the inbox for the lead's decision, counting only time when the lead can act. After
+          that, it needs you.
         </p>
       </div>
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1 text-sm font-medium">Inbox limits</legend>
+        <div className="flex items-center gap-2 text-sm">
+          <Label htmlFor="team-settings-inbox-max" className="font-normal">
+            Holds at most
+          </Label>
+          <Input
+            id="team-settings-inbox-max"
+            type="number"
+            min={1}
+            max={50}
+            className="w-16"
+            value={inboxMax}
+            onChange={(e) => setInboxMax(e.target.value)}
+          />
+          <Label htmlFor="team-settings-inbox-sender" className="font-normal">
+            From one team, at most
+          </Label>
+          <Input
+            id="team-settings-inbox-sender"
+            type="number"
+            min={1}
+            max={50}
+            className="w-16"
+            value={perSender}
+            onChange={(e) => setPerSender(e.target.value)}
+          />
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Other teams can't send more while the inbox is full. Your own tasks always land.
+        </p>
+      </fieldset>
       <fieldset className="flex flex-col gap-3">
         <legend className="mb-1 text-sm font-medium">Member defaults</legend>
         <ModelEffortFields
@@ -633,7 +684,10 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           inherited={
             defaults
               ? inheritedFromGlobal(defaults)
-              : { model: { value: "", source: "claude-code" }, effort: { value: "", source: "claude-code" } }
+              : {
+                  model: { value: "", source: "claude-code" },
+                  effort: { value: "", source: "claude-code" },
+                }
           }
           defaults={defaults}
         />
@@ -713,7 +767,10 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
             inherited={
               defaults
                 ? inheritedFromGlobal(defaults)
-                : { model: { value: "", source: "claude-code" }, effort: { value: "", source: "claude-code" } }
+                : {
+                    model: { value: "", source: "claude-code" },
+                    effort: { value: "", source: "claude-code" },
+                  }
             }
             defaults={defaults}
             invalid={modelError(result)}
@@ -742,7 +799,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
       </div>
       {bot.team && (
         <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}:${bot.team.startHandoffs}`}
+          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}:${bot.team.decisionMinutes}:${bot.team.inboxMax}:${bot.team.inboxPerSender}`}
           team={bot}
           settings={bot.team}
         />
@@ -803,11 +860,14 @@ export function BotPanel({
   onDeleted,
   show,
   teams = [],
+  onOpenInbox,
 }: {
   bot: Bot
   agents: Bot[]
-  // teams are the app's teams, to hand work over to.
+  // teams are the app's teams, to send tasks to.
   teams?: Bot[]
+  // onOpenInbox opens the team's inbox.
+  onOpenInbox?: () => void
   version: number
   onDeleted: () => void
   // show asks for a tab; its n changes with every ask, so the same tab can be asked again.
@@ -820,7 +880,7 @@ export function BotPanel({
     return (
       <Tabs key={key} defaultValue={first} className="flex h-full flex-col p-3">
         <TabsList className="w-full">
-          {bot.team && <TabsTrigger value="board">Board</TabsTrigger>}
+          {bot.team && <TabsTrigger value="board">Work</TabsTrigger>}
           <TabsTrigger value="members">Members</TabsTrigger>
           {bot.team && <TabsTrigger value="memory">Memory</TabsTrigger>}
           <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -831,7 +891,7 @@ export function BotPanel({
           </TabsContent>
           {bot.team && (
             <TabsContent value="board">
-              <BoardTab team={bot} version={version} teams={teams} />
+              <BoardTab team={bot} version={version} teams={teams} onOpenInbox={onOpenInbox} />
             </TabsContent>
           )}
           {bot.team && (

@@ -32,38 +32,32 @@ test("team and goal calls go to the server's routes with their bodies", async ()
   })
   await api.updateTeam("t1", { goalBudget: 12 })
   await api.board("t1")
-  await api.startGoal("t1", "Ship CSV export.")
   await api.extendGoal("g1", 10)
-  await api.acceptGoal("g1")
   assert.deepEqual(calls, [
     {
       method: "POST",
       url: "/api/teams",
-      body: { name: "Ship", instructions: "Ship it.", memberIds: ["a1"], leadId: "a1", agreement: "Tests pass." },
+      body: {
+        name: "Ship",
+        instructions: "Ship it.",
+        memberIds: ["a1"],
+        leadId: "a1",
+        agreement: "Tests pass.",
+      },
     },
     { method: "PATCH", url: "/api/teams/t1", body: { goalBudget: 12 } },
     { method: "GET", url: "/api/teams/t1/board", body: undefined },
-    { method: "POST", url: "/api/teams/t1/goals", body: { text: "Ship CSV export." } },
     { method: "POST", url: "/api/goals/g1/extend", body: { turns: 10 } },
-    { method: "POST", url: "/api/goals/g1/accept", body: { startNext: true } },
   ])
 })
 
-test("queue and request calls go to the server's routes with their bodies", async () => {
+test("plan and request calls go to the server's routes with their bodies", async () => {
   const calls = stubFetch(200)
-  await api.acceptGoal("g1", false)
-  await api.endGoal("g2", false)
-  await api.cancelGoal("g3")
-  await api.reorderGoals("t1", ["g5", "g4"])
   await api.startNextGoal("t1")
   await api.withdrawItem("i1")
   await api.undeferItem("i2")
   await api.updateTeam("t1", { requestSlots: 2 })
   assert.deepEqual(calls, [
-    { method: "POST", url: "/api/goals/g1/accept", body: { startNext: false } },
-    { method: "POST", url: "/api/goals/g2/end", body: { startNext: false } },
-    { method: "POST", url: "/api/goals/g3/cancel", body: {} },
-    { method: "POST", url: "/api/teams/t1/goal-queue", body: { order: ["g5", "g4"] } },
     { method: "POST", url: "/api/teams/t1/goal-queue/start", body: {} },
     { method: "POST", url: "/api/items/i1/withdraw", body: {} },
     { method: "POST", url: "/api/items/i2/undefer", body: {} },
@@ -71,18 +65,62 @@ test("queue and request calls go to the server's routes with their bodies", asyn
   ])
 })
 
-test("ending a goal posts to its route and returns nothing", async () => {
+test("task calls go to the server's routes with their bodies", async () => {
+  const calls = stubFetch(200)
+  await api.userTask("t1", { text: "Ship CSV export.", startNow: true })
+  await api.handOver("t2", { fromTeamId: "t1", text: "Spec it." })
+  await api.takeTask("g1")
+  await api.takeTask("g1", 2)
+  await api.pushBack("g2", "Not ours.")
+  await api.answerTask("g3", "macOS 15.")
+  await api.pinTask("g4", true)
+  await api.pinTask("g4", false)
+  await api.stopTask("g5")
+  await api.reopenTask("g5")
+  await api.withdrawTask("g6")
+  await api.approveTask("g7")
+  await api.changesTask("g7", "Add a test.")
+  await api.needsYou()
+  await api.updateTeam("t1", { decisionMinutes: 45, inboxMax: 8, inboxPerSender: 2 })
+  assert.deepEqual(calls, [
+    {
+      method: "POST",
+      url: "/api/teams/t1/tasks",
+      body: { text: "Ship CSV export.", startNow: true },
+    },
+    { method: "POST", url: "/api/teams/t2/handoffs", body: { fromTeamId: "t1", text: "Spec it." } },
+    { method: "POST", url: "/api/tasks/g1/take", body: { position: 0 } },
+    { method: "POST", url: "/api/tasks/g1/take", body: { position: 2 } },
+    { method: "POST", url: "/api/tasks/g2/push-back", body: { text: "Not ours." } },
+    { method: "POST", url: "/api/tasks/g3/answer", body: { text: "macOS 15." } },
+    { method: "POST", url: "/api/tasks/g4/pin", body: {} },
+    { method: "DELETE", url: "/api/tasks/g4/pin", body: {} },
+    { method: "POST", url: "/api/tasks/g5/stop", body: {} },
+    { method: "POST", url: "/api/tasks/g5/reopen", body: {} },
+    { method: "POST", url: "/api/tasks/g6/withdraw", body: {} },
+    { method: "POST", url: "/api/tasks/g7/approve", body: {} },
+    { method: "POST", url: "/api/tasks/g7/changes", body: { text: "Add a test." } },
+    { method: "GET", url: "/api/needs-you", body: undefined },
+    {
+      method: "PATCH",
+      url: "/api/teams/t1",
+      body: { decisionMinutes: 45, inboxMax: 8, inboxPerSender: 2 },
+    },
+  ])
+})
+
+test("ordering the plan posts to its route and returns nothing", async () => {
   const calls = stubFetch(204)
-  assert.strictEqual(await api.endGoal("g1"), undefined)
-  assert.deepEqual(calls, [{ method: "POST", url: "/api/goals/g1/end", body: { startNext: true } }])
+  assert.strictEqual(await api.orderPlan("t1", ["g5", "g4"]), undefined)
+  assert.deepEqual(calls, [{ method: "POST", url: "/api/teams/t1/plan", body: { order: ["g5", "g4"] } }])
 })
 
 test("a failed request throws the server's error without its invalid input prefix", async () => {
   vi.stubGlobal("fetch", async () =>
-    Response.json({ error: "invalid input: Ship already works on a goal; end it first" }, { status: 400 }),
+    Response.json({ error: "invalid input: Dev's inbox is full (10 waiting)." }, { status: 400 }),
   )
-  const err = await api.startGoal("t1", "Again.").catch((e: Error) => e)
-  assert.strictEqual((err as Error).message, "Ship already works on a goal; end it first")
+  const err = await api.userTask("t1", { text: "Again." }).catch((e: Error) => e)
+  assert.strictEqual((err as Error).message, "Dev's inbox is full (10 waiting).")
 })
 
 test("a failed request without a server error throws its status", async () => {

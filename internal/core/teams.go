@@ -271,10 +271,12 @@ func (s *Service) TurnWorkspace(ctx context.Context, botID, roomID string) (stri
 	return s.Workspace(botID), nil
 }
 
-// CheckTeamTurnTarget rejects a message from a turn in team roomID to anyone
-// but the team itself, so that team work stays in the team channel. It
-// allows every target outside a team.
-func (s *Service) CheckTeamTurnTarget(ctx context.Context, roomID, targetID string) error {
+// CheckTeamTurnTarget checks a message text that bot fromID sends, in a turn
+// in room roomID, to targetID. Outside a team every target is allowed. In a
+// team turn the message goes to the team itself, or to a room fromID is a
+// member of when the post wakes no one: so team work stays in the team
+// channel, and the post starts no turn that the goal would not count.
+func (s *Service) CheckTeamTurnTarget(ctx context.Context, roomID, fromID, targetID, text string, hops int64) error {
 	if roomID == targetID {
 		return nil
 	}
@@ -282,7 +284,21 @@ func (s *Service) CheckTeamTurnTarget(ctx context.Context, roomID, targetID stri
 	if err != nil || teamID == "" {
 		return err
 	}
-	return invalid("in a turn in your team, talk to the team in its channel: post with send_to_user and write @Name to wake a member; a lead asks another team for work with update_board request")
+	const howTo = "in a turn in your team, talk to the team in its channel: post with send_to_user and write @Name to wake a member; a lead gives another team work with update_board request or hand_over"
+	target, err := s.GetBot(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	if !target.IsRoom() {
+		return invalid("%s", howTo)
+	}
+	if _, err := roomMember(target, fromID); err != nil {
+		return invalid("you are not a member of %s; %s", target.Name, howTo)
+	}
+	if woken := roomWakes(text, target, fromID, hops); len(woken) > 0 {
+		return invalid("this post would wake %s in %s. In a team turn you can post to a room only when no one is woken: drop the @mention, or %s", memberNames(woken), target.Name, howTo)
+	}
+	return nil
 }
 
 // membersText is the event text that lists a room's members and a team's lead.

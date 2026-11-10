@@ -346,7 +346,7 @@ func (t tools) sendToUser(ctx context.Context, rc runContext, in sendInput) (*mc
 }
 
 func (t tools) sendToAgent(ctx context.Context, rc runContext, in agentMessageInput) (*mcp.CallToolResult, any, error) {
-	if err := t.svc.CheckTeamTurnTarget(ctx, rc.RoomID, in.TargetID); err != nil {
+	if err := t.svc.CheckTeamTurnTarget(ctx, rc.RoomID, rc.BotID, in.TargetID, in.Message, rc.Hops); err != nil {
 		return nil, nil, err
 	}
 	res, err := t.svc.SendAgentMessage(ctx, rc.BotID, in.TargetID, in.Message, in.Files, in.Priority, rc.Hops)

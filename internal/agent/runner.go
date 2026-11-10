@@ -728,7 +728,7 @@ func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (str
 		if err != nil {
 			return "", core.RoomUpdate{}, err
 		}
-		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes)
+		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes, time.Now().In(r.svc.Location()))
 		if skill, args, ok := r.teamSkill(update, t); ok {
 			prompt += "\n\n" + skillPrompt(skill, args)
 		}

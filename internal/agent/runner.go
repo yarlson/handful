@@ -413,8 +413,9 @@ func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
 		return false
 	}
 	// A room runs one conversation turn at a time, so each member sees the
-	// replies before its own. A lead's decision doesn't wait for it.
-	if t.RoomID != "" && t.ItemID == "" && !leadDecision(t) && r.chatBusyLocked(t.RoomID) {
+	// replies before its own. A lead's board turn doesn't wait for it, so a
+	// retro keeps its place ahead of the next goal's planning.
+	if t.RoomID != "" && t.ItemID == "" && !leadsTurn(t) && r.chatBusyLocked(t.RoomID) {
 		return false
 	}
 	if !boardTurn(t) {

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"yargpt/internal/core"
@@ -85,6 +86,7 @@ func TestMayStartLetsALeadDecisionSkipOnlyTheChatHold(t *testing.T) {
 	}{
 		{"a lead decision while the room's chat runs", map[string]runningTurn{"bo": {roomID: "team"}}, lead, true},
 		{"a chat turn while the room's chat runs", map[string]runningTurn{"bo": {roomID: "team"}}, chat, false},
+		{"a retro while the room's chat runs", map[string]runningTurn{"bo": {roomID: "team"}}, core.Turn{ID: "r", BotID: "ana", RoomID: "team", BoardRole: core.RoleRetro}, true},
 		{"a lead decision while the lead runs another turn", map[string]runningTurn{"ana": {roomID: "other"}}, lead, false},
 		{"a lead decision at the board turns' cap", map[string]runningTurn{"x": {board: true}, "y": {board: true}}, lead, false},
 		{"a lead decision below the cap", map[string]runningTurn{"x": {board: true}, "y": {}}, lead, true},
@@ -141,5 +143,61 @@ func TestDispatchOrderPutsLeadsBoardTurnsFirstAndKeepsTheRest(t *testing.T) {
 	}
 	if want := []string{"retro", "plan", "chat1", "work", "chat2"}; !slices.Equal(got, want) {
 		t.Fatalf("order = %v; want %v", got, want)
+	}
+}
+
+// Accepting a goal queues its retro before the next goal's planning. With a
+// member's chat turn running in the team, the retro still runs first.
+func TestTheRetroRunsBeforeTheNextGoalsPlanningWhileTheRoomsChatRuns(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "slow")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	items := h.newGoal(t, team, boardItem("Parse", "Parse it.", bo.ID, ""))
+	if err := h.svc.StartItemWork(ctx, items[0].ID, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SubmitItem(ctx, core.Actor{BotID: bo.ID, TeamID: team.ID, Role: core.RoleWork}, items[0].ID, "parse.go"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.DeliverGoal(ctx, core.Actor{BotID: ana.ID, TeamID: team.ID, Role: core.RoleLead}, "Done."); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := h.svc.QueuedTurns(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range queued {
+		if err := h.svc.FinishTurn(ctx, q.ID, "done", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, team.ID, "@Bo LONG review the parser", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.orderLog(t, 1)
+	board, err := h.svc.Board(ctx, team.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.AcceptGoal(ctx, board.Goal.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.StartGoal(ctx, team.ID, "Next: JSON export."); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.waitCalls(t, 3)
+	at := func(want ...string) int {
+		for i, c := range calls {
+			if !slices.ContainsFunc(want, func(w string) bool { return !strings.Contains(c, w) }) {
+				return i
+			}
+		}
+		return -1
+	}
+	chat, retro, plan := at("@Bo LONG review the parser", "You are Bo"), at("The user accepted this goal."), at("Next: JSON export.", "You lead this goal.")
+	if chat != 0 || retro != 1 || plan != 2 {
+		t.Fatalf("calls: Bo's chat at %d, the retro at %d, the planning at %d; want 0, 1, 2", chat, retro, plan)
 	}
 }

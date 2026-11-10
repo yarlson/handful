@@ -35,7 +35,8 @@ type AgentMessageResult struct {
 // [agent] turn; without priority, or past the hop bound, the message waits
 // until the recipient's next turn. hops is the sender's current turn depth.
 // files go only with a room post, since direct messages carry text only.
-func (s *Service) SendAgentMessage(ctx context.Context, fromID, targetID, text string, files []string, priority bool, hops int64) (AgentMessageResult, error) {
+// turnID is the sender's turn, which a room post passes its task on from.
+func (s *Service) SendAgentMessage(ctx context.Context, fromID, turnID, targetID, text string, files []string, priority bool, hops int64) (AgentMessageResult, error) {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > MaxAgentMessage {
 		return AgentMessageResult{}, invalid("message must be 1 to %d characters", MaxAgentMessage)
@@ -53,7 +54,7 @@ func (s *Service) SendAgentMessage(ctx context.Context, fromID, targetID, text s
 		return AgentMessageResult{}, err
 	}
 	if target.IsRoom() {
-		woken, err := s.PostToRoom(ctx, target.ID, from.ID, "", text, files, hops, false)
+		woken, err := s.PostToRoom(ctx, target.ID, from.ID, turnID, text, files, hops, false)
 		if err != nil {
 			return AgentMessageResult{}, err
 		}

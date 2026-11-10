@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"net/http/httptest"
 	"testing"
 
 	"yargpt/internal/core"
@@ -32,6 +33,62 @@ func TestATaskReportTurnWorksOnTheStepThatStartedTheTask(t *testing.T) {
 	})
 	if goalID != board.Goal.ID || itemID != items[0].ID {
 		t.Fatalf("task turn works on %q, %q; want the task %q and the step %q", goalID, itemID, board.Goal.ID, items[0].ID)
+	}
+}
+
+// AC13 through the tools: a mention that a step's work turn posts in the
+// team's channel with send_to_agent passes the task on, as send_to_user does.
+func TestAMentionSentToTheTeamWithSendToAgentCarriesTheTask(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	team, ana, bo, _ := h.newTeam(t)
+	h.newGoal(t, team, boardItem("Build", "Build the site.", bo.ID, ""))
+	board, err := h.svc.Board(ctx, team.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workID string
+	if err := h.conn.QueryRowContext(ctx, `SELECT id FROM turns WHERE bot_id = ? AND board_role = 'work'`, bo.ID).Scan(&workID); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bo.ID, BotName: "Bo", TurnID: workID, RoomID: team.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	if text, isErr := callText(t, cs, "send_to_agent", map[string]any{"target_id": team.ID, "message": "@Ana which format?", "priority": false}); isErr {
+		t.Fatalf("send_to_agent to the team = %q; want it posted", text)
+	}
+	var goalID, role string
+	if err := h.conn.QueryRowContext(ctx, `SELECT goal_id, board_role FROM turns WHERE bot_id = ? AND prompt = 'Bo mentioned you.'`, ana.ID).Scan(&goalID, &role); err != nil {
+		t.Fatal(err)
+	}
+	if goalID != board.Goal.ID || role != "" {
+		t.Fatalf("Ana's turn works on %q with role %q; want the task %q as a conversation turn", goalID, role, board.Goal.ID)
+	}
+	// A post in another room isn't the posting turn's reply, so a direct
+	// chat turn still delivers its final text.
+	own, err := h.runner.tokens.issue(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "own"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct, err := mcpSession(t, srv.URL, own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { direct.Close() })
+	if text, isErr := callText(t, direct, "send_to_agent", map[string]any{"target_id": team.ID, "message": "Notes are in the doc.", "priority": false}); isErr {
+		t.Fatalf("send_to_agent from Ana's own chat = %q; want it posted", text)
+	}
+	if n, err := h.svc.TurnReplyCount(ctx, "own"); err != nil || n != 0 {
+		t.Fatalf("replies of Ana's own-chat turn = %d, %v; want 0", n, err)
 	}
 }
 

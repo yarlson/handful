@@ -353,7 +353,13 @@ func (t tools) sendToAgent(ctx context.Context, rc runContext, in agentMessageIn
 	if err := t.svc.CheckTeamTurnTarget(ctx, rc.RoomID, rc.BotID, in.TargetID, in.Message, rc.Hops); err != nil {
 		return nil, nil, err
 	}
-	res, err := t.svc.SendAgentMessage(ctx, rc.BotID, in.TargetID, in.Message, in.Files, in.Priority, rc.Hops)
+	// Only a post in the turn's own room belongs to the turn, as with
+	// send_to_user; a post elsewhere must not count as the turn's reply.
+	turnID := ""
+	if in.TargetID == rc.RoomID {
+		turnID = rc.TurnID
+	}
+	res, err := t.svc.SendAgentMessage(ctx, rc.BotID, turnID, in.TargetID, in.Message, in.Files, in.Priority, rc.Hops)
 	if err != nil {
 		return nil, nil, err
 	}

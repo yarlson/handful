@@ -1744,7 +1744,7 @@ func TestHeldMessagesWaitForATurnOutsideTheTeam(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	team, ana, _, cy := h.newTeam(t)
-	if _, err := h.svc.SendAgentMessage(ctx, cy.ID, ana.ID, "Lunch at noon?", nil, false, 0); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, cy.ID, "", ana.ID, "Lunch at noon?", nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -2097,7 +2097,7 @@ func TestEveryTurnMessageStartsWithTheCurrentTime(t *testing.T) {
 	ctx := context.Background()
 	ana, bo := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo")
 	h.start(t)
-	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, bo.ID, "Is the build green?", nil, true, 0); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, "", bo.ID, "Is the build green?", nil, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.waitEntry(t, bo.ID, func(e core.Entry) bool { return e.Kind == core.KindActivity })
@@ -2271,7 +2271,7 @@ func TestHeldDirectMessagesReachTheNextTurnAndAreAcknowledged(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	ana, bo := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo")
-	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, bo.ID, "FYI: the report is in /tmp/r.md", nil, false, 0); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, "", bo.ID, "FYI: the report is in /tmp/r.md", nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -3655,7 +3655,7 @@ func TestTaskTurnKeepsTheHopsOfTheTurnThatStartedTheTask(t *testing.T) {
 	ctx := context.Background()
 	ana, bot := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Builder")
 	h.start(t)
-	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, bot.ID, "build the site", nil, true, 4); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, "", bot.ID, "build the site", nil, true, 4); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the agent turn is over with its task left", func() bool {

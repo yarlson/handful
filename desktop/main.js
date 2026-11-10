@@ -1,6 +1,6 @@
 // The YarGPT app: a window on the server, which runs as a launch agent of
 // this bundle, so that it keeps running when the app quits.
-const { app, BrowserWindow, Menu, dialog, session, shell } = require("electron")
+const { app, BrowserWindow, Menu, clipboard, dialog, session, shell } = require("electron")
 const { execFile } = require("node:child_process")
 const crypto = require("node:crypto")
 const fs = require("node:fs")
@@ -8,6 +8,7 @@ const os = require("node:os")
 const path = require("node:path")
 const { setTimeout: sleep } = require("node:timers/promises")
 const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
+const { contextMenuTemplate } = require("./context-menu")
 const { createUpdater } = require("./updater")
 const { bundleChangeAction, finishingTurnsText, serverVersionAction } = require("./updater-state")
 const { runningOf, serverAPI } = require("./updater-io")
@@ -280,6 +281,7 @@ async function openWindow() {
     window = null
   })
   routeLinks(window.webContents)
+  showContextMenus(window)
   try {
     await window.loadURL(serverURL)
   } catch (err) {
@@ -345,6 +347,20 @@ function routeLinks(contents) {
   })
   contents.on("will-redirect", (event) => {
     if (!isAppURL(event.url)) event.preventDefault()
+  })
+}
+
+// showContextMenus shows the edit, link and spelling commands on a right-click.
+// Electron shows no menu of its own.
+function showContextMenus(win) {
+  const contents = win.webContents
+  contents.on("context-menu", (_event, params) => {
+    const template = contextMenuTemplate(params, {
+      replaceMisspelling: (word) => contents.replaceMisspelling(word),
+      learnWord: (word) => contents.session.addWordToSpellCheckerDictionary(word),
+      copyText: (text) => clipboard.writeText(text),
+    })
+    if (template.length > 0) Menu.buildFromTemplate(template).popup({ window: win })
   })
 }
 

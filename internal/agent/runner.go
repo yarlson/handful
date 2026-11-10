@@ -60,6 +60,7 @@ type Runner struct {
 
 	mu       sync.Mutex
 	running  map[string]runningTurn // bot id -> its running turn
+	deleting map[string]bool        // bots and rooms being deleted; none of their turns starts
 	sessions map[sessionKey]*session
 	models   map[sessionKey]modelReport // the model each session's process reported
 	wg       sync.WaitGroup
@@ -86,7 +87,7 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 	resume := time.NewTimer(0)
 	resume.Stop()
 	return &Runner{
-		svc: svc, cfg: cfg, tokens: newTokenRegistry(log), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
+		svc: svc, cfg: cfg, tokens: newTokenRegistry(log), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), deleting: make(map[string]bool), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
 		resume: resume, maxLimitPause: limitPauseMax, publish: svc.PublishState, environ: os.Environ,
 	}
 }
@@ -205,6 +206,34 @@ func (r *Runner) Active(id string) bool {
 		}
 	}
 	return r.botBusyLocked(id) || r.roomBusyLocked(id)
+}
+
+// BeginDelete starts the deletion of a bot or a room: until done is called,
+// none of its turns starts, and its queued turns are cancelled now.
+func (r *Runner) BeginDelete(ctx context.Context, id string) (done func(), err error) {
+	r.mu.Lock()
+	r.deleting[id] = true
+	r.mu.Unlock()
+	done = func() {
+		r.mu.Lock()
+		delete(r.deleting, id)
+		r.mu.Unlock()
+	}
+	if err := r.svc.CancelQueuedTurnsOf(ctx, id); err != nil {
+		done()
+		return nil, err
+	}
+	return done, nil
+}
+
+// FinishDelete deletes the bot or the room once it has stopped. Posts
+// during the wait may have queued turns, for example of a room's members,
+// so it cancels them again first.
+func (r *Runner) FinishDelete(ctx context.Context, id string) error {
+	if err := r.svc.CancelQueuedTurnsOf(ctx, id); err != nil {
+		return err
+	}
+	return r.svc.DeleteBot(ctx, id)
 }
 
 // Interrupt stops the bot's running turn and ends its claude processes, with
@@ -341,6 +370,9 @@ func (r *Runner) dispatch(ctx context.Context) {
 
 // mayStartLocked reports whether turn t may start now. r.mu is held.
 func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
+	if r.deleting[t.BotID] || r.deleting[t.RoomID] {
+		return false
+	}
 	// A bot runs one turn at a time. A member busy elsewhere does not hold
 	// up the room: the next idle member in queue order goes first, and the
 	// busy member answers when it is free.

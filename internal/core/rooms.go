@@ -479,6 +479,15 @@ func (s *Service) MarkRoomSeen(ctx context.Context, roomID, botID string, seq in
 	return nil
 }
 
+// CancelQueuedTurnsOf stops every turn that has not started of a bot, in
+// its own chat and in rooms, or of a room's members in the room.
+func (s *Service) CancelQueuedTurnsOf(ctx context.Context, id string) error {
+	if err := s.q.CancelQueuedTurnsOf(ctx, db.CancelQueuedTurnsOfParams{FinishedAt: sql.NullInt64{Int64: s.nowMs(), Valid: true}, ID: id}); err != nil {
+		return fmt.Errorf("cancel queued turns of %s: %w", id, err)
+	}
+	return nil
+}
+
 // CancelQueuedRoomTurns stops member turns that have not started in the room.
 func (s *Service) CancelQueuedRoomTurns(ctx context.Context, roomID string) error {
 	if err := s.q.CancelQueuedRoomTurns(ctx, db.CancelQueuedRoomTurnsParams{FinishedAt: sql.NullInt64{Int64: s.nowMs(), Valid: true}, RoomID: roomID}); err != nil {

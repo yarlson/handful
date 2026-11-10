@@ -83,6 +83,8 @@ func TestTheBoardShowsTheTurnsOfTheLastHourThatWereOnNoTask(t *testing.T) {
 		{id: "on-task", bot: f.ana.ID, room: team, hops: 1, goal: f.goal.ID, started: f.ago(9 * time.Minute)},
 		{id: "decision", bot: f.bo.ID, room: team, source: SourceSystem, role: RoleLead, goal: f.goal.ID, decision: 1, started: f.ago(8 * time.Minute)},
 		{id: "retro", bot: f.bo.ID, room: team, source: SourceSystem, role: RoleRetro, started: f.ago(7 * time.Minute)},
+		// A sending lead's wake (to hear an answer or a result) has no task and is no decision.
+		{id: "lead-wake", bot: f.bo.ID, room: team, source: SourceSystem, role: RoleLead, started: f.ago(7 * time.Minute)},
 		{id: "user-to-lead", bot: f.bo.ID, room: team, started: f.ago(6 * time.Minute)},
 		{id: "plain-room", bot: f.ana.ID, room: room.ID, hops: 1, started: f.ago(3 * time.Minute)},
 		{id: "direct", bot: f.ana.ID, source: SourceUser, started: f.ago(2 * time.Minute)},
@@ -136,6 +138,7 @@ func TestMakeATaskTakesItAndAttachesTheTurnsThatWereOnNoTask(t *testing.T) {
 		{id: "c", bot: f.ana.ID, room: team, hops: 1, started: f.ago(2 * time.Minute)},
 		{id: "on-task", bot: f.ana.ID, room: team, hops: 1, goal: f.goal.ID, started: f.ago(9 * time.Minute)},
 		{id: "docs", bot: dee.ID, room: docs.ID, hops: 1, started: f.ago(9 * time.Minute)},
+		{id: "lead-wake", bot: f.bo.ID, room: team, source: SourceSystem, role: RoleLead, started: f.ago(4 * time.Minute)},
 	} {
 		storeTurn(t, f.svc, s)
 	}
@@ -157,6 +160,7 @@ func TestMakeATaskTakesItAndAttachesTheTurnsThatWereOnNoTask(t *testing.T) {
 		"a turn already on a task": {f.lead, []string{"a", "on-task"}, "turn on-task is not a turn of this team on no task"},
 		"another team's turn":      {user, []string{"docs"}, "turn docs is not a turn of this team on no task"},
 		"a missing turn":           {user, []string{"gone"}, "turn gone is not a turn of this team on no task"},
+		"a lead's board turn":      {user, []string{"lead-wake"}, "turn lead-wake is not a turn of this team on no task"},
 	} {
 		if _, err := f.svc.MakeTask(ctx, c.a, team, task, c.turns); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("make a task as %s: err = %v; want ErrInvalid with %q", name, err, c.want)

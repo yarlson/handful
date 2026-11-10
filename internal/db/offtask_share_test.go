@@ -77,6 +77,7 @@ func TestTheOffTaskShareCountsTeamRoomTurnsOnNoTaskWithTheSpecsExclusions(t *tes
 	turn("work", "ana", "ship", "room", 0, "g1", "work", 0, 1500)      // counted, on a task
 	turn("decision", "bo", "ship", "system", 0, "g2", "lead", 1, 1600) // left out: a decision
 	turn("user-to-lead", "bo", "ship", "room", 0, "", "", 0, 1700)     // left out: the user's talk with the lead
+	turn("lead-wake", "bo", "ship", "system", 0, "", "lead", 0, 1750)  // left out: a lead's board turn on no task
 	turn("before", "ana", "ship", "room", 1, "", "", 0, 999)           // left out: before from
 	turn("at-to", "ana", "ship", "room", 1, "", "", 0, 2000)           // left out: at to
 	// Docs: the user's post to its first member, the lead, is left out.

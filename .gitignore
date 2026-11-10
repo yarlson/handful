@@ -4,6 +4,7 @@
 !/ui/dist/.keep
 /docs/*
 !/docs/releasing.md
+!/docs/measures/
 /target/
 /ui/.stryker-tmp/
 /desktop/node_modules/

@@ -222,7 +222,7 @@ func (q *Queries) AskAboutHandoff(ctx context.Context, arg AskAboutHandoffParams
 
 const attachOffTaskTurn = `-- name: AttachOffTaskTurn :execrows
 UPDATE turns SET goal_id = ?1
-WHERE id = ?2 AND room_id = ?3 AND goal_id = '' AND decision = 0 AND board_role <> 'retro'
+WHERE id = ?2 AND room_id = ?3 AND goal_id = '' AND board_role NOT IN ('lead', 'retro')
   AND started_at IS NOT NULL
 `
 
@@ -3009,7 +3009,7 @@ SELECT t.id, t.bot_id, b.name, CAST(t.started_at AS INTEGER) AS started_at, t.pr
     WHERE e.bot_id = t.room_id AND e.turn_id = t.id AND e.kind = 'bot' AND json_extract(e.body, '$.speakerId') = t.bot_id
     ORDER BY e.seq LIMIT 1), '') AS TEXT) AS first_post
 FROM turns t JOIN bots b ON b.id = t.bot_id
-WHERE t.room_id = ?1 AND t.goal_id = '' AND t.decision = 0 AND t.board_role <> 'retro'
+WHERE t.room_id = ?1 AND t.goal_id = '' AND t.board_role NOT IN ('lead', 'retro')
   AND t.started_at >= CAST(?2 AS INTEGER)
   AND NOT (t.source = 'room' AND t.hops = 0 AND t.board_role = '' AND t.bot_id = ?3)
 ORDER BY t.started_at, t.rowid
@@ -3032,8 +3032,9 @@ type ListOffTaskTurnsRow struct {
 
 // The turns of a team since a time (ms) that are on no task (spec 9cf81412
 // section 5 point 4), oldest first, with the first post of the bot in the
-// turn. Left out: lead decisions, retros, and the turns of the lead that a
-// user post woke, which are the talk of the lead with the user.
+// turn. Left out: the lead's board turns (decisions and its other wakes),
+// retros, and the turns of the lead that a user post woke, which are the
+// talk of the lead with the user.
 func (q *Queries) ListOffTaskTurns(ctx context.Context, arg ListOffTaskTurnsParams) ([]ListOffTaskTurnsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listOffTaskTurns, arg.TeamID, arg.Since, arg.LeadID)
 	if err != nil {
@@ -3659,7 +3660,7 @@ SELECT tm.team_id,
   CAST(COALESCE(SUM(t.goal_id = ''), 0) AS INTEGER) AS off_task,
   COUNT(t.id) AS total
 FROM teams tm JOIN turns t ON t.room_id = tm.team_id
-WHERE t.started_at >= ?1 AND t.started_at < ?2 AND t.decision = 0
+WHERE t.started_at >= ?1 AND t.started_at < ?2 AND t.board_role <> 'lead'
   AND NOT (t.source = 'room' AND t.hops = 0 AND t.board_role = '' AND t.bot_id = COALESCE(
     (SELECT rm.bot_id FROM room_members rm WHERE rm.room_id = tm.team_id AND rm.bot_id = tm.lead_bot_id),
     (SELECT rm.bot_id FROM room_members rm JOIN bots b ON b.id = rm.bot_id WHERE rm.room_id = tm.team_id

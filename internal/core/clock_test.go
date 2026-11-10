@@ -187,6 +187,40 @@ func TestTheDecisionClockStandsWhileTheLeadCannotAct(t *testing.T) {
 	c.wantNeeds(t, "after the ask")
 }
 
+func TestEveryInboxCountsItsOwnDecisionTime(t *testing.T) {
+	c := newClockFixture(t)
+	first := c.handOver(t, c.lead, c.team, c.docs, "Guide.")
+	second := c.handOver(t, c.lead, c.team, c.dev, "Host it.")
+	finishQueued(t, c.svc)
+	// Cal, Dev's lead, runs another turn: only Docs's clock counts.
+	busy := LeadState{Busy: func(id string) bool { return id == c.cal.ID }}
+	c.tick(t, 0, busy)
+	c.ticks(t, 30*time.Minute, busy)
+	if !c.goalNow(t, first.ID).NeedsUser || c.goalNow(t, second.ID).DecisionMs != 0 {
+		t.Fatalf("Docs's task = %+v, Dev's = %+v; want Docs's missed and Dev's clock standing", c.goalNow(t, first.ID), c.goalNow(t, second.ID))
+	}
+	c.wantNeeds(t, "", "missed Guide. (Dee)")
+}
+
+func TestTheDecisionTimeIsFiveMinutesToADay(t *testing.T) {
+	c := newClockFixture(t)
+	ctx := context.Background()
+	for minutes, ok := range map[int64]bool{5: true, 1440: true, 45: true, 4: false, 1441: false, 0: false} {
+		team, err := c.svc.UpdateTeam(ctx, c.docs.ID, TeamPatch{DecisionMinutes: &minutes})
+		if ok && (err != nil || team.Team.DecisionMinutes != minutes) {
+			t.Errorf("decision time %d = %+v, %v; want it set", minutes, team.Team, err)
+		}
+		if !ok && !errors.Is(err, ErrInvalid) {
+			t.Errorf("decision time %d: err = %v; want ErrInvalid", minutes, err)
+		}
+	}
+	for d, want := range map[time.Duration]string{5 * time.Minute: "5 min", 2 * time.Hour: "2 h", 135 * time.Minute: "2 h 15 min"} {
+		if got := minutesText(d); got != want {
+			t.Errorf("minutesText(%v) = %q; want %q", d, got, want)
+		}
+	}
+}
+
 func TestABudgetPauseDoesNotStopTheDecisionClock(t *testing.T) {
 	c := newClockFixture(t)
 	g := c.handOver(t, c.docsLead, c.docs, c.team, "Review it.")

@@ -87,9 +87,6 @@ func (s *Service) tickDecision(ctx context.Context, team Bot, lead Member, row d
 	if canAct && spent >= limit.Milliseconds() {
 		return s.missDecision(ctx, team, lead, toGoal(row, 0), spent, limit)
 	}
-	if spent == row.DecisionMs && tick == row.DecisionTick {
-		return nil
-	}
 	if _, err := s.q.SetDecisionClock(ctx, db.SetDecisionClockParams{DecisionMs: spent, DecisionTick: tick, ID: row.ID}); err != nil {
 		return fmt.Errorf("count the decision time of task %s: %w", row.ID, err)
 	}

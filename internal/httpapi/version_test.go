@@ -40,7 +40,7 @@ func TestVersionReportsTheBuildDrainModeAndAnEmptyRunningList(t *testing.T) {
 
 func TestVersionNamesANewerReleaseOfASourceBuild(t *testing.T) {
 	latest := ""
-	u := Updates{Version: "1.3.2", SourceBuild: true, Latest: func() string { return latest }, Settings: UpdateSettings{DrainMinutes: 45}}
+	u := Updates{Version: "1.3.2", SourceBuild: true, Latest: func() string { return latest }}
 	h, _ := newModelHandler(t, core.Defaults{}, WithUpdates(u))
 	if rec := do(h, "GET", "/api/version", "", nil); strings.Contains(rec.Body.String(), "latest") || !strings.Contains(rec.Body.String(), `"version":"1.3.2"`) {
 		t.Fatalf("version with no newer release = %s; want no latest", rec.Body)
@@ -50,21 +50,13 @@ func TestVersionNamesANewerReleaseOfASourceBuild(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"latest":"1.4.0","releaseUrl":"`+LatestReleaseURL+`"`) {
 		t.Fatalf("version with a newer release = %s; want latest and its page", rec.Body)
 	}
-	rec = do(h, "GET", "/api/settings/updates", "", nil)
-	if want := `{"autoCheck":false,"drainMinutes":45,"updateCheck":false}` + "\n"; rec.Code != http.StatusOK || rec.Body.String() != want {
-		t.Fatalf("update settings = %d %s; want %s", rec.Code, rec.Body, want)
+	// The update settings are keys of GET /api/settings now; the old endpoint is gone.
+	if rec := do(h, "GET", "/api/settings/updates", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /api/settings/updates = %d %s; want 404: it is gone", rec.Code, rec.Body)
 	}
 
 	app, _ := newModelHandler(t, core.Defaults{}, WithUpdates(Updates{Version: "1.4.0"}))
 	if rec := do(app, "GET", "/api/version", "", nil); !strings.Contains(rec.Body.String(), `"sourceBuild":false`) || strings.Contains(rec.Body.String(), "latest") {
 		t.Fatalf("version inside the app = %s; want no source build and no latest", rec.Body)
-	}
-}
-
-func TestUpdateSettingsDefaultToChecksOnAndThirtyMinutes(t *testing.T) {
-	h, _ := newModelHandler(t, core.Defaults{})
-	rec := do(h, "GET", "/api/settings/updates", "", nil)
-	if want := `{"autoCheck":true,"drainMinutes":30,"updateCheck":true}` + "\n"; rec.Body.String() != want {
-		t.Fatalf("default update settings = %s; want %s", rec.Body, want)
 	}
 }

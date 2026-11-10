@@ -1,19 +1,12 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
-	"os"
 	"strings"
 
+	"yargpt/internal/config"
 	"yargpt/internal/core"
-	"yargpt/internal/httpapi"
 )
-
-const maxConfigFile = 64 << 10
 
 // settings are the server settings that <data>/config.json can set.
 type settings struct {
@@ -21,48 +14,23 @@ type settings struct {
 	Model       string
 	Effort      string
 	MaxParallel int
-	Updates     httpapi.UpdateSettings
+	Updates     updateSettings
 }
 
-// Limits of the "updates" "drainMinutes" setting, which values outside clamp to.
-const (
-	minDrainMinutes = 5
-	maxDrainMinutes = 240
-)
+// updateSettings are the update settings of config.json.
+type updateSettings struct {
+	AutoCheck    bool // the app checks for updates by itself
+	DrainMinutes int  // how long the app waits for running work before it asks again
+	UpdateCheck  bool // a source build checks for new releases
+}
 
 // applyConfigFile reads the config file at path into s, except the settings
 // whose flags were given on the command line (set, by flag name). A missing
 // file changes nothing.
 func applyConfigFile(path string, set map[string]bool, s *settings) error {
-	f, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
+	file, err := config.Load(path)
 	if err != nil {
-		return fmt.Errorf("open config file: %w", err)
-	}
-	defer f.Close()
-	var file struct {
-		Claude      *string `json:"claude"`
-		Model       *string `json:"model"`
-		Effort      *string `json:"effort"`
-		MaxParallel *int    `json:"maxParallel"`
-		Updates     *struct {
-			AutoCheck    *bool `json:"autoCheck"`
-			DrainMinutes *int  `json:"drainMinutes"`
-		} `json:"updates"`
-		UpdateCheck *bool `json:"updateCheck"`
-	}
-	dec := json.NewDecoder(io.LimitReader(f, maxConfigFile))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&file); err != nil {
-		return fmt.Errorf("read config file %s: %w", path, err)
-	}
-	if err := dec.Decode(&json.RawMessage{}); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("read config file %s: unexpected data after the JSON object", path)
-	}
-	if file.MaxParallel != nil && *file.MaxParallel < 1 {
-		return fmt.Errorf("config file %s: maxParallel must be at least 1", path)
+		return err
 	}
 	fromFile(&s.Claude, file.Claude, set["claude"])
 	fromFile(&s.Model, file.Model, set["model"])
@@ -77,10 +45,10 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 }
 
 // applyDrainMinutes sets the file's drain limit, if it has one, clamped to
-// minDrainMinutes..maxDrainMinutes.
-func applyDrainMinutes(u *httpapi.UpdateSettings, minutes *int) {
+// the limits of config.
+func applyDrainMinutes(u *updateSettings, minutes *int) {
 	if minutes != nil {
-		u.DrainMinutes = min(max(*minutes, minDrainMinutes), maxDrainMinutes)
+		u.DrainMinutes = min(max(*minutes, config.MinDrainMinutes), config.MaxDrainMinutes)
 	}
 }
 

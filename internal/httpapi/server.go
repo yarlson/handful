@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"yargpt/internal/agent"
@@ -28,11 +29,15 @@ const maxBodyBytes = 1 << 20
 var maxMessageBodyBytes = int64(maxBodyBytes + base64.StdEncoding.EncodedLen(core.MaxMediaBytes))
 
 type server struct {
-	svc     *core.Service
-	runner  *agent.Runner
-	log     *slog.Logger
-	models  ModelReporter // nil: no model IDs are known
-	updates Updates
+	svc      *core.Service
+	runner   *agent.Runner
+	log      *slog.Logger
+	models   ModelReporter // nil: no model IDs are known
+	updates  Updates
+	settings Settings
+	// settingsMu orders the reads and writes of the settings file, so that
+	// two changes at once cannot lose one of them.
+	settingsMu sync.Mutex
 }
 
 // ModelReporter tells which model Claude Code ran in a bot's latest run in a
@@ -60,7 +65,10 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("GET /api/version", s.version)
 	mux.HandleFunc("POST /api/drain", s.setDrain(true))
 	mux.HandleFunc("DELETE /api/drain", s.setDrain(false))
-	mux.HandleFunc("GET /api/settings/updates", s.updateSettings)
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("PATCH /api/settings", s.patchSettings)
+	mux.HandleFunc("PUT /api/settings/file", s.resetSettingsFile)
+	mux.HandleFunc("POST /api/restart", s.restart)
 	mux.HandleFunc("GET /api/bots", s.listBots)
 	mux.HandleFunc("POST /api/bots", s.createBot)
 	mux.HandleFunc("PUT /api/bots/order", s.reorderBots)

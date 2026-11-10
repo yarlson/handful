@@ -82,7 +82,8 @@ export function TaskBar({
   pause = "Paused for update",
 }: {
   team: Bot
-  // version changes when the team's transcript, turns or daily budget change; it reloads the bar.
+  // version changes when the team's transcript or daily budget changes; it reloads the bar. It
+  // leaves out who is running: a key that changes faster than the board loads never shows one.
   version: string
   onShowWork?: () => void
   onOpenInbox?: () => void

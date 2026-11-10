@@ -855,7 +855,7 @@ export function App() {
               <TaskBar
                 key={bot.id}
                 team={bot}
-                version={`${transcript?.rev ?? 0}:${taskKey}`}
+                version={`${transcript?.rev ?? 0}:${bot.team.dailyBudget ?? ""}`}
                 onShowWork={() => showTab("board")}
                 onOpenInbox={() => setScreen("inbox")}
                 teams={teams}

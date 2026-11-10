@@ -165,3 +165,35 @@ func TestTaskEndpointsApproveAndAskForChanges(t *testing.T) {
 		t.Fatalf("approve a missing task: %d", rec.Code)
 	}
 }
+
+func TestNeedsYouListsTheUsersTasksAndQuestionsAndTheDecisionTimeIsATeamSetting(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := svc.CreateTeam(ctx, "Ship", "", []string{ana.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "GET", "/api/needs-you", "", nil); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+		t.Fatalf("needs you with nothing = %d %s; want []", rec.Code, rec.Body)
+	}
+	if _, err := svc.AppendBotMessage(ctx, ana.ID, "", "Which format?", nil, false, true); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "GET", "/api/needs-you", "", nil)
+	var needs []core.NeedsYou
+	if err := json.Unmarshal(rec.Body.Bytes(), &needs); rec.Code != http.StatusOK || err != nil || len(needs) != 1 || needs[0].Kind != core.NeedQuestion || needs[0].ChatID != ana.ID {
+		t.Fatalf("needs you = %d %s; want Ana's question", rec.Code, rec.Body)
+	}
+	for body, want := range map[string]int{`{"decisionMinutes":5}`: 200, `{"decisionMinutes":1440}`: 200, `{"decisionMinutes":4}`: 400, `{"decisionMinutes":1441}`: 400, `{"decisionMinutes":0}`: 400} {
+		if rec := do(h, "PATCH", "/api/teams/"+team.ID, body, jsonHeader); rec.Code != want {
+			t.Errorf("PATCH %s = %d %s; want %d", body, rec.Code, rec.Body, want)
+		}
+	}
+	if rec := do(h, "PATCH", "/api/teams/"+team.ID, `{"decisionMinutes":45}`, jsonHeader); !strings.Contains(rec.Body.String(), `"decisionMinutes":45`) {
+		t.Fatalf("PATCH 45 = %s; want the team with 45 minutes", rec.Body)
+	}
+}

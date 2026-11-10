@@ -144,3 +144,41 @@ func TestBusyNamesEachBotOnceAndSortsByNameThenID(t *testing.T) {
 		t.Fatalf("busy = %+v; want %+v", got, want)
 	}
 }
+
+func TestTheLeadStateSaysWhetherTheRunnerIsPausedAndWhichBotsRun(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	r := h.runner
+	if s := r.leadState(); s.Paused || s.Busy["ana"] {
+		t.Fatalf("lead state of an idle runner = paused %v, Ana busy %v; want neither", s.Paused, s.Busy["ana"])
+	}
+	r.mu.Lock()
+	r.pausedUntil = time.Now().Add(time.Hour)
+	r.running["ana"] = runningTurn{}
+	r.mu.Unlock()
+	if s := r.leadState(); !s.Paused || !s.Busy["ana"] || s.Busy["bo"] {
+		t.Fatalf("lead state = paused %v, Ana busy %v, Bo busy %v; want paused, Ana busy, Bo not", s.Paused, s.Busy["ana"], s.Busy["bo"])
+	}
+	// A bot whose process wakes for a task turn runs one too.
+	r.mu.Lock()
+	r.sessions[sessionKey{"cy", ""}] = &session{key: sessionKey{"cy", ""}, waking: true}
+	r.sessions[sessionKey{"dee", ""}] = &session{key: sessionKey{"dee", ""}}
+	r.mu.Unlock()
+	if s := r.leadState(); !s.Busy["cy"] || s.Busy["dee"] {
+		t.Fatalf("lead state = Cy busy %v, Dee busy %v; want Cy's task turn busy and Dee's idle process not", s.Busy["cy"], s.Busy["dee"])
+	}
+	// The state is a copy: later changes don't reach it.
+	s := r.leadState()
+	r.mu.Lock()
+	delete(r.running, "ana")
+	r.mu.Unlock()
+	if !s.Busy["ana"] {
+		t.Fatal("the lead state changed after it was taken; want a copy")
+	}
+	r.mu.Lock()
+	r.pausedUntil = time.Now().Add(-time.Second)
+	r.mu.Unlock()
+	if s := r.leadState(); s.Paused {
+		t.Fatal("a pause that ended still counts")
+	}
+}

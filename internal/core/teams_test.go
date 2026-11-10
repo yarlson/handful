@@ -69,7 +69,7 @@ func TestCreateTeamMakesARoomWithALeadAnAgreementAndASharedFolder(t *testing.T) 
 	ctx := context.Background()
 	team, ana, bo, _ := newTestTeam(t, svc)
 
-	want := Team{LeadID: bo.ID, Agreement: "Tests pass before a change is done.", GoalBudget: DefaultGoalBudget, RequestSlots: 1, InboxMax: DefaultInboxMax, InboxPerSender: DefaultInboxPerSender}
+	want := Team{LeadID: bo.ID, Agreement: "Tests pass before a change is done.", GoalBudget: DefaultGoalBudget, RequestSlots: 1, InboxMax: DefaultInboxMax, InboxPerSender: DefaultInboxPerSender, DecisionMinutes: DefaultDecisionMinutes}
 	if !team.IsRoom() || team.Team == nil || *team.Team != want {
 		t.Fatalf("created team = %+v (team %+v); want a room with %+v", team, team.Team, want)
 	}

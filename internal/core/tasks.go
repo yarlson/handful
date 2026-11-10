@@ -234,6 +234,9 @@ func (s *Service) LaterTask(ctx context.Context, a Actor, goalID, note string, u
 	}
 	g.State, g.LaterUntil, g.IntakeNote, g.AskedAt = GoalLater, until, note, 0
 	s.hub.Publish(Event{Type: "bots"})
+	if err := s.closeTaskQuestions(ctx, team.ID, g.ID); err != nil {
+		return Goal{}, err
+	}
 	from, err := s.senderTeam(ctx, g)
 	if err != nil {
 		return Goal{}, err
@@ -318,6 +321,10 @@ func (s *Service) PassOn(ctx context.Context, a Actor, goalID, toTeamID, note st
 	g.TeamID, g.Passes, g.PassedBy, g.IntakeNote, g.AskedAt = to.ID, g.Passes+1, passedBy, note, 0
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
+	// A question to the user about the task stays in the team it left.
+	if err := s.closeTaskQuestions(ctx, team.ID, g.ID); err != nil {
+		return Goal{}, err
+	}
 	return g, s.postNotes(ctx, []noteTo{
 		{team.ID, fmt.Sprintf("%s passed the task %q on to team %s: %s", actorName(team, a), g.Text, to.Name, note)},
 		{to.ID, fmt.Sprintf("Team %s passed on a task: %s", team.Name, g.Text)},
@@ -382,7 +389,7 @@ func (s *Service) passedTooOften(ctx context.Context, a Actor, team Bot, g Goal)
 	s.hub.Publish(Event{Type: "bots"})
 	question := fmt.Sprintf("The task %q was passed on %d times and still has no team; %s couldn't settle it. Take it here, push it back, or tell the leads where it belongs?",
 		g.Text, MaxPasses, memberName(team, a.BotID))
-	return errors.Join(refused, s.askUser(ctx, a, team, question))
+	return errors.Join(refused, s.askUser(ctx, a, team, g.ID, question))
 }
 
 // CloseTask closes the team's Now task with a result: it is done and waits
@@ -396,6 +403,13 @@ func (s *Service) CloseTask(ctx context.Context, a Actor, goalID, result string)
 		return Goal{}, invalid("close the task your team works on now")
 	}
 	return s.DeliverGoal(ctx, a, result)
+}
+
+// userApproves reports whether the user, not a lead, approves done task g:
+// the user's own task, or one the user handed over from a team's board,
+// which has no sending lead. ListDeliveredUserGoals holds the same rule.
+func (g Goal) userApproves() bool {
+	return g.Origin == OriginUser || (g.Origin == OriginHandoff && g.FromBotID == "")
 }
 
 // approver checks that a approves or asks for changes to task g of team:
@@ -454,7 +468,7 @@ func (s *Service) ApproveTask(ctx context.Context, a Actor, goalID string) (Goal
 	g.State = GoalDone
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+	if err := s.closeTaskQuestions(ctx, g.TeamID, g.ID); err != nil {
 		return Goal{}, err
 	}
 	return g, s.boardNote(ctx, team.ID, fmt.Sprintf("%s approved the task %q.", actorName(team, a), g.Text))
@@ -496,7 +510,7 @@ func (s *Service) ChangesTask(ctx context.Context, a Actor, goalID, text string)
 	}
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+	if err := s.closeTaskQuestions(ctx, g.TeamID, g.ID); err != nil {
 		return Goal{}, err
 	}
 	return g, s.boardNote(ctx, team.ID, fmt.Sprintf("%s asked for changes to the task %q: %s", actorName(team, a), g.Text, text))

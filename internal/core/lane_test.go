@@ -749,14 +749,14 @@ func TestADeferredRequestComesBackWhenItsRevisitIsDue(t *testing.T) {
 
 	// Date: the first settle after the time.
 	live := func(string, string) bool { return true }
-	if err := l.svc.SettleItems(ctx, live); err != nil {
+	if err := l.svc.SettleItems(ctx, live, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := l.itemNow(t, api.ID); got.Intake != IntakeDeferred {
 		t.Fatalf("API before its time = %+v; want it deferred", got)
 	}
 	l.svc.now = func() time.Time { return time.UnixMilli(soon) }
-	if err := l.svc.SettleItems(ctx, live); err != nil {
+	if err := l.svc.SettleItems(ctx, live, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := l.itemNow(t, api.ID); got.Intake != IntakeRequested {
@@ -1014,7 +1014,7 @@ func TestWaitingAndDeferredRequestsBillNothing(t *testing.T) {
 		t.Fatalf("used = %d; want 3: the triage, Guide's work and the asking lead's wake", used)
 	}
 	for range 3 {
-		if err := l.svc.SettleItems(ctx, func(string, string) bool { return false }); err != nil {
+		if err := l.svc.SettleItems(ctx, func(string, string) bool { return false }, LeadState{}); err != nil {
 			t.Fatal(err)
 		}
 		runQueued(t, l.svc)

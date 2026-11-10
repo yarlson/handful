@@ -583,7 +583,7 @@ func TestStopPausesTheGoalAndResumeGivesWaitingWorkItsTurnsAgain(t *testing.T) {
 	if err := f.svc.CancelQueuedRoomTurns(ctx, f.team.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.SettleItems(ctx, func(string, string) bool { return false }); err != nil {
+	if err := f.svc.SettleItems(ctx, func(string, string) bool { return false }, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.state(t, parse); got.State != ItemReview {
@@ -607,7 +607,7 @@ func TestSettleBlocksItemsThatNobodyWorksOn(t *testing.T) {
 	docs := f.create(t, f.lead, item("Docs", f.bo.ID, ""))
 	none := func(string, string) bool { return false }
 
-	if err := f.svc.SettleItems(ctx, none); err != nil {
+	if err := f.svc.SettleItems(ctx, none, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.state(t, parse); got.State != ItemTodo {
@@ -618,13 +618,13 @@ func TestSettleBlocksItemsThatNobodyWorksOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	live := func(botID, teamID string) bool { return botID != f.cy.ID && teamID == f.team.ID }
-	if err := f.svc.SettleItems(ctx, live); err != nil {
+	if err := f.svc.SettleItems(ctx, live, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.state(t, parse); got.State != ItemDoing {
 		t.Fatalf("Parse while Ana's process runs = %s; want doing", got.State)
 	}
-	if err := f.svc.SettleItems(ctx, none); err != nil {
+	if err := f.svc.SettleItems(ctx, none, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	got := f.state(t, parse)
@@ -1405,7 +1405,7 @@ func TestSettleWakesTheLeadOfAGoalThatStalled(t *testing.T) {
 	none := func(string, string) bool { return false }
 	settle := func(step string, want ...string) {
 		t.Helper()
-		if err := f.svc.SettleItems(ctx, none); err != nil {
+		if err := f.svc.SettleItems(ctx, none, LeadState{}); err != nil {
 			t.Fatal(err)
 		}
 		f.wantQueued(t, step, want...)
@@ -1449,7 +1449,7 @@ func TestSettleWakesTheLeadOfAGoalThatStalled(t *testing.T) {
 	if _, _, err := f.svc.SubmitUserMessage(ctx, f.team.ID, "Status?", "n1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.SettleItems(ctx, none); err != nil {
+	if err := f.svc.SettleItems(ctx, none, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.queuedOf(t); !slices.Equal(got, []string{"Bo  new"}) {
@@ -1545,7 +1545,7 @@ func TestSettleWakesTheLeadOfEveryStalledGoal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := f.svc.SettleItems(ctx, func(string, string) bool { return false }); err != nil {
+	if err := f.svc.SettleItems(ctx, func(string, string) bool { return false }, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	turns, _ := f.svc.QueuedTurns(ctx, 10)

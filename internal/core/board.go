@@ -555,7 +555,7 @@ func (s *Service) CreateItem(ctx context.Context, a Actor, n NewItem) (Item, err
 	s.signalTurns()
 	if g.State == GoalDelivered {
 		// The user asked for changes to the delivered goal.
-		if err := s.closeDelivery(ctx, team.ID, g.ID); err != nil {
+		if err := s.closeTaskQuestions(ctx, team.ID, g.ID); err != nil {
 			return Item{}, err
 		}
 	}
@@ -1451,10 +1451,7 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 		return Goal{}, err
 	}
 	lead, _ := team.Lead()
-	body, err := json.Marshal(map[string]any{
-		"text": summary, "fallback": false, "needsReply": true, "speakerId": lead.ID, "speakerName": lead.Name,
-		"questionState": QuestionOpen, "goalId": g.ID,
-	})
+	body, err := json.Marshal(deliveryBody(g, lead, summary))
 	if err != nil {
 		return Goal{}, fmt.Errorf("encode the delivery: %w", err)
 	}
@@ -1486,6 +1483,18 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 		return Goal{}, err
 	}
 	return g, s.nextGoalNote(ctx, after.next, after.started)
+}
+
+// deliveryBody is the post of a task's result. For the user's own task it
+// is a question: the user approves it or asks for changes. Another team's
+// task is approved by that team's lead, and a proposal by the team's own,
+// so the user is not asked.
+func deliveryBody(g Goal, lead Member, summary string) map[string]any {
+	body := map[string]any{"text": summary, "fallback": false, "needsReply": false, "speakerId": lead.ID, "speakerName": lead.Name, "goalId": g.ID}
+	if g.userApproves() {
+		body["needsReply"], body["questionState"] = true, QuestionOpen
+	}
+	return body
 }
 
 // deliverable checks that the actor, the lead, can deliver its team's active
@@ -1570,7 +1579,7 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool)
 	g.State = GoalDone
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+	if err := s.closeTaskQuestions(ctx, g.TeamID, g.ID); err != nil {
 		return Goal{}, err
 	}
 	if _, err = s.AppendEntry(ctx, team.ID, KindUser, "", userBody{Text: "Accepted the goal."}); err != nil {
@@ -1666,7 +1675,7 @@ func (s *Service) EndGoal(ctx context.Context, goalID string, startNext bool) er
 	}
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+	if err := s.closeTaskQuestions(ctx, g.TeamID, g.ID); err != nil {
 		return err
 	}
 	if err := s.boardNote(ctx, g.TeamID, "The goal ended."); err != nil {
@@ -1686,14 +1695,24 @@ func (s *Service) EndGoal(ctx context.Context, goalID string, startNext bool) er
 // running process in the team, for example after a failed turn, a turn that
 // ended without handing the item on, or a restart; and it wakes the lead of
 // a goal that has nothing in flight after such a stop. live reports whether a
-// member's process runs in a team.
-func (s *Service) SettleItems(ctx context.Context, live func(botID, teamID string) bool) error {
+// member's process runs in a team. It also counts the time that tasks in the
+// inboxes wait for their leads' decisions, with what state says of the leads.
+func (s *Service) SettleItems(ctx context.Context, live func(botID, teamID string) bool, state LeadState) error {
 	if err := s.revisitDue(ctx); err != nil {
 		return err
 	}
 	if err := s.dueLater(ctx); err != nil {
 		return err
 	}
+	if err := s.runDecisionClocks(ctx, state); err != nil {
+		return err
+	}
+	return s.settleActiveGoals(ctx, live)
+}
+
+// settleActiveGoals settles the items of every active goal, as SettleItems
+// describes.
+func (s *Service) settleActiveGoals(ctx context.Context, live func(botID, teamID string) bool) error {
 	goals, err := s.q.ListOpenGoals(ctx)
 	if err != nil {
 		return fmt.Errorf("list open goals: %w", err)

@@ -57,9 +57,13 @@ type Handoff struct {
 	AskedAt   int64 `json:"askedAt,omitempty"`
 	AskRounds int64 `json:"askRounds,omitempty"`
 	Depth     int64 `json:"depth,omitempty"`
-	// NeedsUser: the leads did not settle it in MaxAskRounds questions, or
-	// it was passed on MaxPasses times, so only the user decides on it now.
-	NeedsUser bool `json:"needsUser,omitempty"`
+	// NeedsUser: the leads did not settle it in MaxAskRounds questions, it
+	// was passed on MaxPasses times, or its lead did not decide on it within
+	// the team's decision time (MissedAt, in ms), so only the user decides
+	// on it now. DecisionMs is the decision time it waited so far.
+	NeedsUser  bool  `json:"needsUser,omitempty"`
+	MissedAt   int64 `json:"missedAt,omitempty"`
+	DecisionMs int64 `json:"decisionMs,omitempty"`
 	// Pinned holds a planned task where the user put it: its lead cannot move it.
 	Pinned bool `json:"pinned,omitempty"`
 	// LaterUntil is when a deferred task returns to the inbox, in ms.
@@ -80,10 +84,15 @@ func toHandoff(row db.Goal) Handoff {
 	return Handoff{
 		Origin: row.Origin, FromTeamID: row.FromTeamID, FromBotID: row.FromBotID, FromGoalID: row.FromGoalID, Brief: row.Brief,
 		ArtifactIDs: ids, IntakeNote: row.IntakeNote, AskedAt: row.AskedAt, AskRounds: row.AskRounds, Depth: row.Depth,
-		NeedsUser: row.AskRounds > MaxAskRounds || row.Passes > MaxPasses, Pinned: row.Pinned == 1, LaterUntil: row.LaterUntil,
+		NeedsUser: askedOut(row.AskRounds) || row.Passes > MaxPasses || row.MissedAt > 0, MissedAt: row.MissedAt, DecisionMs: row.DecisionMs,
+		Pinned: row.Pinned == 1, LaterUntil: row.LaterUntil,
 		Passes: row.Passes, PassedBy: row.PassedBy, WaitsOnItemID: row.WaitsOnItemID,
 	}
 }
+
+// askedOut reports whether a task's leads asked about it more often than
+// MaxAskRounds allows, so that the user settles it.
+func askedOut(rounds int64) bool { return rounds > MaxAskRounds }
 
 // NewTask is the work that a task carries: what to do, the context the
 // receiver needs, the artifacts that go with it, and the sender's step that
@@ -576,6 +585,9 @@ func (s *Service) TakeTask(ctx context.Context, a Actor, goalID string, position
 	}
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
+	if err := s.closeTaskQuestions(ctx, team.ID, g.ID); err != nil {
+		return Goal{}, err
+	}
 	where := takenText(g, started)
 	from, err := s.senderTeam(ctx, g)
 	if err != nil {
@@ -730,14 +742,15 @@ func (s *Service) askNotes(ctx context.Context, a Actor, team, from Bot, g Goal)
 		return err
 	}
 	if g.FromBotID == "" {
-		return s.askUser(ctx, a, team, fmt.Sprintf("A question about the task %q: %s", g.Text, g.IntakeNote))
+		return s.askUser(ctx, a, team, g.ID, fmt.Sprintf("A question about the task %q: %s", g.Text, g.IntakeNote))
 	}
 	return s.postNotes(ctx, []noteTo{{from.ID, fmt.Sprintf("Team %s asks about your task %q: %s", team.Name, g.Text, g.IntakeNote)}})
 }
 
-// askUser posts the receiving lead's question to the user in its team's channel.
-func (s *Service) askUser(ctx context.Context, a Actor, team Bot, text string) error {
-	_, err := s.PostToRoomWithMeta(ctx, team.ID, a.BotID, a.TurnID, text, nil, maxAgentHops, true, PostMeta{})
+// askUser posts the lead's question about task goalID to the user in its
+// team's channel. It wakes no one.
+func (s *Service) askUser(ctx context.Context, a Actor, team Bot, goalID, text string) error {
+	_, err := s.PostToRoomWithMeta(ctx, team.ID, a.BotID, a.TurnID, text, nil, maxAgentHops, true, PostMeta{GoalID: goalID})
 	return err
 }
 
@@ -758,7 +771,7 @@ func (s *Service) askedTooOften(ctx context.Context, a Actor, team, from Bot, g 
 	s.hub.Publish(Event{Type: "bots"})
 	question := fmt.Sprintf("%s and %s couldn't settle %q in %d rounds: %s Take it, push it back or answer it?",
 		memberName(team, a.BotID), senderName, g.Text, MaxAskRounds, g.IntakeNote)
-	return errors.Join(refused, s.askUser(ctx, a, team, question))
+	return errors.Join(refused, s.askUser(ctx, a, team, g.ID, question))
 }
 
 // AnswerHandoff answers the receiver's question about a task.
@@ -869,6 +882,9 @@ func (s *Service) PushBack(ctx context.Context, a Actor, goalID, reason string) 
 	g.State, g.IntakeNote, g.AskedAt = GoalDeclined, reason, 0
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
+	if err := s.closeTaskQuestions(ctx, team.ID, g.ID); err != nil {
+		return Goal{}, err
+	}
 	if err := s.blockWaiting(ctx, g, note); err != nil {
 		return Goal{}, err
 	}
@@ -957,6 +973,9 @@ func (s *Service) WithdrawTask(ctx context.Context, a Actor, goalID string) (Goa
 	}
 	g.State, g.QueuePos = GoalEnded, 0
 	s.hub.Publish(Event{Type: "bots"})
+	if err := s.closeTaskQuestions(ctx, team.ID, g.ID); err != nil {
+		return Goal{}, err
+	}
 	who := actorName(from, a)
 	return g, s.postNotes(ctx, []noteTo{
 		{team.ID, fmt.Sprintf("Withdrawn by %s: the task %q.", who, g.Text)},

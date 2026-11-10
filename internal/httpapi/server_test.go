@@ -698,7 +698,7 @@ func TestTeamEndpointsCreateAndUpdateATeamAndShowItsMemory(t *testing.T) {
 		Kind string
 		Team core.Team
 	}
-	want := core.Team{LeadID: bo.ID, Agreement: "Tests pass.", GoalBudget: 20, RequestSlots: 1, InboxMax: core.DefaultInboxMax, InboxPerSender: core.DefaultInboxPerSender}
+	want := core.Team{LeadID: bo.ID, Agreement: "Tests pass.", GoalBudget: 20, RequestSlots: 1, InboxMax: core.DefaultInboxMax, InboxPerSender: core.DefaultInboxPerSender, DecisionMinutes: core.DefaultDecisionMinutes}
 	if err := json.Unmarshal(rec.Body.Bytes(), &team); err != nil || team.Kind != "room" || team.Team != want {
 		t.Fatalf("created team = %s; want a room with %+v", rec.Body, want)
 	}

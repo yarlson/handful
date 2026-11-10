@@ -115,6 +115,7 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.taskEvents)
 	mux.HandleFunc("GET /api/items/{id}/events", s.itemEvents)
 	mux.HandleFunc("GET /api/questions", s.waiting)
+	mux.HandleFunc("GET /api/needs-you", s.needsYou)
 	mux.HandleFunc("GET /api/bots/{id}/questions", s.chatQuestions)
 	mux.HandleFunc("POST /api/entries/{id}/dismiss", s.dismissQuestion)
 	mux.HandleFunc("POST /api/entries/{id}/reopen", s.reopenQuestion)
@@ -563,14 +564,15 @@ func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		LeadID         *string `json:"leadId"`
-		Agreement      *string `json:"agreement"`
-		GoalBudget     *int64  `json:"goalBudget"`
-		DefaultModel   *string `json:"defaultModel"`
-		DefaultEffort  *string `json:"defaultEffort"`
-		RequestSlots   *int64  `json:"requestSlots"`
-		InboxMax       *int64  `json:"inboxMax"`
-		InboxPerSender *int64  `json:"inboxPerSender"`
+		LeadID          *string `json:"leadId"`
+		Agreement       *string `json:"agreement"`
+		GoalBudget      *int64  `json:"goalBudget"`
+		DefaultModel    *string `json:"defaultModel"`
+		DefaultEffort   *string `json:"defaultEffort"`
+		RequestSlots    *int64  `json:"requestSlots"`
+		InboxMax        *int64  `json:"inboxMax"`
+		InboxPerSender  *int64  `json:"inboxPerSender"`
+		DecisionMinutes *int64  `json:"decisionMinutes"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
@@ -578,7 +580,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{
 		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
-		RequestSlots: in.RequestSlots, InboxMax: in.InboxMax, InboxPerSender: in.InboxPerSender,
+		RequestSlots: in.RequestSlots, InboxMax: in.InboxMax, InboxPerSender: in.InboxPerSender, DecisionMinutes: in.DecisionMinutes,
 	})
 	if err != nil {
 		s.fail(w, r, err)

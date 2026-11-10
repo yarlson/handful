@@ -1,19 +1,14 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
-	"os"
+	"path/filepath"
 	"strings"
 
+	"yargpt/internal/config"
 	"yargpt/internal/core"
-	"yargpt/internal/httpapi"
 )
-
-const maxConfigFile = 64 << 10
 
 // settings are the server settings that <data>/config.json can set.
 type settings struct {
@@ -21,48 +16,23 @@ type settings struct {
 	Model       string
 	Effort      string
 	MaxParallel int
-	Updates     httpapi.UpdateSettings
+	Updates     updateSettings
 }
 
-// Limits of the "updates" "drainMinutes" setting, which values outside clamp to.
-const (
-	minDrainMinutes = 5
-	maxDrainMinutes = 240
-)
+// updateSettings are the update settings of config.json.
+type updateSettings struct {
+	AutoCheck    bool // the app checks for updates by itself
+	DrainMinutes int  // how long the app waits for running work before it asks again
+	UpdateCheck  bool // a source build checks for new releases
+}
 
 // applyConfigFile reads the config file at path into s, except the settings
 // whose flags were given on the command line (set, by flag name). A missing
 // file changes nothing.
 func applyConfigFile(path string, set map[string]bool, s *settings) error {
-	f, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
+	file, err := config.Load(path)
 	if err != nil {
-		return fmt.Errorf("open config file: %w", err)
-	}
-	defer f.Close()
-	var file struct {
-		Claude      *string `json:"claude"`
-		Model       *string `json:"model"`
-		Effort      *string `json:"effort"`
-		MaxParallel *int    `json:"maxParallel"`
-		Updates     *struct {
-			AutoCheck    *bool `json:"autoCheck"`
-			DrainMinutes *int  `json:"drainMinutes"`
-		} `json:"updates"`
-		UpdateCheck *bool `json:"updateCheck"`
-	}
-	dec := json.NewDecoder(io.LimitReader(f, maxConfigFile))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&file); err != nil {
-		return fmt.Errorf("read config file %s: %w", path, err)
-	}
-	if err := dec.Decode(&json.RawMessage{}); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("read config file %s: unexpected data after the JSON object", path)
-	}
-	if file.MaxParallel != nil && *file.MaxParallel < 1 {
-		return fmt.Errorf("config file %s: maxParallel must be at least 1", path)
+		return err
 	}
 	fromFile(&s.Claude, file.Claude, set["claude"])
 	fromFile(&s.Model, file.Model, set["model"])
@@ -77,10 +47,10 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 }
 
 // applyDrainMinutes sets the file's drain limit, if it has one, clamped to
-// minDrainMinutes..maxDrainMinutes.
-func applyDrainMinutes(u *httpapi.UpdateSettings, minutes *int) {
+// the limits of config.
+func applyDrainMinutes(u *updateSettings, minutes *int) {
 	if minutes != nil {
-		u.DrainMinutes = min(max(*minutes, minDrainMinutes), maxDrainMinutes)
+		u.DrainMinutes = min(max(*minutes, config.MinDrainMinutes), config.MaxDrainMinutes)
 	}
 }
 
@@ -90,6 +60,42 @@ func fromFile[T any](dst, v *T, flagGiven bool) {
 	if v != nil && !flagGiven {
 		*dst = *v
 	}
+}
+
+// loadSettings applies the config file to the settings of o and checks
+// them as the server does when it starts: the model, the effort and the
+// Claude Code program, which lookPath must find. It is the one check of
+// startup and of a restart, which starts from the flags again. An error
+// names its config key when one key is to blame (a *startupError).
+func (o *options) loadSettings(getenv func(string) string, lookPath func(string) (string, error)) error {
+	if err := applyConfigFile(filepath.Join(o.dataDir, "config.json"), o.set, &o.settings); err != nil {
+		return err
+	}
+	var err error
+	if o.defaults, err = globalDefaults(&o.settings, o.set, getenv); err != nil {
+		return err
+	}
+	if o.claudePath, err = lookPath(o.Claude); err != nil {
+		return &startupError{key: "claude", err: fmt.Errorf("find Claude Code CLI %q: %w", o.Claude, err)}
+	}
+	return nil
+}
+
+// startupError is a setting that stops the server from starting.
+type startupError struct {
+	key string // the config key
+	err error
+}
+
+func (e *startupError) Error() string { return e.err.Error() }
+
+// startupKey returns the config key that err blames, or "" when it blames
+// the whole file.
+func startupKey(err error) string {
+	if se, ok := errors.AsType[*startupError](err); ok {
+		return se.key
+	}
+	return ""
 }
 
 // globalDefaults checks the global model and effort of s, normalizes them in
@@ -121,10 +127,10 @@ func settingSource(set map[string]bool, name string) string {
 func settingError(name string, set map[string]bool, err error) error {
 	msg := strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
 	if set[name] {
-		return fmt.Errorf("-%s: %s", name, msg)
+		return &startupError{key: name, err: fmt.Errorf("-%s: %s", name, msg)}
 	}
 	if rest, ok := strings.CutPrefix(msg, "Effort must"); ok {
-		return fmt.Errorf("config.json: %q must%s", name, strings.TrimSuffix(rest, "."))
+		return &startupError{key: name, err: fmt.Errorf("config.json: %q must%s", name, strings.TrimSuffix(rest, "."))}
 	}
-	return fmt.Errorf("config.json: %q: %s", name, msg)
+	return &startupError{key: name, err: fmt.Errorf("config.json: %q: %s", name, msg)}
 }

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"yargpt/internal/agent"
+	"yargpt/internal/config"
 	"yargpt/internal/core"
 	"yargpt/internal/db"
 	"yargpt/internal/httpapi"
@@ -29,9 +30,13 @@ func main() {
 	exit(run(os.Args[1:]))
 }
 
-// exit ends the process: with status 0 when err is nil, else with 1 after
-// printing err.
+// exit ends the process: with status 0 when err is nil, with
+// restartExitCode for a restart, else with 1 after printing err.
 func exit(err error) {
+	if errors.Is(err, errRestart) {
+		fmt.Fprintln(os.Stderr, "yargpt:", err)
+		os.Exit(restartExitCode)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "yargpt:", err)
 		os.Exit(1)
@@ -44,12 +49,15 @@ type options struct {
 	addr    string
 	dataDir string
 	settings
-	loginEnv   bool
-	logFile    string
-	tray       bool
-	set        map[string]bool // flags given on the command line
-	claudePath string
-	defaults   core.Defaults
+	loginEnv bool
+	logFile  string
+	tray     bool
+	set      map[string]bool // flags given on the command line
+	// flagSettings are the settings of the flags and defaults alone, before
+	// the config file: what a restart starts from.
+	flagSettings settings
+	claudePath   string
+	defaults     core.Defaults
 }
 
 func run(args []string) error {
@@ -84,6 +92,7 @@ func setUp(args []string) (options, *slog.Logger, error) {
 			log.Warn("keeping the environment that the server started with", "err", err)
 		}
 	}
+	o.flagSettings = o.settings
 	return o, log, prepare(&o)
 }
 
@@ -112,14 +121,14 @@ func parseFlags(args []string) (options, error) {
 	if err != nil {
 		return options{}, fmt.Errorf("find home directory: %w", err)
 	}
-	o := options{set: map[string]bool{}, Updates: httpapi.DefaultUpdates().Settings}
+	o := options{set: map[string]bool{}, Updates: updateSettings{AutoCheck: config.DefaultAutoCheck, DrainMinutes: config.DefaultDrainMinutes, UpdateCheck: config.DefaultUpdateCheck}}
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "loopback address to listen on")
 	fs.StringVar(&o.dataDir, "data", filepath.Join(home, ".yargpt"), "directory for the database, bot workspaces and skills")
-	fs.StringVar(&o.Claude, "claude", "claude", "path to the Claude Code CLI")
+	fs.StringVar(&o.Claude, "claude", config.DefaultClaude, "path to the Claude Code CLI")
 	fs.StringVar(&o.Model, "model", "", "model alias for every bot (default: Claude Code's default)")
 	fs.StringVar(&o.Effort, "effort", "", "reasoning effort for every bot: low, medium, high, xhigh or max (default: the model's own)")
-	fs.IntVar(&o.MaxParallel, "max-parallel", 3, "turns that may run at once across all bots")
+	fs.IntVar(&o.MaxParallel, "max-parallel", config.DefaultMaxParallel, "turns that may run at once across all bots")
 	fs.BoolVar(&o.loginEnv, "login-env", false, "take the environment, such as PATH, from the user's login shell (launchd starts the server with a minimal PATH)")
 	fs.BoolVar(&o.tray, "tray", false, "show a menu-bar icon with Check for updates…, which opens the app, and Exit server, which stops the server (macOS)")
 	fs.StringVar(&o.logFile, "log", "", "append the log and all other error output to this file; ~/ is the home directory")
@@ -131,11 +140,7 @@ func parseFlags(args []string) (options, error) {
 
 // prepare applies the config file, checks the address and finds Claude Code.
 func prepare(o *options) error {
-	if err := applyConfigFile(filepath.Join(o.dataDir, "config.json"), o.set, &o.settings); err != nil {
-		return err
-	}
-	var err error
-	if o.defaults, err = globalDefaults(&o.settings, o.set, os.Getenv); err != nil {
+	if err := o.loadSettings(os.Getenv, exec.LookPath); err != nil {
 		return err
 	}
 	host, _, err := net.SplitHostPort(o.addr)
@@ -144,9 +149,6 @@ func prepare(o *options) error {
 	}
 	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		return fmt.Errorf("-addr %q is not a loopback address; YarGPT has no authentication and must not listen on the network", o.addr)
-	}
-	if o.claudePath, err = exec.LookPath(o.Claude); err != nil {
-		return fmt.Errorf("find Claude Code CLI %q: %w", o.Claude, err)
 	}
 	if err := os.MkdirAll(o.dataDir, 0o700); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
@@ -192,9 +194,10 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		assets = nil
 	}
 	updates := startUpdateNotice(ctx, o, log)
+	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, log)
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates)),
+		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings)),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Requests end with the server: event streams and pending approvals stop on shutdown.
 		BaseContext: func(net.Listener) context.Context { return ctx },
@@ -202,6 +205,8 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 
 	runnerDone := make(chan struct{})
 	go func() { runner.Run(ctx); close(runnerDone) }()
+	waitRestarts := restarts.watch(ctx, svc, runner)
+	defer func() { stop(); waitRestarts() }()
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
@@ -224,7 +229,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("shut down HTTP server: %w", err)
 	}
-	return nil
+	return restarts.result()
 }
 
 // startUpdateNotice returns what the API reports about the server's version
@@ -235,7 +240,7 @@ func startUpdateNotice(ctx context.Context, o options, log *slog.Logger) httpapi
 	if err != nil {
 		log.Debug("find the server's executable", "err", err)
 	}
-	u := httpapi.Updates{Version: version, SourceBuild: !inAppBundle(exe), Settings: o.Updates}
+	u := httpapi.Updates{Version: version, SourceBuild: !inAppBundle(exe)}
 	if !checksForUpdates(version, exe, o.Updates.UpdateCheck, os.Getenv) {
 		return u
 	}

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"yargpt/internal/core"
-	"yargpt/internal/httpapi"
 )
 
 func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
@@ -28,11 +27,11 @@ func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
 		{name: "file sets effort", file: `{"effort": "max"}`, want: settings{Claude: "claude", Effort: "max", MaxParallel: 3}},
 		{name: "effort flag wins over file", file: `{"effort": "max", "model": "opus"}`, set: map[string]bool{"effort": true}, want: settings{Claude: "claude", Model: "opus", MaxParallel: 3}},
 		{name: "bad maxParallel", file: `{"maxParallel": 0}`, wantErr: "maxParallel"},
-		{name: "update settings", file: `{"updates": {"autoCheck": true, "drainMinutes": 45}, "updateCheck": true}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: httpapi.UpdateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: true}}},
-		{name: "drain limit at its least", file: `{"updates": {"drainMinutes": 5}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: httpapi.UpdateSettings{DrainMinutes: 5}}},
-		{name: "drain limit below the least", file: `{"updates": {"drainMinutes": 4}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: httpapi.UpdateSettings{DrainMinutes: 5}}},
-		{name: "drain limit at its most", file: `{"updates": {"drainMinutes": 240}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: httpapi.UpdateSettings{DrainMinutes: 240}}},
-		{name: "drain limit above the most", file: `{"updates": {"drainMinutes": 241}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: httpapi.UpdateSettings{DrainMinutes: 240}}},
+		{name: "update settings", file: `{"updates": {"autoCheck": true, "drainMinutes": 45}, "updateCheck": true}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: true}}},
+		{name: "drain limit at its least", file: `{"updates": {"drainMinutes": 5}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{DrainMinutes: 5}}},
+		{name: "drain limit below the least", file: `{"updates": {"drainMinutes": 4}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{DrainMinutes: 5}}},
+		{name: "drain limit at its most", file: `{"updates": {"drainMinutes": 240}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{DrainMinutes: 240}}},
+		{name: "drain limit above the most", file: `{"updates": {"drainMinutes": 241}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{DrainMinutes: 240}}},
 		{name: "updates without a drain limit", file: `{"updates": {"autoCheck": false}}`, want: defaults},
 		{name: "unknown update setting", file: `{"updates": {"channel": "beta"}}`, wantErr: `unknown field "channel"`},
 	}

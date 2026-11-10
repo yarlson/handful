@@ -16,23 +16,15 @@ type Updates struct {
 	// which cannot replace it.
 	SourceBuild bool
 	// Latest returns a release newer than Version, or "" when none is known.
-	Latest   func() string
-	Settings UpdateSettings
-}
-
-// UpdateSettings are the update settings of config.json.
-type UpdateSettings struct {
-	AutoCheck    bool `json:"autoCheck"`    // the app checks for updates by itself
-	DrainMinutes int  `json:"drainMinutes"` // how long the app waits for running work before it asks again
-	UpdateCheck  bool `json:"updateCheck"`  // a source build checks for new releases
+	Latest func() string
 }
 
 // DefaultUpdates are the updates of a server that WithUpdates does not set.
 func DefaultUpdates() Updates {
-	return Updates{Version: "dev", SourceBuild: true, Settings: UpdateSettings{AutoCheck: true, DrainMinutes: 30, UpdateCheck: true}}
+	return Updates{Version: "dev", SourceBuild: true}
 }
 
-// WithUpdates sets the version and the update settings that the API reports.
+// WithUpdates sets the version and the updates that the API reports.
 func WithUpdates(u Updates) Option {
 	return func(s *server) { s.updates = u }
 }
@@ -70,10 +62,10 @@ func (s *server) versionInfo(r *http.Request) versionInfo {
 func (s *server) setDrain(on bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.svc.SetDraining(on)
+		if !on && s.settings.CancelRestart != nil {
+			// At once: the updater may turn drain mode on again before the restarter's next look.
+			s.settings.CancelRestart()
+		}
 		writeJSON(w, http.StatusOK, s.versionInfo(r))
 	}
-}
-
-func (s *server) updateSettings(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.updates.Settings)
 }

@@ -64,7 +64,7 @@ func TestStoredMessagesDropTheSendersPreamble(t *testing.T) {
 	if got := lastText(room.ID); got != "The routine is set." {
 		t.Fatalf("room post = %q; want the preamble removed", got)
 	}
-	if _, err := svc.SendAgentMessage(ctx, sec.ID, guru.ID, "Atlas Security here. Please confirm.", nil, false, 0); err != nil {
+	if _, err := svc.SendAgentMessage(ctx, sec.ID, "", guru.ID, "Atlas Security here. Please confirm.", nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := lastText(sec.ID), "Please confirm."; got != want {

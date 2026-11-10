@@ -61,9 +61,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: InsertRunningTurn :one
-INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, created_at, started_at)
-VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)
+INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, created_at, started_at)
+VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: GetTurnTask :one
+-- The task and step a turn works on, and what kind of board turn it is.
+SELECT goal_id, item_id, board_role, decision FROM turns WHERE id = ?;
 
 -- name: GetTurnByNonce :one
 SELECT * FROM turns WHERE bot_id = ? AND client_nonce = ?;
@@ -457,11 +461,11 @@ SELECT goal_id FROM turns WHERE id = ?;
 
 -- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns
-WHERE goal_id = ? AND started_at IS NOT NULL AND board_role <> 'retro' AND decision = 0;
+WHERE goal_id = ? AND started_at IS NOT NULL AND board_role NOT IN ('', 'retro') AND decision = 0;
 
 -- name: CancelQueuedGoalTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'the goal ended', finished_at = ?
-WHERE goal_id = ? AND status = 'queued';
+WHERE goal_id = ? AND status = 'queued' AND board_role <> '';
 
 -- name: InsertItem :one
 INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, intake, for_item_id, position, created_at, updated_at)
@@ -528,10 +532,10 @@ UPDATE turns SET status = 'interrupted', error = 'the bot left the team', finish
 WHERE bot_id = ? AND room_id = ? AND status = 'queued';
 
 -- name: CountOpenGoalTurns :one
-SELECT COUNT(*) FROM turns WHERE goal_id = ? AND status IN ('queued', 'running');
+SELECT COUNT(*) FROM turns WHERE goal_id = ? AND status IN ('queued', 'running') AND board_role <> '';
 
 -- name: LastGoalTurnStatus :one
-SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running')
+SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running') AND board_role <> ''
 ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
 -- name: CountOpenTurnsOfBotInRoom :one
@@ -542,11 +546,11 @@ UPDATE turns SET status = 'interrupted', error = ?, finished_at = ? WHERE id = ?
 
 -- name: CancelQueuedItemTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'the item changed', finished_at = ?
-WHERE item_id = ? AND status = 'queued';
+WHERE item_id = ? AND status = 'queued' AND board_role <> '';
 
 -- name: CountOpenItemTurns :one
 SELECT COUNT(*) FROM turns
-WHERE item_id = ? AND bot_id = ? AND status IN ('queued', 'running');
+WHERE item_id = ? AND bot_id = ? AND status IN ('queued', 'running') AND board_role <> '';
 
 -- name: CountQueuedLeadTurns :one
 SELECT COUNT(*) FROM turns
@@ -574,7 +578,7 @@ ORDER BY i.created_at, i.rowid;
 -- Queues the room turn that a user's post gives a member, unless one waits
 -- already: that turn sees every post that came before it starts.
 INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, board_role, created_at)
-SELECT sqlc.arg(id), sqlc.arg(bot_id), 'room', sqlc.arg(prompt), 'queued', sqlc.arg(room_id), 0, '', '', '', sqlc.arg(created_at)
+SELECT sqlc.arg(id), sqlc.arg(bot_id), 'room', sqlc.arg(prompt), 'queued', sqlc.arg(room_id), 0, sqlc.arg(goal_id), '', '', sqlc.arg(created_at)
 WHERE NOT EXISTS (
   SELECT 1 FROM turns
   WHERE bot_id = sqlc.arg(bot_id) AND room_id = sqlc.arg(room_id) AND source = 'room' AND status = 'queued'

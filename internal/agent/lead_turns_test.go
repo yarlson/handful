@@ -109,10 +109,13 @@ func TestBoardTurnsAreGoalWorkAndLeadDecisions(t *testing.T) {
 		turn core.Turn
 		want bool
 	}{
-		{core.Turn{GoalID: "g"}, true},
+		{core.Turn{GoalID: "g", BoardRole: core.RoleWork}, true},
+		{core.Turn{GoalID: "g", BoardRole: core.RoleReview}, true},
 		{core.Turn{BoardRole: core.RoleLead}, true},
-		{core.Turn{BoardRole: core.RoleRetro}, false},
+		{core.Turn{GoalID: "g", BoardRole: core.RoleRetro}, true},
 		{core.Turn{RoomID: "team"}, false},
+		// A conversation turn that inherits a task or a step stays conversation.
+		{core.Turn{RoomID: "team", GoalID: "g", ItemID: "i"}, false},
 	} {
 		if got := boardTurn(c.turn); got != c.want {
 			t.Errorf("boardTurn(%+v) = %v; want %v", c.turn, got, c.want)

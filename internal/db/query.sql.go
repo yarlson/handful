@@ -222,7 +222,7 @@ func (q *Queries) AskAboutHandoff(ctx context.Context, arg AskAboutHandoffParams
 
 const cancelQueuedGoalTurns = `-- name: CancelQueuedGoalTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'the goal ended', finished_at = ?
-WHERE goal_id = ? AND status = 'queued'
+WHERE goal_id = ? AND status = 'queued' AND board_role <> ''
 `
 
 type CancelQueuedGoalTurnsParams struct {
@@ -237,7 +237,7 @@ func (q *Queries) CancelQueuedGoalTurns(ctx context.Context, arg CancelQueuedGoa
 
 const cancelQueuedItemTurns = `-- name: CancelQueuedItemTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'the item changed', finished_at = ?
-WHERE item_id = ? AND status = 'queued'
+WHERE item_id = ? AND status = 'queued' AND board_role <> ''
 `
 
 type CancelQueuedItemTurnsParams struct {
@@ -313,7 +313,7 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 
 const countGoalTurns = `-- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns
-WHERE goal_id = ? AND started_at IS NOT NULL AND board_role <> 'retro' AND decision = 0
+WHERE goal_id = ? AND started_at IS NOT NULL AND board_role NOT IN ('', 'retro') AND decision = 0
 `
 
 func (q *Queries) CountGoalTurns(ctx context.Context, goalID string) (int64, error) {
@@ -356,7 +356,7 @@ func (q *Queries) CountIncomingGoals(ctx context.Context) ([]CountIncomingGoalsR
 }
 
 const countOpenGoalTurns = `-- name: CountOpenGoalTurns :one
-SELECT COUNT(*) FROM turns WHERE goal_id = ? AND status IN ('queued', 'running')
+SELECT COUNT(*) FROM turns WHERE goal_id = ? AND status IN ('queued', 'running') AND board_role <> ''
 `
 
 func (q *Queries) CountOpenGoalTurns(ctx context.Context, goalID string) (int64, error) {
@@ -368,7 +368,7 @@ func (q *Queries) CountOpenGoalTurns(ctx context.Context, goalID string) (int64,
 
 const countOpenItemTurns = `-- name: CountOpenItemTurns :one
 SELECT COUNT(*) FROM turns
-WHERE item_id = ? AND bot_id = ? AND status IN ('queued', 'running')
+WHERE item_id = ? AND bot_id = ? AND status IN ('queued', 'running') AND board_role <> ''
 `
 
 type CountOpenItemTurnsParams struct {
@@ -1044,6 +1044,30 @@ func (q *Queries) GetTurnGoal(ctx context.Context, id string) (string, error) {
 	return goal_id, err
 }
 
+const getTurnTask = `-- name: GetTurnTask :one
+SELECT goal_id, item_id, board_role, decision FROM turns WHERE id = ?
+`
+
+type GetTurnTaskRow struct {
+	GoalID    string `json:"goal_id"`
+	ItemID    string `json:"item_id"`
+	BoardRole string `json:"board_role"`
+	Decision  int64  `json:"decision"`
+}
+
+// The task and step a turn works on, and what kind of board turn it is.
+func (q *Queries) GetTurnTask(ctx context.Context, id string) (GetTurnTaskRow, error) {
+	row := q.db.QueryRowContext(ctx, getTurnTask, id)
+	var i GetTurnTaskRow
+	err := row.Scan(
+		&i.GoalID,
+		&i.ItemID,
+		&i.BoardRole,
+		&i.Decision,
+	)
+	return i, err
+}
+
 const getTurnUserEntryBody = `-- name: GetTurnUserEntryBody :one
 SELECT body FROM entries WHERE bot_id = ? AND turn_id = ? AND kind = 'user' LIMIT 1
 `
@@ -1364,8 +1388,8 @@ func (q *Queries) InsertMemory(ctx context.Context, arg InsertMemoryParams) (int
 }
 
 const insertRunningTurn = `-- name: InsertRunningTurn :one
-INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, created_at, started_at)
-VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)
+INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, created_at, started_at)
+VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)
 RETURNING id, bot_id, source, client_nonce, prompt, status, error, room_id, hops, created_at, started_at, finished_at, goal_id, item_id, board_role, decision
 `
 
@@ -1376,6 +1400,8 @@ type InsertRunningTurnParams struct {
 	Prompt    string        `json:"prompt"`
 	RoomID    string        `json:"room_id"`
 	Hops      int64         `json:"hops"`
+	GoalID    string        `json:"goal_id"`
+	ItemID    string        `json:"item_id"`
 	CreatedAt int64         `json:"created_at"`
 	StartedAt sql.NullInt64 `json:"started_at"`
 }
@@ -1388,6 +1414,8 @@ func (q *Queries) InsertRunningTurn(ctx context.Context, arg InsertRunningTurnPa
 		arg.Prompt,
 		arg.RoomID,
 		arg.Hops,
+		arg.GoalID,
+		arg.ItemID,
 		arg.CreatedAt,
 		arg.StartedAt,
 	)
@@ -1548,7 +1576,7 @@ func (q *Queries) InsertTurn(ctx context.Context, arg InsertTurnParams) (Turn, e
 }
 
 const lastGoalTurnStatus = `-- name: LastGoalTurnStatus :one
-SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running')
+SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running') AND board_role <> ''
 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
@@ -3620,7 +3648,7 @@ func (q *Queries) PruneNotes(ctx context.Context, createdAt int64) (int64, error
 
 const queueUserPostTurn = `-- name: QueueUserPostTurn :execrows
 INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, board_role, created_at)
-SELECT ?1, ?2, 'room', ?3, 'queued', ?4, 0, '', '', '', ?5
+SELECT ?1, ?2, 'room', ?3, 'queued', ?4, 0, ?5, '', '', ?6
 WHERE NOT EXISTS (
   SELECT 1 FROM turns
   WHERE bot_id = ?2 AND room_id = ?4 AND source = 'room' AND status = 'queued'
@@ -3633,6 +3661,7 @@ type QueueUserPostTurnParams struct {
 	BotID     string `json:"bot_id"`
 	Prompt    string `json:"prompt"`
 	RoomID    string `json:"room_id"`
+	GoalID    string `json:"goal_id"`
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -3644,6 +3673,7 @@ func (q *Queries) QueueUserPostTurn(ctx context.Context, arg QueueUserPostTurnPa
 		arg.BotID,
 		arg.Prompt,
 		arg.RoomID,
+		arg.GoalID,
 		arg.CreatedAt,
 	)
 	if err != nil {

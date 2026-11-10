@@ -275,6 +275,24 @@ task-wake)
     result "woke"
   done
   ;;
+task-report)
+  # The first message starts a background task. The next message ends it,
+  # and Claude Code wakes the model for its report, with no new task.
+  lifecycle started
+  init
+  echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Build the site"}]}'
+  result "started"
+  lifecycle completed
+  while IFS= read -r input; do
+    lifecycle started
+    result "pong"
+    lifecycle completed
+    echo '{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","summary":"Background command \"Build the site\" completed (exit code 0)"}'
+    init
+    result "woke"
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+  done
+  ;;
 chatty)
   # A long turn that prints a line every 0.2 seconds.
   lifecycle started
@@ -1726,7 +1744,7 @@ func TestHeldMessagesWaitForATurnOutsideTheTeam(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	team, ana, _, cy := h.newTeam(t)
-	if _, err := h.svc.SendAgentMessage(ctx, cy.ID, ana.ID, "Lunch at noon?", nil, false, 0); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, cy.ID, "", ana.ID, "Lunch at noon?", nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -1912,7 +1930,7 @@ func TestOnlyConversationInARoomHoldsUpTheNextConversationTurn(t *testing.T) {
 		want    bool
 	}{
 		{"nothing runs", nil, false, false},
-		{"an item's work runs", map[string]runningTurn{"b": {roomID: "t", itemID: "i"}}, false, false},
+		{"an item's work runs", map[string]runningTurn{"b": {roomID: "t", work: true}}, false, false},
 		{"a conversation turn runs", map[string]runningTurn{"b": {roomID: "t"}}, false, true},
 		{"a conversation turn elsewhere", map[string]runningTurn{"b": {roomID: "other"}}, false, false},
 		{"a task turn runs in the room", nil, true, true},
@@ -2079,7 +2097,7 @@ func TestEveryTurnMessageStartsWithTheCurrentTime(t *testing.T) {
 	ctx := context.Background()
 	ana, bo := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo")
 	h.start(t)
-	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, bo.ID, "Is the build green?", nil, true, 0); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, "", bo.ID, "Is the build green?", nil, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.waitEntry(t, bo.ID, func(e core.Entry) bool { return e.Kind == core.KindActivity })
@@ -2253,7 +2271,7 @@ func TestHeldDirectMessagesReachTheNextTurnAndAreAcknowledged(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	ana, bo := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Bo")
-	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, bo.ID, "FYI: the report is in /tmp/r.md", nil, false, 0); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, "", bo.ID, "FYI: the report is in /tmp/r.md", nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -3637,7 +3655,7 @@ func TestTaskTurnKeepsTheHopsOfTheTurnThatStartedTheTask(t *testing.T) {
 	ctx := context.Background()
 	ana, bot := h.newNamedBot(t, "Ana"), h.newNamedBot(t, "Builder")
 	h.start(t)
-	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, bot.ID, "build the site", nil, true, 4); err != nil {
+	if _, err := h.svc.SendAgentMessage(ctx, ana.ID, "", bot.ID, "build the site", nil, true, 4); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the agent turn is over with its task left", func() bool {

@@ -35,7 +35,8 @@ type AgentMessageResult struct {
 // [agent] turn; without priority, or past the hop bound, the message waits
 // until the recipient's next turn. hops is the sender's current turn depth.
 // files go only with a room post, since direct messages carry text only.
-func (s *Service) SendAgentMessage(ctx context.Context, fromID, targetID, text string, files []string, priority bool, hops int64) (AgentMessageResult, error) {
+// turnID is the sender's turn, which a room post passes its task on from.
+func (s *Service) SendAgentMessage(ctx context.Context, fromID, turnID, targetID, text string, files []string, priority bool, hops int64) (AgentMessageResult, error) {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > MaxAgentMessage {
 		return AgentMessageResult{}, invalid("message must be 1 to %d characters", MaxAgentMessage)
@@ -53,7 +54,7 @@ func (s *Service) SendAgentMessage(ctx context.Context, fromID, targetID, text s
 		return AgentMessageResult{}, err
 	}
 	if target.IsRoom() {
-		woken, err := s.PostToRoom(ctx, target.ID, from.ID, "", text, files, hops, false)
+		woken, err := s.PostToRoom(ctx, target.ID, from.ID, turnID, text, files, hops, false)
 		if err != nil {
 			return AgentMessageResult{}, err
 		}
@@ -63,6 +64,12 @@ func (s *Service) SendAgentMessage(ctx context.Context, fromID, targetID, text s
 	if len(files) > 0 {
 		return AgentMessageResult{}, invalid("files can go only to a room; a direct message to %s carries text only", target.Name)
 	}
+	return s.directMessage(ctx, from, target, text, priority, hops)
+}
+
+// directMessage delivers text from one bot to another, as SendAgentMessage
+// describes: it wakes the recipient, or holds the message for its next turn.
+func (s *Service) directMessage(ctx context.Context, from, target Bot, text string, priority bool, hops int64) (AgentMessageResult, error) {
 	wake := priority && hops+1 <= maxAgentHops
 	if _, err := s.AppendEntry(ctx, from.ID, KindAgent, "", map[string]any{"direction": "out", "peerId": target.ID, "peerName": target.Name, "text": text, "priority": priority}); err != nil {
 		return AgentMessageResult{}, err

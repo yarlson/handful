@@ -193,7 +193,7 @@ func TestDirectMessagePriorityWakesAndOtherwiseWaitsInTheInbox(t *testing.T) {
 	bots := newAgents(t, svc, "Ana", "Bo")
 	ana, bo := bots["Ana"], bots["Bo"]
 
-	res, err := svc.SendAgentMessage(ctx, ana.ID, bo.ID, "Please summarize the doc.", nil, true, 0)
+	res, err := svc.SendAgentMessage(ctx, ana.ID, "", bo.ID, "Please summarize the doc.", nil, true, 0)
 	if err != nil || res.Delivered != "woke" {
 		t.Fatalf("priority message: %+v, %v; want woke", res, err)
 	}
@@ -209,7 +209,7 @@ func TestDirectMessagePriorityWakesAndOtherwiseWaitsInTheInbox(t *testing.T) {
 	}
 	drainQueue(t, svc)
 
-	res, err = svc.SendAgentMessage(ctx, ana.ID, bo.ID, "FYI: done.", nil, false, 0)
+	res, err = svc.SendAgentMessage(ctx, ana.ID, "", bo.ID, "FYI: done.", nil, false, 0)
 	if err != nil || res.Delivered != "held" {
 		t.Fatalf("message without priority: %+v, %v; want held", res, err)
 	}
@@ -227,10 +227,10 @@ func TestDirectMessagePriorityWakesAndOtherwiseWaitsInTheInbox(t *testing.T) {
 		t.Fatalf("inbox after ack = %+v; want empty", inbox)
 	}
 
-	if res, err := svc.SendAgentMessage(ctx, ana.ID, bo.ID, "loop?", nil, true, maxAgentHops); err != nil || res.Delivered != "held" {
+	if res, err := svc.SendAgentMessage(ctx, ana.ID, "", bo.ID, "loop?", nil, true, maxAgentHops); err != nil || res.Delivered != "held" {
 		t.Fatalf("priority message at the hop limit: %+v, %v; want held without a wake", res, err)
 	}
-	if _, err := svc.SendAgentMessage(ctx, ana.ID, ana.ID, "me", nil, true, 0); !errors.Is(err, ErrInvalid) {
+	if _, err := svc.SendAgentMessage(ctx, ana.ID, "", ana.ID, "me", nil, true, 0); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("message to self: err = %v; want ErrInvalid", err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"sort"
 	"sync"
 	"syscall"
@@ -60,6 +61,9 @@ type session struct {
 	// busySince is when the process last became busy with a task turn or
 	// background tasks, for the update's list of running work.
 	busySince time.Time
+	// taskTurnID is the latest turn that started a background task; a task
+	// turn works on its task and step.
+	taskTurnID string
 	// taskHops is the most hops of a turn that changed the background tasks.
 	// A task turn starts at it, as the turn that started the task.
 	taskHops int64
@@ -446,9 +450,9 @@ func (r *Runner) recorder(s *session, turnID string) *activityRecorder {
 // returns nil when the turn cannot be recorded; its events are then dropped.
 func (r *Runner) startTask(s *session) *activeTurn {
 	r.mu.Lock()
-	hops := s.taskHops
+	hops, from := s.taskHops, s.taskTurnID
 	r.mu.Unlock()
-	t, err := r.svc.StartTaskTurn(context.Background(), s.key.botID, s.key.roomID, taskTurnPrompt, hops)
+	t, err := r.svc.StartTaskTurn(context.Background(), s.key.botID, s.key.roomID, taskTurnPrompt, hops, from)
 	if err != nil {
 		r.log.Error("record task turn", "bot", s.key.botID, "err", err)
 		return nil
@@ -527,6 +531,9 @@ func (r *Runner) setTasks(s *session, list []streamTask) {
 	rc, _ := r.tokens.get(s.token)
 	r.mu.Lock()
 	markBusy(s) // an idle process that gets no tasks stays idle and unlisted
+	if startsTask(s.tasks, tasks) {
+		s.taskTurnID = rc.TurnID
+	}
 	s.tasks = tasks
 	s.taskHops = max(s.taskHops, rc.Hops)
 	r.mu.Unlock()
@@ -658,4 +665,14 @@ func markBusy(s *session) {
 	if !s.waking && len(s.tasks) == 0 {
 		s.busySince = time.Now()
 	}
+}
+
+// startsTask reports whether next lists a background task that before doesn't.
+func startsTask(before, next []core.BackgroundTask) bool {
+	for _, t := range next {
+		if !slices.ContainsFunc(before, func(b core.BackgroundTask) bool { return b.ID == t.ID }) {
+			return true
+		}
+	}
+	return false
 }

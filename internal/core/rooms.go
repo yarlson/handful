@@ -297,6 +297,17 @@ func nameRune(r rune) bool {
 // per room at a time), so each sees the replies before it.
 func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string, askers ...string) error {
 	targets := mentioned(text, room.Members, "")
+	// A member the user @mentions in a team works on the team's Now task when
+	// the member owns or reviews one of its steps; any other turn the post
+	// wakes is not on a task.
+	now, onSteps, err := s.nowTask(ctx, room)
+	if err != nil {
+		return err
+	}
+	onNow := map[string]bool{}
+	for _, m := range targets {
+		onNow[m.ID] = onSteps[m.ID]
+	}
 	for _, m := range room.Members {
 		if slices.Contains(askers, m.ID) && !slices.Contains(targets, m) {
 			targets = append(targets, m)
@@ -311,7 +322,11 @@ func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string, as
 	// A member that already has a turn waiting for an earlier post gets no
 	// second one: that turn shows every post since its last turn.
 	for _, m := range targets {
-		if _, err := s.q.QueueUserPostTurn(ctx, db.QueueUserPostTurnParams{ID: uuid.NewString(), BotID: m.ID, Prompt: "The user posted a new message.", RoomID: room.ID, CreatedAt: s.nowMs()}); err != nil {
+		goalID := ""
+		if onNow[m.ID] {
+			goalID = now
+		}
+		if _, err := s.q.QueueUserPostTurn(ctx, db.QueueUserPostTurnParams{ID: uuid.NewString(), BotID: m.ID, Prompt: "The user posted a new message.", RoomID: room.ID, GoalID: goalID, CreatedAt: s.nowMs()}); err != nil {
 			return fmt.Errorf("queue room turn for bot %s: %w", m.ID, err)
 		}
 	}
@@ -364,7 +379,12 @@ func (s *Service) PostToRoomWithMeta(ctx context.Context, roomID, botID, turnID,
 	}
 	var woken []string
 	for _, m := range roomWakes(text, room, botID, hops) {
-		if _, err := s.enqueueTurn(ctx, Turn{BotID: m.ID, Source: SourceRoom, RoomID: roomID, Hops: hops + 1, Prompt: speaker.Name + " mentioned you."}); err != nil {
+		// A member woken from work on a task works on that task too.
+		w, err := inheritedWork(ctx, s.q, turnID, m.ID)
+		if err != nil {
+			return woken, err
+		}
+		if _, err := s.enqueueTurn(ctx, Turn{BotID: m.ID, Source: SourceRoom, RoomID: roomID, Hops: hops + 1, GoalID: w.goalID, ItemID: w.itemID, Prompt: speaker.Name + " mentioned you."}); err != nil {
 			return woken, err
 		}
 		woken = append(woken, m.Name)

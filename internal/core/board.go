@@ -1707,6 +1707,12 @@ func (s *Service) SettleItems(ctx context.Context, live func(botID, teamID strin
 	if err := s.runDecisionClocks(ctx, state); err != nil {
 		return err
 	}
+	return s.settleActiveGoals(ctx, live)
+}
+
+// settleActiveGoals settles the items of every active goal, as SettleItems
+// describes.
+func (s *Service) settleActiveGoals(ctx context.Context, live func(botID, teamID string) bool) error {
 	goals, err := s.q.ListOpenGoals(ctx)
 	if err != nil {
 		return fmt.Errorf("list open goals: %w", err)

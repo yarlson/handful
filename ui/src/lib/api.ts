@@ -4,6 +4,7 @@ import type { ServerVersion } from "./updates"
 import type { Key, Plain, SettingsView } from "./settings"
 import type { Intake, Slots } from "./queue"
 import type { ItemEvent, OpenQuestion, QuestionState, Waiting } from "./questions"
+import type { Budget } from "./tasks"
 import type { Defaults, Effective } from "./model"
 
 export type Member = { id: string; name: string; effective?: Effective }
@@ -20,6 +21,7 @@ export type TeamSettings = {
   inboxMax?: number
   inboxPerSender?: number
   decisionMinutes?: number // how long a task may wait in the inbox for the lead's decision
+  dailyBudget?: number // turns the team may start in a day; 0 is no limit
 }
 
 export type Bot = {
@@ -228,13 +230,15 @@ export type Board = {
   plan?: Goal[] // taken tasks, in order
   done?: Goal[] // closed tasks that wait for approval
   stopped?: Goal[] // stopped tasks, newest first; reopening returns one to the inbox
+  offTask?: OffTask // the team's turns on no task in the last hour
+  budget?: Budget // the team's turns today against its daily limit
   teams: Record<string, string>
 }
 
 // NeedsYouItem is one thing only the user can settle: a result to approve, a decision a
 // lead missed, a task asked about or passed on too often, or an open question.
 export type NeedsYouItem = {
-  kind: "approve" | "missed" | "stuck" | "question"
+  kind: "approve" | "missed" | "stuck" | "question" | "budget_warning" | "budget_reached"
   chatId: string
   goalId?: string
   entryId: string
@@ -243,6 +247,10 @@ export type NeedsYouItem = {
   reason?: string
   at: number
 }
+
+// OffTaskTurn is a team's turn that was on no task: who ran it, when, and its first line.
+export type OffTaskTurn = { turnId: string; botId: string; botName: string; startedAt: number; firstLine: string }
+export type OffTask = { count: number; turns: OffTaskTurn[] }
 
 // NewTask is a task the user sends a team; startNow puts it at the top of the plan.
 export type NewTask = { text: string; brief?: string; artifactIds?: string[]; startNow?: boolean }
@@ -324,6 +332,11 @@ export const api = {
   // A task's history: the decisions on it and its steps' events, oldest first.
   taskEvents: (id: string) => request<ItemEvent[]>("GET", `/api/tasks/${id}/events`),
   needsYou: () => request<NeedsYouItem[]>("GET", "/api/needs-you"),
+  // makeTask makes a task of turns on no task; the team takes it at once.
+  makeTask: (teamId: string, t: { text: string; brief?: string; turnIds: string[] }) =>
+    request<Goal>("POST", `/api/teams/${teamId}/tasks/from-turns`, t),
+  // waitForBudget hides a team's budget_reached item until midnight.
+  waitForBudget: (teamId: string) => request<Budget>("POST", `/api/teams/${teamId}/budget/wait`, {}),
   withdrawItem: (id: string) => request<Item>("POST", `/api/items/${id}/withdraw`, {}),
   undeferItem: (id: string) => request<Item>("POST", `/api/items/${id}/undefer`, {}),
   updateBot: (id: string, patch: { name?: string; instructions?: string; model?: string; effort?: string }) =>

@@ -383,3 +383,51 @@ test("inbox and sent cards open each task's history", () => {
     'aria-label="History: Fix the scroll"',
   )
 })
+
+test("a budget item offers Raise, and Wait until midnight once the budget is reached", () => {
+  const html = renderToStaticMarkup(
+    <AcrossTeams
+      needs={[
+        need({
+          kind: "budget_warning",
+          chatId: "d",
+          goalId: undefined,
+          text: "Dev used 80% of today's turns (80 of 100)",
+        }),
+        need({
+          kind: "budget_reached",
+          chatId: "s",
+          goalId: undefined,
+          text: "Budget: Support used 300 of 300 turns today",
+        }),
+      ]}
+      boards={
+        new Map([
+          [
+            "d",
+            board({
+              budget: { today: 80, limit: 100, suggested: 0, paused: false, warn: true },
+              offTask: { count: 6, turns: [] },
+            }),
+          ],
+          ["s", board({ budget: { today: 300, limit: 300, suggested: 0, paused: true, warn: false } })],
+        ])
+      }
+      teams={[team, { ...team, id: "s", name: "Support" }]}
+      error={null}
+      act={act}
+      onOpen={() => {}}
+      onNewTask={() => {}}
+      chatName={(id) => names.team(id)}
+    />,
+  )
+  assert.include(html, "<strong>Budget:</strong> Dev used 80% of today&#x27;s turns (80 of 100)")
+  assert.include(html, "<strong>Budget reached:</strong> Support used 300 of 300 turns today")
+  assert.include(html, 'aria-label="Raise: Dev"')
+  assert.include(html, 'aria-label="Raise: Support"')
+  assert.equal(html.split("Wait until midnight").length - 1, 1)
+  assert.include(html, "Next 0 · Inbox 0 · not on a task: 6 turns")
+  assert.include(html, "Today 80 of 100 turns used")
+  assert.include(html, "Today 300 of 300 turns used")
+  assert.include(html, ">paused<")
+})

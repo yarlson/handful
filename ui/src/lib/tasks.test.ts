@@ -1,6 +1,9 @@
 import { assert, test } from "vitest"
 import {
   awaitsAnswer,
+  budgetError,
+  budgetLine,
+  budgetShare,
   canWithdraw,
   clockLine,
   clockStop,
@@ -57,12 +60,11 @@ test("the user answers the questions about the tasks the user sent", () => {
 })
 
 test("the clock stands for a usage limit, a drain or a stopped team, in that order", () => {
-  const stopped = { state: "paused", used: 3, budget: 30 }
+  const stopped = { state: "paused" }
   assert.equal(clockStop(true, true, stopped), "usage limit")
   assert.equal(clockStop(false, true, stopped), "server restart")
   assert.equal(clockStop(false, false, stopped), "team stopped")
-  assert.isNull(clockStop(false, false, { state: "paused", used: 30, budget: 30 }))
-  assert.isNull(clockStop(false, false, { state: "active", used: 3, budget: 30 }))
+  assert.isNull(clockStop(false, false, { state: "active" }))
   assert.isNull(clockStop(false, false, null))
   assert.isNull(clockStop(false, false, undefined))
 })
@@ -141,21 +143,12 @@ test("a lead waits for an answer while a question is open and the user doesn't d
   assert.isFalse(awaitsAnswer(task()))
 })
 
-const bar = (state: TaskState | "x", used = 3, budget = 30) => ({ state, used, budget })
+const bar = (state: TaskState | "x") => ({ state })
 
-test("the task bar shows the buttons of the Now or done task", () => {
-  assert.deepEqual(taskBar(bar("active"), 0), { mode: "now", actions: ["extend", "stop"] })
-  assert.deepEqual(taskBar(bar("active"), 2), { mode: "now", actions: ["extend", "stop"] })
-  assert.deepEqual(taskBar(bar("paused"), 0), {
-    mode: "now",
-    actions: ["resume", "extend", "stop"],
-  })
-  assert.deepEqual(taskBar(bar("paused", 29), 0), {
-    mode: "now",
-    actions: ["resume", "extend", "stop"],
-  })
-  assert.deepEqual(taskBar(bar("paused", 30), 0), { mode: "now", actions: ["extend", "stop"] })
-  assert.deepEqual(taskBar(bar("paused", 31), 1), { mode: "now", actions: ["extend", "stop"] })
+test("the task bar shows the buttons of the Now or done task, and a paused task always resumes", () => {
+  assert.deepEqual(taskBar(bar("active"), 0), { mode: "now", actions: ["stop"] })
+  assert.deepEqual(taskBar(bar("active"), 2), { mode: "now", actions: ["stop"] })
+  assert.deepEqual(taskBar(bar("paused"), 0), { mode: "now", actions: ["resume", "stop"] })
   assert.deepEqual(taskBar(bar("delivered"), 1), { mode: "now", actions: ["approve", "changes"] })
 })
 
@@ -200,9 +193,20 @@ test("each Needs you kind has its own line", () => {
     lead: "Question:",
     rest: "Which build? (Support)",
   })
+  assert.deepEqual(
+    needsYouLine({ kind: "budget_warning", text: "Ship used 80% of today's turns (80 of 100)" }, "Ship"),
+    { lead: "Budget:", rest: "Ship used 80% of today's turns (80 of 100)" },
+  )
+  assert.deepEqual(needsYouLine({ kind: "budget_reached", text: "Budget: Ship used 100 of 100 turns today" }, "Ship"), {
+    lead: "Budget reached:",
+    rest: "Ship used 100 of 100 turns today",
+  })
 })
 
-test("a team's card sums up Now, Next, the inbox and what it sent", () => {
+const day = { today: 212, limit: 400, suggested: 0, paused: false, warn: false }
+const none = { offTask: 0, budget: null }
+
+test("a team's card sums up Now, Next, the inbox, what it sent, turns on no task and today's budget", () => {
   assert.deepEqual(
     teamSummary({
       goal: { state: "active", text: "Build Settings" },
@@ -216,8 +220,10 @@ test("a team's card sums up Now, Next, the inbox and what it sent", () => {
         { state: "declined" },
         { state: "stopped" },
       ],
+      offTask: { count: 6 },
+      budget: day,
     }),
-    { now: "Build Settings", paused: false, next: 2, inbox: 1, sent: 2 },
+    { now: "Build Settings", paused: false, next: 2, inbox: 1, sent: 2, offTask: 6, budget: day },
   )
   assert.deepEqual(teamSummary({ goal: { state: "paused", text: "Answer issues" } }), {
     now: "Answer issues",
@@ -225,6 +231,17 @@ test("a team's card sums up Now, Next, the inbox and what it sent", () => {
     next: 0,
     inbox: 0,
     sent: 0,
+    ...none,
+  })
+  const spent = { ...day, today: 400, paused: true }
+  assert.deepEqual(teamSummary({ goal: { state: "active", text: "Answer issues" }, budget: spent }), {
+    now: "Answer issues",
+    paused: true,
+    next: 0,
+    inbox: 0,
+    sent: 0,
+    offTask: 0,
+    budget: spent,
   })
   for (const state of ["delivered", "stopped", "done"])
     assert.deepEqual(teamSummary({ goal: { state, text: "Old" } }), {
@@ -233,19 +250,35 @@ test("a team's card sums up Now, Next, the inbox and what it sent", () => {
       next: 0,
       inbox: 0,
       sent: 0,
+      ...none,
     })
-  assert.deepEqual(teamSummary({ goal: null }), {
-    now: null,
-    paused: false,
-    next: 0,
-    inbox: 0,
-    sent: 0,
-  })
+  assert.deepEqual(teamSummary({ goal: null }), { now: null, paused: false, next: 0, inbox: 0, sent: 0, ...none })
 })
 
-test("the counts line adds what the team sent only when there is some", () => {
-  assert.equal(countsLine({ now: null, paused: false, next: 2, inbox: 1, sent: 0 }), "Next 2 · Inbox 1")
-  assert.equal(countsLine({ now: null, paused: false, next: 0, inbox: 0, sent: 4 }), "Next 0 · Inbox 0 · sent 4")
+test("the counts line adds what the team sent and turns on no task only when there are some", () => {
+  const s = { now: null, paused: false, next: 2, inbox: 1, sent: 0, ...none }
+  assert.equal(countsLine(s), "Next 2 · Inbox 1")
+  assert.equal(countsLine({ ...s, next: 0, inbox: 0, sent: 4 }), "Next 0 · Inbox 0 · sent 4")
+  assert.equal(countsLine({ ...s, offTask: 1 }), "Next 2 · Inbox 1 · not on a task: 1 turn")
+  assert.equal(countsLine({ ...s, sent: 1, offTask: 6 }), "Next 2 · Inbox 1 · sent 1 · not on a task: 6 turns")
+})
+
+test("a day without a limit is watched; with one, it counts against the limit", () => {
+  assert.equal(budgetLine({ ...day, limit: 0 }), "212 turns (no limit yet)")
+  assert.equal(budgetLine({ ...day, today: 1, limit: 0 }), "1 turn (no limit yet)")
+  assert.equal(budgetLine(day), "212 of 400 turns used")
+  assert.equal(budgetLine({ ...day, today: 1 }), "1 of 400 turns used")
+  assert.isNull(budgetShare({ ...day, limit: 0 }))
+  assert.equal(budgetShare(day), 53)
+  assert.equal(budgetShare({ ...day, today: 0 }), 0)
+  assert.equal(budgetShare({ ...day, today: 400 }), 100)
+  assert.equal(budgetShare({ ...day, today: 450 }), 100)
+})
+
+test("the turns per day are 0 (no limit) to 10000 whole turns", () => {
+  for (const v of ["0", "", "1", "10000"]) assert.isNull(budgetError(v), v)
+  for (const v of ["-1", "10001", "2.5", "x"])
+    assert.equal(budgetError(v), "A team's turns per day must be 0 (no limit) to 10000.", v)
 })
 
 test("the decision time is 5 to 1440 whole minutes", () => {

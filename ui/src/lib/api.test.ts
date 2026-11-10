@@ -82,6 +82,9 @@ test("task calls go to the server's routes with their bodies", async () => {
   await api.changesTask("g7", "Add a test.")
   await api.taskEvents("g7")
   await api.needsYou()
+  await api.makeTask("t1", { text: "Clean up", turnIds: ["u1", "u2"] })
+  await api.waitForBudget("t1")
+  await api.updateTeam("t1", { dailyBudget: 400 })
   await api.updateTeam("t1", { decisionMinutes: 45, inboxMax: 8, inboxPerSender: 2 })
   assert.deepEqual(calls, [
     {
@@ -103,6 +106,9 @@ test("task calls go to the server's routes with their bodies", async () => {
     { method: "POST", url: "/api/tasks/g7/changes", body: { text: "Add a test." } },
     { method: "GET", url: "/api/tasks/g7/events", body: undefined },
     { method: "GET", url: "/api/needs-you", body: undefined },
+    { method: "POST", url: "/api/teams/t1/tasks/from-turns", body: { text: "Clean up", turnIds: ["u1", "u2"] } },
+    { method: "POST", url: "/api/teams/t1/budget/wait", body: {} },
+    { method: "PATCH", url: "/api/teams/t1", body: { dailyBudget: 400 } },
     {
       method: "PATCH",
       url: "/api/teams/t1",

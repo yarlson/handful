@@ -61,16 +61,16 @@ export function fromUser(g: TaskLike): boolean {
 export type ClockStop = "usage limit" | "server restart" | "team stopped" | null
 
 // clockStop says why the decision clocks of a team stand: the runner waits for a usage limit,
-// the server drains, or the team's Now task is paused with turns left (the user stopped it).
-// A task paused at its budget doesn't stop the clock: decisions still run then.
+// the server drains, or the team's Now task is paused, which only the user's Stop does. A team
+// at its daily budget doesn't stop the clock: decisions still run then.
 export function clockStop(
   usageLimit: boolean,
   draining: boolean,
-  now: { state: string; used: number; budget: number } | null | undefined,
+  now: { state: string } | null | undefined,
 ): ClockStop {
   if (usageLimit) return "usage limit"
   if (draining) return "server restart"
-  if (now?.state === "paused" && now.used < now.budget) return "team stopped"
+  if (now?.state === "paused") return "team stopped"
   return null
 }
 
@@ -156,14 +156,13 @@ export function awaitsAnswer(g: TaskLike): boolean {
 // TaskAction is a button of the task bar:
 //   approve: approve a done task; its team doesn't wait for this.
 //   changes: ask for changes to a done task, which comes back as Now.
-//   resume:  let a paused task go on with the turns it has left.
-//   extend:  add 10 turns to its budget.
+//   resume:  let a task the user paused go on.
 //   stop:    stop it after a confirm; running turns finish and its steps stay.
-export type TaskAction = "approve" | "changes" | "resume" | "extend" | "stop"
+export type TaskAction = "approve" | "changes" | "resume" | "stop"
 
 const TASK_ACTIONS: Partial<Record<TaskState, TaskAction[]>> = {
-  active: ["extend", "stop"],
-  paused: ["resume", "extend", "stop"],
+  active: ["stop"],
+  paused: ["resume", "stop"],
   delivered: ["approve", "changes"],
 }
 
@@ -180,16 +179,9 @@ export type TaskBarView =
 
 // taskBar decides the task bar's view from the team's latest task and the number of
 // tasks planned after it.
-export function taskBar(
-  goal: { state: string; used: number; budget: number } | null | undefined,
-  planned: number,
-): TaskBarView {
+export function taskBar(goal: { state: string } | null | undefined, planned: number): TaskBarView {
   const actions = goal ? TASK_ACTIONS[goal.state as TaskState] : undefined
-  if (goal && actions)
-    return {
-      mode: "now",
-      actions: actions.filter((a) => a !== "resume" || goal.used < goal.budget),
-    }
+  if (goal && actions) return { mode: "now", actions }
   if (goal?.state === "stopped") return { mode: "stopped" }
   return { mode: planned > 0 ? "hold" : "idle" }
 }
@@ -203,7 +195,7 @@ export function nextUp(plan: { text: string }[]): string | null {
 
 // NeedsYou is the part of a Needs you item that its line reads.
 export type NeedsYou = {
-  kind: "approve" | "missed" | "stuck" | "question"
+  kind: "approve" | "missed" | "stuck" | "question" | "budget_warning" | "budget_reached"
   text: string
   lead?: string
   reason?: string
@@ -218,6 +210,8 @@ export function needsYouLine(n: NeedsYou, team: string): { lead: string; rest: s
       rest: `${n.lead ?? "The lead"} left “${n.text}” in ${team}'s inbox`,
     }
   if (n.kind === "stuck") return { lead: "Needs a decision:", rest: `“${n.text}” was ${n.reason ?? "stuck"} (${team})` }
+  if (n.kind === "budget_warning") return { lead: "Budget:", rest: n.text }
+  if (n.kind === "budget_reached") return { lead: "Budget reached:", rest: n.text.replace(/^Budget: /, "") }
   return { lead: "Question:", rest: `${n.text} (${team})` }
 }
 
@@ -228,6 +222,8 @@ export type TeamSummary = {
   next: number
   inbox: number
   sent: number
+  offTask: number
+  budget: Budget | null
 }
 
 // teamSummary sums up a team's board for Across teams. Only an active or paused task is Now.
@@ -236,15 +232,19 @@ export function teamSummary(board: {
   plan?: unknown[]
   inbox?: unknown[]
   handedOver?: { state: string }[]
+  offTask?: { count: number }
+  budget?: Budget
 }): TeamSummary {
   const g = board.goal
   const now = g && (g.state === "active" || g.state === "paused") ? g : null
   return {
     now: now?.text ?? null,
-    paused: now?.state === "paused",
+    paused: now?.state === "paused" || board.budget?.paused === true,
     next: board.plan?.length ?? 0,
     inbox: board.inbox?.length ?? 0,
     sent: (board.handedOver ?? []).filter(open).length,
+    offTask: board.offTask?.count ?? 0,
+    budget: board.budget ?? null,
   }
 }
 
@@ -257,6 +257,7 @@ function open(g: { state: string }): boolean {
 export function countsLine(s: TeamSummary): string {
   const parts = [`Next ${s.next}`, `Inbox ${s.inbox}`]
   if (s.sent > 0) parts.push(`sent ${s.sent}`)
+  if (s.offTask > 0) parts.push(`not on a task: ${s.offTask} ${s.offTask === 1 ? "turn" : "turns"}`)
   return parts.join(" · ")
 }
 
@@ -364,4 +365,29 @@ export function taskEventLabel(e: { kind: string; round: number; goalId?: string
 // load of the board the history shows on, so the history reloads whenever the board does.
 export function historyKey(goalId: string, boardRev: number): string {
   return `${goalId}:${boardRev}`
+}
+
+// Budget is a team's turns today against its daily limit. limit 0 is no limit (watch-only);
+// suggested is 0 until the first 7 days of watching are over.
+export type Budget = { today: number; limit: number; suggested: number; paused: boolean; warn: boolean }
+
+// budgetLine words a team's day: "212 of 400 turns used", or "212 turns (no limit yet)".
+export function budgetLine(b: Budget): string {
+  const turns = b.today === 1 ? "turn" : "turns"
+  if (b.limit === 0) return `${b.today} ${turns} (no limit yet)`
+  return `${b.today} of ${b.limit} turns used`
+}
+
+// budgetShare is how much of the day's limit is used, from 0 to 100, or null without a limit.
+export function budgetShare(b: Budget): number | null {
+  if (b.limit === 0) return null
+  return Math.min(100, Math.round((b.today / b.limit) * 100))
+}
+
+// budgetError checks the turns-per-day setting, or returns null when it's fine.
+export function budgetError(value: string): string | null {
+  const n = Number(value)
+  // Blank reads as 0, which is no limit.
+  if (!Number.isInteger(n) || n < 0 || n > 10000) return "A team's turns per day must be 0 (no limit) to 10000."
+  return null
 }

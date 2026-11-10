@@ -363,6 +363,14 @@ func (s *server) updateBot(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// No turn of the bot starts from here on, so none starts in the folder
+	// that the deletion removes.
+	done, err := s.runner.BeginDelete(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	defer done()
 	if _, err := s.runner.Interrupt(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
@@ -375,7 +383,7 @@ func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if err := s.svc.DeleteBot(r.Context(), id); err != nil {
+	if err := s.runner.FinishDelete(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
 	}

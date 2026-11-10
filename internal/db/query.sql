@@ -155,6 +155,10 @@ WHERE (kind = 'approval' AND json_extract(body, '$.status') = 'pending')
 UPDATE turns SET status = 'interrupted', error = 'stopped by the user', finished_at = ?
 WHERE room_id = ? AND status = 'queued';
 
+-- name: CancelQueuedTurnsOf :exec
+UPDATE turns SET status = 'interrupted', error = 'the bot was deleted', finished_at = ?
+WHERE (bot_id = sqlc.arg(id) OR room_id = sqlc.arg(id)) AND status = 'queued';
+
 -- name: AddRoomMember :exec
 INSERT INTO room_members (room_id, bot_id) VALUES (?, ?)
 ON CONFLICT (room_id, bot_id) DO NOTHING;

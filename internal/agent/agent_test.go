@@ -3885,3 +3885,47 @@ func TestAServerForARevokedTokenIsNeitherServedNorKept(t *testing.T) {
 		t.Fatalf("servers kept for the revoked token = %d; want 0", kept)
 	}
 }
+
+func TestDeletingABotWithAQueuedTurnStartsNoTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "sleep")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "work long", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the first turn runs", func() bool {
+		_, err := os.Stat(filepath.Join(h.dir, "pid"))
+		return err == nil
+	})
+	queued, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "and then this", "n2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT status FROM turns WHERE id = ?`, queued).Scan(&status); err != nil || status != "queued" {
+		t.Fatalf("second turn = %q, %v; want queued behind the running one", status, err)
+	}
+	// What the delete handler does: begin, interrupt, wait, delete.
+	done, err := h.runner.BeginDelete(ctx, bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.runner.Interrupt(ctx, bot.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the bot stops", func() bool { return !h.runner.Active(bot.ID) })
+	time.Sleep(300 * time.Millisecond) // a turn that would start, starts now
+	if err := h.runner.FinishDelete(ctx, bot.ID); err != nil {
+		t.Fatalf("delete a bot with a queued turn: %v", err)
+	}
+	done()
+	if _, err := h.svc.GetBot(ctx, bot.ID); err == nil {
+		t.Fatal("the bot still exists after the deletion")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if calls := h.argsLog(t); len(calls) != 1 {
+		t.Fatalf("claude started %d times; want once: the queued turn must not start during the deletion", len(calls))
+	}
+}

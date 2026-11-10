@@ -190,8 +190,8 @@ func (r *Runner) removeRunFiles(paths []string) {
 func (r *Runner) runDir() string { return filepath.Join(r.svc.DataDir(), "run") }
 
 // removeLeftoverRunFiles removes the files of claude processes from an
-// earlier run, for example after a hard kill. No such process survives a
-// restart, so none of these files is in use.
+// earlier run, for example after a hard kill. It runs after
+// stopLeftoverProcesses has ended the processes of a server that is gone.
 func (r *Runner) removeLeftoverRunFiles() {
 	for _, pattern := range runFilePatterns {
 		paths, err := filepath.Glob(filepath.Join(r.runDir(), pattern))

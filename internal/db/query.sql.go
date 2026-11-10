@@ -264,6 +264,21 @@ func (q *Queries) CancelQueuedRoomTurns(ctx context.Context, arg CancelQueuedRoo
 	return err
 }
 
+const cancelQueuedTurnsOf = `-- name: CancelQueuedTurnsOf :exec
+UPDATE turns SET status = 'interrupted', error = 'the bot was deleted', finished_at = ?
+WHERE (bot_id = ?2 OR room_id = ?2) AND status = 'queued'
+`
+
+type CancelQueuedTurnsOfParams struct {
+	FinishedAt sql.NullInt64 `json:"finished_at"`
+	ID         string        `json:"id"`
+}
+
+func (q *Queries) CancelQueuedTurnsOf(ctx context.Context, arg CancelQueuedTurnsOfParams) error {
+	_, err := q.db.ExecContext(ctx, cancelQueuedTurnsOf, arg.FinishedAt, arg.ID)
+	return err
+}
+
 const cancelQueuedTurnsOfBotInRoom = `-- name: CancelQueuedTurnsOfBotInRoom :exec
 UPDATE turns SET status = 'interrupted', error = 'the bot left the team', finished_at = ?
 WHERE bot_id = ? AND room_id = ? AND status = 'queued'

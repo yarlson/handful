@@ -15,8 +15,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"yargpt/internal/httpapi"
 )
 
 // fakeClaude writes an executable named claude and returns its path.
@@ -47,7 +45,7 @@ func TestParseFlagsKeepsDefaultsAndRecordsGivenFlags(t *testing.T) {
 	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.Effort != "max" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, ".yargpt") {
 		t.Fatalf("options = %+v; want the default address, data folder and claude, model sonnet and 5 parallel turns", o)
 	}
-	if o.Updates != httpapi.DefaultUpdates().Settings {
+	if o.Updates != (updateSettings{AutoCheck: true, DrainMinutes: 30, UpdateCheck: true}) {
 		t.Fatalf("update settings = %+v; want the defaults", o.Updates)
 	}
 	if !o.set["model"] || !o.set["effort"] || !o.set["max-parallel"] || o.set["addr"] {
@@ -118,7 +116,7 @@ func TestPrepareStopsOnABadEffortAndKeepsGoodDefaults(t *testing.T) {
 }
 
 func TestServeAnswersUntilTheContextEnds(t *testing.T) {
-	o := options{addr: freeAddr(t), dataDir: t.TempDir(), claudePath: fakeClaude(t), MaxParallel: 3, Updates: httpapi.UpdateSettings{AutoCheck: true, DrainMinutes: 45}}
+	o := options{addr: freeAddr(t), dataDir: t.TempDir(), claudePath: fakeClaude(t), MaxParallel: 3, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45}}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- serve(ctx, o, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
@@ -150,18 +148,40 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 	if len(bots) != 1 || bots[0].Name != "Builder" || bots[0].Role != "builder" {
 		t.Fatalf("bots of a new data directory = %+v; want only Builder", bots)
 	}
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+o.addr+"/api/settings/updates", nil)
-	if err != nil {
-		t.Fatal(err)
+	// Every setting's edge values, written through the page's API, leave a
+	// file that the server starts with.
+	for _, body := range []string{
+		`{"model": "claude-opus-5-5[1m]", "effort": "max", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 5, "updateCheck": false}`,
+		`{"model": "OPUS", "effort": "Low", "maxParallel": 1000, "updates.drainMinutes": 240}`,
+		`{"model": null, "effort": null, "maxParallel": null, "claude": null, "updates.autoCheck": null, "updates.drainMinutes": null, "updateCheck": null}`,
+	} {
+		patchSettings(t, o.addr, body)
+		got := settings{}
+		if err := applyConfigFile(filepath.Join(o.dataDir, "config.json"), nil, &got); err != nil {
+			t.Fatalf("the server cannot start with the file after PATCH %s: %v", body, err)
+		}
+		if _, err := globalDefaults(&got, nil, func(string) string { return "" }); err != nil {
+			t.Fatalf("the model or effort after PATCH %s stops the server: %v", body, err)
+		}
 	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(res.Body)
-	res.Body.Close()
-	if want := `{"autoCheck":true,"drainMinutes":45,"updateCheck":false}` + "\n"; string(body) != want {
-		t.Fatalf("update settings = %s; want the server's own %s", body, want)
+
+	// GET reports the error a restart would stop with, from the same check
+	// as POST /api/restart, so the app's bridge can refuse before it tries.
+	claude := fakeClaude(t)
+	for _, c := range []struct{ file, startError string }{
+		{`{"claude": "` + claude + `"}`, ""},
+		{`{"maxParallel": 4,}`, "invalid character"},
+		{`{"claude": "` + claude + `", "model": "bad model"}`, `config.json: "model": A model ID can't contain spaces`},
+		{`{"claude": "` + claude + `", "effort": "ultra"}`, `config.json: "effort" must be one of`},
+		{`{"claude": "/missing/claude"}`, `find Claude Code CLI "/missing/claude"`},
+	} {
+		if err := os.WriteFile(filepath.Join(o.dataDir, "config.json"), []byte(c.file), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := getStartError(t, o.addr)
+		if c.startError == "" && got != nil || c.startError != "" && (got == nil || !strings.Contains(*got, c.startError)) {
+			t.Errorf("startError with %s = %v; want %q (absent when empty)", c.file, got, c.startError)
+		}
 	}
 
 	cancel()
@@ -172,6 +192,47 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("serve did not return within 15 s after the context ended")
+	}
+}
+
+// getStartError returns the startError of GET /api/settings on addr, or nil
+// when the reply has none.
+func getStartError(t *testing.T, addr string) *string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/api/settings", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var reply struct {
+		StartError *string `json:"startError"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&reply); res.StatusCode != http.StatusOK || err != nil {
+		t.Fatalf("GET /api/settings = %d, %v; want 200", res.StatusCode, err)
+	}
+	return reply.StartError
+}
+
+// patchSettings sends body to PATCH /api/settings on addr and wants 200.
+func patchSettings(t *testing.T, addr, body string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+addr+"/api/settings", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH /api/settings %s = %d %s; want 200", body, res.StatusCode, reply)
 	}
 }
 

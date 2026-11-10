@@ -259,11 +259,11 @@ func TestStartUpdateNoticeChecksOnlyForASourceBuildThatMay(t *testing.T) {
 	latestReleaseURL = srv.URL
 	log := slog.New(slog.NewTextHandler(&syncLog{}, nil))
 	ctx := t.Context()
-	o := options{dataDir: t.TempDir(), Updates: httpapi.UpdateSettings{AutoCheck: true, DrainMinutes: 30, UpdateCheck: true}}
+	o := options{dataDir: t.TempDir(), Updates: updateSettings{AutoCheck: true, DrainMinutes: 30, UpdateCheck: true}}
 
 	version = "dev"
 	u := startUpdateNotice(ctx, o, log)
-	if u.Latest != nil || u.Version != "dev" || !u.SourceBuild || u.Settings != o.Updates {
+	if u.Latest != nil || u.Version != "dev" || !u.SourceBuild {
 		t.Fatalf("updates of a dev build = %+v; want no check", u)
 	}
 	version = "1.3.2"

@@ -613,7 +613,8 @@ func (s *Service) take(ctx context.Context, q *db.Queries, a Actor, team Bot, g 
 	if err != nil {
 		return Goal{}, false, err
 	}
-	n, err := q.AcceptHandoffGoal(ctx, db.AcceptHandoffGoalParams{State: GoalQueued, QueuePos: int64(len(queue) + 1), ID: g.ID})
+	// renumber gives the task its place below.
+	n, err := q.AcceptHandoffGoal(ctx, db.AcceptHandoffGoalParams{State: GoalQueued, ID: g.ID})
 	if err != nil {
 		return Goal{}, false, fmt.Errorf("take task %s: %w", g.ID, err)
 	}
@@ -642,7 +643,7 @@ func planPosition(a Actor, queue []Goal, position int64) (int64, error) {
 	if position == 0 {
 		return end, nil
 	}
-	if position < 0 || position > end {
+	if position < 1 || position > end {
 		return 0, invalid("position must be from 1 to %d, or 0 for the end of the plan", end)
 	}
 	if a.Role == RoleUser {
@@ -779,11 +780,8 @@ func (s *Service) AnswerTask(ctx context.Context, a Actor, goalID, text string) 
 	if a.Role != RoleUser && (g.AskedAt == 0 || g.NeedsUser) {
 		return Goal{}, invalid("no question about %q waits for you", g.Text)
 	}
-	if text, err = textOf("the answer", text, maxItemText, true); err != nil {
-		return Goal{}, err
-	}
 	who := actorName(from, a)
-	brief, err := textOf("the brief with the answer", g.Brief+"\n\nAnswer from "+who+": "+text, maxItemText, true)
+	text, brief, err := answeredBrief(g, who, text)
 	if err != nil {
 		return Goal{}, err
 	}
@@ -814,6 +812,17 @@ func (s *Service) AnswerTask(ctx context.Context, a Actor, goalID, text string) 
 		{team.ID, fmt.Sprintf("%s answered about the task %q: %s", who, g.Text, text)},
 		{from.ID, fmt.Sprintf("%s answered team %s about the task %q: %s", who, team.Name, g.Text, text)},
 	})
+}
+
+// answeredBrief checks an answer to a question about task g and returns it
+// with the task's brief that holds it.
+func answeredBrief(g Goal, who, text string) (string, string, error) {
+	text, err := textOf("the answer", text, maxItemText, true)
+	if err != nil {
+		return "", "", err
+	}
+	brief, err := textOf("the brief with the answer", g.Brief+"\n\nAnswer from "+who+": "+text, maxItemText, true)
+	return text, brief, err
 }
 
 // DeclineHandoff pushes a task back.

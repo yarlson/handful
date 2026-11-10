@@ -35,8 +35,8 @@ const (
 	TaskWithdrawn  = "withdrawn"
 )
 
-// maxLater is how far a lead defers a task, at most.
-const maxLater = 7 * 24 * time.Hour
+// maxLaterDays is how many days a lead defers a task, at most.
+const maxLaterDays = 7
 
 // boolInt stores a bool as SQLite's 0 or 1.
 func boolInt(b bool) int64 {
@@ -204,7 +204,7 @@ func (s *Service) PinTask(ctx context.Context, goalID string, pinned bool) (Goal
 	return g, nil
 }
 
-// LaterTask defers a task in the inbox until a time (ms) within maxLater,
+// LaterTask defers a task in the inbox until a time (ms) within maxLaterDays,
 // with a note. It returns to the inbox when due, and its lead decides again.
 func (s *Service) LaterTask(ctx context.Context, a Actor, goalID, note string, until int64) (Goal, error) {
 	g, team, err := s.incoming(ctx, a, goalID)
@@ -215,7 +215,7 @@ func (s *Service) LaterTask(ctx context.Context, a Actor, goalID, note string, u
 		return Goal{}, err
 	}
 	now := s.now()
-	if until <= now.UnixMilli() || until > now.Add(maxLater).UnixMilli() {
+	if until <= now.UnixMilli() || until > now.AddDate(0, 0, maxLaterDays).UnixMilli() {
 		return Goal{}, invalid("Pick a time in the future, at most 7 days from now.")
 	}
 	when := time.UnixMilli(until).In(s.loc).Format("Mon Jan 2 15:04")
@@ -294,15 +294,9 @@ func (s *Service) PassOn(ctx context.Context, a Actor, goalID, toTeamID, note st
 	if err != nil {
 		return Goal{}, err
 	}
-	if note, err = textOf("the note", note, maxItemNote, true); err != nil {
-		return Goal{}, err
-	}
-	to, err := s.team(ctx, toTeamID)
+	to, note, err := s.passTarget(ctx, team, g, toTeamID, note)
 	if err != nil {
 		return Goal{}, err
-	}
-	if _, ok := to.Lead(); !ok || to.ID == team.ID || to.ID == g.FromTeamID {
-		return Goal{}, invalid("pass the task on to a team with members, other than yours and its sender's")
 	}
 	if g.Passes >= MaxPasses {
 		return Goal{}, s.passedTooOften(ctx, a, team, g)
@@ -313,19 +307,7 @@ func (s *Service) PassOn(ctx context.Context, a Actor, goalID, toTeamID, note st
 		return Goal{}, err
 	}
 	err = s.inTx(ctx, func(q *db.Queries) error {
-		if g.Origin == OriginHandoff {
-			if err := checkInbox(ctx, q, to, sender{team: from, botID: g.FromBotID}); err != nil {
-				return err
-			}
-		}
-		n, err := q.PassGoal(ctx, db.PassGoalParams{TeamID: to.ID, PassedBy: passedBy, IntakeNote: note, ID: g.ID, FromTeamID: team.ID})
-		if err != nil {
-			return fmt.Errorf("pass task %s on: %w", g.ID, err)
-		}
-		if n == 0 {
-			return invalid("the task changed meanwhile; look at the board again")
-		}
-		if err := s.taskEvent(ctx, q, a, g, TaskPassed, passedBy+": "+note); err != nil {
+		if err := s.pass(ctx, q, a, g, team, to, from, passedBy, note); err != nil {
 			return err
 		}
 		return s.wakeDecision(ctx, q, to, g, fmt.Sprintf("Team %s passed your team a task: %q. Its note: %s Take it into your plan, ask its sender, defer it, pass it on, or push it back.", team.Name, g.Text, note))
@@ -341,6 +323,41 @@ func (s *Service) PassOn(ctx context.Context, a Actor, goalID, toTeamID, note st
 		{to.ID, fmt.Sprintf("Team %s passed on a task: %s", team.Name, g.Text)},
 		{from.ID, fmt.Sprintf("%s: your task %q. %s", passedBy, g.Text, note)},
 	})
+}
+
+// passTarget checks where team passes task g on to, with what note: a team
+// with members, other than team and the task's sender.
+func (s *Service) passTarget(ctx context.Context, team Bot, g Goal, toTeamID, note string) (Bot, string, error) {
+	note, err := textOf("the note", note, maxItemNote, true)
+	if err != nil {
+		return Bot{}, "", err
+	}
+	to, err := s.team(ctx, toTeamID)
+	if err != nil {
+		return Bot{}, "", err
+	}
+	if _, ok := to.Lead(); !ok || to.ID == team.ID || to.ID == g.FromTeamID {
+		return Bot{}, "", invalid("pass the task on to a team with members, other than yours and its sender's")
+	}
+	return to, note, nil
+}
+
+// pass moves task g from team to team to with q, within to's inbox limits
+// for its sender, and records the event.
+func (s *Service) pass(ctx context.Context, q *db.Queries, a Actor, g Goal, team, to, from Bot, passedBy, note string) error {
+	if g.Origin == OriginHandoff {
+		if err := checkInbox(ctx, q, to, sender{team: from, botID: g.FromBotID}); err != nil {
+			return err
+		}
+	}
+	n, err := q.PassGoal(ctx, db.PassGoalParams{TeamID: to.ID, PassedBy: passedBy, IntakeNote: note, ID: g.ID, FromTeamID: team.ID})
+	if err != nil {
+		return fmt.Errorf("pass task %s on: %w", g.ID, err)
+	}
+	if n == 0 {
+		return invalid("the task changed meanwhile; look at the board again")
+	}
+	return s.taskEvent(ctx, q, a, g, TaskPassed, passedBy+": "+note)
 }
 
 // passedTooOften turns a pass after MaxPasses into a question for the user,

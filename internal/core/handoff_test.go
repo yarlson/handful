@@ -266,6 +266,17 @@ func TestATakenTaskStartsOrJoinsThePlanAtItsPlace(t *testing.T) {
 	if got := h.goalNow(t, third.ID); got.State != GoalActive {
 		t.Fatalf("the head after the end = %s; want it active", got.State)
 	}
+	if got := h.goalNow(t, second.ID); got.State != GoalQueued || got.QueuePos != 1 {
+		t.Fatalf("the rest of the plan = %+v; want it first now", got)
+	}
+	if text := lastEventText(t, h.svc, h.docs.ID); text != "Next goal started: Third." {
+		t.Fatalf("Docs channel after the end = %q", text)
+	}
+	// A place at the very end is a place too.
+	last := h.handOver(t, h.devLed, h.dev, h.docs, "Last.")
+	if g, err := h.svc.TakeTask(ctx, h.docsLead, last.ID, 2); err != nil || g.QueuePos != 2 {
+		t.Fatalf("take at the end = %+v, %v; want it at #2", g, err)
+	}
 }
 
 func TestOnlyTheReceivingLeadOrTheUserTakesAHandoffIn(t *testing.T) {

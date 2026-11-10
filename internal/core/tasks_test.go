@@ -48,6 +48,18 @@ func (h *handoffFixture) wantWakes(t *testing.T, step string, want ...string) {
 	}
 }
 
+// wantPrompt checks that the newest queued turn's prompt starts with want.
+func (h *handoffFixture) wantPrompt(t *testing.T, want string) {
+	t.Helper()
+	turns, err := h.svc.QueuedTurns(context.Background(), 100)
+	if err != nil || len(turns) == 0 {
+		t.Fatalf("queued turns = %v, %v", turns, err)
+	}
+	if got := turns[len(turns)-1].Prompt; !strings.HasPrefix(got, want) {
+		t.Fatalf("prompt = %q; want it to start with %q", got, want)
+	}
+}
+
 // events lists a task's events as "kind by <actor>: <text>".
 func (h *handoffFixture) events(t *testing.T, goalID string) []string {
 	t.Helper()
@@ -100,6 +112,7 @@ func TestTheUsersTaskGoesThroughTheInboxUnlessStartedNow(t *testing.T) {
 		t.Fatalf("user task = %+v, %v; want it in the inbox", g, err)
 	}
 	h.wantWakes(t, "the user's task", "Bo @Ship decides Ship XML export.")
+	h.wantPrompt(t, "The user sent your team a task: \"Ship XML export.\". Take it into your plan")
 	if text := lastEventText(t, h.svc, f.team.ID); text != "The user sent a task: Ship XML export." {
 		t.Fatalf("Ship channel = %q", text)
 	}
@@ -111,6 +124,7 @@ func TestTheUsersTaskGoesThroughTheInboxUnlessStartedNow(t *testing.T) {
 		t.Fatalf("start now while busy = %+v, %v; want it first in the plan", top, err)
 	}
 	h.wantWakes(t, "a task started now", "Bo @Ship decides Fix the crash.")
+	h.wantPrompt(t, "The user put a task at the top of your plan: \"Fix the crash.\".")
 	if text := lastEventText(t, h.svc, f.team.ID); text != "New task, at the top of the plan: Fix the crash." {
 		t.Fatalf("Ship channel = %q", text)
 	}
@@ -121,6 +135,19 @@ func TestTheUsersTaskGoesThroughTheInboxUnlessStartedNow(t *testing.T) {
 		t.Fatalf("start now on a free team = %+v, %v; want it active", now, err)
 	}
 	h.wantWakes(t, "a task started at once", "Dee @Docs plans Write the FAQ.")
+	h.wantPrompt(t, "The user started a new task: plan it.")
+	// A full plan takes no task started now; one place left still does.
+	for i := range MaxQueuedGoals - 1 {
+		if _, err := h.svc.StartGoal(ctx, h.docs.ID, fmt.Sprintf("Planned %d.", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.svc.UserTask(ctx, h.docs.ID, NewTask{Text: "The 10th."}, true); err != nil {
+		t.Fatalf("start now into the last place: %v", err)
+	}
+	if _, err := h.svc.UserTask(ctx, h.docs.ID, NewTask{Text: "An 11th."}, true); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "10 tasks planned") {
+		t.Fatalf("start now into a full plan: err = %v; want ErrInvalid", err)
+	}
 	for name, c := range map[string]struct {
 		team string
 		task NewTask
@@ -254,8 +281,21 @@ func TestTheLeadOrdersThePlanAroundWhatTheUserPinned(t *testing.T) {
 	if got := h.events(t, three.ID); !slices.Equal(got, []string{"ordered by Bo: #3 → #1"}) {
 		t.Fatalf("events of Three = %q", got)
 	}
-	if _, err := h.svc.PinTask(ctx, one.ID, true); err != nil {
+	if got := h.events(t, two.ID); !slices.Equal(got, []string{"ordered by Bo: #2 → #3"}) {
+		t.Fatalf("events of Two = %q; want each moved task's move", got)
+	}
+	// A task that keeps its place leaves no event.
+	if err := h.svc.OrderPlan(ctx, f.lead, f.team.ID, []string{three.ID, two.ID, one.ID}); err != nil {
 		t.Fatal(err)
+	}
+	if got := h.events(t, three.ID); len(got) != 1 {
+		t.Fatalf("events of Three after an order that kept it first = %q; want no new one", got)
+	}
+	if err := h.svc.OrderPlan(ctx, f.lead, f.team.ID, []string{three.ID, one.ID, two.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if pinned, err := h.svc.PinTask(ctx, one.ID, true); err != nil || !pinned.Pinned || pinned.ID != one.ID {
+		t.Fatalf("pin = %+v, %v; want it pinned", pinned, err)
 	}
 	// One is pinned at #2: the lead cannot move it, nor place a task above it.
 	if err := h.svc.OrderPlan(ctx, f.lead, f.team.ID, []string{one.ID, three.ID, two.ID}); !errors.Is(err, ErrConflict) {
@@ -278,8 +318,8 @@ func TestTheLeadOrdersThePlanAroundWhatTheUserPinned(t *testing.T) {
 	if err := h.svc.OrderPlan(ctx, Actor{Role: RoleUser}, f.team.ID, []string{one.ID, three.ID, two.ID, g.ID}); err != nil {
 		t.Fatalf("the user moves a pinned task: %v", err)
 	}
-	if _, err := h.svc.PinTask(ctx, one.ID, false); err != nil {
-		t.Fatal(err)
+	if unpinned, err := h.svc.PinTask(ctx, one.ID, false); err != nil || unpinned.Pinned {
+		t.Fatalf("unpin = %+v, %v", unpinned, err)
 	}
 	if err := h.svc.OrderPlan(ctx, Actor{BotID: h.eve.ID, TeamID: f.team.ID}, f.team.ID, []string{one.ID}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a non-lead orders: err = %v; want ErrInvalid", err)
@@ -300,8 +340,12 @@ func TestLaterDefersATaskWithinAWeekAndItComesBackWhenDue(t *testing.T) {
 	now := start
 	h.svc.now = func() time.Time { return now }
 	g := h.handOver(t, f.lead, f.team, h.docs, "Guide.")
+	other := h.handOver(t, h.devLed, h.dev, h.docs, "FAQ.")
 	finishQueued(t, h.svc)
-	for name, until := range map[string]time.Time{"a past time": start.Add(-time.Minute), "now": start, "past a week": start.Add(maxLater + time.Minute)} {
+	if _, err := h.svc.LaterTask(ctx, h.docsLead, other.ID, "Soon.", start.Add(time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	for name, until := range map[string]time.Time{"a past time": start.Add(-time.Minute), "now": start, "past a week": start.AddDate(0, 0, maxLaterDays).Add(time.Minute)} {
 		if _, err := h.svc.LaterTask(ctx, h.docsLead, g.ID, "Busy.", until.UnixMilli()); !errors.Is(err, ErrInvalid) {
 			t.Errorf("later to %s: err = %v; want ErrInvalid", name, err)
 		}
@@ -309,23 +353,29 @@ func TestLaterDefersATaskWithinAWeekAndItComesBackWhenDue(t *testing.T) {
 	if _, err := h.svc.LaterTask(ctx, h.docsLead, g.ID, " ", start.Add(time.Hour).UnixMilli()); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("later without a note: err = %v; want ErrInvalid", err)
 	}
-	due := start.Add(maxLater)
+	due := start.AddDate(0, 0, maxLaterDays)
 	got, err := h.svc.LaterTask(ctx, h.docsLead, g.ID, "After the release.", due.UnixMilli())
 	if err != nil || got.State != GoalLater || got.LaterUntil != due.UnixMilli() {
 		t.Fatalf("later = %+v, %v", got, err)
 	}
-	if board, _ := h.svc.Board(ctx, h.docs.ID); len(board.Inbox) != 1 || board.Inbox[0].State != GoalLater || len(board.Incoming) != 0 {
+	index := h.handOver(t, h.devLed, h.dev, h.docs, "Index.")
+	if _, err := h.svc.LaterTask(ctx, h.docsLead, index.ID, "With the guide.", due.Add(-time.Second).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, h.svc)
+	if board, _ := h.svc.Board(ctx, h.docs.ID); len(board.Inbox) != 3 || board.Inbox[0].State != GoalLater || len(board.Incoming) != 0 {
 		t.Fatalf("Docs's inbox = %+v; want the deferred task", board.Inbox)
 	}
 	live := func(string, string) bool { return false }
-	now = due.Add(-time.Millisecond)
+	now = due.Add(-2 * time.Second)
 	if err := h.svc.SettleItems(ctx, live); err != nil {
 		t.Fatal(err)
 	}
-	if h.goalNow(t, g.ID).State != GoalLater {
-		t.Fatal("the task came back before it was due")
+	if h.goalNow(t, g.ID).State != GoalLater || h.goalNow(t, other.ID).State != GoalIncoming {
+		t.Fatal("want only the task that was due back in the inbox")
 	}
-	h.wantWakes(t, "a settle before it is due")
+	h.wantWakes(t, "a settle before the guide is due", "Dee @Docs decides FAQ.")
+	finishQueued(t, h.svc)
 	now = due
 	if err := h.svc.SettleItems(ctx, live); err != nil {
 		t.Fatal(err)
@@ -333,7 +383,10 @@ func TestLaterDefersATaskWithinAWeekAndItComesBackWhenDue(t *testing.T) {
 	if back := h.goalNow(t, g.ID); back.State != GoalIncoming || back.LaterUntil != 0 {
 		t.Fatalf("task when due = %+v; want it in the inbox", back)
 	}
-	h.wantWakes(t, "the task came due", "Dee @Docs decides Guide.")
+	h.wantWakes(t, "the guide and the index came due", "Dee @Docs decides Index.", "Dee @Docs decides Guide.")
+	if text := lastEventText(t, h.svc, h.docs.ID); text != `The deferred task "Guide." is back in the inbox.` {
+		t.Fatalf("Docs channel = %q", text)
+	}
 	if got := h.events(t, g.ID); got[len(got)-1] != "due by YarGPT: After the release." {
 		t.Fatalf("events = %q", got)
 	}
@@ -356,6 +409,18 @@ func TestPassOnMovesATaskToAnotherInboxAtMostThreeTimes(t *testing.T) {
 	if _, err := h.svc.PassOn(ctx, h.docsLead, g.ID, h.dev.ID, " "); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("pass on without a note: err = %v; want ErrInvalid", err)
 	}
+	// Dev's inbox holds 3 from Ship already: the pass waits, as a send would.
+	full := make([]Goal, DefaultInboxPerSender)
+	for i := range full {
+		full[i] = h.handOver(t, f.lead, f.team, h.dev, fmt.Sprintf("For Dev %d.", i))
+	}
+	if _, err := h.svc.PassOn(ctx, h.docsLead, g.ID, h.dev.ID, "Dev hosts things."); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "You have 3 tasks waiting in Dev's inbox.") {
+		t.Fatalf("pass into a full share of the inbox: err = %v", err)
+	}
+	if _, err := h.svc.WithdrawTask(ctx, f.lead, full[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, h.svc)
 	got, err := h.svc.PassOn(ctx, h.docsLead, g.ID, h.dev.ID, "Dev hosts things.")
 	if err != nil || got.TeamID != h.dev.ID || got.State != GoalIncoming || got.Passes != 1 || got.PassedBy != "Passed to Dev by Dee" {
 		t.Fatalf("pass on = %+v, %v", got, err)
@@ -364,7 +429,7 @@ func TestPassOnMovesATaskToAnotherInboxAtMostThreeTimes(t *testing.T) {
 	if text := lastEventText(t, h.svc, f.team.ID); text != `Passed to Dev by Dee: your task "Host it.". Dev hosts things.` {
 		t.Fatalf("Ship channel = %q", text)
 	}
-	if ship, _ := h.svc.Board(ctx, f.team.ID); len(ship.Sent) != 1 || ship.Sent[0].TeamID != h.dev.ID || ship.Sent[0].PassedBy != "Passed to Dev by Dee" {
+	if ship, _ := h.svc.Board(ctx, f.team.ID); len(ship.Sent) != 3 || ship.Sent[2].ID != g.ID || ship.Sent[2].TeamID != h.dev.ID || ship.Sent[2].PassedBy != "Passed to Dev by Dee" {
 		t.Fatalf("Ship's sent = %+v; want it at Dev, passed by Dee", ship.Sent)
 	}
 	if _, err := h.svc.PassOn(ctx, h.devLed, g.ID, ops.ID, "Ops runs it."); err != nil {
@@ -679,5 +744,42 @@ func TestEveryInboxWakeIsAFreeDecisionTurnAndPlanningCountsAgainstTheTask(t *tes
 	runQueued(t, h.svc)
 	if used := h.goalNow(t, g.ID).Used; used != 1 {
 		t.Fatalf("the task used %d turns after its planning; want 1", used)
+	}
+}
+
+func TestAPushBackBlocksOnlyAStepThatStillWaits(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	doing := f.create(t, f.lead, item("Doing", f.ana.ID, ""))
+	review := f.create(t, f.lead, item("Review", f.cy.ID, f.ana.ID))
+	done := f.create(t, f.lead, item("Done", f.ana.ID, ""))
+	finishQueued(t, h.svc)
+	f.start(t, doing, f.ana)
+	tasks := map[string]Goal{}
+	for _, it := range []Item{doing, review, done} {
+		g, err := h.svc.SendTask(ctx, f.lead, h.docs.ID, NewTask{Text: "For " + it.Title + ".", WaitsOn: it.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tasks[it.ID] = g
+	}
+	f.start(t, review, f.cy)
+	if _, err := h.svc.SubmitItem(ctx, f.as(f.cy, RoleWork), review.ID, "Reviewed?"); err != nil {
+		t.Fatal(err)
+	}
+	f.finish(t, done, f.ana)
+	for _, it := range []Item{doing, review, done} {
+		if _, err := h.svc.PushBack(ctx, h.docsLead, tasks[it.ID].ID, "Not ours."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		it   Item
+		want string
+	}{{doing, ItemBlocked}, {review, ItemBlocked}, {done, ItemDone}} {
+		if got := f.itemNow(t, c.it.ID); got.State != c.want {
+			t.Errorf("step %s after the push back = %s; want %s", c.it.Title, got.State, c.want)
+		}
 	}
 }

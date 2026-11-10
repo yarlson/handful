@@ -21,6 +21,8 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { slotsError } from "@/lib/queue"
+import { failed, modelError, saved, type SaveResult } from "@/lib/save"
+import { cn } from "@/lib/utils"
 import { BoardTab } from "@/components/board"
 import { HandOverDialog } from "@/components/handoff"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
@@ -409,16 +411,29 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
   )
 }
 
+// SaveNote shows a form's last save: plain when it worked, as an error when it failed.
+export function SaveNote({ result }: { result: SaveResult }) {
+  if (!result) return null
+  return (
+    <output
+      data-save={result.ok ? "saved" : "failed"}
+      className={cn("text-xs", result.ok ? "text-muted-foreground" : "text-destructive")}
+    >
+      {result.text}
+    </output>
+  )
+}
+
 function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
   const [members, setMembers] = useState<Set<string>>(new Set((room.members ?? []).map((m) => m.id)))
-  const [message, setMessage] = useState<string | null>(null)
+  const [result, setResult] = useState<SaveResult>(null)
   useEffect(() => setMembers(new Set((room.members ?? []).map((m) => m.id))), [room.id, room.members])
   const save = async () => {
     try {
       await api.setRoomMembers(room.id, [...members])
-      setMessage("Saved.")
+      setResult(saved())
     } catch (e) {
-      setMessage((e as Error).message)
+      setResult(failed((e as Error).message))
     }
   }
   const defaults = useDefaults()
@@ -467,7 +482,7 @@ function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
         <Button size="sm" disabled={members.size === 0} onClick={() => void save()}>
           Save members
         </Button>
-        {message && <span className="text-muted-foreground text-xs">{message}</span>}
+        <SaveNote result={result} />
       </div>
     </div>
   )
@@ -491,20 +506,20 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
   const [slotsInvalid, setSlotsInvalid] = useState<string | null>(null)
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
   const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
-  const [message, setMessage] = useState<string | null>(null)
+  const [result, setResult] = useState<SaveResult>(null)
   const defaults = useDefaults()
   const members = team.members ?? []
   const save = async () => {
     try {
       const goalBudget = Number(budget)
       if (!Number.isInteger(goalBudget) || goalBudget < 1 || goalBudget > 500) {
-        setMessage("Turns per goal must be a whole number from 1 to 500.")
+        setResult(failed("Turns per goal must be a whole number from 1 to 500."))
         return
       }
       const bad = slotsError(slots, members.length)
       setSlotsInvalid(bad)
       if (bad) {
-        setMessage(bad)
+        setResult(failed(bad))
         return
       }
       // The lead goes only when it changed, so that a fallback lead does not replace the chosen one.
@@ -517,9 +532,9 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         defaultModel,
         defaultEffort,
       })
-      setMessage("Saved.")
+      setResult(saved())
     } catch (e) {
-      setMessage((e as Error).message)
+      setResult(failed((e as Error).message))
     }
   }
   return (
@@ -631,7 +646,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         <Button size="sm" onClick={() => void save()}>
           Save team
         </Button>
-        {message && <span className="text-muted-foreground text-xs">{message}</span>}
+        <SaveNote result={result} />
       </div>
     </div>
   )
@@ -642,7 +657,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
   const [instructions, setInstructions] = useState(bot.instructions)
   const [model, setModel] = useState(bot.model ?? "")
   const [effort, setEffort] = useState(bot.effort ?? "")
-  const [message, setMessage] = useState<string | null>(null)
+  const [result, setResult] = useState<SaveResult>(null)
   const [confirm, setConfirm] = useState(false)
   const defaults = useDefaults()
   const isRoom = bot.kind === "room"
@@ -657,9 +672,9 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
   const save = async () => {
     try {
       await api.updateBot(bot.id, isRoom ? { name, instructions } : { name, instructions, model, effort })
-      setMessage(isRoom ? "Saved." : "Saved. Applies from the next turn.")
+      setResult(saved(isRoom ? "Saved." : "Saved. Applies from the next turn."))
     } catch (e) {
-      setMessage((e as Error).message)
+      setResult(failed((e as Error).message))
     }
   }
   const remove = async () => {
@@ -667,7 +682,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
       await api.deleteBot(bot.id)
       onDeleted()
     } catch (e) {
-      setMessage((e as Error).message)
+      setResult(failed((e as Error).message))
     }
   }
   return (
@@ -701,9 +716,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
                 : { model: { value: "", source: "claude-code" }, effort: { value: "", source: "claude-code" } }
             }
             defaults={defaults}
-            invalid={
-              message && /model/i.test(message) && message !== "Saved. Applies from the next turn." ? message : null
-            }
+            invalid={modelError(result)}
           />
           {bot.effective?.modelId && (
             <p className="text-muted-foreground text-xs">
@@ -725,7 +738,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
         <Button size="sm" onClick={() => void save()}>
           Save
         </Button>
-        {message && <output className="text-muted-foreground text-xs">{message}</output>}
+        <SaveNote result={result} />
       </div>
       {bot.team && (
         <TeamSettingsForm

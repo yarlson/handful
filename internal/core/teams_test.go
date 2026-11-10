@@ -363,12 +363,62 @@ func TestATurnInATeamWorksInTheTeamFolderAndTalksOnlyToTheTeam(t *testing.T) {
 		{room.ID, bo.ID, true},
 		{team.ID, team.ID, true},
 		{team.ID, bo.ID, false},
-		{team.ID, room.ID, false},
 	}
 	for _, c := range targets {
-		err := svc.CheckTeamTurnTarget(ctx, c.roomID, c.targetID)
+		err := svc.CheckTeamTurnTarget(ctx, c.roomID, ana.ID, c.targetID, "Can you help?", 0)
 		if c.ok != (err == nil) || (err != nil && !errors.Is(err, ErrInvalid)) {
 			t.Errorf("CheckTeamTurnTarget(%q, %q) = %v; want allowed %v", c.roomID, c.targetID, err, c.ok)
+		}
+	}
+}
+
+func TestATeamTurnPostsToItsOwnRoomOnlyWhenThePostWakesNoOne(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	team, ana, bo, cy := newTestTeam(t, svc)
+	reports, err := svc.CreateRoom(ctx, "Reports", "", []string{ana.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := svc.CreateRoom(ctx, "Shared", "", []string{ana.ID, bo.ID, cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	others, err := svc.CreateRoom(ctx, "Others", "", []string{bo.ID, cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, svc)
+	for name, c := range map[string]struct {
+		target, text string
+		hops         int64
+		want         string // "" when allowed, else a part of the error
+	}{
+		"own room, alone":              {reports.ID, "PR #100 is merged.", 0, ""},
+		"own room, no mention":         {shared.ID, "PR #100 is merged.", 0, ""},
+		"own room, a mention":          {shared.ID, "@Bo PR #100 is merged.", 0, "this post would wake Bo in Shared"},
+		"own room, @here":              {shared.ID, "@here PR #100 is merged.", 0, "would wake Bo, Cy in Shared"},
+		"own room, past the hop limit": {shared.ID, "@Bo PR #100 is merged.", maxAgentHops, ""},
+		"own room, at the hop limit":   {shared.ID, "@Bo PR #100 is merged.", maxAgentHops - 1, "this post would wake Bo in Shared"},
+		"a room Ana is not in":         {others.ID, "PR #100 is merged.", 0, "you are not a member of Others"},
+		"a bot outside the team":       {cy.ID, "PR #100 is merged.", 0, "talk to the team in its channel"},
+		"a bot in the team":            {bo.ID, "PR #100 is merged.", 0, "talk to the team in its channel"},
+	} {
+		err := svc.CheckTeamTurnTarget(ctx, team.ID, ana.ID, c.target, c.text, c.hops)
+		if c.want == "" && err != nil {
+			t.Errorf("%s: err = %v; want allowed", name, err)
+		}
+		if c.want != "" && (!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "send_to_user")) {
+			t.Errorf("%s: err = %v; want ErrInvalid with %q and what to do instead", name, err, c.want)
+		}
+	}
+	if err := svc.CheckTeamTurnTarget(ctx, team.ID, ana.ID, "missing", "Hi.", 0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a missing target: err = %v; want ErrNotFound", err)
+	}
+	// Outside a team turn nothing changes: any target, mention or not.
+	for _, target := range []string{others.ID, shared.ID, cy.ID} {
+		if err := svc.CheckTeamTurnTarget(ctx, reports.ID, ana.ID, target, "@Bo hi.", 0); err != nil {
+			t.Errorf("outside a team turn to %s: err = %v; want allowed", target, err)
 		}
 	}
 }

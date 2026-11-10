@@ -225,7 +225,7 @@ func teamSection(pc promptContext) string {
 %s
 - Your working directory in this turn is the team's shared folder: keep the team's work there. Your own folder is %s.
 - Save what the whole team needs in memory scope "team": decisions, conventions and lessons.
-- Talk to the team in its channel: send_to_user posts there, and @Name wakes a member. In a team turn, send_to_agent reaches only the team itself; do not message bots outside the team.
+- Talk to the team in its channel: send_to_user posts there, and @Name wakes a member. In a team turn, send_to_agent reaches only the team itself, or a room you are a member of when the post @mentions no one, so it wakes no one (for example a report); do not message bots outside the team.
 - To give another team work that your team's current goal does not need (a bug for Dev, an approved spec to build, a new topic), the lead uses update_board hand_over with team_id, the goal text, a brief and any artifact ids. It needs no goal of yours and costs your team nothing: the other team takes it in and works on it under its own goal and budget. Use request only for a part that items of your active goal wait on, and name those items in needed_by. When the user asks you to pass work to another team, do it with hand_over in that turn; never ask the user to relay it or to open another chat.
 - Keep an unfixed security problem within your team: a request to another team names only the change it needs, not the flaw.
 `, agreement, pc.OwnWorkspace)

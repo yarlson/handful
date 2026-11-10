@@ -879,6 +879,7 @@ func TestTeamTurnRunsInTheTeamFolderAndItsPromptShowsOnlyTheTeam(t *testing.T) {
 		`Scope "team" is shared by the members of team "Ship"`,
 		"Your working directory is " + h.svc.TeamWorkspace(team.ID),
 		"[team] Team channel \"Ship\" (id " + team.ID + "). Members: you (Ana), Bo, and the user.",
+		"In a team turn, send_to_agent reaches only the team itself, or a room you are a member of when the post @mentions no one, so it wakes no one",
 		"User: What should we ship next?",
 	} {
 		if !strings.Contains(calls[0], want) {
@@ -945,6 +946,34 @@ func TestMCPInATeamTurnTalksOnlyToTheTeamAndSharesTeamMemory(t *testing.T) {
 		if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": target, "message": "Can you help?", "priority": true}); !isErr || !strings.Contains(text, "talk to the team in its channel") {
 			t.Fatalf("send_to_agent to %s from a team turn = %q (error %v); want an error that points to the team channel", target, text, isErr)
 		}
+	}
+	// A room Ana is in takes a post that wakes no one: stored, and no turn starts.
+	ctx := context.Background()
+	reports, err := h.svc.CreateRoom(ctx, "Reports", "", []string{ana.ID, cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": reports.ID, "message": "PR #100 is merged.", "priority": false}); isErr || !strings.Contains(text, "no one was woken") {
+		t.Fatalf("send_to_agent to Ana's room from a team turn = %q (error %v); want a post that wakes no one", text, isErr)
+	}
+	if turns, _ := h.svc.QueuedTurns(ctx, 10); len(turns) != 0 {
+		t.Fatalf("queued after the report = %+v; want no turn", turns)
+	}
+	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": reports.ID, "message": "@Cy PR #101 is merged.", "priority": false}); !isErr || !strings.Contains(text, "this post would wake Cy in Reports") {
+		t.Fatalf("send_to_agent waking Cy from a team turn = %q (error %v); want it refused, naming Cy", text, isErr)
+	}
+	entries, err := h.svc.Entries(ctx, reports.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var posts []string
+	for _, e := range entries {
+		if e.Kind == core.KindBot {
+			posts = append(posts, string(e.Body))
+		}
+	}
+	if len(posts) != 1 || !strings.Contains(posts[0], "PR #100 is merged.") {
+		t.Fatalf("posts in Reports = %q; want only the report that woke no one", posts)
 	}
 	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": team.ID, "message": "@Bo can you help?", "priority": false}); isErr || !strings.Contains(text, "Woke Bo") {
 		t.Fatalf("send_to_agent to the team = %q (error %v); want a post that wakes Bo", text, isErr)

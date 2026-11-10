@@ -362,18 +362,24 @@ func (s *Service) PostToRoomWithMeta(ctx context.Context, roomID, botID, turnID,
 	if _, err := s.AppendEntry(ctx, roomID, KindBot, turnID, body); err != nil {
 		return nil, errors.Join(err, s.removeMedia(media))
 	}
-	if hops+1 > maxAgentHops {
-		return nil, nil
-	}
-	targets := mentioned(text, room.Members, botID)
 	var woken []string
-	for _, m := range targets {
+	for _, m := range roomWakes(text, room, botID, hops) {
 		if _, err := s.enqueueTurn(ctx, Turn{BotID: m.ID, Source: SourceRoom, RoomID: roomID, Hops: hops + 1, Prompt: speaker.Name + " mentioned you."}); err != nil {
 			return woken, err
 		}
 		woken = append(woken, m.Name)
 	}
 	return woken, nil
+}
+
+// roomWakes returns the members of room that a post of text by speakerID,
+// at hops, gives a turn: the members it @mentions, unless the post is past
+// the hop limit.
+func roomWakes(text string, room Bot, speakerID string, hops int64) []Member {
+	if hops+1 > maxAgentHops {
+		return nil
+	}
+	return mentioned(text, room.Members, speakerID)
 }
 
 // roomMember returns the member botID of room, or ErrInvalid when room is

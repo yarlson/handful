@@ -428,12 +428,14 @@ function PlanList({
   held,
   act,
   names,
+  rev,
 }: {
   team: Bot
   plan: Goal[]
   held: boolean
   act: Act
   names: Names
+  rev: number
 }) {
   const [note, setNote] = useState("")
   // focus is the task whose move button keeps the keyboard once the list shows the new order.
@@ -508,7 +510,7 @@ function PlanList({
               </Button>
               <WithdrawAction g={g} to={team.name} act={act} />
             </div>
-            <TaskHistory goal={g} />
+            <TaskHistory goal={g} version={rev} />
           </li>
         ))}
       </ol>
@@ -531,7 +533,7 @@ function PlanList({
 
 // DoneList shows the tasks that are done and wait for approval by whoever asked. The team
 // doesn't wait for it; the user can approve or ask for changes here.
-function DoneList({ done, act, names }: { done: Goal[]; act: Act; names: Names }) {
+function DoneList({ done, act, names, rev }: { done: Goal[]; act: Act; names: Names; rev: number }) {
   if (done.length === 0) return null
   return (
     <section className="flex flex-col gap-1.5" aria-labelledby="done-heading">
@@ -557,7 +559,7 @@ function DoneList({ done, act, names }: { done: Goal[]; act: Act; names: Names }
                 onSubmit={(text) => act(() => api.changesTask(g.id, text))}
               />
             </div>
-            <TaskHistory goal={g} />
+            <TaskHistory goal={g} version={rev} />
           </li>
         ))}
       </ul>
@@ -567,7 +569,7 @@ function DoneList({ done, act, names }: { done: Goal[]; act: Act; names: Names }
 
 // StoppedList shows the team's stopped tasks: their steps stay, and Reopen puts one back in
 // the inbox for the lead to decide on again. The latest task, when stopped, shows in Now.
-function StoppedList({ stopped, act, names }: { stopped: Goal[]; act: Act; names: Names }) {
+function StoppedList({ stopped, act, names, rev }: { stopped: Goal[]; act: Act; names: Names; rev: number }) {
   if (stopped.length === 0) return null
   return (
     <section className="flex flex-col gap-1.5" aria-labelledby="stopped-heading">
@@ -593,7 +595,7 @@ function StoppedList({ stopped, act, names }: { stopped: Goal[]; act: Act; names
             >
               Reopen
             </Button>
-            <TaskHistory goal={g} />
+            <TaskHistory goal={g} version={rev} />
           </li>
         ))}
       </ul>
@@ -628,7 +630,15 @@ export function BoardTab({
   }
   if (!board.data) return board.error ? <p className="text-destructive text-xs">{board.error}</p> : null
   return (
-    <BoardView team={team} data={board.data} error={board.error} act={act} teams={teams} onOpenInbox={onOpenInbox} />
+    <BoardView
+      team={team}
+      data={board.data}
+      rev={board.rev}
+      error={board.error}
+      act={act}
+      teams={teams}
+      onOpenInbox={onOpenInbox}
+    />
   )
 }
 
@@ -640,9 +650,12 @@ export function BoardView({
   act,
   teams: allTeams = [],
   onOpenInbox,
+  rev = 0,
 }: {
   team: Bot
   data: Board
+  // rev counts the board's loads; it reloads the open task histories with the board.
+  rev?: number
   error: string | null
   act: Act
   teams?: Bot[]
@@ -674,7 +687,7 @@ export function BoardView({
             <p className="text-muted-foreground text-xs">
               {goal.used} {goal.used === 1 ? "turn" : "turns"} so far · started {clock(goal.createdAt)}
             </p>
-            <TaskHistory goal={goal} steps={items} version={String(items.length)} />
+            <TaskHistory goal={goal} steps={items} version={rev} />
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
@@ -697,9 +710,11 @@ export function BoardView({
           </section>
         )
       })}
-      <DoneList done={data.done ?? []} act={act} names={names} />
-      <StoppedList stopped={(data.stopped ?? []).filter((g) => g.id !== goal?.id)} act={act} names={names} />
-      {plan.length > 0 && <PlanList team={team} plan={plan} held={!now && plan.length > 0} act={act} names={names} />}
+      <DoneList done={data.done ?? []} act={act} names={names} rev={rev} />
+      <StoppedList stopped={(data.stopped ?? []).filter((g) => g.id !== goal?.id)} act={act} names={names} rev={rev} />
+      {plan.length > 0 && (
+        <PlanList team={team} plan={plan} held={!now && plan.length > 0} act={act} names={names} rev={rev} />
+      )}
       <section className="flex flex-col gap-1.5" aria-labelledby="inbox-heading">
         <h3 id="inbox-heading" className="text-muted-foreground text-xs font-medium uppercase">
           Inbox ({inbox.length})
@@ -758,7 +773,7 @@ export function BoardView({
           ))}
         </section>
       )}
-      <SentSection goals={data.handedOver ?? []} names={names} act={act} />
+      <SentSection goals={data.handedOver ?? []} names={names} act={act} version={rev} />
     </div>
   )
 }

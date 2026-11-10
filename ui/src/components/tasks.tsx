@@ -14,6 +14,7 @@ import {
   needsYouLine,
   sentState,
   sourceLabel,
+  historyKey,
   taskError,
   taskEventLabel,
   teamOption,
@@ -187,15 +188,16 @@ export function TaskHistoryList({
 }
 
 // TaskHistory is a task's History button, and its history once opened. The history loads
-// when it opens, and again when version changes.
+// when it opens, and again when version changes: pass the rev of the board the card is on,
+// so a decision the board reloads for shows in an open history too.
 export function TaskHistory({
   goal,
   steps,
-  version = "",
+  version,
 }: {
   goal: Goal
   steps?: Pick<Item, "id" | "title">[]
-  version?: string
+  version: number
 }) {
   const [open, setOpen] = useState(false)
   const id = `task-history-${goal.id}`
@@ -226,9 +228,9 @@ function LoadedHistory({
   id: string
   goal: Goal
   steps?: Pick<Item, "id" | "title">[]
-  version: string
+  version: number
 }) {
-  const events = useLoad(() => api.taskEvents(goal.id), `${goal.id}:${version}`)
+  const events = useLoad(() => api.taskEvents(goal.id), historyKey(goal.id, version))
   if (events.error) return <p className="text-destructive text-xs">{events.error}</p>
   if (!events.data) return null
   return <TaskHistoryList id={id} goal={goal} events={events.data} steps={steps} />
@@ -376,7 +378,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
         )}
         {fromUser(g) && !g.needsUser && <WithdrawAction g={g} to={view.team.name} act={view.act} />}
       </div>
-      <TaskHistory goal={g} />
+      <TaskHistory goal={g} version={view.loadedAt} />
     </li>
   )
 }
@@ -426,7 +428,7 @@ export function InboxView({
 }
 
 // SentCard is a task this team sent another team, as the sender follows it.
-function SentCard({ g, names, act }: { g: Goal; names: Names; act: Act }) {
+function SentCard({ g, names, act, version }: { g: Goal; names: Names; act: Act; version: number }) {
   const to = names.team(g.teamId)
   const state = sentState(g, to, when)
   return (
@@ -466,13 +468,24 @@ function SentCard({ g, names, act }: { g: Goal; names: Names; act: Act }) {
         )}
         {canWithdraw(g) && <WithdrawAction g={g} to={to} act={act} />}
       </div>
-      <TaskHistory goal={g} />
+      <TaskHistory goal={g} version={version} />
     </li>
   )
 }
 
 // SentSection lists the tasks this team sent in the last 30 days, newest first.
-export function SentSection({ goals, names, act }: { goals: Goal[]; names: Names; act: Act }) {
+export function SentSection({
+  goals,
+  names,
+  act,
+  version = 0,
+}: {
+  goals: Goal[]
+  names: Names
+  act: Act
+  // version is the rev of the board the section is on; it reloads open histories.
+  version?: number
+}) {
   if (goals.length === 0) return null
   return (
     <section aria-labelledby="sent-heading" className="flex flex-col gap-1.5">
@@ -481,7 +494,7 @@ export function SentSection({ goals, names, act }: { goals: Goal[]; names: Names
       </h3>
       <ul className="flex flex-col gap-1.5">
         {goals.map((g) => (
-          <SentCard key={g.id} g={g} names={names} act={act} />
+          <SentCard key={g.id} g={g} names={names} act={act} version={version} />
         ))}
       </ul>
     </section>

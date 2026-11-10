@@ -370,7 +370,7 @@ test("an empty history says so, and the history opens from a named button", () =
     renderToStaticMarkup(<TaskHistoryList id="h" goal={goal({})} events={[]} />),
     "Nothing has happened to it yet.",
   )
-  const button = renderToStaticMarkup(<TaskHistory goal={goal({})} />)
+  const button = renderToStaticMarkup(<TaskHistory goal={goal({})} version={1} />)
   assert.include(button, 'aria-label="History: Fix the scroll"')
   assert.include(button, 'aria-expanded="false"')
   assert.include(button, 'aria-controls="task-history-g1"')

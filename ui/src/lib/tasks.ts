@@ -359,3 +359,9 @@ export function taskEventLabel(e: { kind: string; round: number; goalId?: string
   if (e.goalId) return TASK_EVENTS[e.kind] ?? e.kind
   return `${step ?? "A step"}: ${eventLabel(e)}`
 }
+
+// historyKey is the load key of a task's open history: it changes with the task and with each
+// load of the board the history shows on, so the history reloads whenever the board does.
+export function historyKey(goalId: string, boardRev: number): string {
+  return `${goalId}:${boardRev}`
+}

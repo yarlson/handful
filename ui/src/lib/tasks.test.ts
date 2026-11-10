@@ -7,6 +7,7 @@ import {
   countsLine,
   decisionError,
   firstLine,
+  historyKey,
   fromUser,
   inboxError,
   leadName,
@@ -330,4 +331,10 @@ test("a task's history names each decision, and each step event by its step", ()
   assert.equal(taskEventLabel({ kind: "changes", round: 2 }, "Settings API"), "Settings API: Changes asked · round 2")
   assert.equal(taskEventLabel({ kind: "created", round: 0 }), "A step: Created")
   assert.equal(taskEventLabel({ kind: "passed", round: 0, goalId: "" }), "A step: Passed")
+})
+
+test("an open history reloads with each load of its board, and per task", () => {
+  assert.equal(historyKey("g1", 1), "g1:1")
+  assert.notEqual(historyKey("g1", 2), historyKey("g1", 1))
+  assert.notEqual(historyKey("g2", 1), historyKey("g1", 1))
 })

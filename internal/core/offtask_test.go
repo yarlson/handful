@@ -153,6 +153,7 @@ func TestMakeATaskTakesItAndAttachesTheTurnsThatWereOnNoTask(t *testing.T) {
 		"a member":                 {f.as(f.ana, ""), []string{"a"}, "only the lead of Ship"},
 		"no turns":                 {f.lead, nil, "from 1 to 50 turns"},
 		"too many turns":           {f.lead, many, "from 1 to 50 turns"},
+		"exactly 50 turns":         {f.lead, many[:maxMadeFromTurns], "turn t0 is not a turn of this team on no task"},
 		"a turn already on a task": {f.lead, []string{"a", "on-task"}, "turn on-task is not a turn of this team on no task"},
 		"another team's turn":      {user, []string{"docs"}, "turn docs is not a turn of this team on no task"},
 		"a missing turn":           {user, []string{"gone"}, "turn gone is not a turn of this team on no task"},

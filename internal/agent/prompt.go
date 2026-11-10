@@ -319,14 +319,30 @@ func offTaskLine(off core.OffTask) string {
 	return b.String()
 }
 
+// budgetLine says how much of its daily budget the team used today. The
+// daily budget is the team's only turn limit: a task's turns don't pause it.
+func budgetLine(v core.BudgetView) string {
+	if v.Limit == 0 {
+		return fmt.Sprintf("Team's turns today: %d (no daily limit).\n", v.Today)
+	}
+	line := fmt.Sprintf("Team's daily budget: %d of %d turns used today", v.Today, v.Limit)
+	switch {
+	case v.Paused:
+		line += "; it is used up, so only the lead's decisions start until midnight or until the user raises it"
+	case v.Warn:
+		line += "; keep the rest for the work that matters most"
+	}
+	return line + ".\n"
+}
+
 // boardTable lists a team's goal and its items, and the requests of other
 // teams, one line each. now, in the user's time zone, dates the inbox's
 // decision clocks.
 func boardTable(team core.Bot, board core.Board, now time.Time) string {
 	var b strings.Builder
-	b.WriteString("<board>\n")
+	b.WriteString("<board>\n" + budgetLine(board.Budget))
 	if g := board.Goal; g != nil {
-		fmt.Fprintf(&b, "Goal (id %s, %s, %d of %d turns used): %s\nItems:\n", g.ID, g.State, g.Used, g.Budget, g.Text)
+		fmt.Fprintf(&b, "Goal (id %s, %s, %d turns so far): %s\nItems:\n", g.ID, g.State, g.Used, g.Text)
 		if len(board.Items) == 0 {
 			b.WriteString("(none yet)\n")
 		}

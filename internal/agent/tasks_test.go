@@ -129,6 +129,32 @@ func TestTheLeadsBoardShowsEachInboxTasksDecisionClock(t *testing.T) {
 	}
 }
 
+// The board shows a task's turns so far with no limit, and the team's use of
+// its daily budget today, the team's only turn limit.
+func TestTheBoardShowsTheTeamsDailyBudgetAndATasksTurnsSoFar(t *testing.T) {
+	t.Parallel()
+	dev := core.Bot{ID: "dev", Name: "Dev", Members: []core.Member{{ID: "dl", Name: "Dee"}}, Team: &core.Team{LeadID: "dl"}}
+	task := &core.Goal{ID: "g1", Text: "Ship.", State: core.GoalActive, Used: 42, Budget: 30}
+	for _, c := range []struct {
+		name   string
+		budget core.BudgetView
+		want   string
+	}{
+		{"no limit", core.BudgetView{Today: 7}, "Team's turns today: 7 (no daily limit).\n"},
+		{"under the limit", core.BudgetView{Today: 12, Limit: 100}, "Team's daily budget: 12 of 100 turns used today.\n"},
+		{"near the limit", core.BudgetView{Today: 85, Limit: 100, Warn: true}, "Team's daily budget: 85 of 100 turns used today; keep the rest for the work that matters most.\n"},
+		{"used up", core.BudgetView{Today: 100, Limit: 100, Paused: true}, "Team's daily budget: 100 of 100 turns used today; it is used up, so only the lead's decisions start until midnight or until the user raises it.\n"},
+	} {
+		got := boardTable(dev, core.Board{Goal: task, Budget: c.budget}, time.Time{})
+		if want := "<board>\n" + c.want + "Goal (id g1, active, 42 turns so far): Ship.\n"; !strings.HasPrefix(got, want) {
+			t.Errorf("%s: board = %q; want it to start with %q", c.name, got, want)
+		}
+		if strings.Contains(got, "of 30") {
+			t.Errorf("%s: board = %q; want no limit on the task's turns", c.name, got)
+		}
+	}
+}
+
 // The lead's board lists the team's turns in the last hour that were on no
 // task, with the ids make_task takes, so the lead can make tasks of that
 // work; a member's board and a team with none say nothing of it.

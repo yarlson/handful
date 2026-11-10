@@ -62,14 +62,14 @@ func WithSettings(s Settings) Option {
 }
 
 type settingsView struct {
-	File    fileView       `json:"file"`
-	Build   string         `json:"build"`
-	Restart string         `json:"restart"` // "launchd" or "manual"
+	File    fileView `json:"file"`
+	Build   string   `json:"build"`
+	Restart string   `json:"restart"` // "launchd" or "manual"
 	// StartError is the error a server started again now would stop with;
 	// absent when it would start. Every restart path refuses while it is set.
-	StartError string `json:"startError,omitempty"`
-	Values  orderedValues  `json:"values"`
-	Runtime []RuntimeValue `json:"runtime"`
+	StartError string         `json:"startError,omitempty"`
+	Values     orderedValues  `json:"values"`
+	Runtime    []RuntimeValue `json:"runtime"`
 }
 
 type fileView struct {

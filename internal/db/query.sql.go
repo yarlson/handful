@@ -3419,6 +3419,69 @@ func (q *Queries) ListRoutines(ctx context.Context, botID string) ([]Routine, er
 	return items, nil
 }
 
+const listStoppedGoals = `-- name: ListStoppedGoals :many
+SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id, decision_ms, decision_tick, missed_at FROM goals
+WHERE team_id = ?1 AND state = 'stopped'
+  AND (SELECT MAX(ev.created_at) FROM goal_events ev WHERE ev.goal_id = goals.id AND ev.kind = 'stopped') >= ?2
+ORDER BY (SELECT MAX(ev.created_at) FROM goal_events ev WHERE ev.goal_id = goals.id AND ev.kind = 'stopped') DESC, rowid DESC
+`
+
+type ListStoppedGoalsParams struct {
+	TeamID string `json:"team_id"`
+	Since  int64  `json:"since"`
+}
+
+// The stopped tasks of a team that were stopped since a time (ms), the one
+// stopped last first.
+func (q *Queries) ListStoppedGoals(ctx context.Context, arg ListStoppedGoalsParams) ([]Goal, error) {
+	rows, err := q.db.QueryContext(ctx, listStoppedGoals, arg.TeamID, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Goal
+	for rows.Next() {
+		var i Goal
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.Text,
+			&i.State,
+			&i.Budget,
+			&i.QueuePos,
+			&i.CreatedAt,
+			&i.Origin,
+			&i.FromTeamID,
+			&i.FromBotID,
+			&i.FromGoalID,
+			&i.Brief,
+			&i.ArtifactIds,
+			&i.IntakeNote,
+			&i.AskedAt,
+			&i.AskRounds,
+			&i.Depth,
+			&i.Pinned,
+			&i.LaterUntil,
+			&i.Passes,
+			&i.PassedBy,
+			&i.WaitsOnItemID,
+			&i.DecisionMs,
+			&i.DecisionTick,
+			&i.MissedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTagsForArtifacts = `-- name: ListTagsForArtifacts :many
 SELECT artifact_id, tag FROM artifact_tags
 WHERE artifact_id IN (/*SLICE:ids*/?)

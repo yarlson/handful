@@ -155,6 +155,9 @@ type Board struct {
 	Plan  []Goal `json:"plan"`
 	Done  []Goal `json:"done"`
 	Sent  []Goal `json:"sent"`
+	// Stopped is the team's tasks stopped in the last 30 days, the one
+	// stopped last first; each can be reopened.
+	Stopped []Goal `json:"stopped"`
 	// OffTask is the team's work in the last hour that was on no task.
 	OffTask OffTask `json:"offTask"`
 	// Teams names the other teams that the board's items and requests involve.
@@ -275,7 +278,7 @@ func (s *Service) latestGoal(ctx context.Context, teamID string) (Goal, bool, er
 // Board returns the open goal of a team, or its latest goal, the goal's
 // items, and the open requests of other teams to it.
 func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
-	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Teams: map[string]string{}}
+	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Stopped: []Goal{}, Teams: map[string]string{}}
 	g, ok, err := s.latestGoal(ctx, teamID)
 	if err != nil {
 		return Board{}, err
@@ -1843,7 +1846,7 @@ func (s *Service) GoalBoard(ctx context.Context, goalID string) (Board, error) {
 	if err != nil {
 		return Board{}, err
 	}
-	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Teams: map[string]string{}}
+	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Stopped: []Goal{}, Teams: map[string]string{}}
 	if err := s.withHistory(ctx, board.Items); err != nil {
 		return Board{}, err
 	}

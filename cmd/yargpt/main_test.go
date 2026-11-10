@@ -165,6 +165,25 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 		}
 	}
 
+	// GET reports the error a restart would stop with, from the same check
+	// as POST /api/restart, so the app's bridge can refuse before it tries.
+	claude := fakeClaude(t)
+	for _, c := range []struct{ file, startError string }{
+		{`{"claude": "` + claude + `"}`, ""},
+		{`{"maxParallel": 4,}`, "invalid character"},
+		{`{"claude": "` + claude + `", "model": "bad model"}`, `config.json: "model": A model ID can't contain spaces`},
+		{`{"claude": "` + claude + `", "effort": "ultra"}`, `config.json: "effort" must be one of`},
+		{`{"claude": "/missing/claude"}`, `find Claude Code CLI "/missing/claude"`},
+	} {
+		if err := os.WriteFile(filepath.Join(o.dataDir, "config.json"), []byte(c.file), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := getStartError(t, o.addr)
+		if c.startError == "" && got != nil || c.startError != "" && (got == nil || !strings.Contains(*got, c.startError)) {
+			t.Errorf("startError with %s = %v; want %q (absent when empty)", c.file, got, c.startError)
+		}
+	}
+
 	cancel()
 	select {
 	case err := <-done:
@@ -174,6 +193,28 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("serve did not return within 15 s after the context ended")
 	}
+}
+
+// getStartError returns the startError of GET /api/settings on addr, or nil
+// when the reply has none.
+func getStartError(t *testing.T, addr string) *string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/api/settings", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var reply struct {
+		StartError *string `json:"startError"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&reply); res.StatusCode != http.StatusOK || err != nil {
+		t.Fatalf("GET /api/settings = %d, %v; want 200", res.StatusCode, err)
+	}
+	return reply.StartError
 }
 
 // patchSettings sends body to PATCH /api/settings on addr and wants 200.

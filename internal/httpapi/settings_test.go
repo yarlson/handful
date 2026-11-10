@@ -340,6 +340,17 @@ func TestARestartIsRefusedWhenTheServerWouldNotStart(t *testing.T) {
 	if got := readSettings(t, h); got.StartError != want {
 		t.Fatalf("startError = %q; want %q", got.StartError, want)
 	}
+	// The views that PATCH and PUT return carry it too.
+	for _, c := range []struct{ method, target, body string }{
+		{"PATCH", "/api/settings", `{"maxParallel": 4}`},
+		{"PUT", "/api/settings/file", `{}`},
+	} {
+		rec := do(h, c.method, c.target, c.body, jsonHeader)
+		var got settingsReply
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); rec.Code != http.StatusOK || err != nil || got.StartError != want {
+			t.Fatalf("%s %s = %d %s; want 200 with startError %q", c.method, c.target, rec.Code, rec.Body, want)
+		}
+	}
 }
 
 func TestSettingsHaveNoStartErrorWhenTheServerWouldStart(t *testing.T) {

@@ -399,6 +399,7 @@ func TestATeamTurnPostsToItsOwnRoomOnlyWhenThePostWakesNoOne(t *testing.T) {
 		"own room, a mention":          {shared.ID, "@Bo PR #100 is merged.", 0, "this post would wake Bo in Shared"},
 		"own room, @here":              {shared.ID, "@here PR #100 is merged.", 0, "would wake Bo, Cy in Shared"},
 		"own room, past the hop limit": {shared.ID, "@Bo PR #100 is merged.", maxAgentHops, ""},
+		"own room, at the hop limit":   {shared.ID, "@Bo PR #100 is merged.", maxAgentHops - 1, "this post would wake Bo in Shared"},
 		"a room Ana is not in":         {others.ID, "PR #100 is merged.", 0, "you are not a member of Others"},
 		"a bot outside the team":       {cy.ID, "PR #100 is merged.", 0, "talk to the team in its channel"},
 		"a bot in the team":            {bo.ID, "PR #100 is merged.", 0, "talk to the team in its channel"},

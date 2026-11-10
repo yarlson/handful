@@ -332,3 +332,40 @@ func TestATeamsDailyBudgetIsZeroToTenThousand(t *testing.T) {
 		t.Fatalf("budget of no team = %+v; want the zero view", b)
 	}
 }
+
+func TestARaisedBudgetReachedTheSameDayPausesWithANoticeAgain(t *testing.T) {
+	f := newBudgetFixture(t)
+	ctx := context.Background()
+	settle := func() {
+		t.Helper()
+		if err := f.svc.SettleItems(ctx, func(string, string) bool { return true }, LeadState{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.setBudget(t, f.team.ID, 3)
+	f.turns(t, "a", 3, f.clock)
+	settle()
+	if err := f.svc.WaitForBudget(ctx, f.team.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.setBudget(t, f.team.ID, 5) // the user raises it later the same day
+	f.turns(t, "b", 2, f.clock)
+	if got := f.needs(t); !slices.Equal(got, []string{"budget_reached Budget: Ship used 5 of 5 turns today"}) {
+		t.Fatalf("needs you at the raised limit = %q; want the pause again", got)
+	}
+	settle()
+	if text := lastEventText(t, f.svc, f.team.ID); !strings.HasPrefix(text, "The team used its 5 turns for today.") {
+		t.Fatalf("Ship channel = %q; want a note for the new limit", text)
+	}
+	// Saving other settings with the same limit keeps the wait.
+	if err := f.svc.WaitForBudget(ctx, f.team.ID); err != nil {
+		t.Fatal(err)
+	}
+	agreement := "Tests pass first."
+	if _, err := f.svc.UpdateTeam(ctx, f.team.ID, TeamPatch{Agreement: &agreement}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.needs(t); len(got) != 0 {
+		t.Fatalf("needs you after another setting changed = %q; want the wait kept", got)
+	}
+}

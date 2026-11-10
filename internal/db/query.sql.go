@@ -4506,7 +4506,13 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 }
 
 const updateTeam = `-- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ?, decision_minutes = ?, daily_budget = ? WHERE team_id = ?
+UPDATE teams SET lead_bot_id = ?1, agreement = ?2, goal_budget = ?3,
+  default_model = ?4, default_effort = ?5, request_slots = ?6,
+  inbox_max = ?7, inbox_per_sender = ?8, decision_minutes = ?9,
+  budget_noted_on = CASE WHEN daily_budget = ?10 THEN budget_noted_on ELSE '' END,
+  budget_waited_on = CASE WHEN daily_budget = ?10 THEN budget_waited_on ELSE '' END,
+  daily_budget = ?10
+WHERE team_id = ?11
 `
 
 type UpdateTeamParams struct {
@@ -4523,6 +4529,8 @@ type UpdateTeamParams struct {
 	TeamID          string `json:"team_id"`
 }
 
+// A wait and a pause note belong to one limit: a changed daily_budget
+// clears both, so reaching the new limit the same day notes and asks again.
 func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
 	_, err := q.db.ExecContext(ctx, updateTeam,
 		arg.LeadBotID,

@@ -201,6 +201,10 @@ test("each Needs you kind has its own line", () => {
     lead: "Budget reached:",
     rest: "Ship used 100 of 100 turns today",
   })
+  assert.deepEqual(needsYouLine({ kind: "budget_reached", text: "Team Budget: Ops used 5 of 5 turns today" }, "Ops"), {
+    lead: "Budget reached:",
+    rest: "Team Budget: Ops used 5 of 5 turns today",
+  })
 })
 
 const day = { today: 212, limit: 400, suggested: 0, paused: false, warn: false }

@@ -532,8 +532,15 @@ function useRestart() {
     try {
       const bridge = settingsBridge()
       if (bridge) {
+        // The app's "now" resolves only once the new server answers, so the page never sees
+        // it go down; show Restarting… while it waits, and reload as soon as it's back.
+        if (when === "now") setState("now")
         const r = await bridge.restartServer(when)
         if (!r.ok) throw new Error(r.error)
+        if (when === "now") {
+          location.reload()
+          return
+        }
       } else {
         await api.restart(when)
       }

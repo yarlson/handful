@@ -88,7 +88,6 @@ type startupError struct {
 }
 
 func (e *startupError) Error() string { return e.err.Error() }
-func (e *startupError) Unwrap() error { return e.err }
 
 // startupKey returns the config key that err blames, or "" when it blames
 // the whole file.

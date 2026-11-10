@@ -63,12 +63,12 @@ func TestTheBoardShowsThePlanTheInboxDoneAndSentTasks(t *testing.T) {
 		Sent:  []core.Goal{{ID: "s9", Text: "Write the guide.", TeamID: "docs", State: core.GoalQueued}},
 		Teams: map[string]string{"sup": "Support", "prod": "Product", "docs": "Docs"},
 	}
-	got := boardPrompt(core.Bot{ID: "dl"}, dev, board, core.Turn{}, nil)
+	got := boardPrompt(core.Bot{ID: "dl"}, dev, board, core.Turn{}, nil, time.Time{})
 	for _, want := range []string{
 		"Plan, next tasks in order (don't plan them until they are Now):\n- #1 \"Fix login.\" (task id p1), pinned by the user\n- #2 \"Tidy.\" (task id p2)\n",
 		"Inbox, waiting for your decision.",
-		`- "Fix the scroll bug." (task id g1), from team "Support" — their work waits on this` + "\n  Brief: See artifact.\n  Artifacts: a1\n",
-		`- "Build the queue." (task id g2), from team "Product" — you asked (2 of 3): Which spec rev?; wait for the answer` + "\n",
+		`- "Fix the scroll bug." (task id g1), from team "Support" — decide by 00:00 — their work waits on this` + "\n  Brief: See artifact.\n  Artifacts: a1\n",
+		`- "Build the queue." (task id g2), from team "Product" — you asked (2 of 3): Which spec rev?; wait for the answer; clock paused: waiting for the sender's answer` + "\n",
 		`- "Tidy docs." (task id g3), from the user — the leads couldn't settle it; only the user decides now` + "\n",
 		`- "Refactor." (task id g4), from a proposal of your team — deferred: After the release; it comes back when due` + "\n",
 		"Done, waiting for approval by whoever asked:\n" + `- "Ship it." (task id d1), from team "Support"` + "\n",
@@ -82,14 +82,50 @@ func TestTheBoardShowsThePlanTheInboxDoneAndSentTasks(t *testing.T) {
 	if strings.Count(got, "Brief: ") != 1 || strings.Count(got, "Artifacts: ") != 1 {
 		t.Errorf("only the task with a brief and artifacts shows those lines:\n%s", got)
 	}
-	if member := boardPrompt(core.Bot{ID: "other"}, dev, board, core.Turn{}, nil); strings.Contains(member, inboxBrief) {
+	if member := boardPrompt(core.Bot{ID: "other"}, dev, board, core.Turn{}, nil, time.Time{}); strings.Contains(member, inboxBrief) {
 		t.Error("a member's board has the lead's inbox brief")
 	}
-	if sender := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Sent: board.Sent, Teams: board.Teams}, core.Turn{}, nil); !strings.Contains(sender, "Sent to other teams:") || strings.Contains(sender, inboxBrief) {
+	if sender := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Sent: board.Sent, Teams: board.Teams}, core.Turn{}, nil, time.Time{}); !strings.Contains(sender, "Sent to other teams:") || strings.Contains(sender, inboxBrief) {
 		t.Errorf("sender-only board = %q", sender)
 	}
-	if done := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Done: board.Done, Teams: board.Teams}, core.Turn{}, nil); !strings.Contains(done, "Done, waiting for approval") {
+	if done := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Done: board.Done, Teams: board.Teams}, core.Turn{}, nil, time.Time{}); !strings.Contains(done, "Done, waiting for approval") {
 		t.Errorf("done-only board = %q", done)
+	}
+}
+
+// The lead's board says by when to decide on each inbox task, in the user's
+// time zone, or why its clock stands, or that the time ran out.
+func TestTheLeadsBoardShowsEachInboxTasksDecisionClock(t *testing.T) {
+	t.Parallel()
+	dev := core.Bot{ID: "dev", Name: "Dev", Members: []core.Member{{ID: "dl", Name: "Dee"}}, Team: &core.Team{LeadID: "dl", DecisionMinutes: 30}}
+	eet := time.FixedZone("EET", 2*60*60)
+	afternoon := time.Date(2026, 11, 10, 14, 0, 0, 0, eet)
+	inbox := func(h core.Handoff, decisionMs int64) core.Board {
+		h.DecisionMs = decisionMs
+		return core.Board{Inbox: []core.Goal{{ID: "g1", Text: "Fix it.", TeamID: "dev", State: core.GoalIncoming, Handoff: h}}}
+	}
+	running := core.Goal{ID: "now", Text: "Ship.", State: core.GoalActive, Used: 3, Budget: 10}
+	stopped := core.Goal{ID: "now", Text: "Ship.", State: core.GoalPaused, Used: 3, Budget: 10}
+	atBudget := core.Goal{ID: "now", Text: "Ship.", State: core.GoalPaused, Used: 10, Budget: 10}
+	for _, c := range []struct {
+		name  string
+		board core.Board
+		now   time.Time
+		want  string
+	}{
+		{"time left", inbox(core.Handoff{}, (10 * time.Minute).Milliseconds()), afternoon, " — decide by 14:20\n"},
+		{"time used up while the lead runs a turn", inbox(core.Handoff{}, (40 * time.Minute).Milliseconds()), afternoon, " — decide by 14:00\n"},
+		{"after midnight", inbox(core.Handoff{}, 0), time.Date(2026, 11, 10, 23, 50, 0, 0, eet), " — decide by Wed 00:20\n"},
+		{"the user stopped the team", func() core.Board { b := inbox(core.Handoff{}, 0); b.Goal = &stopped; return b }(), afternoon, " — clock paused: the user stopped the team's task\n"},
+		{"the Now task runs", func() core.Board { b := inbox(core.Handoff{}, 0); b.Goal = &running; return b }(), afternoon, " — decide by 14:30\n"},
+		{"the Now task is paused at its budget", func() core.Board { b := inbox(core.Handoff{}, 0); b.Goal = &atBudget; return b }(), afternoon, " — decide by 14:30\n"},
+		{"a question to the sender waits", inbox(core.Handoff{AskedAt: 5, AskRounds: 1, IntakeNote: "Which page?"}, 0), afternoon, " — you asked (1 of 3): Which page?; wait for the answer; clock paused: waiting for the sender's answer\n"},
+		{"missed", inbox(core.Handoff{MissedAt: 9, NeedsUser: true}, (30 * time.Minute).Milliseconds()), afternoon, " — missed — waiting for the user\n"},
+	} {
+		got := boardTable(dev, c.board, c.now)
+		if want := `- "Fix it." (task id g1), from the user` + c.want; !strings.Contains(got, want) {
+			t.Errorf("%s: board lacks %q:\n%s", c.name, want, got)
+		}
 	}
 }
 

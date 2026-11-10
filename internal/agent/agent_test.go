@@ -1375,7 +1375,7 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 	old := core.Item{ID: "i2", TeamID: "t1", Title: "Old", State: core.ItemBlocked, OwnerID: "gone", DependsOn: []string{"i1"}, Note: "Who owns this?"}
 	board := core.Board{Goal: &core.Goal{ID: "g1", Text: "Ship CSV.", State: core.GoalActive, Used: 3, Budget: 30}, Items: []core.Item{parse, old}}
 
-	table := boardTable(team, board)
+	table := boardTable(team, board, time.Time{})
 	for _, want := range []string{
 		"Goal (id g1, active, 3 of 30 turns used): Ship CSV.",
 		"- \"Parse\" (id i1) [doing] owner Ana (id a1), reviewer Bo (id b1)\n",
@@ -1385,7 +1385,7 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 			t.Errorf("board table lacks %q:\n%s", want, table)
 		}
 	}
-	if got := boardTable(team, core.Board{Goal: board.Goal}); !strings.Contains(got, "Items:\n(none yet)\n</board>") {
+	if got := boardTable(team, core.Board{Goal: board.Goal}, time.Time{}); !strings.Contains(got, "Items:\n(none yet)\n</board>") {
 		t.Errorf("board table without items or requests = %q; want (none yet) and nothing more", got)
 	}
 
@@ -1402,12 +1402,12 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 		{"member", ana, core.Turn{}, "</board>\n", "You lead this goal."},
 	}
 	for _, r := range roles {
-		got := boardPrompt(core.Bot{ID: r.bot.ID}, team, board, r.turn, nil)
+		got := boardPrompt(core.Bot{ID: r.bot.ID}, team, board, r.turn, nil, time.Time{})
 		if !strings.Contains(got, table) || !strings.Contains(got, r.want) || strings.Contains(got, r.not) {
 			t.Errorf("%s prompt = %q; want the board and %q, without %q", r.name, got, r.want, r.not)
 		}
 	}
-	if got := boardPrompt(core.Bot{ID: ana.ID}, team, core.Board{}, core.Turn{}, nil); got != "" {
+	if got := boardPrompt(core.Bot{ID: ana.ID}, team, core.Board{}, core.Turn{}, nil, time.Time{}); got != "" {
 		t.Errorf("prompt without a goal = %q; want none", got)
 	}
 }
@@ -1558,9 +1558,9 @@ func TestTheLeadDeliversAndAnAcceptedGoalGetsARetroTurn(t *testing.T) {
 
 func TestBoardTableNamesReviewRounds(t *testing.T) {
 	t.Parallel()
-	team := core.Bot{Members: []core.Member{{ID: "a1", Name: "Ana"}}}
+	team := core.Bot{Members: []core.Member{{ID: "a1", Name: "Ana"}}, Team: &core.Team{LeadID: "a1"}}
 	board := core.Board{Goal: &core.Goal{ID: "g1", State: core.GoalActive}, Items: []core.Item{{ID: "i1", Title: "Parse", State: core.ItemDoing, OwnerID: "a1", ReviewRounds: 2}}}
-	if got := boardTable(team, board); !strings.Contains(got, "- \"Parse\" (id i1) [doing] owner Ana (id a1), 2 review rounds\n") {
+	if got := boardTable(team, board, time.Time{}); !strings.Contains(got, "- \"Parse\" (id i1) [doing] owner Ana (id a1), 2 review rounds\n") {
 		t.Fatalf("board table = %q; want the item's review rounds", got)
 	}
 }

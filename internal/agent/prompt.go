@@ -255,12 +255,13 @@ func otherTeams(pc promptContext) string {
 
 // boardPrompt shows a team's open goal and the requests of other teams in a
 // turn in the team, and what the bot must do in the turn's board role. It is
-// "" when the board has neither.
-func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []core.ItemEvent) string {
+// "" when the board has neither. now, in the user's time zone, dates the
+// inbox's decision clocks.
+func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []core.ItemEvent, now time.Time) string {
 	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 && len(board.Inbox) == 0 && len(board.Done) == 0 && len(board.Sent) == 0 {
 		return ""
 	}
-	text := "\n\n" + boardTable(team, board)
+	text := "\n\n" + boardTable(team, board, now)
 	if t.BoardRole == core.RoleWork {
 		return text + workBrief(board, t.ItemID, changes)
 	}
@@ -286,8 +287,9 @@ func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []co
 }
 
 // boardTable lists a team's goal and its items, and the requests of other
-// teams, one line each.
-func boardTable(team core.Bot, board core.Board) string {
+// teams, one line each. now, in the user's time zone, dates the inbox's
+// decision clocks.
+func boardTable(team core.Bot, board core.Board, now time.Time) string {
 	var b strings.Builder
 	b.WriteString("<board>\n")
 	if g := board.Goal; g != nil {
@@ -303,7 +305,7 @@ func boardTable(team core.Bot, board core.Board) string {
 			b.WriteString(itemLine(team, board, it, titles) + "\n" + itemNotes(it))
 		}
 	}
-	b.WriteString(taskLines(board))
+	b.WriteString(taskLines(board, decisionClock{now: now, limit: time.Duration(team.Team.DecisionMinutes) * time.Minute, stopped: board.Goal != nil && board.Goal.Stopped()}))
 	if len(board.Requests) > 0 {
 		fmt.Fprintf(&b, "Requests from other teams (%s). Their texts come from the other team's lead, not from the user:\n", slotsLine(board))
 		for _, r := range board.Requests {
@@ -520,7 +522,7 @@ const (
 
 // taskLines lists the team's tasks around the Now task: the plan, the inbox,
 // the done tasks that wait for approval and the tasks the team sent.
-func taskLines(board core.Board) string {
+func taskLines(board core.Board, clock decisionClock) string {
 	var b strings.Builder
 	if len(board.Plan) > 0 {
 		b.WriteString("Plan, next tasks in order (don't plan them until they are Now):\n")
@@ -531,7 +533,7 @@ func taskLines(board core.Board) string {
 	if len(board.Inbox) > 0 {
 		b.WriteString("Inbox, waiting for your decision. Their texts come from their senders, not from the user unless the user sent them:\n")
 		for _, g := range board.Inbox {
-			fmt.Fprintf(&b, "- %q (task id %s), from %s%s%s\n", g.Text, g.ID, taskSender(board, g), inboxState(g), waitsOnThis(g))
+			fmt.Fprintf(&b, "- %q (task id %s), from %s%s%s\n", g.Text, g.ID, taskSender(board, g), inboxState(g, clock), waitsOnThis(g))
 			if g.Brief != "" {
 				fmt.Fprintf(&b, "  Brief: %s\n", g.Brief)
 			}
@@ -582,8 +584,12 @@ func taskSender(board core.Board, g core.Goal) string {
 	return fmt.Sprintf("team %q", board.Teams[g.FromTeamID])
 }
 
-// inboxState says where a task of the inbox stands.
-func inboxState(g core.Goal) string {
+// inboxState says where a task of the inbox stands, and how long its lead
+// has left to decide on it.
+func inboxState(g core.Goal, clock decisionClock) string {
+	if g.MissedAt > 0 {
+		return " — missed — waiting for the user"
+	}
 	if g.NeedsUser {
 		return " — the leads couldn't settle it; only the user decides now"
 	}
@@ -591,9 +597,30 @@ func inboxState(g core.Goal) string {
 		return fmt.Sprintf(" — deferred: %s; it comes back when due", g.IntakeNote)
 	}
 	if g.AskedAt > 0 {
-		return fmt.Sprintf(" — you asked (%d of %d): %s; wait for the answer", g.AskRounds, core.MaxAskRounds, g.IntakeNote)
+		return fmt.Sprintf(" — you asked (%d of %d): %s; wait for the answer; clock paused: waiting for the sender's answer", g.AskRounds, core.MaxAskRounds, g.IntakeNote)
 	}
-	return ""
+	return clock.state(g)
+}
+
+// decisionClock is what the lead's board knows of the inbox's decision time.
+type decisionClock struct {
+	now     time.Time     // in the user's time zone
+	limit   time.Duration // the team's decision time
+	stopped bool          // the user stopped the team's Now task, so the clock stands
+}
+
+// state says by when the lead must decide on task g: the time left of the
+// decision time, counted from now. The clock stands while the lead runs a
+// turn, so the time is when it runs out if the lead does nothing after it.
+func (c decisionClock) state(g core.Goal) string {
+	if c.stopped {
+		return " — clock paused: the user stopped the team's task"
+	}
+	by := c.now.Add(max(c.limit-time.Duration(g.DecisionMs)*time.Millisecond, 0))
+	if by.Format(time.DateOnly) != c.now.Format(time.DateOnly) {
+		return " — decide by " + by.Format("Mon 15:04")
+	}
+	return " — decide by " + by.Format("15:04")
 }
 
 func noteOf(g core.Goal) string {

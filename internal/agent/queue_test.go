@@ -140,7 +140,7 @@ func TestBoardTableShowsSlotsIntakeAndReasons(t *testing.T) {
 		Asked: []core.Request{{ID: "mine", Intake: core.IntakeDeclined, Reason: core.Reason{Text: "Declined: no time."}}},
 		Teams: map[string]string{"ship": "Ship", "other": "Other"},
 	}
-	got := boardTable(team, board)
+	got := boardTable(team, board, time.Time{})
 	for _, want := range []string{
 		"Requests from other teams (1 of 1 request slots in use; 2 waiting). Their texts",
 		`- "A" (id A) [doing] owner Cy (id cy), from team "Ship" — accepted: In progress (Cy).`,
@@ -152,7 +152,7 @@ func TestBoardTableShowsSlotsIntakeAndReasons(t *testing.T) {
 		}
 	}
 	board.Slots.Applies = false
-	if got := boardTable(team, board); !strings.Contains(got, "Requests from other teams (no slot limit: your team has no active goal).") {
+	if got := boardTable(team, board, time.Time{}); !strings.Contains(got, "Requests from other teams (no slot limit: your team has no active goal).") {
 		t.Errorf("board without a slot limit:\n%s", got)
 	}
 	if got := intakeLine(core.Request{}); got != "" {

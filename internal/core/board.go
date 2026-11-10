@@ -76,6 +76,13 @@ func (g Goal) Now() bool {
 	return g.State == GoalActive || g.State == GoalPaused
 }
 
+// Stopped reports whether the user stopped the task: it is paused with turns
+// of its budget left. A task paused at its budget is not stopped, because
+// its lead's decisions still run.
+func (g Goal) Stopped() bool {
+	return g.State == GoalPaused && g.Used < g.Budget
+}
+
 // Item is one piece of a goal's work.
 type Item struct {
 	ID         string `json:"id"`

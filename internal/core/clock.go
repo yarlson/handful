@@ -60,15 +60,13 @@ func (s *Service) runDecisionClocks(ctx context.Context, state LeadState) error 
 	return nil
 }
 
-// teamStopped reports whether the user stopped a team: its Now task is
-// paused with turns of its budget left. A team paused at its budget is not
-// stopped, because its lead's decisions still run.
+// teamStopped reports whether the user stopped a team's Now task.
 func (s *Service) teamStopped(ctx context.Context, teamID string) (bool, error) {
 	g, ok, err := s.latestGoal(ctx, teamID)
 	if err != nil || !ok {
 		return false, err
 	}
-	return g.State == GoalPaused && g.Used < g.Budget, nil
+	return g.Stopped(), nil
 }
 
 // maxDecisionStep is the most time one settle tick counts against a decision.

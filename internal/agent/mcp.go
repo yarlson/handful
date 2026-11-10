@@ -885,7 +885,7 @@ func (t tools) boardList(ctx context.Context, a core.Actor, _ boardInput) (strin
 	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 && len(board.Incoming) == 0 && len(board.HandedOver) == 0 {
 		return "The team has had no goal yet, and no request.", nil
 	}
-	return boardTable(team, board), nil
+	return boardTable(team, board, time.Now().In(t.svc.Location())), nil
 }
 
 func (t tools) boardStartGoal(ctx context.Context, a core.Actor, in boardInput) (string, error) {

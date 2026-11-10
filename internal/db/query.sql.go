@@ -2060,10 +2060,13 @@ func (q *Queries) ListConversationAfterSeq(ctx context.Context, arg ListConversa
 }
 
 const listDeliveredUserGoals = `-- name: ListDeliveredUserGoals :many
-SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id, decision_ms, decision_tick, missed_at FROM goals WHERE state = 'delivered' AND origin = 'user' ORDER BY created_at, rowid
+SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id, decision_ms, decision_tick, missed_at FROM goals WHERE state = 'delivered' AND (origin = 'user' OR (origin = 'handoff' AND from_bot_id = ''))
+ORDER BY created_at, rowid
 `
 
-// The user's own tasks that are done and wait for the user's approval.
+// The tasks that are done and wait for the user's approval: the user's own,
+// and those the user handed over, which have no sending lead
+// (Goal.userApproves holds the same rule).
 func (q *Queries) ListDeliveredUserGoals(ctx context.Context) ([]Goal, error) {
 	rows, err := q.db.QueryContext(ctx, listDeliveredUserGoals)
 	if err != nil {
@@ -3833,7 +3836,8 @@ func (q *Queries) SetGoalBudget(ctx context.Context, arg SetGoalBudgetParams) er
 }
 
 const setGoalLater = `-- name: SetGoalLater :execrows
-UPDATE goals SET state = 'later', later_until = ?1, intake_note = ?2, asked_at = 0
+UPDATE goals SET state = 'later', later_until = ?1, intake_note = ?2, asked_at = 0,
+  decision_ms = 0, decision_tick = 0, missed_at = 0
 WHERE id = ?3 AND state = 'incoming'
 `
 

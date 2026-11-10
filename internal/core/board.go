@@ -1491,7 +1491,7 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 // so the user is not asked.
 func deliveryBody(g Goal, lead Member, summary string) map[string]any {
 	body := map[string]any{"text": summary, "fallback": false, "needsReply": false, "speakerId": lead.ID, "speakerName": lead.Name, "goalId": g.ID}
-	if g.Origin == OriginUser {
+	if g.userApproves() {
 		body["needsReply"], body["questionState"] = true, QuestionOpen
 	}
 	return body

@@ -464,7 +464,8 @@ func (s *Service) closeAnswered(ctx context.Context, q *db.Queries, a answered, 
 
 // closeTaskQuestions closes the open questions about a team's task: its
 // delivery, once the user accepted it, ended it or asked for changes, and
-// a question to the user about it, once someone decided on it.
+// a question to the user about it, once someone decided on it or it left
+// the team's inbox (passed on, deferred or withdrawn).
 func (s *Service) closeTaskQuestions(ctx context.Context, teamID, goalID string) error {
 	var changed []Entry
 	err := s.inTx(ctx, func(q *db.Queries) error {

@@ -71,15 +71,21 @@ func (s *Service) teamStopped(ctx context.Context, teamID string) (bool, error) 
 	return g.State == GoalPaused && g.Used < g.Budget, nil
 }
 
+// maxDecisionStep is the most time one settle tick counts against a decision.
+// The runner settles about every 20 s; a longer gap means the server did not
+// run (the Mac slept, or the server was stopped), and the lead could not
+// act then.
+const maxDecisionStep = time.Minute
+
 // tickDecision counts the time since the last tick against task row when its
-// lead could act, and starts or stops its clock. When the decision time is
+// lead could act, at most maxDecisionStep, and starts or stops its clock. When the decision time is
 // up while the lead could act, the task goes to the user.
 func (s *Service) tickDecision(ctx context.Context, team Bot, lead Member, row db.Goal, canAct bool) error {
 	now := s.nowMs()
 	spent, tick := row.DecisionMs, int64(0)
 	if canAct {
 		if row.DecisionTick > 0 {
-			spent += now - row.DecisionTick
+			spent += min(now-row.DecisionTick, maxDecisionStep.Milliseconds())
 		}
 		tick = now
 	}

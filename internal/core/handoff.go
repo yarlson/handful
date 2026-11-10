@@ -960,6 +960,9 @@ func (s *Service) WithdrawTask(ctx context.Context, a Actor, goalID string) (Goa
 	}
 	g.State, g.QueuePos = GoalEnded, 0
 	s.hub.Publish(Event{Type: "bots"})
+	if err := s.closeTaskQuestions(ctx, team.ID, g.ID); err != nil {
+		return Goal{}, err
+	}
 	who := actorName(from, a)
 	return g, s.postNotes(ctx, []noteTo{
 		{team.ID, fmt.Sprintf("Withdrawn by %s: the task %q.", who, g.Text)},

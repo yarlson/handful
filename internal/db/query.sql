@@ -327,7 +327,8 @@ SELECT * FROM goals WHERE team_id = ? AND state IN ('incoming', 'later') ORDER B
 SELECT * FROM goals WHERE team_id = ? AND state = 'delivered' ORDER BY created_at, rowid;
 
 -- name: SetGoalLater :execrows
-UPDATE goals SET state = 'later', later_until = sqlc.arg(later_until), intake_note = sqlc.arg(intake_note), asked_at = 0
+UPDATE goals SET state = 'later', later_until = sqlc.arg(later_until), intake_note = sqlc.arg(intake_note), asked_at = 0,
+  decision_ms = 0, decision_tick = 0, missed_at = 0
 WHERE id = sqlc.arg(id) AND state = 'incoming';
 
 -- name: ListDueLaterGoals :many
@@ -364,8 +365,11 @@ SELECT * FROM goals WHERE state = 'incoming' AND (missed_at > 0 OR ask_rounds > 
 ORDER BY created_at, rowid;
 
 -- name: ListDeliveredUserGoals :many
--- The user's own tasks that are done and wait for the user's approval.
-SELECT * FROM goals WHERE state = 'delivered' AND origin = 'user' ORDER BY created_at, rowid;
+-- The tasks that are done and wait for the user's approval: the user's own,
+-- and those the user handed over, which have no sending lead
+-- (Goal.userApproves holds the same rule).
+SELECT * FROM goals WHERE state = 'delivered' AND (origin = 'user' OR (origin = 'handoff' AND from_bot_id = ''))
+ORDER BY created_at, rowid;
 
 -- name: SetGoalPinned :execrows
 UPDATE goals SET pinned = ? WHERE id = ? AND state = 'queued';

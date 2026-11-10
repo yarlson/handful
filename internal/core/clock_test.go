@@ -325,3 +325,81 @@ func TestNeedsYouListsOnlyWhatTheUserDecides(t *testing.T) {
 	}
 	c.wantNeeds(t, "after the decisions", "question Which format?")
 }
+
+func TestTimeTheServerDidNotRunDoesNotCountAgainstADecision(t *testing.T) {
+	c := newClockFixture(t)
+	idle := LeadState{}
+	g := c.handOver(t, c.lead, c.team, c.docs, "Guide.")
+	finishQueued(t, c.svc)
+	c.tick(t, 0, idle)
+	c.tick(t, 8*time.Hour, idle) // the Mac slept all night
+	if got := c.goalNow(t, g.ID); got.NeedsUser || got.DecisionMs != maxDecisionStep.Milliseconds() {
+		t.Fatalf("task after an 8-hour gap = %+v; want one step counted, still the lead's", got)
+	}
+	c.wantNeeds(t, "after the gap")
+	c.tick(t, 20*time.Second, idle) // a normal tick counts in full
+	if got := c.goalNow(t, g.ID).DecisionMs; got != (maxDecisionStep + 20*time.Second).Milliseconds() {
+		t.Fatalf("counted after a normal tick = %d; want one step and 20 s", got)
+	}
+}
+
+func TestATaskTheUserHandedOverAsksTheUserToApproveIt(t *testing.T) {
+	c := newClockFixture(t)
+	ctx := context.Background()
+	g, err := c.svc.HandOver(ctx, Actor{Role: RoleUser}, "", c.docs.ID, NewHandoff{Text: "From the user."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.svc.TakeTask(ctx, c.docsLead, g.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.svc.CreateItem(ctx, c.docsLead, item("Write", c.eve.ID, "")); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, c.svc)
+	if _, err := c.svc.sqlDB.ExecContext(ctx, `UPDATE items SET state = 'done'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.svc.DeliverGoal(ctx, c.docsLead, "Done."); err != nil {
+		t.Fatal(err)
+	}
+	if e := lastEntry(t, c.svc, c.docs.ID); !strings.Contains(string(e.Body), `"needsReply":true`) {
+		t.Fatalf("Docs's delivery = %s; want a question to the user", e.Body)
+	}
+	c.wantNeeds(t, "after the delivery", "approve From the user.")
+}
+
+func TestAMissedTaskThatLeavesTheInboxClosesItsQuestion(t *testing.T) {
+	ctx := context.Background()
+	idle := LeadState{}
+	for name, leave := range map[string]func(c *clockFixture, g Goal) error{
+		"passed on": func(c *clockFixture, g Goal) error {
+			_, err := c.svc.PassOn(ctx, c.docsLead, g.ID, c.dev.ID, "Dev's.")
+			return err
+		},
+		"deferred": func(c *clockFixture, g Goal) error {
+			_, err := c.svc.LaterTask(ctx, c.docsLead, g.ID, "Tomorrow.", c.clock.Add(24*time.Hour).UnixMilli())
+			return err
+		},
+		"withdrawn": func(c *clockFixture, g Goal) error {
+			_, err := c.svc.WithdrawTask(ctx, c.lead, g.ID)
+			return err
+		},
+	} {
+		c := newClockFixture(t)
+		g := c.handOver(t, c.lead, c.team, c.docs, "Guide.")
+		finishQueued(t, c.svc)
+		c.tick(t, 0, idle)
+		c.ticks(t, 30*time.Minute, idle)
+		if !c.goalNow(t, g.ID).NeedsUser {
+			t.Fatalf("%s: the task wasn't missed", name)
+		}
+		if err := leave(c, g); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if open, _ := c.svc.OpenQuestions(ctx, c.docs.ID); len(open) != 0 {
+			t.Fatalf("%s: open questions in Docs = %+v; want the missed one closed", name, open)
+		}
+		c.wantNeeds(t, "after it was "+name)
+	}
+}

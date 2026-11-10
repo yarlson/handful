@@ -478,8 +478,8 @@ func TestChangesAndWithdrawGoToATaskOrAStep(t *testing.T) {
 	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "changes", "item_id": "no-such-step", "text": "x"}); !isErr || !strings.Contains(got, "not found") {
 		t.Fatalf("changes to a step = %q (error %v); want the step path's not-found error", got, isErr)
 	}
-	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "withdraw", "item_id": "no-such-request"}); !isErr || !strings.Contains(got, "not found") {
-		t.Fatalf("withdraw of a request = %q (error %v); want the request path's not-found error", got, isErr)
+	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "withdraw", "item_id": "no-such-request"}); !isErr || !strings.Contains(got, "Requests are tasks now") {
+		t.Fatalf("withdraw of a request = %q (error %v); want the request path's error", got, isErr)
 	}
 }
 

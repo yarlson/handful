@@ -35,10 +35,8 @@ func TestTheHandoffMigrationKeepsTheBoardAsItWas(t *testing.T) {
 	}
 	old.Close()
 
-	conn, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	// Migration 019 turns the open requests into tasks.
+	conn := migrateAt(t, path, 18)
 	defer conn.Close()
 	q := New(conn)
 	for id, want := range map[string]Goal{

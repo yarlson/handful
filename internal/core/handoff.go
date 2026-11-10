@@ -256,7 +256,7 @@ func userTaskNote(g Goal) string {
 // placeTop inserts the user's task t for team with q: active when the team
 // has no Now task, else first in its plan.
 func (s *Service) placeTop(ctx context.Context, q *db.Queries, team Bot, t NewTask) (Goal, error) {
-	_, open, err := openGoalWith(ctx, q, team.ID)
+	open, err := openGoalWith(ctx, q, team.ID)
 	if err != nil {
 		return Goal{}, err
 	}
@@ -614,7 +614,7 @@ func takenText(g Goal, started bool) string {
 // the team has no Now task and nothing planned. It returns the task as it is
 // now and whether it started.
 func (s *Service) take(ctx context.Context, q *db.Queries, a Actor, team Bot, g Goal, position int64) (Goal, bool, error) {
-	_, open, err := openGoalWith(ctx, q, team.ID)
+	open, err := openGoalWith(ctx, q, team.ID)
 	if err != nil {
 		return Goal{}, false, err
 	}
@@ -1128,47 +1128,4 @@ func (s *Service) incomingCounts(ctx context.Context) (map[string]int64, error) 
 		out[r.TeamID] = r.N
 	}
 	return out, nil
-}
-
-// errNeededBy is what a request without the items that wait on it gets.
-const errNeededBy = "A request is for a part your goal's items wait on; name them in needed_by. For other work for that team, use hand_over."
-
-// neededBy returns the items of the asking goal that wait on a new request:
-// ids must name todo or blocked items of it. A chained request (forItem is
-// the request that the team serves) needs none: the served request, which is
-// in progress, waits on it.
-func neededBy(ids []string, items []Item, forItem string) ([]Item, error) {
-	if forItem != "" && len(ids) == 0 {
-		return nil, nil
-	}
-	if len(ids) == 0 {
-		return nil, invalid(errNeededBy)
-	}
-	var waiting []Item
-	for _, id := range slices.Compact(slices.Sorted(slices.Values(ids))) {
-		i := slices.IndexFunc(items, func(it Item) bool { return it.ID == id })
-		if i < 0 || (items[i].State != ItemTodo && items[i].State != ItemBlocked) {
-			return nil, invalid("%s (%s is not a todo or blocked item of your goal)", errNeededBy, id)
-		}
-		waiting = append(waiting, items[i])
-	}
-	return waiting, nil
-}
-
-// waitOn makes items depend on request reqID with q. Their queued work waits
-// for it.
-func (s *Service) waitOn(ctx context.Context, q *db.Queries, items []Item, reqID string) error {
-	for _, it := range items {
-		deps, err := json.Marshal(slices.Sorted(slices.Values(append(slices.Clone(it.DependsOn), reqID))))
-		if err != nil {
-			return fmt.Errorf("encode the dependencies of item %s: %w", it.ID, err)
-		}
-		if err := q.SetItemDependsOn(ctx, db.SetItemDependsOnParams{DependsOn: string(deps), ID: it.ID}); err != nil {
-			return fmt.Errorf("make item %s wait on %s: %w", it.ID, reqID, err)
-		}
-		if err := q.CancelQueuedItemTurns(ctx, db.CancelQueuedItemTurnsParams{FinishedAt: sql.NullInt64{Int64: s.nowMs(), Valid: true}, ItemID: it.ID}); err != nil {
-			return fmt.Errorf("cancel the turns of item %s: %w", it.ID, err)
-		}
-	}
-	return nil
 }

@@ -132,66 +132,38 @@ func TestCloseStartsTheNextGoalAndAcceptComesLater(t *testing.T) {
 	}
 }
 
-func TestRequestEndpointsWithdrawUndeferAndSetSlots(t *testing.T) {
+// The request endpoints are gone: requests are tasks now. Team settings
+// still take requestSlots, which no longer limits anything, until the UI
+// stops sending it.
+func TestRequestEndpointsAreGoneAndRequestSlotsAreStillAccepted(t *testing.T) {
 	h, svc := newTestHandler(t)
 	ctx := context.Background()
 	var bots []core.Bot
-	for _, name := range []string{"Ana", "Dee", "Eve"} {
+	for _, name := range []string{"Dee", "Eve"} {
 		b, err := svc.CreateBot(ctx, name, "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		bots = append(bots, b)
 	}
-	ship, err := svc.CreateTeam(ctx, "Ship", "", []string{bots[0].ID}, core.TeamSettings{})
+	docs, err := svc.CreateTeam(ctx, "Docs", "", []string{bots[0].ID, bots[1].ID}, core.TeamSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	docs, err := svc.CreateTeam(ctx, "Docs", "", []string{bots[1].ID, bots[2].ID}, core.TeamSettings{})
+	_, err = svc.StartGoal(ctx, docs.ID, "Write docs.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.StartGoal(ctx, ship.ID, "Ship it."); err != nil {
-		t.Fatal(err)
-	}
-	shipLead := core.Actor{BotID: bots[0].ID, TeamID: ship.ID, Role: core.RoleLead}
-	docsLead := core.Actor{BotID: bots[1].ID, TeamID: docs.ID, Role: core.RoleLead}
-	waits, err := svc.CreateItem(ctx, shipLead, core.NewItem{Title: "Publish", Brief: "Publish the docs.", Acceptance: "Published."})
+	it, err := svc.CreateItem(ctx, core.Actor{BotID: bots[0].ID, TeamID: docs.ID, Role: core.RoleLead}, core.NewItem{Title: "Guide", Brief: "Write it.", Acceptance: "Written."})
 	if err != nil {
 		t.Fatal(err)
 	}
-	guide, err := svc.RequestWork(ctx, shipLead, docs.ID, core.NewItem{Title: "Guide", Brief: "Write it.", Acceptance: "Written.", NeededBy: []string{waits.ID}})
-	if err != nil {
-		t.Fatal(err)
+	for _, action := range []string{"withdraw", "undefer"} {
+		if rec := do(h, "POST", "/api/items/"+it.ID+"/"+action, ``, jsonHeader); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("POST /api/items/{id}/%s: %d %s; want no such endpoint", action, rec.Code, rec.Body)
+		}
 	}
-	faq, err := svc.RequestWork(ctx, shipLead, docs.ID, core.NewItem{Title: "FAQ", Brief: "Write it.", Acceptance: "Written.", NeededBy: []string{waits.ID}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.DeferItem(ctx, docsLead, guide.ID, "Later.", core.RevisitManual, 0); err != nil {
-		t.Fatal(err)
-	}
-	rec := do(h, "POST", "/api/items/"+guide.ID+"/undefer", ``, jsonHeader)
-	var it core.Item
-	if err := json.Unmarshal(rec.Body.Bytes(), &it); rec.Code != http.StatusOK || err != nil || it.Intake != core.IntakeRequested {
-		t.Fatalf("undefer: %d %s", rec.Code, rec.Body)
-	}
-	if rec := do(h, "POST", "/api/items/"+guide.ID+"/undefer", ``, jsonHeader); rec.Code != http.StatusBadRequest {
-		t.Fatalf("undefer twice: %d %s; want 400", rec.Code, rec.Body)
-	}
-	rec = do(h, "POST", "/api/items/"+faq.ID+"/withdraw", ``, jsonHeader)
-	if err := json.Unmarshal(rec.Body.Bytes(), &it); rec.Code != http.StatusOK || err != nil || it.Intake != core.IntakeWithdrawn {
-		t.Fatalf("withdraw: %d %s", rec.Code, rec.Body)
-	}
-	if rec := do(h, "POST", "/api/items/missing/withdraw", ``, jsonHeader); rec.Code != http.StatusNotFound {
-		t.Fatalf("withdraw a missing item: %d; want 404", rec.Code)
-	}
-	rec = do(h, "GET", "/api/teams/"+docs.ID+"/board", "", nil)
-	var board core.Board
-	if err := json.Unmarshal(rec.Body.Bytes(), &board); err != nil || len(board.Requests) != 2 || board.Requests[0].Reason.Code != core.ReasonTriage || board.Requests[1].Reason.Code != core.ReasonWithdrawn {
-		t.Fatalf("Docs's board: %s; want Guide in triage and FAQ withdrawn", rec.Body)
-	}
-	rec = do(h, "PATCH", "/api/teams/"+docs.ID, `{"requestSlots":2}`, jsonHeader)
+	rec := do(h, "PATCH", "/api/teams/"+docs.ID, `{"requestSlots":2}`, jsonHeader)
 	var team struct{ Team core.Team }
 	if err := json.Unmarshal(rec.Body.Bytes(), &team); rec.Code != http.StatusOK || err != nil || team.Team.RequestSlots != 2 {
 		t.Fatalf("set request slots: %d %s", rec.Code, rec.Body)

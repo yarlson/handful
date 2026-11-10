@@ -39,6 +39,21 @@ func openAt(t *testing.T, path string, n int) *sql.DB {
 	return conn
 }
 
+// migrateAt applies the migrations above an old database's version up to
+// last, so that a test of migration last sees its result before later ones.
+func migrateAt(t *testing.T, path string, last int) *sql.DB {
+	t.Helper()
+	conn, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateTo(t.Context(), conn, last); err != nil {
+		conn.Close()
+		t.Fatalf("migrate to %d: %v", last, err)
+	}
+	return conn
+}
+
 // A database from before the goal queue keeps every goal and item; the
 // requests get their intake from their state, the open accepted ones keep
 // working in a slot, and a team still has at most one open goal.
@@ -69,10 +84,8 @@ func TestTheGoalQueueMigrationKeepsTheBoardAndBackfillsTheIntake(t *testing.T) {
 	}
 	old.Close()
 
-	conn, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	// Migration 019 turns the open requests into tasks.
+	conn := migrateAt(t, path, 18)
 	defer conn.Close()
 	q := New(conn)
 	goals := map[string]string{"g1": "active", "g2": "done", "g3": "ended", "g4": "paused"}

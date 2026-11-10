@@ -1311,12 +1311,12 @@ func (q *Queries) InsertInboxMessage(ctx context.Context, arg InsertInboxMessage
 }
 
 const insertItem = `-- name: InsertItem :one
-INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, intake, for_item_id, position, created_at, updated_at)
+INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, created_by, position, created_at, updated_at)
 VALUES (
   ?1, ?2, ?3, ?4, ?5, ?6, 'todo',
-  ?7, ?8, ?9, ?10, ?11, ?12,
+  ?7, ?8, ?9, ?10,
   (SELECT COALESCE(MAX(i.position), 0) + 1 FROM items i WHERE i.goal_id = ?3),
-  ?13, ?14
+  ?11, ?12
 )
 RETURNING id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at, intake, intake_note, defer_revisit, defer_until, slot_at, jumped_at, for_item_id
 `
@@ -1332,8 +1332,6 @@ type InsertItemParams struct {
 	ReviewerID string `json:"reviewer_id"`
 	DependsOn  string `json:"depends_on"`
 	CreatedBy  string `json:"created_by"`
-	Intake     string `json:"intake"`
-	ForItemID  string `json:"for_item_id"`
 	CreatedAt  int64  `json:"created_at"`
 	UpdatedAt  int64  `json:"updated_at"`
 }
@@ -1350,8 +1348,6 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (Item, e
 		arg.ReviewerID,
 		arg.DependsOn,
 		arg.CreatedBy,
-		arg.Intake,
-		arg.ForItemID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -1833,59 +1829,6 @@ func (q *Queries) ListBotsWithPendingApprovals(ctx context.Context) ([]string, e
 	return items, nil
 }
 
-const listChainedItems = `-- name: ListChainedItems :many
-SELECT id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, result, note, blocked_from, review_rounds, created_by, position, created_at, updated_at, intake, intake_note, defer_revisit, defer_until, slot_at, jumped_at, for_item_id FROM items WHERE for_item_id = ? ORDER BY created_at, rowid
-`
-
-func (q *Queries) ListChainedItems(ctx context.Context, forItemID string) ([]Item, error) {
-	rows, err := q.db.QueryContext(ctx, listChainedItems, forItemID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Item
-	for rows.Next() {
-		var i Item
-		if err := rows.Scan(
-			&i.ID,
-			&i.TeamID,
-			&i.GoalID,
-			&i.Title,
-			&i.Brief,
-			&i.Acceptance,
-			&i.State,
-			&i.OwnerID,
-			&i.ReviewerID,
-			&i.DependsOn,
-			&i.Result,
-			&i.Note,
-			&i.BlockedFrom,
-			&i.ReviewRounds,
-			&i.CreatedBy,
-			&i.Position,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Intake,
-			&i.IntakeNote,
-			&i.DeferRevisit,
-			&i.DeferUntil,
-			&i.SlotAt,
-			&i.JumpedAt,
-			&i.ForItemID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listClockedGoals = `-- name: ListClockedGoals :many
 SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id, decision_ms, decision_tick, missed_at FROM goals WHERE state = 'incoming' AND asked_at = 0 AND missed_at = 0
 ORDER BY team_id, created_at, rowid
@@ -2016,77 +1959,6 @@ func (q *Queries) ListClosedQuestionsSince(ctx context.Context, since int64) ([]
 			&i.TurnID,
 			&i.Body,
 			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listClosedTeamRequests = `-- name: ListClosedTeamRequests :many
-SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id, g.team_id AS from_team_id, g.state AS goal_state FROM items i JOIN goals g ON g.id = i.goal_id
-WHERE i.team_id = ?1 AND g.team_id <> ?1 AND i.intake IN ('declined', 'withdrawn')
-  AND i.updated_at >= ?2 AND g.state NOT IN ('active', 'delivered', 'paused')
-ORDER BY i.created_at, i.rowid
-`
-
-type ListClosedTeamRequestsParams struct {
-	TeamID string `json:"team_id"`
-	Since  int64  `json:"since"`
-}
-
-type ListClosedTeamRequestsRow struct {
-	Item       Item   `json:"item"`
-	FromTeamID string `json:"from_team_id"`
-	GoalState  string `json:"goal_state"`
-}
-
-// The requests to a team that were declined or withdrawn since a time, also
-// of goals that are over.
-func (q *Queries) ListClosedTeamRequests(ctx context.Context, arg ListClosedTeamRequestsParams) ([]ListClosedTeamRequestsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listClosedTeamRequests, arg.TeamID, arg.Since)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListClosedTeamRequestsRow
-	for rows.Next() {
-		var i ListClosedTeamRequestsRow
-		if err := rows.Scan(
-			&i.Item.ID,
-			&i.Item.TeamID,
-			&i.Item.GoalID,
-			&i.Item.Title,
-			&i.Item.Brief,
-			&i.Item.Acceptance,
-			&i.Item.State,
-			&i.Item.OwnerID,
-			&i.Item.ReviewerID,
-			&i.Item.DependsOn,
-			&i.Item.Result,
-			&i.Item.Note,
-			&i.Item.BlockedFrom,
-			&i.Item.ReviewRounds,
-			&i.Item.CreatedBy,
-			&i.Item.Position,
-			&i.Item.CreatedAt,
-			&i.Item.UpdatedAt,
-			&i.Item.Intake,
-			&i.Item.IntakeNote,
-			&i.Item.DeferRevisit,
-			&i.Item.DeferUntil,
-			&i.Item.SlotAt,
-			&i.Item.JumpedAt,
-			&i.Item.ForItemID,
-			&i.FromTeamID,
-			&i.GoalState,
 		); err != nil {
 			return nil, err
 		}
@@ -2257,62 +2129,6 @@ func (q *Queries) ListDoneGoals(ctx context.Context, teamID string) ([]Goal, err
 	return items, nil
 }
 
-const listDueDeferrals = `-- name: ListDueDeferrals :many
-SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id FROM items i JOIN goals g ON g.id = i.goal_id
-WHERE i.intake = 'deferred' AND i.defer_revisit = 'date' AND i.defer_until <= ?1
-  AND g.state IN ('active', 'delivered', 'paused')
-ORDER BY i.created_at, i.rowid
-`
-
-func (q *Queries) ListDueDeferrals(ctx context.Context, now int64) ([]Item, error) {
-	rows, err := q.db.QueryContext(ctx, listDueDeferrals, now)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Item
-	for rows.Next() {
-		var i Item
-		if err := rows.Scan(
-			&i.ID,
-			&i.TeamID,
-			&i.GoalID,
-			&i.Title,
-			&i.Brief,
-			&i.Acceptance,
-			&i.State,
-			&i.OwnerID,
-			&i.ReviewerID,
-			&i.DependsOn,
-			&i.Result,
-			&i.Note,
-			&i.BlockedFrom,
-			&i.ReviewRounds,
-			&i.CreatedBy,
-			&i.Position,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Intake,
-			&i.IntakeNote,
-			&i.DeferRevisit,
-			&i.DeferUntil,
-			&i.SlotAt,
-			&i.JumpedAt,
-			&i.ForItemID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listDueLaterGoals = `-- name: ListDueLaterGoals :many
 SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id, decision_ms, decision_tick, missed_at FROM goals WHERE state = 'later' AND later_until <= ?1 ORDER BY later_until, rowid
 `
@@ -2436,62 +2252,6 @@ func (q *Queries) ListEntriesAfterRev(ctx context.Context, arg ListEntriesAfterR
 			&i.TurnID,
 			&i.Body,
 			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listGoalEndDeferrals = `-- name: ListGoalEndDeferrals :many
-SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id FROM items i JOIN goals g ON g.id = i.goal_id
-WHERE i.team_id = ?1 AND g.team_id <> ?1 AND i.intake = 'deferred'
-  AND i.defer_revisit = 'goal_end' AND g.state IN ('active', 'delivered', 'paused')
-ORDER BY i.created_at, i.rowid
-`
-
-func (q *Queries) ListGoalEndDeferrals(ctx context.Context, teamID string) ([]Item, error) {
-	rows, err := q.db.QueryContext(ctx, listGoalEndDeferrals, teamID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Item
-	for rows.Next() {
-		var i Item
-		if err := rows.Scan(
-			&i.ID,
-			&i.TeamID,
-			&i.GoalID,
-			&i.Title,
-			&i.Brief,
-			&i.Acceptance,
-			&i.State,
-			&i.OwnerID,
-			&i.ReviewerID,
-			&i.DependsOn,
-			&i.Result,
-			&i.Note,
-			&i.BlockedFrom,
-			&i.ReviewRounds,
-			&i.CreatedBy,
-			&i.Position,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Intake,
-			&i.IntakeNote,
-			&i.DeferRevisit,
-			&i.DeferUntil,
-			&i.SlotAt,
-			&i.JumpedAt,
-			&i.ForItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -3557,70 +3317,6 @@ func (q *Queries) ListTagsForArtifacts(ctx context.Context, ids []string) ([]Art
 	return items, nil
 }
 
-const listTeamRequests = `-- name: ListTeamRequests :many
-SELECT i.id, i.team_id, i.goal_id, i.title, i.brief, i.acceptance, i.state, i.owner_id, i.reviewer_id, i.depends_on, i.result, i.note, i.blocked_from, i.review_rounds, i.created_by, i.position, i.created_at, i.updated_at, i.intake, i.intake_note, i.defer_revisit, i.defer_until, i.slot_at, i.jumped_at, i.for_item_id, g.team_id AS from_team_id, g.state AS goal_state FROM items i JOIN goals g ON g.id = i.goal_id
-WHERE i.team_id = ?1 AND g.team_id <> ?1 AND g.state IN ('active', 'delivered', 'paused')
-ORDER BY i.created_at, i.rowid
-`
-
-type ListTeamRequestsRow struct {
-	Item       Item   `json:"item"`
-	FromTeamID string `json:"from_team_id"`
-	GoalState  string `json:"goal_state"`
-}
-
-// The requests of other teams' open goals to a team, in arrival order.
-func (q *Queries) ListTeamRequests(ctx context.Context, teamID string) ([]ListTeamRequestsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listTeamRequests, teamID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListTeamRequestsRow
-	for rows.Next() {
-		var i ListTeamRequestsRow
-		if err := rows.Scan(
-			&i.Item.ID,
-			&i.Item.TeamID,
-			&i.Item.GoalID,
-			&i.Item.Title,
-			&i.Item.Brief,
-			&i.Item.Acceptance,
-			&i.Item.State,
-			&i.Item.OwnerID,
-			&i.Item.ReviewerID,
-			&i.Item.DependsOn,
-			&i.Item.Result,
-			&i.Item.Note,
-			&i.Item.BlockedFrom,
-			&i.Item.ReviewRounds,
-			&i.Item.CreatedBy,
-			&i.Item.Position,
-			&i.Item.CreatedAt,
-			&i.Item.UpdatedAt,
-			&i.Item.Intake,
-			&i.Item.IntakeNote,
-			&i.Item.DeferRevisit,
-			&i.Item.DeferUntil,
-			&i.Item.SlotAt,
-			&i.Item.JumpedAt,
-			&i.Item.ForItemID,
-			&i.FromTeamID,
-			&i.GoalState,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listTeams = `-- name: ListTeams :many
 SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams
 `
@@ -3922,15 +3618,6 @@ func (q *Queries) QueueUserPostTurn(ctx context.Context, arg QueueUserPostTurnPa
 	return result.RowsAffected()
 }
 
-const releaseGoalSlots = `-- name: ReleaseGoalSlots :exec
-UPDATE items SET slot_at = 0 WHERE goal_id = ? AND slot_at > 0
-`
-
-func (q *Queries) ReleaseGoalSlots(ctx context.Context, goalID string) error {
-	_, err := q.db.ExecContext(ctx, releaseGoalSlots, goalID)
-	return err
-}
-
 const removeRoomMember = `-- name: RemoveRoomMember :exec
 DELETE FROM room_members WHERE room_id = ? AND bot_id = ?
 `
@@ -4159,34 +3846,6 @@ func (q *Queries) SetGoalState(ctx context.Context, arg SetGoalStateParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const setItemDependsOn = `-- name: SetItemDependsOn :exec
-UPDATE items SET depends_on = ? WHERE id = ?
-`
-
-type SetItemDependsOnParams struct {
-	DependsOn string `json:"depends_on"`
-	ID        string `json:"id"`
-}
-
-func (q *Queries) SetItemDependsOn(ctx context.Context, arg SetItemDependsOnParams) error {
-	_, err := q.db.ExecContext(ctx, setItemDependsOn, arg.DependsOn, arg.ID)
-	return err
-}
-
-const setItemSlot = `-- name: SetItemSlot :exec
-UPDATE items SET slot_at = ? WHERE id = ?
-`
-
-type SetItemSlotParams struct {
-	SlotAt int64  `json:"slot_at"`
-	ID     string `json:"id"`
-}
-
-func (q *Queries) SetItemSlot(ctx context.Context, arg SetItemSlotParams) error {
-	_, err := q.db.ExecContext(ctx, setItemSlot, arg.SlotAt, arg.ID)
-	return err
 }
 
 const setQueuePos = `-- name: SetQueuePos :exec

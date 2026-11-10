@@ -23,17 +23,17 @@ func conflict(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrConflict, fmt.Sprintf(format, args...))
 }
 
-// openGoalWith returns the latest goal of a team with q, and whether it is
-// the team's Now task (active or paused).
-func openGoalWith(ctx context.Context, q *db.Queries, teamID string) (db.Goal, bool, error) {
+// openGoalWith reports with q whether the latest goal of a team is its Now
+// task (active or paused).
+func openGoalWith(ctx context.Context, q *db.Queries, teamID string) (bool, error) {
 	row, err := q.GetLatestGoal(ctx, teamID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return db.Goal{}, false, nil
+		return false, nil
 	}
 	if err != nil {
-		return db.Goal{}, false, fmt.Errorf("get the goal of team %s: %w", teamID, err)
+		return false, fmt.Errorf("get the goal of team %s: %w", teamID, err)
 	}
-	return row, toGoal(row, 0).Now(), nil
+	return toGoal(row, 0).Now(), nil
 }
 
 func queuedGoals(ctx context.Context, q *db.Queries, teamID string) ([]Goal, error) {
@@ -51,7 +51,7 @@ func queuedGoals(ctx context.Context, q *db.Queries, teamID string) ([]Goal, err
 // placeGoal inserts a new goal of team with q: active when the team has no
 // open goal and no queue, else queued at the end of the queue.
 func (s *Service) placeGoal(ctx context.Context, q *db.Queries, team Bot, text string) (Goal, error) {
-	_, open, err := openGoalWith(ctx, q, team.ID)
+	open, err := openGoalWith(ctx, q, team.ID)
 	if err != nil {
 		return Goal{}, err
 	}
@@ -87,7 +87,7 @@ func renumber(ctx context.Context, q *db.Queries, queue []Goal) error {
 // team has no Now task, and wakes the lead to plan it. It returns false when
 // no goal started.
 func (s *Service) nextGoal(ctx context.Context, q *db.Queries, teamID string) (Goal, bool, error) {
-	_, open, err := openGoalWith(ctx, q, teamID)
+	open, err := openGoalWith(ctx, q, teamID)
 	if err != nil || open {
 		return Goal{}, false, err
 	}
@@ -105,9 +105,6 @@ func (s *Service) nextGoal(ctx context.Context, q *db.Queries, teamID string) (G
 	}
 	g.State, g.Budget, g.QueuePos = GoalActive, team.Team.GoalBudget, 0
 	if err := renumber(ctx, q, queue[1:]); err != nil {
-		return Goal{}, false, err
-	}
-	if err := s.grantSlots(ctx, q, teamID); err != nil {
 		return Goal{}, false, err
 	}
 	return g, true, s.wakeLead(ctx, q, team, g, "The next goal from the queue started: plan it.")

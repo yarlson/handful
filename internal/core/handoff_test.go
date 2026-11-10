@@ -710,48 +710,6 @@ func TestTheAskLoopEndsWithTheUserAfterThreeRounds(t *testing.T) {
 	}
 }
 
-func TestARequestNamesTheItemsThatWaitOnIt(t *testing.T) {
-	h := newHandoffFixture(t)
-	ctx := context.Background()
-	f := h.boardFixture
-	done := f.create(t, f.lead, item("Done", f.cy.ID, ""))
-	f.finish(t, done, f.cy)
-	finishQueued(t, h.svc)
-	publish := f.create(t, f.lead, item("Publish", f.ana.ID, ""))
-	other := f.create(t, f.lead, item("Other", "", ""))
-	f.wantTurns(t, "the items", "Ana work Publish")
-	guide := item("Guide", "", "")
-	for name, ids := range map[string][]string{
-		"no items":              nil,
-		"a done item":           {done.ID},
-		"a stranger":            {"missing"},
-		"a stranger among them": {publish.ID, "missing"},
-	} {
-		n := guide
-		n.NeededBy = ids
-		_, err := h.svc.RequestWork(ctx, f.lead, h.docs.ID, n)
-		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), errNeededBy) {
-			t.Errorf("request with %s: err = %v; want the needed_by message", name, err)
-		}
-	}
-	guide.NeededBy = []string{publish.ID, other.ID, publish.ID}
-	req, err := h.svc.RequestWork(ctx, f.lead, h.docs.ID, guide)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, it := range []Item{publish, other} {
-		if got := f.state(t, it); !slices.Equal(got.DependsOn, []string{req.ID}) {
-			t.Errorf("%s depends on %v; want the request", it.Title, got.DependsOn)
-		}
-	}
-	f.items[req.ID] = req.Title
-	f.wantTurns(t, "the request", "Dee lead")
-	// Without a goal, the error names hand_over.
-	if _, err := h.svc.RequestWork(ctx, h.devLed, h.docs.ID, guide); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "use hand_over") {
-		t.Fatalf("request without a goal: err = %v; want it to point to hand_over", err)
-	}
-}
-
 func TestTheInboxLimitsAreTheUsersTeamSettings(t *testing.T) {
 	h := newHandoffFixture(t)
 	ctx := context.Background()

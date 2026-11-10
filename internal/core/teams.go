@@ -36,8 +36,8 @@ type Team struct {
 	// without their own, for their turns in the team. "" inherits.
 	DefaultModel  string `json:"defaultModel"`
 	DefaultEffort string `json:"defaultEffort"`
-	// RequestSlots is how many requests of other teams the team works on at
-	// once while its own goal is active: 1 to the number of members.
+	// RequestSlots limits nothing since requests became tasks (migration
+	// 019); it stays, 1 to the number of members, until the UI stops setting it.
 	RequestSlots int64 `json:"requestSlots"`
 	// InboxMax is how many tasks may wait in the team's inbox at once, and
 	// InboxPerSender how many of them from one sending team. The user's tasks
@@ -138,18 +138,12 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	if err != nil {
 		return Bot{}, err
 	}
-	err = s.inTx(ctx, func(q *db.Queries) error {
-		if err := q.UpdateTeam(ctx, db.UpdateTeamParams{
-			LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
-			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots,
-			InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, DailyBudget: updated.DailyBudget, TeamID: id,
-		}); err != nil {
-			return fmt.Errorf("update team %s: %w", id, err)
-		}
-		return s.grantSlots(ctx, q, id)
-	})
-	if err != nil {
-		return Bot{}, err
+	if err := s.q.UpdateTeam(ctx, db.UpdateTeamParams{
+		LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
+		DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots,
+		InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, DailyBudget: updated.DailyBudget, TeamID: id,
+	}); err != nil {
+		return Bot{}, fmt.Errorf("update team %s: %w", id, err)
 	}
 	s.signalTurns()
 	newLead := updated.LeadID != team.Team.LeadID

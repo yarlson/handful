@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"math"
 	"sort"
 
 	_ "modernc.org/sqlite"
@@ -37,6 +38,11 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 // Databases created before versioning have user_version 0 and the full
 // 001 schema; 001 uses IF NOT EXISTS, so it is a no-op for them.
 func migrate(ctx context.Context, conn *sql.DB) error {
+	return migrateTo(ctx, conn, math.MaxInt)
+}
+
+// migrateTo is migrate up to migration last.
+func migrateTo(ctx context.Context, conn *sql.DB, last int) error {
 	names, err := fs.Glob(migrations, "migrations/*.sql")
 	if err != nil {
 		return fmt.Errorf("list migrations: %w", err)
@@ -49,26 +55,35 @@ func migrate(ctx context.Context, conn *sql.DB) error {
 	if version > len(names) {
 		return fmt.Errorf("database schema version %d is newer than this YarGPT (%d); use a newer YarGPT", version, len(names))
 	}
-	for i := version; i < len(names); i++ {
-		script, err := fs.ReadFile(migrations, names[i])
-		if err != nil {
-			return fmt.Errorf("read %s: %w", names[i], err)
+	for i := version; i < min(last, len(names)); i++ {
+		if err := applyMigration(ctx, conn, names[i], i+1); err != nil {
+			return err
 		}
-		tx, err := conn.BeginTx(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("begin %s: %w", names[i], err)
-		}
-		if _, err := tx.ExecContext(ctx, string(script)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("apply %s: %w", names[i], err)
-		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("record version after %s: %w", names[i], err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit %s: %w", names[i], err)
-		}
+	}
+	return nil
+}
+
+// applyMigration runs migration file name and sets user_version to version,
+// in one transaction.
+func applyMigration(ctx context.Context, conn *sql.DB, name string, version int) error {
+	script, err := fs.ReadFile(migrations, name)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", name, err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("apply %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("record version after %s: %w", name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit %s: %w", name, err)
 	}
 	return nil
 }

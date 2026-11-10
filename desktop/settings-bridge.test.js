@@ -134,18 +134,14 @@ test("openFile creates config.json if needed and opens it", async () => {
   assert.deepEqual(broken.calls, [["showErrorBox", "YarGPT could not create the settings file", "EACCES: permission denied"]])
 })
 
-test("revealFile shows only config.json and the server log", () => {
+test("revealFile and revealLog show config.json and the server log", () => {
   const { calls, bridge } = fakes()
-  bridge.revealFile(configFile)
-  bridge.revealFile("/Users/me/Library/Logs/YarGPT/../YarGPT/server.log")
+  bridge.revealFile("/etc/passwd")
+  bridge.revealLog("/etc/passwd")
   assert.deepEqual(calls, [
     ["showItemInFolder", configFile],
     ["showItemInFolder", logFile],
   ])
-  for (const file of ["/etc/passwd", "/Users/me/.yargpt", "/Users/me/.yargpt/config.json.bak", "config.json", "", undefined, null, 1, [configFile]]) {
-    assert.throws(() => bridge.revealFile(file), /not allowed/, String(file))
-  }
-  assert.equal(calls.length, 2)
 })
 
 test("the settings channels answer only the trusted page", async () => {
@@ -159,7 +155,8 @@ test("the settings channels answer only the trusted page", async () => {
   }
   assert.deepEqual(calls, [])
   assert.deepEqual(await handlers.get("settings:restartServer")({ trusted: true }, "idle"), { ok: true })
-  await handlers.get("settings:revealFile")({ trusted: true }, logFile)
+  // A path that the page sends does not reach the bridge.
+  await handlers.get("settings:revealLog")({ trusted: true }, "/etc/passwd")
   assert.deepEqual(calls.at(-1), ["showItemInFolder", logFile])
 })
 

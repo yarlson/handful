@@ -35,10 +35,11 @@ contextBridge.exposeInMainWorld("yargptUpdater", updater)
 //   restartServer("now" | "idle") -> {ok: true} | {ok: false, error}
 //   chooseClaude() -> the chosen program's path, or null
 //   openFile() opens config.json in the default editor
-//   revealFile(path) shows config.json or the server log in the Finder
+//   revealFile() shows config.json in the Finder, revealLog() the server log
 contextBridge.exposeInMainWorld("yargptSettings", {
   restartServer: (when) => ipcRenderer.invoke("settings:restartServer", when),
   chooseClaude: () => ipcRenderer.invoke("settings:chooseClaude"),
   openFile: () => ipcRenderer.invoke("settings:openFile"),
-  revealFile: (file) => ipcRenderer.invoke("settings:revealFile", file),
+  revealFile: () => ipcRenderer.invoke("settings:revealFile"),
+  revealLog: () => ipcRenderer.invoke("settings:revealLog"),
 })

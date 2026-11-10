@@ -2,11 +2,9 @@
 // window.yargptSettings. It restarts the server, chooses the Claude Code
 // program and opens or reveals the settings file. Electron and the launch
 // agent come in as dependencies, so the tests run without them.
-const path = require("node:path")
-
 // The methods of window.yargptSettings, in preload.js. Each one is the IPC
 // channel settings:<name>.
-const settingsMethods = ["restartServer", "chooseClaude", "openFile", "revealFile"]
+const settingsMethods = ["restartServer", "chooseClaude", "openFile", "revealFile", "revealLog"]
 
 const restartWhens = new Set(["now", "idle"])
 
@@ -44,9 +42,8 @@ function settingsAPI(base, fetchImpl = fetch) {
 //   dialog: {showOpenDialog(options), showErrorBox(title, text)}
 //   shell: {openPath(file), showItemInFolder(file)}
 //   ensureSettingsFile(): creates config.json when it is missing, returns its path
-//   configFile, logFile: the paths that revealFile may show
+//   configFile, logFile: the files that revealFile and revealLog show
 function createSettingsBridge({ api, registerAgent, startServer, dialog, shell, ensureSettingsFile, configFile, logFile }) {
-  const revealable = new Set([path.resolve(configFile), path.resolve(logFile)])
   let restarting = null
 
   async function restartNow() {
@@ -103,23 +100,21 @@ function createSettingsBridge({ api, registerAgent, startServer, dialog, shell, 
     if (err) dialog.showErrorBox("YarGPT could not open the settings file", `${file}: ${err}`)
   }
 
-  // revealFile shows config.json or the server log in the Finder, and no
-  // other file.
-  function revealFile(file) {
-    if (typeof file !== "string" || file === "" || !revealable.has(path.resolve(file))) throw new Error("not allowed")
-    shell.showItemInFolder(path.resolve(file))
-  }
+  // The page names no file: these show only config.json and the server log.
+  const revealFile = () => shell.showItemInFolder(configFile)
+  const revealLog = () => shell.showItemInFolder(logFile)
 
-  return { restartServer, chooseClaude, openFile, revealFile }
+  return { restartServer, chooseClaude, openFile, revealFile, revealLog }
 }
 
 // registerSettingsIPC answers the settings:* channels for the trusted page
-// only: isTrusted(event) as for the updater.
+// only: isTrusted(event) as for the updater. Only restartServer takes an
+// argument from the page.
 function registerSettingsIPC(ipcMain, bridge, isTrusted) {
   for (const name of settingsMethods) {
     ipcMain.handle(`settings:${name}`, async (event, arg) => {
       if (!isTrusted(event)) throw new Error("not allowed")
-      return bridge[name](arg)
+      return name === "restartServer" ? bridge.restartServer(arg) : bridge[name]()
     })
   }
 }

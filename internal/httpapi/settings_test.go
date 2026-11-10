@@ -54,9 +54,10 @@ type valueReply struct {
 	Default any    `json:"default"`
 	Source  string `json:"source"`
 	Flag    string `json:"flag"`
+	File    any    `json:"file"`
 	Running any    `json:"running"`
 	Restart bool   `json:"restart"`
-	Warning string `json:"warning"`
+	Error   string `json:"error"`
 }
 
 func readSettings(t *testing.T, h http.Handler) settingsReply {
@@ -104,7 +105,7 @@ func TestSettingsShowEachValueWithItsDefaultSourceAndRunningValue(t *testing.T) 
 	want := map[string]valueReply{
 		// A key the file changed after the server started: pending, as value != running.
 		"maxParallel":          {Value: 4.0, Default: 3.0, Source: "file", Running: 3.0, Restart: true},
-		"claude":               {Value: "/missing/claude", Default: "claude", Source: "file", Running: "claude", Restart: true, Warning: "/missing/claude isn't on the server's PATH, so turns would fail to start."},
+		"claude":               {Value: "/missing/claude", Default: "claude", Source: "file", Running: "claude", Restart: true, Error: "The server can't find /missing/claude; it won't start after a restart with this value."},
 		"updates.autoCheck":    {Value: false, Default: true, Source: "file", Running: true},
 		"updates.drainMinutes": {Value: 30.0, Default: 30.0, Source: "default", Running: 30.0},
 		"model":                {Value: "", Default: "", Source: "default", Running: "", Restart: true},
@@ -116,8 +117,40 @@ func TestSettingsShowEachValueWithItsDefaultSourceAndRunningValue(t *testing.T) 
 		}
 	}
 	h, _, _ = settingsHandler(t, `{"claude": "claude"}`, func(s *Settings) { s.LookPath = func(p string) (string, error) { return p, nil } })
-	if v := readSettings(t, h).value(t, "claude"); v.Warning != "" {
-		t.Fatalf("claude on PATH = %+v; want no warning", v)
+	if v := readSettings(t, h).value(t, "claude"); v.Error != "" {
+		t.Fatalf("claude on PATH = %+v; want no error", v)
+	}
+}
+
+func TestAHandEditedValueThatStartupRejectsShowsItsError(t *testing.T) {
+	// The file loads, but startup rejects its model and its effort.
+	h, _, _ := settingsHandler(t, `{"model": "bad model", "effort": "ultra", "maxParallel": 4}`, nil)
+	got := readSettings(t, h)
+	want := map[string]valueReply{
+		"model":  {Value: "bad model", Default: "", Source: "file", Running: "", Restart: true, Error: "A model ID can't contain spaces or start with '-'. The server won't start with it after a restart."},
+		"effort": {Value: "ultra", Default: "", Source: "file", Running: "", Restart: true, Error: "Effort must be one of low, medium, high, xhigh, max. The server won't start with it after a restart."},
+		// A value startup accepts has no error, and a default never has one.
+		"maxParallel": {Value: 4.0, Default: 3.0, Source: "file", Running: 3.0, Restart: true},
+		"claude":      {Value: "claude", Default: "claude", Source: "default", Running: "claude", Restart: true},
+	}
+	if got.File.Error != "" {
+		t.Fatalf("file error = %q; want the file to load", got.File.Error)
+	}
+	for key, w := range want {
+		if v := got.value(t, key); v != w {
+			t.Errorf("%s = %+v; want %+v", key, v, w)
+		}
+	}
+}
+
+func TestAPatchWithNoKeysLeavesTheFileAlone(t *testing.T) {
+	const before = "{\"model\":\"opus\"}"
+	h, _, path := settingsHandler(t, before, nil)
+	if rec := do(h, "PATCH", "/api/settings", `{}`, jsonHeader); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"opus"`) {
+		t.Fatalf("PATCH {} = %d %s; want 200 with the settings", rec.Code, rec.Body)
+	}
+	if after, _ := os.ReadFile(path); string(after) != before {
+		t.Fatalf("file after PATCH {} = %q; want it byte for byte as before", after)
 	}
 }
 
@@ -180,8 +213,12 @@ func TestSettingsThatAFlagOrTheCommandLineDecideGet409(t *testing.T) {
 		s.Flags = map[string]string{"effort": "-effort high"}
 		s.Running["effort"] = "high"
 	})
-	if v := readSettings(t, h).value(t, "effort"); v.Source != "flag" || v.Flag != "-effort high" || v.Value != "high" {
-		t.Fatalf("effort under -effort = %+v; want the flag's value", v)
+	got := readSettings(t, h)
+	if v := got.value(t, "effort"); v.Source != "flag" || v.Flag != "-effort high" || v.Value != "high" || v.File != "low" || v.Error != "" {
+		t.Fatalf("effort under -effort = %+v; want the flag's value and the file's", v)
+	}
+	if v := got.value(t, "model"); v.File != nil {
+		t.Fatalf("model = %+v; want no file value for a key no flag sets", v)
 	}
 	for _, c := range []struct{ body, key, message string }{
 		{`{"effort": "max"}`, "effort", "Set by the -effort flag for this run; remove the flag to change it here."},
@@ -275,6 +312,41 @@ func TestRestartUnderLaunchdAnswersAndThenEndsTheServer(t *testing.T) {
 	rec = do(h, "POST", "/api/restart", `{"when": "idle"}`, jsonHeader)
 	if on, _ := svc.Draining(); rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"draining":true`) || !on || len(asked) != 2 || !asked[1] {
 		t.Fatalf("restart idle = %d %s, draining %v, asked %v; want 202 with drain on and an idle restart", rec.Code, rec.Body, on, asked)
+	}
+}
+
+func TestARestartIsRefusedWhenTheServerWouldNotStart(t *testing.T) {
+	restarted := false
+	h, svc, _ := settingsHandler(t, `{"effort": "ultra"}`, func(s *Settings) {
+		s.Restart = func(bool) { restarted = true }
+		s.StartupCheck = func() (string, error) {
+			return "effort", errors.New(`config.json: "effort" must be one of low, medium, high, xhigh, max`)
+		}
+	})
+	for _, when := range []string{"now", "idle"} {
+		rec := do(h, "POST", "/api/restart", `{"when": "`+when+`"}`, jsonHeader)
+		var p settingsProblem
+		want := `YarGPT wouldn't start after a restart: config.json: "effort" must be one of low, medium, high, xhigh, max. Fix it, then restart.`
+		if err := json.Unmarshal(rec.Body.Bytes(), &p); rec.Code != http.StatusConflict || err != nil || p.Key != "effort" || p.Message != want || p.Error != want {
+			t.Fatalf("restart %s with a bad file = %d %s; want 409 on effort: %q", when, rec.Code, rec.Body, want)
+		}
+	}
+	if on, _ := svc.Draining(); on || restarted {
+		t.Fatalf("draining %v, restarted %v after refused restarts; want neither", on, restarted)
+	}
+}
+
+func TestLeavingDrainModeDropsAWaitingRestartAtOnce(t *testing.T) {
+	cancelled := 0
+	h, _, _ := settingsHandler(t, "", func(s *Settings) {
+		s.Restart = func(bool) {}
+		s.CancelRestart = func() { cancelled++ }
+	})
+	if rec := do(h, "POST", "/api/drain", `{}`, jsonHeader); rec.Code != http.StatusOK || cancelled != 0 {
+		t.Fatalf("drain on = %d, cancelled %d; want 200 and nothing cancelled", rec.Code, cancelled)
+	}
+	if rec := do(h, "DELETE", "/api/drain", "", nil); rec.Code != http.StatusOK || cancelled != 1 {
+		t.Fatalf("drain off = %d, cancelled %d; want 200 and the waiting restart dropped", rec.Code, cancelled)
 	}
 }
 

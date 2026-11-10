@@ -37,6 +37,13 @@ type Settings struct {
 	// once no work runs (idle), after the handler turned on drain mode. It
 	// is nil when the server does not run under launchd.
 	Restart func(idle bool)
+	// CancelRestart drops an idle restart that waits, when drain mode ends.
+	// It is nil when Restart is.
+	CancelRestart func()
+	// StartupCheck reports why a server started again now would not start
+	// with the config file: the config key to blame ("" for the whole file)
+	// and the startup error, or nil. nil skips the check.
+	StartupCheck func() (key string, err error)
 	// LookPath finds the Claude Code program; nil skips the check.
 	LookPath func(string) (string, error)
 }
@@ -73,9 +80,14 @@ type valueView struct {
 	Default any    `json:"default"`
 	Source  string `json:"source"` // file, default or flag
 	Flag    string `json:"flag,omitempty"`
-	Running any    `json:"running"`
-	Restart bool   `json:"restart"`
-	Warning string `json:"warning,omitempty"`
+	// File is the file's value of a key that a flag sets; absent when the
+	// file does not set it.
+	File    any  `json:"file,omitempty"`
+	Running any  `json:"running"`
+	Restart bool `json:"restart"`
+	// Error says why the server would not start with this value; a restart
+	// is refused until it is fixed.
+	Error string `json:"error,omitempty"`
 }
 
 // orderedValues encodes as an object whose keys keep the page's order.
@@ -152,6 +164,9 @@ func (s *server) valueOf(f config.File, loaded bool, key string) valueView {
 	v.Value = v.Default
 	if flag, ok := s.settings.Flags[key]; ok {
 		v.Source, v.Flag, v.Value = "flag", flag, v.Running
+		if value, ok := f.Get(key); ok { // a file that does not load sets nothing
+			v.File = value
+		}
 		return v
 	}
 	if !loaded {
@@ -161,12 +176,28 @@ func (s *server) valueOf(f config.File, loaded bool, key string) valueView {
 	if value, ok := f.Get(key); ok {
 		v.Source, v.Value = "file", value
 	}
-	if program, ok := v.Value.(string); ok && key == "claude" && s.settings.LookPath != nil {
-		if _, err := s.settings.LookPath(program); err != nil {
-			v.Warning = program + " isn't on the server's PATH, so turns would fail to start."
+	v.Error = s.startupProblem(key, v.Value)
+	return v
+}
+
+// startupProblem says why the server would not start with value as key,
+// by the checks of startup that the file's load does not make: the model,
+// the effort, and a Claude Code program that LookPath must find.
+func (s *server) startupProblem(key string, value any) string {
+	const after = " The server won't start with it after a restart."
+	text, _ := value.(string) // the values of these keys are text
+	if key == "model" || key == "effort" {
+		if ke, ok := errors.AsType[*config.KeyError](config.CheckText(key, text)); ok {
+			return ke.Message + after
 		}
 	}
-	return v
+	if key != "claude" || s.settings.LookPath == nil {
+		return ""
+	}
+	if _, err := s.settings.LookPath(text); err != nil {
+		return "The server can't find " + text + "; it won't start after a restart with this value."
+	}
+	return ""
 }
 
 // patchSettings changes the keys of the body, all or none: null resets a
@@ -187,6 +218,10 @@ func (s *server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	f, err := config.Load(s.settings.Path)
 	if err != nil {
 		writeProblem(w, http.StatusConflict, "", "config.json has an error: "+err.Error()+". Fix it in an editor, or reset it.")
+		return
+	}
+	if len(body) == 0 {
+		writeJSON(w, http.StatusOK, s.settingsView())
 		return
 	}
 	for _, key := range slices.Sorted(maps.Keys(body)) {
@@ -258,6 +293,10 @@ func (s *server) restart(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotImplemented, "", "This server doesn't run under launchd. Stop it and start ./bin/yargpt again.")
 		return
 	}
+	if key, err := s.wouldNotStart(); err != nil {
+		writeProblem(w, http.StatusConflict, key, "YarGPT wouldn't start after a restart: "+err.Error()+". Fix it, then restart.")
+		return
+	}
 	idle := in.When == "idle"
 	if idle {
 		s.svc.SetDraining(true)
@@ -265,4 +304,12 @@ func (s *server) restart(w http.ResponseWriter, r *http.Request) {
 	// Answer first: a restart now ends the request's context.
 	writeJSON(w, http.StatusAccepted, s.versionInfo(r))
 	s.settings.Restart(idle)
+}
+
+// wouldNotStart runs the startup check of the settings, if there is one.
+func (s *server) wouldNotStart() (string, error) {
+	if s.settings.StartupCheck == nil {
+		return "", nil
+	}
+	return s.settings.StartupCheck()
 }

@@ -159,10 +159,10 @@ func deref[T any](p *T) (any, bool) {
 // *KeyError for an unknown key or a value the key does not accept.
 func (f *File) Set(key string, raw json.RawMessage) error {
 	setters := map[string]func(json.RawMessage) error{
-		"model":                func(r json.RawMessage) error { return setString(&f.Model, key, r, core.NormalizeModel) },
-		"effort":               func(r json.RawMessage) error { return setString(&f.Effort, key, r, core.NormalizeEffort) },
+		"model":                func(r json.RawMessage) error { return setString(&f.Model, key, r, textRules[key]) },
+		"effort":               func(r json.RawMessage) error { return setString(&f.Effort, key, r, textRules[key]) },
 		"maxParallel":          func(r json.RawMessage) error { return setInt(&f.MaxParallel, key, r, checkMaxParallel) },
-		"claude":               func(r json.RawMessage) error { return setString(&f.Claude, key, r, checkClaude) },
+		"claude":               func(r json.RawMessage) error { return setString(&f.Claude, key, r, textRules[key]) },
 		"updates.autoCheck":    func(r json.RawMessage) error { return setBool(&f.updates().AutoCheck, key, r) },
 		"updates.drainMinutes": func(r json.RawMessage) error { return setInt(&f.updates().DrainMinutes, key, r, checkDrainMinutes) },
 		"updateCheck":          func(r json.RawMessage) error { return setBool(&f.UpdateCheck, key, r) },
@@ -175,6 +175,20 @@ func (f *File) Set(key string, raw json.RawMessage) error {
 	if u := f.Updates; u != nil && u.AutoCheck == nil && u.DrainMinutes == nil {
 		f.Updates = nil
 	}
+	return err
+}
+
+// textRules check and normalize the text keys.
+var textRules = map[string]func(string) (string, error){"model": core.NormalizeModel, "effort": core.NormalizeEffort, "claude": checkClaude}
+
+// CheckText reports, as a *KeyError, whether the text key accepts value by
+// the rules of Set. A key that is not a text key accepts nothing.
+func CheckText(key, value string) error {
+	normalize, ok := textRules[key]
+	if !ok {
+		return &KeyError{Key: key, Message: key + " isn't a text setting."}
+	}
+	_, err := normalizeText(key, value, normalize)
 	return err
 }
 
@@ -196,15 +210,24 @@ func setString(dst **string, key string, raw json.RawMessage, normalize func(str
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return &KeyError{Key: key, Message: key + " must be text."}
 	}
-	s, err := normalize(s)
-	if ke, ok := errors.AsType[*KeyError](err); ok {
-		return ke
-	}
+	s, err := normalizeText(key, s, normalize)
 	if err != nil {
-		return &KeyError{Key: key, Message: strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")}
+		return err
 	}
 	*dst = &s
 	return nil
+}
+
+// normalizeText runs normalize on s, with its error as a *KeyError of key.
+func normalizeText(key, s string, normalize func(string) (string, error)) (string, error) {
+	s, err := normalize(s)
+	if ke, ok := errors.AsType[*KeyError](err); ok {
+		return "", ke
+	}
+	if err != nil {
+		return "", &KeyError{Key: key, Message: strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")}
+	}
+	return s, nil
 }
 
 func setInt(dst **int, key string, raw json.RawMessage, check func(int) error) error {

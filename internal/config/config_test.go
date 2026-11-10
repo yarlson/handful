@@ -206,3 +206,20 @@ func TestKeysHaveDefaultsFlagsAndRestartRules(t *testing.T) {
 		t.Fatal("KeyError text")
 	}
 }
+
+func TestCheckTextUsesTheRulesOfSet(t *testing.T) {
+	for _, c := range []struct{ key, value, message string }{
+		{"model", "opus", ""},
+		{"model", "bad model", "A model ID can't contain spaces or start with '-'."},
+		{"effort", "max", ""},
+		{"effort", "ultra", "Effort must be one of low, medium, high, xhigh, max."},
+		{"claude", "", "The Claude Code program must be 1 to 1024 characters, with no NUL character."},
+		{"maxParallel", "3", "maxParallel isn't a text setting."},
+	} {
+		err := CheckText(c.key, c.value)
+		ke, _ := errors.AsType[*KeyError](err)
+		if c.message == "" && err != nil || c.message != "" && (ke == nil || ke.Key != c.key || ke.Message != c.message) {
+			t.Errorf("CheckText(%q, %q) = %v; want %q", c.key, c.value, err, c.message)
+		}
+	}
+}

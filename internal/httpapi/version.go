@@ -62,6 +62,10 @@ func (s *server) versionInfo(r *http.Request) versionInfo {
 func (s *server) setDrain(on bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.svc.SetDraining(on)
+		if !on && s.settings.CancelRestart != nil {
+			// At once: the updater may turn drain mode on again before the restarter's next look.
+			s.settings.CancelRestart()
+		}
 		writeJSON(w, http.StatusOK, s.versionInfo(r))
 	}
 }

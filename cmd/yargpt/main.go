@@ -49,12 +49,15 @@ type options struct {
 	addr    string
 	dataDir string
 	settings
-	loginEnv   bool
-	logFile    string
-	tray       bool
-	set        map[string]bool // flags given on the command line
-	claudePath string
-	defaults   core.Defaults
+	loginEnv bool
+	logFile  string
+	tray     bool
+	set      map[string]bool // flags given on the command line
+	// flagSettings are the settings of the flags and defaults alone, before
+	// the config file: what a restart starts from.
+	flagSettings settings
+	claudePath   string
+	defaults     core.Defaults
 }
 
 func run(args []string) error {
@@ -89,6 +92,7 @@ func setUp(args []string) (options, *slog.Logger, error) {
 			log.Warn("keeping the environment that the server started with", "err", err)
 		}
 	}
+	o.flagSettings = o.settings
 	return o, log, prepare(&o)
 }
 
@@ -136,11 +140,7 @@ func parseFlags(args []string) (options, error) {
 
 // prepare applies the config file, checks the address and finds Claude Code.
 func prepare(o *options) error {
-	if err := applyConfigFile(filepath.Join(o.dataDir, "config.json"), o.set, &o.settings); err != nil {
-		return err
-	}
-	var err error
-	if o.defaults, err = globalDefaults(&o.settings, o.set, os.Getenv); err != nil {
+	if err := o.loadSettings(os.Getenv, exec.LookPath); err != nil {
 		return err
 	}
 	host, _, err := net.SplitHostPort(o.addr)
@@ -149,9 +149,6 @@ func prepare(o *options) error {
 	}
 	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		return fmt.Errorf("-addr %q is not a loopback address; YarGPT has no authentication and must not listen on the network", o.addr)
-	}
-	if o.claudePath, err = exec.LookPath(o.Claude); err != nil {
-		return fmt.Errorf("find Claude Code CLI %q: %w", o.Claude, err)
 	}
 	if err := os.MkdirAll(o.dataDir, 0o700); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
@@ -197,7 +194,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		assets = nil
 	}
 	updates := startUpdateNotice(ctx, o, log)
-	restarts, settings := o.settingsOf(stop, os.Getenv)
+	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, log)
 	srv := &http.Server{
 		Addr:              o.addr,
 		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings)),

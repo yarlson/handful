@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,9 +32,23 @@ var errRestart = errors.New("restarting: launchd starts the server again")
 
 // underLaunchd reports whether the server runs as the app's LaunchAgent,
 // which launchd starts again when it ends. The -tray flag alone is not
-// proof: anyone can pass it.
-func underLaunchd(getenv func(string) string) bool {
-	return getenv("XPC_SERVICE_NAME") == launchdLabel
+// proof: anyone can pass it. The job's children inherit XPC_SERVICE_NAME,
+// so the parent must be launchd (pid 1) too.
+func underLaunchd(getenv func(string) string, getppid func() int) bool {
+	return getppid() == 1 && getenv("XPC_SERVICE_NAME") == launchdLabel
+}
+
+// startupCheck returns a check of whether a server started again now would
+// start with the config file: the startup checks, from the flags alone,
+// as a restart starts. It returns the config key to blame ("" for the
+// whole file) and the startup error, or nil.
+func (o options) startupCheck(getenv func(string) string, lookPath func(string) (string, error)) func() (string, error) {
+	return func() (string, error) {
+		c := o
+		c.settings = o.flagSettings
+		err := c.loadSettings(getenv, lookPath)
+		return startupKey(err), err
+	}
 }
 
 // runningSettings are the values the server started with, by key.
@@ -106,21 +121,22 @@ func codesignInfo(bundle string) string {
 
 // settingsOf returns what the Settings page needs of the server, and the
 // restarter of a server under launchd (nil otherwise), which stop ends.
-func (o options) settingsOf(stop context.CancelFunc, getenv func(string) string) (*restarter, httpapi.Settings) {
+func (o options) settingsOf(stop context.CancelFunc, getenv func(string) string, getppid func() int, log *slog.Logger) (*restarter, httpapi.Settings) {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = ""
 	}
-	launchd := underLaunchd(getenv)
+	launchd := underLaunchd(getenv, getppid)
+	check := o.startupCheck(getenv, exec.LookPath)
 	s := httpapi.Settings{
 		Path: filepath.Join(o.dataDir, "config.json"), Running: runningSettings(o), Flags: settingFlags(o),
-		Runtime: runtimeValues(o, launchd), Build: buildKind(exe, codesignInfo), LookPath: exec.LookPath,
+		Runtime: runtimeValues(o, launchd), Build: buildKind(exe, codesignInfo), LookPath: exec.LookPath, StartupCheck: check,
 	}
 	if !launchd {
 		return nil, s
 	}
-	r := newRestarter(stop)
-	s.Restart = r.restart
+	r := newRestarter(stop, check, log)
+	s.Restart, s.CancelRestart = r.restart, r.cancel
 	return r, s
 }
 
@@ -135,7 +151,8 @@ func (r *restarter) watch(ctx context.Context, svc *core.Service, runner *agent.
 		defer close(done)
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
-		r.waitIdle(ctx, tick.C, func() bool { on, _ := svc.Draining(); return on }, func() int { return len(runner.Busy(ctx)) })
+		draining := func() bool { on, _ := svc.Draining(); return on }
+		r.waitIdle(ctx, tick.C, draining, func() int { return len(runner.Busy(ctx)) }, func() { svc.SetDraining(false) })
 	}()
 	return func() { <-done }
 }
@@ -151,13 +168,18 @@ func (r *restarter) result() error {
 // restarter ends the server so that launchd starts it again.
 type restarter struct {
 	stop    context.CancelFunc
+	check   func() (string, error) // why a server started again would not start
+	log     *slog.Logger
 	asked   atomic.Bool // the server ends to restart
 	pending atomic.Bool // an idle restart waits for the work to end
 }
 
-func newRestarter(stop context.CancelFunc) *restarter {
-	return &restarter{stop: stop}
+func newRestarter(stop context.CancelFunc, check func() (string, error), log *slog.Logger) *restarter {
+	return &restarter{stop: stop, check: check, log: log}
 }
+
+// cancel drops a pending idle restart, as leaving drain mode does.
+func (r *restarter) cancel() { r.pending.Store(false) }
 
 // restart ends the server now, or asks waitIdle to end it once no work runs.
 func (r *restarter) restart(idle bool) {
@@ -175,24 +197,40 @@ func (r *restarter) now() {
 
 // waitIdle ends the server once an idle restart is pending and busy reports
 // no running work, checked at each tick. Leaving drain mode cancels the
-// pending restart. It returns when ctx ends.
-func (r *restarter) waitIdle(ctx context.Context, tick <-chan time.Time, draining func() bool, busy func() int) {
+// pending restart. It returns when ctx ends or the server ends.
+func (r *restarter) waitIdle(ctx context.Context, tick <-chan time.Time, draining func() bool, busy func() int, undrain func()) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick:
-			if !r.pending.Load() {
-				continue
-			}
-			if !draining() {
-				r.pending.Store(false)
-				continue
-			}
-			if busy() == 0 {
-				r.now()
+			if r.idleTick(draining, busy, undrain) {
 				return
 			}
 		}
 	}
+}
+
+// idleTick handles one tick of waitIdle and reports whether the server ends.
+// The file may have changed while the work ran: a server that would not
+// start with it gives the restart up and leaves drain mode.
+func (r *restarter) idleTick(draining func() bool, busy func() int, undrain func()) bool {
+	if !r.pending.Load() {
+		return false
+	}
+	if !draining() {
+		r.pending.Store(false)
+		return false
+	}
+	if busy() != 0 {
+		return false
+	}
+	if _, err := r.check(); err != nil {
+		r.pending.Store(false)
+		undrain()
+		r.log.Warn("restart given up: the server would not start with its config file", "err", err)
+		return false
+	}
+	r.now()
+	return true
 }

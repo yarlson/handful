@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"yargpt/internal/config"
@@ -60,6 +62,43 @@ func fromFile[T any](dst, v *T, flagGiven bool) {
 	}
 }
 
+// loadSettings applies the config file to the settings of o and checks
+// them as the server does when it starts: the model, the effort and the
+// Claude Code program, which lookPath must find. It is the one check of
+// startup and of a restart, which starts from the flags again. An error
+// names its config key when one key is to blame (a *startupError).
+func (o *options) loadSettings(getenv func(string) string, lookPath func(string) (string, error)) error {
+	if err := applyConfigFile(filepath.Join(o.dataDir, "config.json"), o.set, &o.settings); err != nil {
+		return err
+	}
+	var err error
+	if o.defaults, err = globalDefaults(&o.settings, o.set, getenv); err != nil {
+		return err
+	}
+	if o.claudePath, err = lookPath(o.Claude); err != nil {
+		return &startupError{key: "claude", err: fmt.Errorf("find Claude Code CLI %q: %w", o.Claude, err)}
+	}
+	return nil
+}
+
+// startupError is a setting that stops the server from starting.
+type startupError struct {
+	key string // the config key
+	err error
+}
+
+func (e *startupError) Error() string { return e.err.Error() }
+func (e *startupError) Unwrap() error { return e.err }
+
+// startupKey returns the config key that err blames, or "" when it blames
+// the whole file.
+func startupKey(err error) string {
+	if se, ok := errors.AsType[*startupError](err); ok {
+		return se.key
+	}
+	return ""
+}
+
 // globalDefaults checks the global model and effort of s, normalizes them in
 // s, and returns them with their sources and the environment's variables.
 // set holds the flags given on the command line; a value set without its
@@ -89,10 +128,10 @@ func settingSource(set map[string]bool, name string) string {
 func settingError(name string, set map[string]bool, err error) error {
 	msg := strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
 	if set[name] {
-		return fmt.Errorf("-%s: %s", name, msg)
+		return &startupError{key: name, err: fmt.Errorf("-%s: %s", name, msg)}
 	}
 	if rest, ok := strings.CutPrefix(msg, "Effort must"); ok {
-		return fmt.Errorf("config.json: %q must%s", name, strings.TrimSuffix(rest, "."))
+		return &startupError{key: name, err: fmt.Errorf("config.json: %q must%s", name, strings.TrimSuffix(rest, "."))}
 	}
-	return fmt.Errorf("config.json: %q: %s", name, msg)
+	return &startupError{key: name, err: fmt.Errorf("config.json: %q: %s", name, msg)}
 }

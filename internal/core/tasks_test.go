@@ -783,3 +783,42 @@ func TestAPushBackBlocksOnlyAStepThatStillWaits(t *testing.T) {
 		}
 	}
 }
+
+func TestASendFromADecisionTurnComesFromNoTaskYet(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	finishQueued(t, h.svc)
+	in := h.handOver(t, f.lead, f.team, h.docs, "Guide.")
+	turns, err := h.svc.QueuedTurns(ctx, 10)
+	if err != nil || len(turns) != 1 || !turns[0].Decision {
+		t.Fatalf("turns = %+v, %v; want Docs's decision turn", turns, err)
+	}
+	decision := Actor{BotID: h.dee.ID, TeamID: h.docs.ID, Role: RoleLead, TurnID: turns[0].ID}
+	g, err := h.svc.SendTask(ctx, decision, h.dev.ID, NewTask{Text: "Host the guide."})
+	if err != nil || g.FromGoalID != "" || g.Depth != 1 {
+		t.Fatalf("send from a decision turn on %q = %+v, %v; want it from no task of Docs's, depth 1", in.Text, g, err)
+	}
+}
+
+func TestATaskWaitsOnlyOnAnOpenStep(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	blocked := f.create(t, f.lead, item("Blocked", f.ana.ID, ""))
+	done := f.create(t, f.lead, item("Done", f.ana.ID, ""))
+	f.start(t, blocked, f.ana)
+	if _, err := h.svc.BlockItem(ctx, f.as(f.ana, RoleWork), blocked.ID, "Waiting on Docs."); err != nil {
+		t.Fatal(err)
+	}
+	f.finish(t, done, f.ana)
+	if _, err := h.svc.SendTask(ctx, f.lead, h.docs.ID, NewTask{Text: "Unblock it.", WaitsOn: blocked.ID}); err != nil {
+		t.Fatalf("a task that a blocked step waits on: %v", err)
+	}
+	if _, err := h.svc.SendTask(ctx, f.lead, h.dev.ID, NewTask{Text: "Too late.", WaitsOn: done.ID}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a task that a done step waits on: err = %v; want ErrInvalid", err)
+	}
+	if _, err := h.svc.HandOver(ctx, Actor{Role: RoleUser}, f.team.ID, h.dev.ID, NewTask{Text: "The user's.", WaitsOn: blocked.ID}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("the user links a waiting step: err = %v; want ErrInvalid", err)
+	}
+}

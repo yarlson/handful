@@ -224,6 +224,10 @@ func TestClosingATaskStartsTheNextAtOnceAndApprovalAddsTheRetro(t *testing.T) {
 	if got := f.queuedOf(t); !slices.Equal(got, []string{"Bo retro old"}) {
 		t.Fatalf("queued after the approval = %q; want the retro", got)
 	}
+	// The next goal runs, so the queue is not on hold.
+	if text := lastEventText(t, f.svc, f.team.ID); strings.Contains(text, "on hold") {
+		t.Fatalf("channel event after the approval = %q; want no hold note while a goal is Now", text)
+	}
 	if l := f.goalNow(t, later.ID); l.State != GoalQueued || l.QueuePos != 1 {
 		t.Fatalf("later goal = %+v; want it first in the queue now", l)
 	}

@@ -423,8 +423,9 @@ func (s *Service) userSender(ctx context.Context, fromTeamID string) (sender, er
 }
 
 // turnGoal returns the task that a turn in team works on: the turn's own
-// task of the team, else the team's Now task; the zero Goal for none. A
-// decision turn on a task of the inbox works on no task of the team yet.
+// open task (the team's, or another team's that it serves), else the team's
+// Now task; the zero Goal for none. A decision turn on a task in the inbox
+// works on no open task yet.
 func (s *Service) turnGoal(ctx context.Context, turnID, teamID string) (Goal, error) {
 	id, err := s.q.GetTurnGoal(ctx, turnID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -432,7 +433,7 @@ func (s *Service) turnGoal(ctx context.Context, turnID, teamID string) (Goal, er
 	}
 	if id != "" {
 		g, err := s.goal(ctx, s.q, id)
-		if err != nil || (g.TeamID == teamID && g.Open()) {
+		if err != nil || g.Open() {
 			return g, err
 		}
 	}

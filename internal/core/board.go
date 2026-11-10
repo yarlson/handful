@@ -1600,12 +1600,21 @@ func (s *Service) afterGoal(ctx context.Context, q *db.Queries, teamID string, s
 		return goalAfter{}, err
 	}
 	if startNext {
-		if after.next, after.started, err = s.nextGoal(ctx, q, teamID); err != nil || after.started {
-			return after, err
+		if after.next, after.started, err = s.nextGoal(ctx, q, teamID); err != nil {
+			return goalAfter{}, err
 		}
 	}
+	if after.started {
+		return after, nil
+	}
+	// The queue holds when it has tasks and nothing is Now; a Now task that
+	// another close started keeps it moving.
+	_, open, err := openGoalWith(ctx, q, teamID)
+	if err != nil {
+		return goalAfter{}, err
+	}
 	queue, err := queuedGoals(ctx, q, teamID)
-	after.held = len(queue) > 0
+	after.held = !open && len(queue) > 0
 	return after, err
 }
 

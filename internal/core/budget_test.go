@@ -214,11 +214,20 @@ func TestTheSettleTickTellsTheChannelOfAPauseOnceADay(t *testing.T) {
 		t.Fatal("a pause was posted below the budget")
 	}
 	f.turns(t, "b", 1, f.clock)
+	// Dev, listed after Ship, is at its budget too; Docs has no limit.
+	f.setBudget(t, f.dev.ID, 1)
+	storeTurn(t, f.svc, turnSpec{id: "dev", bot: f.cal.ID, room: f.dev.ID, hops: 1, started: f.clock})
 	events, stop := f.svc.Hub().Subscribe()
 	defer stop()
 	settle()
 	if text := lastEventText(t, f.svc, f.team.ID); text != note {
 		t.Fatalf("Ship channel = %q; want the pause", text)
+	}
+	if text := lastEventText(t, f.svc, f.dev.ID); !strings.HasPrefix(text, "The team used its 1 turns for today.") {
+		t.Fatalf("Dev channel = %q; want its pause too", text)
+	}
+	if text := lastEventText(t, f.svc, f.docs.ID); strings.HasPrefix(text, "The team used") {
+		t.Fatalf("Docs channel = %q; want no pause for a team with no limit", text)
 	}
 	if !gotEvent(events, "bots") {
 		t.Fatal("no bots event for the pause")
@@ -290,10 +299,10 @@ func TestABudgetIsWatchedForAWeekThenSuggested(t *testing.T) {
 		t.Fatal("a team with no limit held a turn")
 	}
 	f.watchSince(t, f.team.ID, f.clock.AddDate(0, 0, -7))
-	f.turns(t, "older", 90, day(8)) // more than 7 days back: not seen
-	f.turns(t, "small", 10, day(7))
-	if b := f.budget(t, f.team.ID); b.Suggested != 150 || b.Limit != 0 || b.Paused {
-		t.Fatalf("Ship after its watch = %+v; want 150 suggested (1.5 × 80) and still no limit", b)
+	f.turns(t, "older", 300, day(8)) // more than 7 days back: not seen
+	f.turns(t, "oldest-seen", 120, day(7))
+	if b := f.budget(t, f.team.ID); b.Suggested != 200 || b.Limit != 0 || b.Paused {
+		t.Fatalf("Ship after its watch = %+v; want 200 suggested (1.5 × 120, 7 days back) and still no limit", b)
 	}
 }
 

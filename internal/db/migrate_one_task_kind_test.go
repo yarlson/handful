@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"maps"
 	"path/filepath"
 	"testing"
 	"time"
@@ -38,13 +39,16 @@ func TestTheOneTaskKindMigrationMakesEveryOpenRequestALinkedTask(t *testing.T) {
 		  ('ana', 'Ana', '', '', 'agent', 1, 1), ('bo', 'Bo', '', '', 'agent', 1, 1), ('cy', 'Cy', '', '', 'agent', 1, 1),
 		  ('ship', 'Ship', '', '', 'room', 1, 1), ('docs', 'Docs', '', '', 'room', 1, 1), ('ops', 'Ops', '', '', 'room', 1, 1)`,
 		`INSERT INTO teams (team_id, lead_bot_id, goal_budget) VALUES ('ship', 'ana', 30), ('docs', 'bo', 40), ('ops', 'cy', 50)`,
+		`INSERT INTO room_members (room_id, bot_id) VALUES ('ship', 'ana'), ('docs', 'bo'), ('ops', 'cy')`,
 		`INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at, depth) VALUES
 		  ('g-ship', 'ship', 'Ship it.', 'active', 30, 0, 1, 0),
 		  ('g-next', 'ship', 'Next.', 'queued', 0, 1, 2, 0),
 		  ('g-last', 'ship', 'Last.', 'queued', 0, 2, 3, 0),
 		  ('g-ops', 'ops', 'Run.', 'active', 50, 0, 4, 0),
 		  ('g-ops-next', 'ops', 'Then.', 'queued', 0, 1, 5, 0),
-		  ('g-old', 'ship', 'Old.', 'ended', 30, 0, 0, 0)`,
+		  ('g-old', 'ship', 'Old.', 'ended', 30, 0, 0, 0),
+		  ('g-stop', 'ship', 'Alpha.', 'stopped', 30, 0, 6, 0),
+		  ('g-back', 'ship', 'Back.', 'incoming', 0, 0, 7, 0)`,
 		`INSERT INTO items (id, team_id, goal_id, title, brief, acceptance, state, owner_id, reviewer_id, depends_on, note, created_by, position, created_at, updated_at,
 		  intake, intake_note, defer_revisit, defer_until, slot_at, jumped_at, for_item_id) VALUES
 		  ('r-ask', 'docs', 'g-ship', 'Write the guide', 'For users.', 'A page.', 'todo', '', '', '[]', '', 'ana', 1, 10, 10, 'requested', '', '', 0, 0, 0, ''),
@@ -57,7 +61,9 @@ func TestTheOneTaskKindMigrationMakesEveryOpenRequestALinkedTask(t *testing.T) {
 		  ('r-chain', 'ops', 'g-ship', 'Host the index', 'b', '', 'todo', '', '', '[]', '', 'bo', 8, 16, 18, 'requested', '', '', 0, 0, 0, 'r-work'),
 		  ('r-done', 'docs', 'g-ship', 'Spell check', 'b', '', 'done', 'bo', '', '[]', '', 'ana', 9, 17, 19, 'accepted', '', '', 0, 0, 0, ''),
 		  ('i-own', 'ship', 'g-ship', 'Release', 'b', '', 'todo', 'ana', '', '["r-ask"]', '', 'ana', 10, 18, 18, '', '', '', 0, 0, 0, ''),
-		  ('r-old', 'docs', 'g-old', 'Old ask', 'b', '', 'todo', 'bo', '', '[]', '', 'ana', 1, 1, 1, 'accepted', '', '', 0, 0, 0, '')`,
+		  ('r-old', 'docs', 'g-old', 'Old ask', 'b', '', 'todo', 'bo', '', '[]', '', 'ana', 1, 1, 1, 'accepted', '', '', 0, 0, 0, ''),
+		  ('r-stop', 'ops', 'g-stop', 'Open a gate', 'b', '', 'doing', 'cy', '', '[]', '', 'ana', 1, 20, 21, 'accepted', '', '', 0, 0, 0, ''),
+		  ('r-back', 'docs', 'g-back', 'Write a note', 'b', '', 'todo', '', '', '[]', '', 'ana', 1, 21, 22, 'requested', '', '', 0, 0, 0, '')`,
 		`INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, board_role, created_at) VALUES
 		  ('t-work', 'bo', 'room', 'Work on your item again.', 'queued', 'docs', 0, 'g-ship', 'r-work', 'work', 30)`,
 	} {
@@ -95,6 +101,15 @@ func TestTheOneTaskKindMigrationMakesEveryOpenRequestALinkedTask(t *testing.T) {
 	if ops := taskWaitingOn(t, ctx, q, "r-ops"); ops.TeamID != "ops" || ops.State != "queued" || ops.QueuePos != 2 {
 		t.Fatalf("accepted by a busy team = %+v; want #2 in ops' plan", ops)
 	}
+	// A stopped task, and one back in its team's inbox, can start again: their
+	// requests become tasks too.
+	if stop := taskWaitingOn(t, ctx, q, "r-stop"); stop.TeamID != "ops" || stop.State != "queued" || stop.QueuePos != 3 || stop.FromGoalID != "g-stop" {
+		t.Fatalf("accepted for a stopped task = %+v; want #3 in ops' plan, for g-stop", stop)
+	}
+	back := taskWaitingOn(t, ctx, q, "r-back")
+	if back.TeamID != "docs" || back.State != "incoming" || back.FromGoalID != "g-back" {
+		t.Fatalf("requested for a task in the inbox = %+v; want in docs' inbox, for g-back", back)
+	}
 	later := taskWaitingOn(t, ctx, q, "r-later")
 	if later.State != "later" || later.IntakeNote != "After the release." || later.LaterUntil < before+week || later.LaterUntil > time.Now().UnixMilli()+week {
 		t.Fatalf("deferred to a goal's end = %+v; want later for 7 days from the migration", later)
@@ -115,12 +130,12 @@ func TestTheOneTaskKindMigrationMakesEveryOpenRequestALinkedTask(t *testing.T) {
 		t.Fatalf("chained = %+v; want sent by docs for the task %s", chain, work.ID)
 	}
 
-	for _, id := range []string{"r-ask", "r-work", "r-wait", "r-ops", "r-later", "r-date"} {
+	for _, id := range []string{"r-ask", "r-work", "r-wait", "r-ops", "r-later", "r-date", "r-stop", "r-back"} {
 		it, err := q.GetItem(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if it.TeamID != "ship" || it.State != "todo" || it.OwnerID != "" || it.ReviewerID != "" || it.Note != "" || it.Intake != "" || it.SlotAt != 0 || it.DeferRevisit != "" {
+		if (it.TeamID != "ship" && id != "r-back") || it.State != "todo" || it.OwnerID != "" || it.ReviewerID != "" || it.Note != "" || it.Intake != "" || it.SlotAt != 0 || it.DeferRevisit != "" {
 			t.Fatalf("request %s = %+v; want a step of ship's task without an owner", id, it)
 		}
 	}
@@ -149,6 +164,43 @@ func TestTheOneTaskKindMigrationMakesEveryOpenRequestALinkedTask(t *testing.T) {
 	if err := conn.QueryRowContext(ctx, `SELECT status FROM turns WHERE id = 't-work'`).Scan(&status); err != nil || status != "interrupted" {
 		t.Fatalf("queued turn of a converted request = %q, %v; want interrupted", status, err)
 	}
+	// Every task that arrives in an inbox wakes its team's lead to decide on
+	// it, and no other task does.
+	var chainID string
+	if err := conn.QueryRowContext(ctx, `SELECT id FROM goals WHERE text = 'Host the index'`).Scan(&chainID); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := conn.QueryContext(ctx, `SELECT goal_id, bot_id, room_id, board_role, status, prompt FROM turns WHERE decision = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	decisions := map[string]string{}
+	prompts := map[string]string{}
+	for rows.Next() {
+		var goal, bot, room, role, st, prompt string
+		if err := rows.Scan(&goal, &bot, &room, &role, &st, &prompt); err != nil {
+			t.Fatal(err)
+		}
+		decisions[goal] += bot + " " + room + " " + role + " " + st + ";"
+		prompts[goal] = prompt
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	wantDecisions := map[string]string{ask.ID: "bo docs lead queued;", back.ID: "bo docs lead queued;", chainID: "cy ops lead queued;"}
+	if !maps.Equal(decisions, wantDecisions) {
+		t.Fatalf("decision turns = %q; want %q", decisions, wantDecisions)
+	}
+	if want := `Team Ship sent your team a task: "Write the guide". It was a request before requests became tasks. ` +
+		`Take it into your plan, ask its sender, defer it with later, pass it on, or push it back.`; prompts[ask.ID] != want {
+		t.Fatalf("decision prompt = %q; want %q", prompts[ask.ID], want)
+	}
+	if want := `Team Docs sent your team a task: "Host the index". It was a request before requests became tasks. ` +
+		`Take it into your plan, ask its sender, defer it with later, pass it on, or push it back.`; prompts[chainID] != want {
+		t.Fatalf("decision prompt of the chained task = %q; want %q", prompts[chainID], want)
+	}
+
 	events, err := q.ListGoalEvents(ctx, taskWaitingOn(t, ctx, q, "r-no").ID)
 	if err != nil || len(events) != 2 || events[0].Kind != "sent" || events[0].ActorName != "Ana" || events[1].Kind != "pushed_back" || events[1].Text != "Too big." {
 		t.Fatalf("history of the declined task = %+v, %v; want sent by Ana, then pushed back", events, err)

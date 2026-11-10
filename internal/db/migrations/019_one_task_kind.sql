@@ -4,9 +4,11 @@
 -- That item stays a step of the asking task, now its team's own and without
 -- an owner, so the steps that needed the request still depend on it.
 --
--- Only the requests of tasks that are not over (active, paused, delivered)
--- change; those of done and ended tasks stay as history. The intake maps:
---   requested → incoming: its new team's lead decides on it;
+-- The requests of every task that is not over change, also of a stopped
+-- task and of one in an inbox, later or a plan, which can start again; those
+-- of done, ended and pushed back tasks stay as history. The intake maps:
+--   requested → incoming, with its new team's lead's decision turn queued,
+--               as for any task that arrives;
 --   accepted  → queued, after its team's plan, the request that worked in a
 --               slot first; it is the team's Now task when the team has no
 --               Now task and no plan;
@@ -26,14 +28,16 @@ SELECT
   g.team_id AS asking_team_id, g.depth AS asking_depth, i.for_item_id, i.intake, i.intake_note, i.defer_revisit,
   i.defer_until, i.slot_at, i.jumped_at, i.title, i.brief, i.acceptance, i.created_by, i.created_at, i.updated_at
 FROM items i JOIN goals g ON g.id = i.goal_id
-WHERE g.state IN ('active', 'paused', 'delivered')
+WHERE g.state NOT IN ('done', 'ended', 'declined')
   AND (i.intake = 'declined' OR (i.intake IN ('requested', 'accepted', 'deferred') AND i.state NOT IN ('done', 'dropped')));
 
 ALTER TABLE request_tasks ADD COLUMN task_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE request_tasks ADD COLUMN turn_hex TEXT NOT NULL DEFAULT '';
 ALTER TABLE request_tasks ADD COLUMN plan_rank INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE request_tasks ADD COLUMN plan_base INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE request_tasks ADD COLUMN idle INTEGER NOT NULL DEFAULT 0;
 
+UPDATE request_tasks SET turn_hex = lower(hex(randomblob(16)));
 UPDATE request_tasks SET task_id =
   substr(hex_id, 1, 8) || '-' || substr(hex_id, 9, 4) || '-' || substr(hex_id, 13, 4) || '-' || substr(hex_id, 17, 4) || '-' || substr(hex_id, 21, 12);
 
@@ -80,6 +84,22 @@ SELECT
   END,
   CASE WHEN r.for_item_id = '' THEN r.item_id ELSE '' END
 FROM request_tasks r LEFT JOIN request_tasks chained ON chained.item_id = r.for_item_id;
+
+-- The lead of the team whose inbox a task arrives in decides on it, in a
+-- decision turn like the one that send_task queues.
+INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, goal_id, item_id, board_role, decision, created_at)
+SELECT
+  substr(r.turn_hex, 1, 8) || '-' || substr(r.turn_hex, 9, 4) || '-' || substr(r.turn_hex, 13, 4) || '-' || substr(r.turn_hex, 17, 4) || '-' || substr(r.turn_hex, 21, 12),
+  t.lead_bot_id, 'room',
+  'Team ' || COALESCE(asker.name, 'another team') || ' sent your team a task: "' || r.title || '". It was a request before requests became tasks. ' ||
+    'Take it into your plan, ask its sender, defer it with later, pass it on, or push it back.',
+  'queued', r.team_id, 0, r.task_id, '', 'lead', 1, CAST(strftime('%s', 'now') AS INTEGER) * 1000
+FROM request_tasks r
+JOIN goals g ON g.id = r.task_id
+JOIN teams t ON t.team_id = r.team_id
+JOIN room_members m ON m.room_id = r.team_id AND m.bot_id = t.lead_bot_id
+LEFT JOIN bots asker ON asker.id = g.from_team_id
+WHERE g.state = 'incoming';
 
 -- Each task's history starts with its arrival, by whoever asked, and the
 -- decision that the serving lead made on the request, by the app.

@@ -28,7 +28,8 @@ import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type Men
 import { Popover } from "radix-ui"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { imageHost, isExternalLink, isLocalImage } from "@/lib/links"
-import { goalCommand, parseGoalCommand } from "@/lib/goal"
+import { goalCommand } from "@/lib/goal"
+import { answers, sendPlan } from "@/lib/send"
 import { offeredSkills, teamSkillOf } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
@@ -43,6 +44,7 @@ import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
 import { AnswerChip, QuestionStrip } from "@/components/questions"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
+import { emptyText, type TranscriptStatus } from "@/lib/transcript"
 
 function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -727,32 +729,28 @@ function Composer({
     })
   }
   const send = async () => {
-    const value = text.trim()
-    if ((!value && media.length === 0) || sending) return
-    // In a team's chat, "/goal <text>" starts a goal instead of sending a message.
-    const goal = bot.team ? parseGoalCommand(value) : null
-    if (goal === "") {
-      setError("Write the goal after /goal, for example: /goal Add CSV export")
-      return
-    }
-    if (goal !== null && media.length > 0) {
-      setError("A goal is text only: remove the attachments, or send them in a message")
+    if (sending) return
+    // sendPlan (lib/send.ts) decides what the draft does: a message, a command or nothing.
+    const plan = sendPlan(text, media.length, Boolean(bot.team))
+    if (plan.kind === "skip") return
+    if (plan.kind === "invalid") {
+      setError(plan.error)
       return
     }
     setSending(true)
     setError(null)
     try {
-      if (goal !== null) await api.startGoal(bot.id, goal)
-      else if (media.length === 0 && value === "/clear") await api.clearContext(bot.id)
-      else if (media.length === 0 && value === "/compact") await api.compactContext(bot.id)
+      if (plan.kind === "goal") await api.startGoal(bot.id, plan.goal)
+      else if (plan.kind === "clear") await api.clearContext(bot.id)
+      else if (plan.kind === "compact") await api.compactContext(bot.id)
       else
         await api.send(
           bot.id,
-          value,
+          plan.text,
           await Promise.all(media.map((m) => readBase64(m.file))),
           answersFor(answering, false),
         )
-      if (goal === null && !(media.length === 0 && (value === "/clear" || value === "/compact"))) onAnswer(null)
+      if (answers(plan)) onAnswer(null)
       setText("")
       onSent(bot.id)
       for (const m of media) URL.revokeObjectURL(m.url)
@@ -974,6 +972,7 @@ function itemsOf(column: HTMLElement | null, entries: Entry[]): Item[] {
 export function Chat({
   bot,
   entries,
+  status = "ready",
   mentionables,
   answering = null,
   onAnswer = () => {},
@@ -982,6 +981,8 @@ export function Chat({
 }: {
   bot: Bot
   entries: Entry[]
+  // status is the transcript's load state, so an empty chat can say it is still loading.
+  status?: TranscriptStatus
   mentionables: Member[]
   // pill is the update pill, shown above the message box; draining says the server waits
   // to restart for an update.
@@ -1144,11 +1145,12 @@ export function Chat({
       )}
       <div
         ref={scroller}
+        data-transcript={status}
         className={cn("min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]", pill && "pb-11")}
         onScroll={(e) => onScroll(e.currentTarget)}
       >
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
-          {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">No messages yet.</p>}
+          {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">{emptyText(status)}</p>}
           {entries.map((e) => (
             <EntryView key={e.id} entry={e} chat={bot} skill={skillOf(e)} onAnswer={answer} />
           ))}

@@ -255,6 +255,25 @@ ignore-eof)
     sleep 60
   fi
   ;;
+task-wake)
+  # The first message starts a background task. The next message ends it:
+  # Claude Code wakes the model, whose run ends with a result while a second
+  # task keeps the process. Later messages are answered.
+  lifecycle started
+  init
+  echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Build the site"}]}'
+  result "started"
+  lifecycle completed
+  while IFS= read -r input; do
+    lifecycle started
+    result "pong"
+    lifecycle completed
+    echo '{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","summary":"Background command \"Build the site\" completed (exit code 0)"}'
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t2","task_type":"local_agent","description":"Watch the logs"}]}'
+    init
+    result "woke"
+  done
+  ;;
 chatty)
   # A long turn that prints a line every 0.2 seconds.
   lifecycle started
@@ -3744,5 +3763,169 @@ func TestAStateReadBeforeATurnStartsIsNotPublishedAfterIt(t *testing.T) {
 	defer mu.Unlock()
 	if len(published) != 2 || !published[1] || !r.botBusyLocked(bot.ID) {
 		t.Fatalf("published states = %v; want the idle state first and running last, as the bot runs", published)
+	}
+}
+
+func TestALateCallAfterATaskTurnEndsActsOnNoTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "task-wake")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	h.startBackgroundTask(t, bot)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "finish the build", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	var token string
+	waitFor(t, "the task turn ends with the process left", func() bool {
+		var n int
+		if err := h.conn.QueryRowContext(t.Context(), `SELECT count(*) FROM turns WHERE bot_id = ? AND source = 'task' AND status = 'done'`, bot.ID).Scan(&n); err != nil || n != 1 {
+			return false
+		}
+		h.runner.mu.Lock()
+		defer h.runner.mu.Unlock()
+		for _, s := range h.runner.sessions {
+			if s.key.botID == bot.ID && !s.waking {
+				token = s.token
+			}
+		}
+		return token != ""
+	})
+	rc, ok := h.runner.tokens.get(token)
+	if !ok || rc.TurnID != "" || rc.BotID != bot.ID {
+		t.Fatalf("token after the task turn = %+v, %v; want the bot with no turn", rc, ok)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	text, _ := callText(t, cs, "approve", map[string]any{"tool_name": "Bash", "input": map[string]any{"command": "ls"}})
+	if !strings.Contains(text, `"behavior":"deny"`) || !strings.Contains(text, "No turn is running") {
+		t.Fatalf("late approval = %s; want an immediate denial: no turn is running", text)
+	}
+}
+
+func TestRevokingATokenClosesItsMCPSessions(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	callText(t, cs, "update_routine", map[string]any{"action": "list"})
+	sessions := func() int {
+		n := 0
+		h.runner.tokens.mu.Lock()
+		servers := slices.Clone(h.runner.tokens.servers[token])
+		h.runner.tokens.mu.Unlock()
+		for _, s := range servers {
+			for range s.Sessions() {
+				n++
+			}
+		}
+		return n
+	}
+	if n := sessions(); n != 1 {
+		t.Fatalf("server sessions of the live token = %d; want 1", n)
+	}
+	var logs syncBuffer
+	h.runner.tokens.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h.runner.tokens.mu.Lock()
+	servers := slices.Clone(h.runner.tokens.servers[token])
+	h.runner.tokens.mu.Unlock()
+	h.runner.tokens.revoke(token)
+	for _, s := range servers {
+		for range s.Sessions() {
+			t.Fatal("a session of the revoked token is still open")
+		}
+	}
+	if n := sessions(); n != 0 {
+		t.Fatalf("server sessions kept for the revoked token = %d; want 0", n)
+	}
+	if got := logs.String(); got != "" {
+		t.Fatalf("closing a live session logged %q; want nothing", got)
+	}
+}
+
+// A token revoked while its MCP server is being made gets no server, so
+// nothing is kept that revoke would never close.
+func TestAServerForARevokedTokenIsNeitherServedNorKept(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := h.runner.toolServerFor(token); s == nil {
+		t.Fatal("no server for a live token")
+	}
+	h.runner.tokens.revoke(token)
+	if s := h.runner.toolServerFor(token); s != nil {
+		t.Fatal("a server for a revoked token")
+	}
+	if h.runner.tokens.addServer(token, mcp.NewServer(&mcp.Implementation{Name: "x", Version: "1"}, nil)) {
+		t.Fatal("addServer accepted a revoked token")
+	}
+	h.runner.tokens.mu.Lock()
+	kept := len(h.runner.tokens.servers[token])
+	h.runner.tokens.mu.Unlock()
+	if kept != 0 {
+		t.Fatalf("servers kept for the revoked token = %d; want 0", kept)
+	}
+}
+
+func TestDeletingABotWithAQueuedTurnStartsNoTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "sleep")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "work long", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the first turn runs", func() bool {
+		_, err := os.Stat(filepath.Join(h.dir, "pid"))
+		return err == nil
+	})
+	queued, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "and then this", "n2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT status FROM turns WHERE id = ?`, queued).Scan(&status); err != nil || status != "queued" {
+		t.Fatalf("second turn = %q, %v; want queued behind the running one", status, err)
+	}
+	// What the delete handler does: begin, interrupt, wait, delete.
+	done, err := h.runner.BeginDelete(ctx, bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.runner.Interrupt(ctx, bot.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the bot stops", func() bool { return !h.runner.Active(bot.ID) })
+	time.Sleep(300 * time.Millisecond) // a turn that would start, starts now
+	if err := h.runner.FinishDelete(ctx, bot.ID); err != nil {
+		t.Fatalf("delete a bot with a queued turn: %v", err)
+	}
+	done()
+	if _, err := h.svc.GetBot(ctx, bot.ID); err == nil {
+		t.Fatal("the bot still exists after the deletion")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if calls := h.argsLog(t); len(calls) != 1 {
+		t.Fatalf("claude started %d times; want once: the queued turn must not start during the deletion", len(calls))
 	}
 }

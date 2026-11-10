@@ -112,19 +112,15 @@ func (s *Service) CreateRoutine(ctx context.Context, botID, name, prompt, schedu
 	if err != nil {
 		return Routine{}, err
 	}
-	existing, err := s.ListRoutines(ctx, botID)
-	if err != nil {
-		return Routine{}, err
-	}
-	if len(existing) >= maxRoutinesPerBot {
-		return Routine{}, invalid("a bot can have at most %d routines", maxRoutinesPerBot)
-	}
 	now := s.nowMs()
 	next := sched.Next(s.now().In(s.loc)).UnixMilli()
 	row, err := s.q.CreateRoutine(ctx, db.CreateRoutineParams{
 		ID: uuid.NewString(), BotID: botID, Name: name, Prompt: prompt, Schedule: strings.TrimSpace(schedule),
-		Enabled: 1, NextRunAt: sql.NullInt64{Int64: next, Valid: true}, CreatedAt: now, UpdatedAt: now,
+		Enabled: 1, NextRunAt: sql.NullInt64{Int64: next, Valid: true}, CreatedAt: now, UpdatedAt: now, MaxRoutines: maxRoutinesPerBot,
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Routine{}, invalid("a bot can have at most %d routines", maxRoutinesPerBot)
+	}
 	if err != nil {
 		return Routine{}, fmt.Errorf("create routine %q for bot %s: %w", name, botID, err)
 	}

@@ -475,6 +475,12 @@ func (r *Runner) finishTask(s *session, a *activeTurn, status, errText string) {
 	if err := r.svc.FinishTurn(ctx, a.turn.ID, status, errText); err != nil {
 		r.log.Error("finish task turn", "turn", a.turn.ID, "err", err)
 	}
+	// Background subagents can still call tools: from now on those calls
+	// belong to no turn, instead of to the turn that ended.
+	if rc, ok := r.tokens.get(s.token); ok && rc.TurnID == a.turn.ID {
+		rc.TurnID = ""
+		r.tokens.set(s.token, rc)
+	}
 	r.svc.ExpireTurnApprovals(a.turn.ID)
 	r.mu.Lock()
 	s.waking = false

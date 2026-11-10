@@ -105,8 +105,11 @@ DELETE FROM memories WHERE scope_key = ?;
 DELETE FROM memories WHERE tier = 'note' AND created_at < ?;
 
 -- name: CreateRoutine :one
+-- The count and the insert are one statement, so concurrent creates cannot
+-- pass the limit together. No row comes back when the bot is at the limit.
 INSERT INTO routines (id, bot_id, name, prompt, schedule, enabled, next_run_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+SELECT sqlc.arg(id), sqlc.arg(bot_id), sqlc.arg(name), sqlc.arg(prompt), sqlc.arg(schedule), sqlc.arg(enabled), sqlc.arg(next_run_at), sqlc.arg(created_at), sqlc.arg(updated_at)
+WHERE (SELECT COUNT(*) FROM routines AS r WHERE r.bot_id = sqlc.arg(bot_id)) < CAST(sqlc.arg(max_routines) AS INTEGER)
 RETURNING *;
 
 -- name: GetRoutine :one
@@ -151,6 +154,10 @@ WHERE (kind = 'approval' AND json_extract(body, '$.status') = 'pending')
 -- name: CancelQueuedRoomTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'stopped by the user', finished_at = ?
 WHERE room_id = ? AND status = 'queued';
+
+-- name: CancelQueuedTurnsOf :exec
+UPDATE turns SET status = 'interrupted', error = 'the bot was deleted', finished_at = ?
+WHERE (bot_id = sqlc.arg(id) OR room_id = sqlc.arg(id)) AND status = 'queued';
 
 -- name: AddRoomMember :exec
 INSERT INTO room_members (room_id, bot_id) VALUES (?, ?)

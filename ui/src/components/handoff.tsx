@@ -239,6 +239,37 @@ export function HandedOverSection({ goals, name, act }: { goals: Goal[]; name: (
   )
 }
 
+// ArtifactPicker lets the user attach artifacts to a hand-over. A long title wraps to two
+// lines inside the panel, and its full text is in the tooltip.
+export function ArtifactPicker({
+  artifacts,
+  picked,
+  onPick,
+}: {
+  artifacts: Pick<Artifact, "id" | "title">[]
+  picked: string[]
+  onPick: (update: (picked: string[]) => string[]) => void
+}) {
+  if (artifacts.length === 0) return null
+  return (
+    <fieldset className="flex max-h-32 min-w-0 flex-col gap-1 overflow-y-auto text-sm">
+      <legend className="mb-1 text-sm font-medium">Artifacts (optional)</legend>
+      {artifacts.map((a) => (
+        <label key={a.id} className="flex min-w-0 items-start gap-2">
+          <Checkbox
+            className="mt-0.5"
+            checked={picked.includes(a.id)}
+            onCheckedChange={(v) => onPick((p) => (v === true ? [...p, a.id] : p.filter((id) => id !== a.id)))}
+          />
+          <span className="line-clamp-2 min-w-0 flex-1 [overflow-wrap:anywhere]" title={a.title}>
+            {a.title}
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  )
+}
+
 // HandOverDialog gives another team a piece of work as a goal of its own, from a team or
 // from no team.
 export function HandOverDialog({
@@ -298,10 +329,12 @@ export function HandOverDialog({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* A grid column sizes to its widest content unless capped, so a long word in a title,
+          a team name or the goal would push the panel wider than the window. */}
+      <DialogContent className="grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Hand over to another team</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="[overflow-wrap:anywhere]">
             The team takes it in as a goal of its own and works on it from its own budget.
             {from ? ` Follow it under Handed over on ${from.name}'s board.` : ""}
           </DialogDescription>
@@ -310,7 +343,7 @@ export function HandOverDialog({
           <Label htmlFor="handoff-to">Team</Label>
           <select
             id="handoff-to"
-            className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
+            className="border-input h-9 w-full min-w-0 truncate rounded-md border bg-transparent px-2 text-sm"
             value={to}
             onChange={(e) => setTo(e.target.value)}
           >
@@ -324,33 +357,27 @@ export function HandOverDialog({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="handoff-text">What should the team do?</Label>
-          <Textarea id="handoff-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea
+            id="handoff-text"
+            rows={3}
+            className="max-h-48 min-w-0 [overflow-wrap:anywhere]"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="handoff-brief">Brief (optional)</Label>
           <Textarea
             id="handoff-brief"
             rows={3}
+            className="max-h-48 min-w-0 [overflow-wrap:anywhere]"
             placeholder="Context the team needs: links, constraints, what done looks like."
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
           />
         </div>
-        {artifacts.length > 0 && (
-          <fieldset className="flex max-h-32 flex-col gap-1 overflow-y-auto text-sm">
-            <legend className="mb-1 text-sm font-medium">Artifacts (optional)</legend>
-            {artifacts.map((a) => (
-              <label key={a.id} className="flex items-center gap-2">
-                <Checkbox
-                  checked={picked.includes(a.id)}
-                  onCheckedChange={(v) => setPicked((p) => (v === true ? [...p, a.id] : p.filter((id) => id !== a.id)))}
-                />
-                <span className="truncate">{a.title}</span>
-              </label>
-            ))}
-          </fieldset>
-        )}
-        {error && <output className="text-destructive text-sm">{error}</output>}
+        <ArtifactPicker artifacts={artifacts} picked={picked} onPick={setPicked} />
+        {error && <output className="text-destructive text-sm [overflow-wrap:anywhere]">{error}</output>}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel

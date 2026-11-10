@@ -105,6 +105,11 @@ func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (boo
 	if slices.Contains(grants, tool) {
 		return true, "", nil
 	}
+	// A call outside any turn, such as a background subagent's after its
+	// turn ended, has no turn to wait in and no one to see the card.
+	if turnID == "" {
+		return false, "No turn is running, so the user cannot be asked; ask again in a turn.", nil
+	}
 	body := approvalBody{Tool: tool, Input: input, Status: "pending"}
 	transcript := req.TranscriptID
 	if transcript != botID {

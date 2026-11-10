@@ -312,10 +312,14 @@ export function tasksKey(
     attention?: string
     openQuestions?: number
     incomingHandoffs?: number
+    team?: { dailyBudget?: number }
   }[],
 ): string {
   return bots
-    .map((b) => `${b.id}:${b.running ? 1 : 0}:${b.attention ?? ""}:${b.openQuestions ?? 0}:${b.incomingHandoffs ?? 0}`)
+    .map(
+      (b) =>
+        `${b.id}:${b.running ? 1 : 0}:${b.attention ?? ""}:${b.openQuestions ?? 0}:${b.incomingHandoffs ?? 0}:${b.team?.dailyBudget ?? ""}`,
+    )
     .join(",")
 }
 
@@ -390,4 +394,14 @@ export function budgetError(value: string): string | null {
   // Blank reads as 0, which is no limit.
   if (!Number.isInteger(n) || n < 0 || n > 10000) return "A team's turns per day must be 0 (no limit) to 10000."
   return null
+}
+
+// MAX_TASK_TURNS is how many turns on no task one Make a task can take, as the server allows.
+export const MAX_TASK_TURNS = 50
+
+// taskTurns are the turns a Make a task takes: the oldest MAX_TASK_TURNS of a list that is
+// oldest first, and how many of the list that leaves out.
+export function taskTurns<T>(turns: T[]): { take: T[]; left: number } {
+  const take = turns.slice(0, MAX_TASK_TURNS)
+  return { take, left: turns.length - take.length }
 }

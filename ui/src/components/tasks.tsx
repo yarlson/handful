@@ -28,6 +28,7 @@ import {
   sourceLabel,
   historyKey,
   taskError,
+  taskTurns,
   taskEventLabel,
   teamOption,
   teamSummary,
@@ -160,6 +161,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
   if (offTask.count === 0) return null
   const who = [...new Set(offTask.turns.map((t) => t.botName))].join(", ")
   const turns = offTask.count === 1 ? "1 turn" : `${offTask.count} turns`
+  const picked = taskTurns(offTask.turns)
   return (
     <section aria-labelledby="off-task-heading" className="flex flex-col gap-1.5">
       <h3 id="off-task-heading" className="text-muted-foreground text-xs font-medium uppercase">
@@ -182,10 +184,14 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
           </Button>
           <TextAction
             id={`make-task-${team.id}`}
-            label={`What is the task? ${team.name} takes it at once, with these ${turns}.`}
+            label={
+              picked.left > 0
+                ? `What is the task? ${team.name} takes it at once, with the oldest ${picked.take.length} of these ${turns}; make another for the other ${picked.left}.`
+                : `What is the task? ${team.name} takes it at once, with these ${turns}.`
+            }
             open={`Make a task: ${turns} on no task`}
             submit="Make a task"
-            onSubmit={(text) => act(() => api.makeTask(team.id, { text, turnIds: offTask.turns.map((t) => t.turnId) }))}
+            onSubmit={(text) => act(() => api.makeTask(team.id, { text, turnIds: picked.take.map((t) => t.turnId) }))}
           />
         </div>
         {shown && (

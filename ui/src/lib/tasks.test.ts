@@ -21,6 +21,8 @@ import {
   sourceLabel,
   stuckReason,
   taskError,
+  taskTurns,
+  MAX_TASK_TURNS,
   taskEventLabel,
   tasksKey,
   taskBar,
@@ -321,12 +323,17 @@ test("a task needs a team and a text of at most 4000 characters", () => {
 
 test("the tasks key changes when a turn, a question, the attention or an inbox changes", () => {
   const bot = { id: "d", running: false }
-  assert.equal(tasksKey([bot, { id: "p", running: true }]), "d:0::0:0,p:1::0:0")
+  assert.equal(tasksKey([bot, { id: "p", running: true }]), "d:0::0:0:,p:1::0:0:")
   assert.equal(
     tasksKey([{ id: "d", running: false, attention: "question", openQuestions: 2, incomingHandoffs: 3 }]),
-    "d:0:question:2:3",
+    "d:0:question:2:3:",
   )
   assert.equal(tasksKey([]), "")
+  assert.equal(tasksKey([{ id: "d", running: false, team: { dailyBudget: 70 } }]), "d:0::0:0:70")
+  assert.notEqual(
+    tasksKey([{ id: "d", running: false, team: { dailyBudget: 4000 } }]),
+    tasksKey([{ id: "d", running: false, team: { dailyBudget: 69 } }]),
+  )
 })
 
 test("a team's lead and members are named, and a member who left says so", () => {
@@ -374,4 +381,17 @@ test("an open history reloads with each load of its board, and per task", () => 
   assert.equal(historyKey("g1", 1), "g1:1")
   assert.notEqual(historyKey("g1", 2), historyKey("g1", 1))
   assert.notEqual(historyKey("g2", 1), historyKey("g1", 1))
+})
+
+test("Make a task takes the oldest 50 turns, and says how many it leaves", () => {
+  assert.equal(MAX_TASK_TURNS, 50)
+  const turns = Array.from({ length: 51 }, (_, i) => i)
+  const { take, left } = taskTurns(turns)
+  assert.equal(take.length, 50)
+  assert.equal(take[0], 0)
+  assert.equal(take[49], 49)
+  assert.equal(left, 1)
+  assert.deepEqual(taskTurns([1, 2]), { take: [1, 2], left: 0 })
+  assert.deepEqual(taskTurns(Array.from({ length: 50 }, () => 7)).left, 0)
+  assert.deepEqual(taskTurns([]), { take: [], left: 0 })
 })

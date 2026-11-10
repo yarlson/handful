@@ -82,7 +82,8 @@ export function TaskBar({
   pause = "Paused for update",
 }: {
   team: Bot
-  version: number
+  // version changes when the team's transcript, turns or daily budget change; it reloads the bar.
+  version: string
   onShowWork?: () => void
   onOpenInbox?: () => void
   // teams are the app's teams, to send tasks to.

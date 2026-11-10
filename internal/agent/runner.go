@@ -157,9 +157,22 @@ func (r *Runner) Run(ctx context.Context) {
 // settleItems blocks the items whose owner or reviewer stopped without
 // handing them on, so that the lead learns of them.
 func (r *Runner) settleItems(ctx context.Context) {
-	if err := r.svc.SettleItems(ctx, r.hasSession); err != nil && ctx.Err() == nil {
+	if err := r.svc.SettleItems(ctx, r.hasSession, r.leadState()); err != nil && ctx.Err() == nil {
 		r.log.Error("settle board items", "err", err)
 	}
+}
+
+// leadState is what the decision clock needs to know of the leads: whether
+// turns wait for a usage limit, and whether a lead's bot runs a turn.
+func (r *Runner) leadState() core.LeadState {
+	return core.LeadState{Paused: r.PausedUntil().After(time.Now()), Busy: r.botBusy}
+}
+
+// botBusy reports whether the bot runs a turn.
+func (r *Runner) botBusy(botID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.botBusyLocked(botID)
 }
 
 // hasSession reports whether a claude process runs for the bot's seat in a room.

@@ -22,6 +22,16 @@ func (s *server) waiting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, waiting)
 }
 
+// needsYou lists what waits for the user, oldest first.
+func (s *server) needsYou(w http.ResponseWriter, r *http.Request) {
+	needs, err := s.svc.NeedsYou(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, needs)
+}
+
 // chatQuestions lists the open questions of one chat.
 func (s *server) chatQuestions(w http.ResponseWriter, r *http.Request) {
 	questions, err := s.svc.OpenQuestions(r.Context(), r.PathValue("id"))

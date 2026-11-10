@@ -382,7 +382,7 @@ func (s *Service) passedTooOften(ctx context.Context, a Actor, team Bot, g Goal)
 	s.hub.Publish(Event{Type: "bots"})
 	question := fmt.Sprintf("The task %q was passed on %d times and still has no team; %s couldn't settle it. Take it here, push it back, or tell the leads where it belongs?",
 		g.Text, MaxPasses, memberName(team, a.BotID))
-	return errors.Join(refused, s.askUser(ctx, a, team, question))
+	return errors.Join(refused, s.askUser(ctx, a, team, g.ID, question))
 }
 
 // CloseTask closes the team's Now task with a result: it is done and waits
@@ -454,7 +454,7 @@ func (s *Service) ApproveTask(ctx context.Context, a Actor, goalID string) (Goal
 	g.State = GoalDone
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+	if err := s.closeTaskQuestions(ctx, g.TeamID, g.ID); err != nil {
 		return Goal{}, err
 	}
 	return g, s.boardNote(ctx, team.ID, fmt.Sprintf("%s approved the task %q.", actorName(team, a), g.Text))
@@ -496,7 +496,7 @@ func (s *Service) ChangesTask(ctx context.Context, a Actor, goalID, text string)
 	}
 	s.signalTurns()
 	s.hub.Publish(Event{Type: "bots"})
-	if err := s.closeDelivery(ctx, g.TeamID, g.ID); err != nil {
+	if err := s.closeTaskQuestions(ctx, g.TeamID, g.ID); err != nil {
 		return Goal{}, err
 	}
 	return g, s.boardNote(ctx, team.ID, fmt.Sprintf("%s asked for changes to the task %q: %s", actorName(team, a), g.Text, text))

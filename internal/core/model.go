@@ -175,6 +175,8 @@ type PostMeta struct {
 	// Question is the one-line summary of a question (a post with needsReply)
 	// that the user's list of open questions shows.
 	Question string
+	// GoalID is the task a question is about; deciding on the task closes it.
+	GoalID string
 }
 
 // modelFlags is the set of bots with a model problem; it lives in memory.
@@ -238,5 +240,8 @@ func (m PostMeta) addTo(body map[string]any) {
 	}
 	if m.Effort != "" {
 		body["effort"] = m.Effort
+	}
+	if m.GoalID != "" {
+		body["goalId"] = m.GoalID
 	}
 }

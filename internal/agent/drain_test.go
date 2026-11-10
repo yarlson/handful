@@ -144,3 +144,25 @@ func TestBusyNamesEachBotOnceAndSortsByNameThenID(t *testing.T) {
 		t.Fatalf("busy = %+v; want %+v", got, want)
 	}
 }
+
+func TestTheLeadStateSaysWhetherTheRunnerIsPausedAndWhichBotsRun(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	r := h.runner
+	if s := r.leadState(); s.Paused || s.Busy("ana") {
+		t.Fatalf("lead state of an idle runner = paused %v, Ana busy %v; want neither", s.Paused, s.Busy("ana"))
+	}
+	r.mu.Lock()
+	r.pausedUntil = time.Now().Add(time.Hour)
+	r.running["ana"] = runningTurn{}
+	r.mu.Unlock()
+	if s := r.leadState(); !s.Paused || !s.Busy("ana") || s.Busy("bo") {
+		t.Fatalf("lead state = paused %v, Ana busy %v, Bo busy %v; want paused, Ana busy, Bo not", s.Paused, s.Busy("ana"), s.Busy("bo"))
+	}
+	r.mu.Lock()
+	r.pausedUntil = time.Now().Add(-time.Second)
+	r.mu.Unlock()
+	if s := r.leadState(); s.Paused {
+		t.Fatal("a pause that ended still counts")
+	}
+}

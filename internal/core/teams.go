@@ -44,6 +44,9 @@ type Team struct {
 	// are exempt.
 	InboxMax       int64 `json:"inboxMax"`
 	InboxPerSender int64 `json:"inboxPerSender"`
+	// DecisionMinutes is how long a task may wait in the inbox for its lead's
+	// decision, counting only time when the lead could act.
+	DecisionMinutes int64 `json:"decisionMinutes"`
 }
 
 func (b Bot) IsTeam() bool { return b.Team != nil }
@@ -74,18 +77,21 @@ type TeamSettings struct {
 	// Zero InboxMax and InboxPerSender mean DefaultInboxMax and DefaultInboxPerSender.
 	InboxMax       int64
 	InboxPerSender int64
+	// Zero DecisionMinutes means DefaultDecisionMinutes.
+	DecisionMinutes int64
 }
 
 // TeamPatch changes the settings of a team. A nil field keeps its value.
 type TeamPatch struct {
-	LeadID         *string
-	Agreement      *string
-	GoalBudget     *int64
-	DefaultModel   *string
-	DefaultEffort  *string
-	RequestSlots   *int64
-	InboxMax       *int64
-	InboxPerSender *int64
+	LeadID          *string
+	Agreement       *string
+	GoalBudget      *int64
+	DefaultModel    *string
+	DefaultEffort   *string
+	RequestSlots    *int64
+	InboxMax        *int64
+	InboxPerSender  *int64
+	DecisionMinutes *int64
 }
 
 // TeamWorkspace is the shared folder of a team. Every turn in the team runs there.
@@ -119,6 +125,9 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	if p.RequestSlots != nil && *p.RequestSlots == 0 {
 		return Bot{}, invalid("Requests in progress at once must be from 1 to %d.", len(team.Members))
 	}
+	if p.DecisionMinutes != nil && *p.DecisionMinutes == 0 {
+		return Bot{}, errDecisionMinutes
+	}
 	updated, err := validTeam(p.apply(*team.Team), team.Members)
 	if err != nil {
 		return Bot{}, err
@@ -127,7 +136,7 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 		if err := q.UpdateTeam(ctx, db.UpdateTeamParams{
 			LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
 			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots,
-			InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, TeamID: id,
+			InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, TeamID: id,
 		}); err != nil {
 			return fmt.Errorf("update team %s: %w", id, err)
 		}
@@ -159,6 +168,7 @@ func (p TeamPatch) apply(t Team) TeamSettings {
 	setIf(&set.RequestSlots, p.RequestSlots)
 	setIf(&set.InboxMax, p.InboxMax)
 	setIf(&set.InboxPerSender, p.InboxPerSender)
+	setIf(&set.DecisionMinutes, p.DecisionMinutes)
 	return set
 }
 
@@ -204,10 +214,28 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if err != nil {
 		return nil, err
 	}
+	decision, err := validDecisionMinutes(set.DecisionMinutes)
+	if err != nil {
+		return nil, err
+	}
 	return &Team{
 		LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots,
-		InboxMax: inboxMax, InboxPerSender: perSender,
+		InboxMax: inboxMax, InboxPerSender: perSender, DecisionMinutes: decision,
 	}, nil
+}
+
+// errDecisionMinutes is the error of a decision time out of range.
+var errDecisionMinutes = invalid("The decision time must be %d to %d minutes.", minDecisionMinutes, maxDecisionMinutes)
+
+// validDecisionMinutes checks a team's decision time; zero means the default.
+func validDecisionMinutes(minutes int64) (int64, error) {
+	if minutes == 0 {
+		return DefaultDecisionMinutes, nil
+	}
+	if minutes < minDecisionMinutes || minutes > maxDecisionMinutes {
+		return 0, errDecisionMinutes
+	}
+	return minutes, nil
 }
 
 // validInbox checks a team's inbox limits; zero means the default.
@@ -250,6 +278,7 @@ func toTeam(row db.Team, members []Member) *Team {
 	return &Team{
 		LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
 		RequestSlots: clampSlots(row.RequestSlots, len(members)), InboxMax: row.InboxMax, InboxPerSender: row.InboxPerSender,
+		DecisionMinutes: row.DecisionMinutes,
 	}
 }
 

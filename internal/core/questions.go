@@ -462,26 +462,27 @@ func (s *Service) closeAnswered(ctx context.Context, q *db.Queries, a answered, 
 	return changed, nil
 }
 
-// closeDelivery closes the open delivery questions of a team's goal: the
-// user accepted the goal, ended it or asked for changes.
-func (s *Service) closeDelivery(ctx context.Context, teamID, goalID string) error {
+// closeTaskQuestions closes the open questions about a team's task: its
+// delivery, once the user accepted it, ended it or asked for changes, and
+// a question to the user about it, once someone decided on it.
+func (s *Service) closeTaskQuestions(ctx context.Context, teamID, goalID string) error {
 	var changed []Entry
 	err := s.inTx(ctx, func(q *db.Queries) error {
 		rows, err := q.ListOpenQuestionEntries(ctx, teamID)
 		if err != nil {
 			return fmt.Errorf("list the open questions of %s: %w", teamID, err)
 		}
-		var delivery answered
+		var about answered
 		for _, row := range rows {
 			b, err := parseQuestion(row)
 			if err != nil {
 				return err
 			}
 			if b.GoalID == goalID {
-				delivery.rows = append(delivery.rows, row)
+				about.rows = append(about.rows, row)
 			}
 		}
-		changed, err = s.closeAnswered(ctx, q, delivery, "")
+		changed, err = s.closeAnswered(ctx, q, about, "")
 		return err
 	})
 	if err != nil {

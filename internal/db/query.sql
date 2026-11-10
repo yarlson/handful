@@ -290,7 +290,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender, decision_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -299,7 +299,7 @@ SELECT * FROM teams WHERE team_id = ?;
 SELECT * FROM teams;
 
 -- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ? WHERE team_id = ?;
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ?, decision_minutes = ? WHERE team_id = ?;
 
 -- name: SetRequestSlots :exec
 UPDATE teams SET request_slots = ? WHERE team_id = ?;
@@ -335,12 +335,37 @@ SELECT * FROM goals WHERE state = 'later' AND later_until <= sqlc.arg(now) ORDER
 
 -- name: ReturnToInbox :execrows
 -- A deferred task that came due, or a stopped one that is reopened, goes back to the inbox.
-UPDATE goals SET state = 'incoming', later_until = 0, queue_pos = 0, pinned = 0
+UPDATE goals SET state = 'incoming', later_until = 0, queue_pos = 0, pinned = 0, decision_ms = 0, decision_tick = 0, missed_at = 0
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: PassGoal :execrows
-UPDATE goals SET team_id = sqlc.arg(team_id), passes = passes + 1, passed_by = sqlc.arg(passed_by), intake_note = sqlc.arg(intake_note), asked_at = 0
+UPDATE goals SET team_id = sqlc.arg(team_id), passes = passes + 1, passed_by = sqlc.arg(passed_by), intake_note = sqlc.arg(intake_note), asked_at = 0,
+  decision_ms = 0, decision_tick = 0, missed_at = 0
 WHERE id = sqlc.arg(id) AND state = 'incoming' AND team_id = sqlc.arg(from_team_id);
+
+-- name: ListClockedGoals :many
+-- The tasks whose decision clock may run: in an inbox, with no question to
+-- the sender waiting, and not yet left to the user.
+SELECT * FROM goals WHERE state = 'incoming' AND asked_at = 0 AND missed_at = 0
+ORDER BY team_id, created_at, rowid;
+
+-- name: SetDecisionClock :execrows
+UPDATE goals SET decision_ms = sqlc.arg(decision_ms), decision_tick = sqlc.arg(decision_tick)
+WHERE id = sqlc.arg(id) AND state = 'incoming' AND missed_at = 0;
+
+-- name: MissDecision :execrows
+UPDATE goals SET decision_ms = sqlc.arg(decision_ms), decision_tick = 0, missed_at = sqlc.arg(missed_at)
+WHERE id = sqlc.arg(id) AND state = 'incoming' AND missed_at = 0;
+
+-- name: ListNeedsUserGoals :many
+-- The tasks that only the user decides on now: a missed decision, or asked
+-- or passed on too often.
+SELECT * FROM goals WHERE state = 'incoming' AND (missed_at > 0 OR ask_rounds > sqlc.arg(max_ask_rounds) OR passes > sqlc.arg(max_passes))
+ORDER BY created_at, rowid;
+
+-- name: ListDeliveredUserGoals :many
+-- The user's own tasks that are done and wait for the user's approval.
+SELECT * FROM goals WHERE state = 'delivered' AND origin = 'user' ORDER BY created_at, rowid;
 
 -- name: SetGoalPinned :execrows
 UPDATE goals SET pinned = ? WHERE id = ? AND state = 'queued';
@@ -348,6 +373,10 @@ UPDATE goals SET pinned = ? WHERE id = ? AND state = 'queued';
 -- name: InsertGoalEvent :exec
 INSERT INTO goal_events (id, goal_id, kind, actor_id, actor_name, text, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: LatestGoalEventAt :one
+-- When the latest decision on a task was made (ms), or 0.
+SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM goal_events WHERE goal_id = ?;
 
 -- name: ListGoalEvents :many
 SELECT * FROM goal_events WHERE goal_id = ? ORDER BY created_at, rowid;
@@ -369,7 +398,7 @@ UPDATE goals SET state = sqlc.arg(state), budget = sqlc.arg(budget), queue_pos =
 WHERE id = sqlc.arg(id) AND state = 'incoming';
 
 -- name: AskAboutHandoff :execrows
-UPDATE goals SET intake_note = sqlc.arg(intake_note), asked_at = sqlc.arg(asked_at), ask_rounds = sqlc.arg(ask_rounds)
+UPDATE goals SET intake_note = sqlc.arg(intake_note), asked_at = sqlc.arg(asked_at), ask_rounds = sqlc.arg(ask_rounds), decision_tick = 0
 WHERE id = sqlc.arg(id) AND state = 'incoming' AND ask_rounds = sqlc.arg(from_rounds);
 
 -- name: AnswerHandoffGoal :execrows

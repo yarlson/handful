@@ -176,7 +176,7 @@ func TestOnlyTheLeadDecidesAndTheUserTakesOnlyWhatTheLeadsCouldNotSettle(t *test
 		t.Fatalf("the user takes a task its lead decides on: err = %v; want ErrInvalid", err)
 	}
 	// Nothing else takes it: settling the board leaves it in the inbox.
-	if err := h.svc.SettleItems(ctx, func(string, string) bool { return false }); err != nil {
+	if err := h.svc.SettleItems(ctx, func(string, string) bool { return false }, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.goalNow(t, g.ID); got.State != GoalIncoming {
@@ -368,7 +368,7 @@ func TestLaterDefersATaskWithinAWeekAndItComesBackWhenDue(t *testing.T) {
 	}
 	live := func(string, string) bool { return false }
 	now = due.Add(-2 * time.Second)
-	if err := h.svc.SettleItems(ctx, live); err != nil {
+	if err := h.svc.SettleItems(ctx, live, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if h.goalNow(t, g.ID).State != GoalLater || h.goalNow(t, other.ID).State != GoalIncoming {
@@ -377,7 +377,7 @@ func TestLaterDefersATaskWithinAWeekAndItComesBackWhenDue(t *testing.T) {
 	h.wantWakes(t, "a settle before the guide is due", "Dee @Docs decides FAQ.")
 	finishQueued(t, h.svc)
 	now = due
-	if err := h.svc.SettleItems(ctx, live); err != nil {
+	if err := h.svc.SettleItems(ctx, live, LeadState{}); err != nil {
 		t.Fatal(err)
 	}
 	if back := h.goalNow(t, g.ID); back.State != GoalIncoming || back.LaterUntil != 0 {

@@ -81,6 +81,9 @@ type Goal struct {
 	Passes        int64  `json:"passes"`
 	PassedBy      string `json:"passed_by"`
 	WaitsOnItemID string `json:"waits_on_item_id"`
+	DecisionMs    int64  `json:"decision_ms"`
+	DecisionTick  int64  `json:"decision_tick"`
+	MissedAt      int64  `json:"missed_at"`
 }
 
 type GoalEvent struct {
@@ -163,16 +166,17 @@ type Routine struct {
 }
 
 type Team struct {
-	TeamID         string `json:"team_id"`
-	LeadBotID      string `json:"lead_bot_id"`
-	Agreement      string `json:"agreement"`
-	GoalBudget     int64  `json:"goal_budget"`
-	DefaultModel   string `json:"default_model"`
-	DefaultEffort  string `json:"default_effort"`
-	RequestSlots   int64  `json:"request_slots"`
-	StartHandoffs  string `json:"start_handoffs"`
-	InboxMax       int64  `json:"inbox_max"`
-	InboxPerSender int64  `json:"inbox_per_sender"`
+	TeamID          string `json:"team_id"`
+	LeadBotID       string `json:"lead_bot_id"`
+	Agreement       string `json:"agreement"`
+	GoalBudget      int64  `json:"goal_budget"`
+	DefaultModel    string `json:"default_model"`
+	DefaultEffort   string `json:"default_effort"`
+	RequestSlots    int64  `json:"request_slots"`
+	StartHandoffs   string `json:"start_handoffs"`
+	InboxMax        int64  `json:"inbox_max"`
+	InboxPerSender  int64  `json:"inbox_per_sender"`
+	DecisionMinutes int64  `json:"decision_minutes"`
 }
 
 type ToolGrant struct {

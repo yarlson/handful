@@ -98,14 +98,70 @@ export function placeNote(title: string, position: number, total: number): strin
   return `${title} is now ${position} of ${total}.`
 }
 
+// OpenState is a goal state that still has work: the team can't start another goal.
+export type OpenState = "active" | "delivered" | "paused"
+
+// GoalAction is a button of the goal bar:
+//   accept:     accept a delivered goal; nothing is queued.
+//   acceptNext: accept a delivered goal and choose whether the next one starts.
+//   resume:     let a paused goal go on with the turns it has left.
+//   extend:     add 10 turns to the budget.
+//   end:        end the goal for good, after a confirm.
+export type GoalAction = "accept" | "acceptNext" | "resume" | "extend" | "end"
+
+// GOAL_ACTIONS are the goal bar's buttons per open state, in the order shown. goalBar leaves
+// out resume when no turns are left, and asks about the next goal when one is queued.
+export const GOAL_ACTIONS: Record<OpenState, GoalAction[]> = {
+  active: ["extend", "end"],
+  delivered: ["accept", "end"],
+  paused: ["resume", "extend", "end"],
+}
+
+function isOpen(state: string | undefined): state is OpenState {
+  // A missing state reads as "undefined", which is no key of the table.
+  return Object.hasOwn(GOAL_ACTIONS, String(state))
+}
+
 // openGoal tells whether a goal state still has work: the team can't start another.
 export function openGoal(state: string | undefined): boolean {
-  return state === "active" || state === "delivered" || state === "paused"
+  return isOpen(state)
 }
 
 // onHold tells whether a team's queue waits for the user: no open goal and a goal queued.
 export function onHold(goalState: string | undefined, queued: number): boolean {
   return queued > 0 && !openGoal(goalState)
+}
+
+// GoalBarView is what the goal bar shows:
+//   open: the goal with its buttons.
+//   hold: no open goal and a goal queued; the user can start it.
+//   idle: no open goal and nothing queued; the bar says how to start one.
+export type GoalBarView =
+  | { mode: "open"; state: OpenState; actions: GoalAction[] }
+  | { mode: "hold" }
+  | { mode: "idle" }
+
+// goalBar decides the goal bar's view from the team's latest goal and the number of goals
+// queued after it.
+export function goalBar(
+  goal: { state: string; used: number; budget: number } | null | undefined,
+  queued: number,
+): GoalBarView {
+  const state = goal?.state
+  if (!goal || !isOpen(state)) return { mode: queued > 0 ? "hold" : "idle" }
+  const actions = GOAL_ACTIONS[state]
+    .filter((a) => a !== "resume" || goal.used < goal.budget)
+    .map((a) => (a === "accept" && queued > 0 ? "acceptNext" : a))
+  return { mode: "open", state, actions }
+}
+
+// Confirm is the one confirmation the goal bar has open, and the goal it is for. It names
+// the goal so that a confirm left open never applies to the goal that comes after.
+export type Confirm = { kind: "end" | "accept"; goalId: string } | null
+
+// confirms tells whether confirm c is open for this kind and this goal.
+export function confirms(c: Confirm, kind: "end" | "accept", goalId: string): boolean {
+  return c !== null && c.kind === kind && c.goalId === goalId
 }
 
 // nextUp names the head of the queue and how many follow it.

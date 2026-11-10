@@ -1283,12 +1283,10 @@ func TestMCPUpdateBoardTakesAnItemFromStartToDone(t *testing.T) {
 			t.Fatalf("update_board listed = %v; want %v (only in a turn in a team)", got, want)
 		}
 	}
-	if text := call(lead, map[string]any{"action": "list"}); text != "The team has had no goal yet, and no request." {
-		t.Fatalf("list without a goal = %q", text)
+	if text := call(lead, map[string]any{"action": "list"}); text != "The team has no task yet." {
+		t.Fatalf("list without a task = %q", text)
 	}
-	if text := call(lead, map[string]any{"action": "start_goal", "text": "Ship CSV export."}); !strings.HasPrefix(text, "Started the goal (id ") || !strings.Contains(text, "30 turns") {
-		t.Fatalf("start_goal = %q", text)
-	}
+	h.newGoal(t, team)
 	text := call(lead, map[string]any{"action": "create", "title": "Parse", "brief": "Parse it.", "acceptance": "Tests pass.", "owner_id": bo.ID})
 	board, _ := h.svc.Board(ctx, team.ID)
 	itemID := board.Items[0].ID
@@ -1468,10 +1466,6 @@ func TestWorkAndReviewBriefsCarryTheItem(t *testing.T) {
 	if work := workBrief(board, "missing", nil); !strings.Contains(work, "no longer yours") {
 		t.Errorf("work brief of a missing item = %q", work)
 	}
-	asked := core.Board{Requests: []core.Request{{ID: "r1", Title: "Guide", Brief: "Write it.", Acceptance: "It exists.", State: core.ItemDoing, FromTeamID: "t2"}}}
-	if work := workBrief(asked, "r1", nil); !strings.Contains(work, "Your item: \"Guide\" (id r1).") {
-		t.Errorf("work brief of a request = %q; want the request as the item", work)
-	}
 	parse.State = core.ItemReview
 	board.Items[1] = parse
 	review := reviewBrief(team, board, "i1", nil)
@@ -1536,7 +1530,7 @@ func TestABoardTurnStartsOnlyWhenItsGoalAllowsIt(t *testing.T) {
 	}
 }
 
-func TestTheLeadDeliversAndAnAcceptedGoalGetsARetroTurn(t *testing.T) {
+func TestTheLeadClosesATaskAndAnAcceptedOneGetsARetroTurn(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
 	ctx := context.Background()
@@ -1554,8 +1548,12 @@ func TestTheLeadDeliversAndAnAcceptedGoalGetsARetroTurn(t *testing.T) {
 	}
 	t.Cleanup(func() { lead.Close() })
 
-	if text, isErr := callText(t, lead, "update_board", map[string]any{"action": "deliver", "text": "Done."}); !isErr || !strings.Contains(text, "deliver when every item is done or dropped") {
-		t.Fatalf("deliver with an open item = %q (error %v); want an error", text, isErr)
+	now, err := h.svc.Board(ctx, team.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr := callText(t, lead, "update_board", map[string]any{"action": "close", "goal_id": now.Goal.ID, "text": "Done."}); !isErr || !strings.Contains(text, `"Parse" is todo`) {
+		t.Fatalf("close with an open step = %q (error %v); want an error", text, isErr)
 	}
 	if err := h.svc.StartItemWork(ctx, items[0].ID, bo.ID); err != nil {
 		t.Fatal(err)
@@ -1563,9 +1561,9 @@ func TestTheLeadDeliversAndAnAcceptedGoalGetsARetroTurn(t *testing.T) {
 	if _, err := h.svc.SubmitItem(ctx, core.Actor{BotID: bo.ID, TeamID: team.ID, Role: core.RoleWork}, items[0].ID, "parse.go"); err != nil {
 		t.Fatal(err)
 	}
-	text, isErr := callText(t, lead, "update_board", map[string]any{"action": "deliver", "text": "CSV export works."})
-	if isErr || text != "Delivered: the result is in the team's channel. The user accepts the goal or asks for changes." {
-		t.Fatalf("deliver = %q (error %v)", text, isErr)
+	text, isErr := callText(t, lead, "update_board", map[string]any{"action": "close", "goal_id": now.Goal.ID, "text": "CSV export works."})
+	if isErr || text != `"Ship CSV export." is delivered now.` {
+		t.Fatalf("close = %q (error %v)", text, isErr)
 	}
 	board, _ := h.svc.Board(ctx, team.ID)
 	turns, _ := h.svc.QueuedTurns(ctx, 10)

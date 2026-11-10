@@ -447,7 +447,7 @@ func TestEveryTaskActionWorksThroughUpdateBoard(t *testing.T) {
 	}
 }
 
-func TestChangesAndWithdrawGoToATaskOrAStep(t *testing.T) {
+func TestChangesGoToATaskOrAStepAndWithdrawToATask(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
 	ctx := context.Background()
@@ -474,12 +474,13 @@ func TestChangesAndWithdrawGoToATaskOrAStep(t *testing.T) {
 	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "changes", "goal_id": g.ID, "text": "Add examples."}); isErr || got != `"Guide." is active now.` {
 		t.Fatalf("changes to a done task = %q (error %v)", got, isErr)
 	}
-	// Without goal_id, changes and withdraw still act on a step and a request.
+	// Without goal_id, changes acts on a step.
 	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "changes", "item_id": "no-such-step", "text": "x"}); !isErr || !strings.Contains(got, "not found") {
 		t.Fatalf("changes to a step = %q (error %v); want the step path's not-found error", got, isErr)
 	}
-	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "withdraw", "item_id": "no-such-request"}); !isErr || !strings.Contains(got, "Requests are tasks now") {
-		t.Fatalf("withdraw of a request = %q (error %v); want the request path's error", got, isErr)
+	// withdraw acts only on a task: without goal_id there is none to find.
+	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "withdraw", "item_id": "no-such-request"}); !isErr || got != `not found: goal ""` {
+		t.Fatalf("withdraw without goal_id = %q (error %v); want the task path's not-found error", got, isErr)
 	}
 }
 

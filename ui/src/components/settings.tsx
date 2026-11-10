@@ -67,7 +67,20 @@ export function openSettingsPage(section: Section = "general") {
   window.dispatchEvent(new PopStateEvent("popstate"))
 }
 
-const selectClass = "border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm disabled:opacity-60"
+const selectClass =
+  "border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+
+// lockProps disables a control. A value a flag sets stays in the tab order instead, marked
+// aria-disabled, so a screen reader still reaches the line that says why; its onChange ignores
+// input.
+function lockProps(locked: boolean, v: Value, describedBy: string) {
+  if (locked) return { disabled: true, "aria-describedby": describedBy }
+  if (v.source !== "flag") return { "aria-describedby": describedBy }
+  return {
+    "aria-disabled": true,
+    "aria-describedby": `${describedBy} ${describedBy.split(" ")[0].replace(/-help$/, "")}-flag`,
+  }
+}
 
 // Row lays out one setting: its label, chips and help on the left, its control on the right.
 function Row({
@@ -157,7 +170,7 @@ function Under({
         </p>
       )}
       {v.source === "flag" && (
-        <p className="text-muted-foreground text-xs">
+        <p id={`${id}-flag`} className="text-muted-foreground text-xs">
           Set by the <code className="bg-muted rounded px-1 font-mono">{v.flag}</code> flag for this run.{" "}
           {flagHelp(k, v)}
         </p>
@@ -235,13 +248,14 @@ export function TextField({
       <div className="flex items-center gap-2">
         <Input
           id={id}
-          className={cn("min-w-0", mono && "font-mono")}
+          className={cn("min-w-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-60", mono && "font-mono")}
+          readOnly={v.source === "flag"}
           inputMode={typeof v.default === "number" ? "numeric" : undefined}
           value={text}
-          disabled={disabled}
+          {...lockProps(locked, v, `${id}-help${err ? ` ${id}-error` : ""}`)}
           aria-invalid={err ? true : undefined}
-          aria-describedby={`${id}-help${err ? ` ${id}-error` : ""}`}
           onChange={(e) => {
+            if (v.source === "flag") return
             setText(e.target.value)
             if (f.error) f.setError(check(k, e.target.value))
           }}
@@ -311,10 +325,10 @@ export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: 
         id={id}
         className={selectClass}
         value={custom ? CUSTOM : String(v.value)}
-        disabled={disabled}
+        {...lockProps(locked, v, `${id}-help${err ? ` ${id}-error` : ""}`)}
         aria-invalid={err && !custom ? true : undefined}
-        aria-describedby={`${id}-help${err ? ` ${id}-error` : ""}`}
         onChange={(e) => {
+          if (v.source === "flag") return
           const next = e.target.value
           if (next === CUSTOM) {
             setCustom(true)

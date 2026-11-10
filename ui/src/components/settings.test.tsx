@@ -53,7 +53,11 @@ test("a flag-set value is disabled, chipped and explains the flag and the file",
     />,
   )
   assert.include(html, "Set by -effort")
-  assert.match(html, /<select[^>]*id="setting-effort"[^>]*disabled/)
+  // It stays in the tab order, so the line that says why can be heard.
+  assert.match(html, /<select[^>]*id="setting-effort"[^>]*aria-disabled="true"/)
+  assert.notMatch(html, /<select[^>]*disabled=""/)
+  assert.include(html, 'aria-describedby="setting-effort-help setting-effort-flag"')
+  assert.include(html, 'id="setting-effort-flag"')
   assert.include(html, "<code")
   assert.include(html, "-effort high")
   assert.include(html, "config.json says: Low. Remove the flag to use this setting.")

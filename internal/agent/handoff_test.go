@@ -81,11 +81,7 @@ func TestLeadsHandWorkOverAndSettleItThroughUpdateBoard(t *testing.T) {
 	if list, _ := call("sender", map[string]any{"action": "list"}); !strings.Contains(list, "Sent to other teams:\n- \"Write the export guide.\" (task id ") {
 		t.Errorf("the sender's list lacks the task still at Docs:\n%s", list)
 	}
-	if got, isErr := call("sender", map[string]any{"action": "request", "team_id": docs.ID, "title": "X", "brief": "Do X.", "acceptance": "X done."}); !isErr || !strings.Contains(got, "or use hand_over to give that team the work as a goal of its own") {
-		t.Fatalf("a request with no goal = %q (error %v); want the hand_over hint", got, isErr)
-	}
-	h.newGoal(t, ship)
-	if got, isErr := call("sender", map[string]any{"action": "request", "team_id": docs.ID, "title": "X", "brief": "Do X.", "acceptance": "X done."}); !isErr || !strings.Contains(got, "name them in needed_by") {
-		t.Fatalf("a request without needed_by = %q (error %v)", got, isErr)
+	if got, isErr := call("sender", map[string]any{"action": "request", "team_id": docs.ID, "title": "X", "brief": "Do X.", "acceptance": "X done."}); !isErr || !strings.Contains(got, "send_task") {
+		t.Fatalf("a request = %q (error %v); want the send_task hint", got, isErr)
 	}
 }

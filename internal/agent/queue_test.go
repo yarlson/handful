@@ -56,68 +56,6 @@ func TestASecondStartGoalIsQueuedAndTheLeadPlansNothing(t *testing.T) {
 	}
 }
 
-func TestLeadsDeferUndeferWithdrawAndTakeRequestsOutOfOrder(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, "reply")
-	ctx := context.Background()
-	ship, ana, _, cy := h.newTeam(t)
-	docs, err := h.svc.CreateTeam(ctx, "Docs", "Write docs.", []string{cy.ID}, core.TeamSettings{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.newGoal(t, ship)
-	asker := core.Actor{BotID: ana.ID, TeamID: ship.ID, Role: core.RoleLead}
-	var reqs []core.Item
-	for _, title := range []string{"Guide", "FAQ"} {
-		it, err := h.svc.RequestWork(ctx, asker, docs.ID, core.NewItem{Title: title, Brief: "Write it.", Acceptance: "It exists.", NeededBy: []string{waitingItem(t, h, asker, title)}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		reqs = append(reqs, it)
-	}
-	srv := httptest.NewServer(h.runner.MCPHandler())
-	t.Cleanup(srv.Close)
-	serving := boardSession(t, h, srv, cy, docs, false)
-	asking := boardSession(t, h, srv, ana, ship, false)
-	call := func(cs *mcp.ClientSession, args map[string]any) (string, bool) {
-		t.Helper()
-		return callText(t, cs, "update_board", args)
-	}
-
-	if text, isErr := call(serving, map[string]any{"action": "assign", "item_id": reqs[1].ID, "owner_id": cy.ID}); !isErr || !strings.Contains(text, "Guide") {
-		t.Fatalf("out-of-order assign without a note = %q (error %v); want an error naming Guide", text, isErr)
-	}
-	if text, isErr := call(serving, map[string]any{"action": "assign", "item_id": reqs[1].ID, "owner_id": cy.ID, "text": "The FAQ blocks the release."}); isErr {
-		t.Fatalf("out-of-order assign with a note = %q", text)
-	}
-	if text, isErr := call(serving, map[string]any{"action": "drop", "item_id": reqs[0].ID}); !isErr {
-		t.Fatalf("drop of a request without a note = %q; want an error", text)
-	}
-	for _, c := range []struct{ revisit, want string }{
-		{"tomorrow", "revisit must be goal_end, manual or an RFC 3339 date-time"},
-		{time.Now().Add(-time.Hour).Format(time.RFC3339), "Pick a time in the future."},
-	} {
-		if text, isErr := call(serving, map[string]any{"action": "defer", "item_id": reqs[0].ID, "text": "Later.", "revisit": c.revisit}); !isErr || !strings.Contains(text, c.want) {
-			t.Fatalf("defer with revisit %q = %q (error %v); want %q", c.revisit, text, isErr, c.want)
-		}
-	}
-	if text, isErr := call(serving, map[string]any{"action": "defer", "item_id": reqs[0].ID, "text": "After the FAQ.", "revisit": "manual"}); isErr || text != `Deferred "Guide"; the asking team sees why, and it comes back on its revisit.` {
-		t.Fatalf("defer = %q (error %v)", text, isErr)
-	}
-	if text, _ := call(asking, map[string]any{"action": "list"}); !strings.Contains(text, `asked of team "Docs" — deferred: Deferred until someone brings it back: After the FAQ.`) {
-		t.Fatalf("asking board = %q; want the deferral and its note", text)
-	}
-	if text, isErr := call(serving, map[string]any{"action": "undefer", "item_id": reqs[0].ID}); isErr || text != `"Guide" is requested now.` {
-		t.Fatalf("undefer = %q (error %v)", text, isErr)
-	}
-	if text, isErr := call(serving, map[string]any{"action": "withdraw", "item_id": reqs[0].ID}); !isErr {
-		t.Fatalf("the serving lead's withdraw = %q; want an error", text)
-	}
-	if text, isErr := call(asking, map[string]any{"action": "withdraw", "item_id": reqs[0].ID}); isErr || text != `"Guide" is withdrawn now.` {
-		t.Fatalf("the asking lead's withdraw = %q (error %v)", text, isErr)
-	}
-}
-
 func TestBoardTableShowsSlotsIntakeAndReasons(t *testing.T) {
 	t.Parallel()
 	team := core.Bot{ID: "docs", Name: "Docs", Members: []core.Member{{ID: "cy", Name: "Cy"}}, Team: &core.Team{LeadID: "cy"}}
@@ -174,15 +112,4 @@ func TestParseRevisit(t *testing.T) {
 	if _, until, _ := parseRevisit("2026-11-10T09:00:00+02:00"); until != time.Date(2026, 11, 10, 7, 0, 0, 0, time.UTC).UnixMilli() {
 		t.Errorf("until = %d", until)
 	}
-}
-
-// waitingItem adds to the goal of lead a an item, without an owner, that
-// waits on a request for title, and returns its id.
-func waitingItem(t *testing.T, h *harness, a core.Actor, title string) string {
-	t.Helper()
-	it, err := h.svc.CreateItem(context.Background(), a, core.NewItem{Title: title + " waits", Brief: "Use " + title + ".", Acceptance: title + " is used."})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return it.ID
 }

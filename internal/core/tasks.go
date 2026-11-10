@@ -519,7 +519,7 @@ func (s *Service) ChangesTask(ctx context.Context, a Actor, goalID, text string)
 // reopenDone moves done task g with q back to work: active when its team has
 // no Now task, else first in the plan.
 func (s *Service) reopenDone(ctx context.Context, q *db.Queries, team Bot, g Goal) (Goal, error) {
-	_, open, err := openGoalWith(ctx, q, team.ID)
+	open, err := openGoalWith(ctx, q, team.ID)
 	if err != nil {
 		return Goal{}, err
 	}

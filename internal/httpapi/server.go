@@ -94,8 +94,6 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("POST /api/goals/{id}/cancel", s.cancelGoal)
 	mux.HandleFunc("POST /api/teams/{id}/goal-queue", s.reorderGoalQueue)
 	mux.HandleFunc("POST /api/teams/{id}/goal-queue/start", s.startNextGoal)
-	mux.HandleFunc("POST /api/items/{id}/withdraw", s.withdrawItem)
-	mux.HandleFunc("POST /api/items/{id}/undefer", s.undeferItem)
 	mux.HandleFunc("POST /api/teams/{id}/handoffs", s.handOver)
 	mux.HandleFunc("POST /api/goals/{id}/answer-handoff", s.handoffAction(answerHandoff, true))
 	mux.HandleFunc("POST /api/goals/{id}/decline-handoff", s.handoffAction(declineHandoff, true))
@@ -708,26 +706,6 @@ func (s *server) startNextGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, goal)
-}
-
-// withdrawItem is the user's withdrawal of a request from the asking board.
-func (s *server) withdrawItem(w http.ResponseWriter, r *http.Request) {
-	it, err := s.svc.WithdrawItem(r.Context(), core.Actor{Role: core.RoleUser}, r.PathValue("id"))
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, it)
-}
-
-// undeferItem brings a deferred request back to the serving lead's triage.
-func (s *server) undeferItem(w http.ResponseWriter, r *http.Request) {
-	it, err := s.svc.UndeferItem(r.Context(), core.Actor{Role: core.RoleUser}, r.PathValue("id"))
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, it)
 }
 
 func (s *server) listMemory(w http.ResponseWriter, r *http.Request) {

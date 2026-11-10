@@ -749,7 +749,7 @@ func TestGoalEndpointsStartExtendAndEndAGoal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil); rec.Code != http.StatusOK || rec.Body.String() != `{"goal":null,"items":[],"requests":[],"queue":[],"slots":{"limit":1,"used":0,"applies":false},"asked":[],"incoming":[],"handedOver":[],"inbox":[],"plan":[],"done":[],"sent":[],"stopped":[],"offTask":{"count":0,"turns":[]},"budget":{"today":0,"limit":0,"suggested":0,"watchUntil":`+strconv.FormatInt(budget.WatchUntil, 10)+`,"paused":false,"warn":false},"teams":{}}`+"\n" {
+	if rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil); rec.Code != http.StatusOK || rec.Body.String() != `{"goal":null,"items":[],"requests":[],"queue":[],"slots":{"limit":0,"used":0,"applies":false},"asked":[],"incoming":[],"handedOver":[],"inbox":[],"plan":[],"done":[],"sent":[],"stopped":[],"offTask":{"count":0,"turns":[]},"budget":{"today":0,"limit":0,"suggested":0,"watchUntil":`+strconv.FormatInt(budget.WatchUntil, 10)+`,"paused":false,"warn":false},"teams":{}}`+"\n" {
 		t.Fatalf("board without a goal: %d %s", rec.Code, rec.Body)
 	}
 	rec := do(h, "POST", "/api/teams/"+team.ID+"/goals", `{"text":"Ship CSV export."}`, jsonHeader)

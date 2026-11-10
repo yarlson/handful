@@ -105,48 +105,6 @@ func TestEveryReviewMoveLeavesOneEvent(t *testing.T) {
 	}
 }
 
-func TestRequestMovesLeaveEventsOnTheItem(t *testing.T) {
-	l := newLaneFixture(t, false)
-	ctx := context.Background()
-	bo, dee := "Bo("+l.bo.ID+")", "Dee("+l.dee.ID+")"
-	guide := l.ask(t, l.docs, item("Guide", "", ""))
-	publish := l.create(t, l.lead, item("Publish", l.ana.ID, "", guide.ID))
-	if _, err := l.svc.DeferItem(ctx, l.docsLead, guide.ID, "After our release.", RevisitManual, 0); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := l.svc.UndeferItem(ctx, Actor{Role: RoleUser}, guide.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := l.svc.AssignItem(ctx, l.docsLead, guide.ID, l.eve.ID, "", " Urgent. "); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := l.svc.WithdrawItem(ctx, l.lead, guide.ID); err != nil {
-		t.Fatal(err)
-	}
-	l.wantHistory(t, guide,
-		"created 0 "+bo+":",
-		"deferred 0 "+dee+": After our release.",
-		"undeferred 0 the user():",
-		"assigned 0 "+dee+": Urgent.",
-		"withdrawn 0 "+bo+": Withdrawn by team Ship.",
-	)
-	l.wantHistory(t, publish, "created 0 "+bo+":")
-
-	faq := l.ask(t, l.docs, item("FAQ", "", ""))
-	waits := l.create(t, l.lead, item("Link", l.ana.ID, "", faq.ID))
-	if _, err := l.svc.DropItem(ctx, l.docsLead, faq.ID, "Out of scope."); err != nil {
-		t.Fatal(err)
-	}
-	l.wantHistory(t, faq, "created 0 "+bo+":", "dropped 0 "+dee+": Out of scope.")
-	l.wantHistory(t, waits, "created 0 "+bo+":", `blocked 0 YarGPT(): Team Docs declined "FAQ": Out of scope.`)
-
-	api := l.ask(t, l.docs, item("API", "", ""))
-	if err := l.svc.EndGoal(ctx, l.goal.ID, false); err != nil {
-		t.Fatal(err)
-	}
-	l.wantHistory(t, api, "created 0 "+bo+":", "withdrawn 0 the user(): Withdrawn: team Ship ended its goal.")
-}
-
 func TestAMemberLeavingMidReviewLeavesABlockedEvent(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
@@ -164,22 +122,8 @@ func TestAMemberLeavingMidReviewLeavesABlockedEvent(t *testing.T) {
 	f.wantHistory(t, owned, "created 0 Bo("+f.bo.ID+"):")
 }
 
-func TestStoppingATeamLeavesABlockedEventOnItsRequests(t *testing.T) {
-	l := newLaneFixture(t, false)
-	ctx := context.Background()
-	guide := l.ask(t, l.docs, item("Guide", "", ""))
-	l.accept(t, guide, l.eve, "")
-	if err := l.svc.StopTeam(ctx, l.docs.ID); err != nil {
-		t.Fatal(err)
-	}
-	got := l.history(t, guide)
-	if len(got) != 3 || got[2] != "blocked 0 the user(): The user stopped team Docs." {
-		t.Fatalf("history of Guide = %q; want the stop as its last event", got)
-	}
-}
-
 func TestTheBoardShowsTheChangeTheOwnerWorksOn(t *testing.T) {
-	l := newLaneFixture(t, false)
+	l := newBoardFixture(t, 30)
 	ctx := context.Background()
 	parse := l.create(t, l.lead, item("Parse", l.ana.ID, l.cy.ID))
 	itemOn := func(step string) Item {
@@ -221,13 +165,6 @@ func TestTheBoardShowsTheChangeTheOwnerWorksOn(t *testing.T) {
 		t.Fatalf("latest change after round 2 = %+v", got)
 	}
 
-	guide := l.ask(t, l.docs, item("Guide", "", ""))
-	if r := l.request(t, l.docs.ID, guide); r.EventCount != 1 {
-		t.Fatalf("Docs's request = %+v; want its history", r)
-	}
-	if r := l.asked(t, l.team.ID, guide); r.EventCount != 1 {
-		t.Fatalf("Ship's ask = %+v; want its history", r)
-	}
 	gb, err := l.svc.GoalBoard(ctx, l.goal.ID)
 	if err != nil || len(gb.Items) == 0 || gb.Items[0].EventCount == 0 {
 		t.Fatalf("goal board = %+v, %v; want the items' history", gb, err)

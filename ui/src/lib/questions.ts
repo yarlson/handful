@@ -64,6 +64,7 @@ export const UNDO_MS = 10_000
 export type ItemEvent = {
   id: string
   itemId: string
+  goalId?: string // set on a decision on a task, which belongs to no step
   kind: string
   actorId: string
   actorName: string

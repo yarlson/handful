@@ -227,6 +227,7 @@ export type Board = {
   inbox?: Goal[] // tasks that wait for the lead's decision, oldest first
   plan?: Goal[] // taken tasks, in order
   done?: Goal[] // closed tasks that wait for approval
+  stopped?: Goal[] // stopped tasks, newest first; reopening returns one to the inbox
   teams: Record<string, string>
 }
 
@@ -320,6 +321,8 @@ export const api = {
   withdrawTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/withdraw`, {}),
   approveTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/approve`, {}),
   changesTask: (id: string, text: string) => request<Goal>("POST", `/api/tasks/${id}/changes`, { text }),
+  // A task's history: the decisions on it and its steps' events, oldest first.
+  taskEvents: (id: string) => request<ItemEvent[]>("GET", `/api/tasks/${id}/events`),
   needsYou: () => request<NeedsYouItem[]>("GET", "/api/needs-you"),
   withdrawItem: (id: string) => request<Item>("POST", `/api/items/${id}/withdraw`, {}),
   undeferItem: (id: string) => request<Item>("POST", `/api/items/${id}/undefer`, {}),

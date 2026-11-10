@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react"
-import { api, type Artifact, type Board, type Bot, type Goal, type NeedsYouItem } from "@/lib/api"
+import { api, type Artifact, type Board, type Bot, type Goal, type Item, type NeedsYouItem } from "@/lib/api"
+import { actorOf, eventTone, type ItemEvent } from "@/lib/questions"
 import { useLoad } from "@/components/bot-panel"
 import {
   awaitsAnswer,
@@ -13,7 +14,9 @@ import {
   needsYouLine,
   sentState,
   sourceLabel,
+  historyKey,
   taskError,
+  taskEventLabel,
   teamOption,
   teamSummary,
   turnsLine,
@@ -135,6 +138,102 @@ export function TextAction({
       </div>
     </div>
   )
+}
+
+// TaskHistoryList shows a task's events, oldest first: each decision and step event with who
+// made it, when, and its text.
+export function TaskHistoryList({
+  id,
+  goal,
+  events,
+  steps = [],
+}: {
+  id: string
+  goal: Goal
+  events: ItemEvent[]
+  steps?: Pick<Item, "id" | "title">[]
+}) {
+  const title = (itemId: string) => steps.find((s) => s.id === itemId)?.title
+  return (
+    <section id={id} aria-labelledby={`${id}-heading`} className="flex flex-col gap-1 text-xs">
+      <h4 id={`${id}-heading`} className="font-medium">
+        History of {goal.text}
+      </h4>
+      {events.length === 0 ? (
+        <p className="text-muted-foreground">Nothing has happened to it yet.</p>
+      ) : (
+        <ol className="flex flex-col gap-1.5 border-l pl-3">
+          {events.map((e) => {
+            const tone = eventTone(e.goalId ? "" : e.kind)
+            return (
+              <li
+                key={e.id}
+                className={cn(
+                  tone === "changes" && "rounded-sm bg-amber-500/10 p-1.5",
+                  tone === "passed" && "rounded-sm bg-emerald-500/10 p-1.5",
+                )}
+              >
+                <p>
+                  <span className="font-medium">{taskEventLabel(e, title(e.itemId))}</span>{" "}
+                  <span className="text-muted-foreground">{`· ${actorOf(e)} · ${when(e.createdAt)}`}</span>
+                </p>
+                {e.text && <p className="mt-0.5 whitespace-pre-wrap">{e.text}</p>}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </section>
+  )
+}
+
+// TaskHistory is a task's History button, and its history once opened. The history loads
+// when it opens, and again when version changes: pass the rev of the board the card is on,
+// so a decision the board reloads for shows in an open history too.
+export function TaskHistory({
+  goal,
+  steps,
+  version,
+}: {
+  goal: Goal
+  steps?: Pick<Item, "id" | "title">[]
+  version: number
+}) {
+  const [open, setOpen] = useState(false)
+  const id = `task-history-${goal.id}`
+  return (
+    <>
+      <Button
+        size="xs"
+        variant="link"
+        className="text-muted-foreground h-auto self-start p-0 text-xs"
+        aria-expanded={open}
+        aria-controls={id}
+        aria-label={`History: ${goal.text}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        History
+      </Button>
+      {open && <LoadedHistory id={id} goal={goal} steps={steps} version={version} />}
+    </>
+  )
+}
+
+function LoadedHistory({
+  id,
+  goal,
+  steps,
+  version,
+}: {
+  id: string
+  goal: Goal
+  steps?: Pick<Item, "id" | "title">[]
+  version: number
+}) {
+  const events = useLoad(() => api.taskEvents(goal.id), historyKey(goal.id, version))
+  if (events.error) return <p className="text-destructive text-xs">{events.error}</p>
+  if (!events.data) return null
+  return <TaskHistoryList id={id} goal={goal} events={events.data} steps={steps} />
 }
 
 // WithdrawAction takes back a task that hasn't started, after a confirm.
@@ -279,6 +378,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
         )}
         {fromUser(g) && !g.needsUser && <WithdrawAction g={g} to={view.team.name} act={view.act} />}
       </div>
+      <TaskHistory goal={g} version={view.loadedAt} />
     </li>
   )
 }
@@ -328,7 +428,7 @@ export function InboxView({
 }
 
 // SentCard is a task this team sent another team, as the sender follows it.
-function SentCard({ g, names, act }: { g: Goal; names: Names; act: Act }) {
+function SentCard({ g, names, act, version }: { g: Goal; names: Names; act: Act; version: number }) {
   const to = names.team(g.teamId)
   const state = sentState(g, to, when)
   return (
@@ -368,12 +468,24 @@ function SentCard({ g, names, act }: { g: Goal; names: Names; act: Act }) {
         )}
         {canWithdraw(g) && <WithdrawAction g={g} to={to} act={act} />}
       </div>
+      <TaskHistory goal={g} version={version} />
     </li>
   )
 }
 
 // SentSection lists the tasks this team sent in the last 30 days, newest first.
-export function SentSection({ goals, names, act }: { goals: Goal[]; names: Names; act: Act }) {
+export function SentSection({
+  goals,
+  names,
+  act,
+  version = 0,
+}: {
+  goals: Goal[]
+  names: Names
+  act: Act
+  // version is the rev of the board the section is on; it reloads open histories.
+  version?: number
+}) {
   if (goals.length === 0) return null
   return (
     <section aria-labelledby="sent-heading" className="flex flex-col gap-1.5">
@@ -382,7 +494,7 @@ export function SentSection({ goals, names, act }: { goals: Goal[]; names: Names
       </h3>
       <ul className="flex flex-col gap-1.5">
         {goals.map((g) => (
-          <SentCard key={g.id} g={g} names={names} act={act} />
+          <SentCard key={g.id} g={g} names={names} act={act} version={version} />
         ))}
       </ul>
     </section>

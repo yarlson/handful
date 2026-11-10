@@ -7,6 +7,7 @@ import {
   countsLine,
   decisionError,
   firstLine,
+  historyKey,
   fromUser,
   inboxError,
   leadName,
@@ -17,6 +18,7 @@ import {
   sourceLabel,
   stuckReason,
   taskError,
+  taskEventLabel,
   tasksKey,
   taskBar,
   teamOption,
@@ -299,4 +301,40 @@ test("a team's lead and members are named, and a member who left says so", () =>
   assert.equal(leadName({ ...team, team: { leadId: "b" } }), "a former member")
   assert.equal(leadName({ ...team, team: { leadId: "" } }), "The lead")
   assert.equal(leadName({ members: team.members }), "The lead")
+})
+
+test("a task's history names each decision, and each step event by its step", () => {
+  const kinds: [string, string][] = [
+    ["sent", "Sent"],
+    ["proposed", "Proposed"],
+    ["taken", "Taken"],
+    ["ordered", "Moved in the plan"],
+    ["pinned", "Pinned"],
+    ["unpinned", "Unpinned"],
+    ["asked", "Asked the sender"],
+    ["answered", "Answered"],
+    ["later", "Deferred"],
+    ["due", "Back in the inbox"],
+    ["passed", "Passed on"],
+    ["pushed_back", "Pushed back"],
+    ["closed", "Closed"],
+    ["approved", "Approved"],
+    ["changes", "Changes asked"],
+    ["stopped", "Stopped"],
+    ["reopened", "Reopened"],
+    ["withdrawn", "Withdrawn"],
+    ["missed", "Decision missed"],
+    ["new_kind", "new_kind"],
+  ]
+  for (const [kind, label] of kinds) assert.equal(taskEventLabel({ kind, round: 0, goalId: "g1" }), label, kind)
+  assert.equal(taskEventLabel({ kind: "passed", round: 0 }, "Settings API"), "Settings API: Passed")
+  assert.equal(taskEventLabel({ kind: "changes", round: 2 }, "Settings API"), "Settings API: Changes asked · round 2")
+  assert.equal(taskEventLabel({ kind: "created", round: 0 }), "A step: Created")
+  assert.equal(taskEventLabel({ kind: "passed", round: 0, goalId: "" }), "A step: Passed")
+})
+
+test("an open history reloads with each load of its board, and per task", () => {
+  assert.equal(historyKey("g1", 1), "g1:1")
+  assert.notEqual(historyKey("g1", 2), historyKey("g1", 1))
+  assert.notEqual(historyKey("g2", 1), historyKey("g1", 1))
 })

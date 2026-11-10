@@ -80,6 +80,7 @@ test("task calls go to the server's routes with their bodies", async () => {
   await api.withdrawTask("g6")
   await api.approveTask("g7")
   await api.changesTask("g7", "Add a test.")
+  await api.taskEvents("g7")
   await api.needsYou()
   await api.updateTeam("t1", { decisionMinutes: 45, inboxMax: 8, inboxPerSender: 2 })
   assert.deepEqual(calls, [
@@ -100,6 +101,7 @@ test("task calls go to the server's routes with their bodies", async () => {
     { method: "POST", url: "/api/tasks/g6/withdraw", body: {} },
     { method: "POST", url: "/api/tasks/g7/approve", body: {} },
     { method: "POST", url: "/api/tasks/g7/changes", body: { text: "Add a test." } },
+    { method: "GET", url: "/api/tasks/g7/events", body: undefined },
     { method: "GET", url: "/api/needs-you", body: undefined },
     {
       method: "PATCH",

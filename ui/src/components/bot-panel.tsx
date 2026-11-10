@@ -46,6 +46,8 @@ function when(ms: number | null) {
 export function useLoad<T>(load: () => Promise<T>, key: string) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // rev counts the loads that succeeded, so views of the data can reload what they derive from it.
+  const [rev, setRev] = useState(0)
   const loadRef = useRef(load)
   loadRef.current = load
   const [run] = useState(latestOnly)
@@ -55,12 +57,13 @@ export function useLoad<T>(load: () => Promise<T>, key: string) {
       (d) => {
         setData(d)
         setError(null)
+        setRev((r) => r + 1)
       },
       (e) => setError(e.message),
     )
   }, [run])
   useEffect(reload, [reload, key])
-  return { data, error, reload, setError }
+  return { data, error, reload, setError, rev }
 }
 
 // AddFactForm saves a fact as the user's own; bots trust standing rules only from such facts.

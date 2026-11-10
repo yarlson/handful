@@ -64,6 +64,12 @@ func (s *Service) SendAgentMessage(ctx context.Context, fromID, turnID, targetID
 	if len(files) > 0 {
 		return AgentMessageResult{}, invalid("files can go only to a room; a direct message to %s carries text only", target.Name)
 	}
+	return s.directMessage(ctx, from, target, text, priority, hops)
+}
+
+// directMessage delivers text from one bot to another, as SendAgentMessage
+// describes: it wakes the recipient, or holds the message for its next turn.
+func (s *Service) directMessage(ctx context.Context, from, target Bot, text string, priority bool, hops int64) (AgentMessageResult, error) {
 	wake := priority && hops+1 <= maxAgentHops
 	if _, err := s.AppendEntry(ctx, from.ID, KindAgent, "", map[string]any{"direction": "out", "peerId": target.ID, "peerName": target.Name, "text": text, "priority": priority}); err != nil {
 		return AgentMessageResult{}, err

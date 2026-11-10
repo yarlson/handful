@@ -19,16 +19,18 @@ import {
 } from "@/components/ui/dialog"
 import {
   canWithdraw,
+  confirms,
+  goalBar,
   grouped,
   intakeLabel,
   moved,
   nextUp,
   onHold,
-  openGoal,
   placeNote,
   reasonLine,
   showsPosition,
   slotHeader,
+  type Confirm,
 } from "@/lib/queue"
 import { cn } from "@/lib/utils"
 
@@ -100,9 +102,9 @@ export function GoalBar({
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
   const [handing, setHanding] = useState(false)
   const name = teamNamer(board.data, teams)
-  const [ending, setEnding] = useState(false)
+  // confirm is the bar's one open confirmation: ending the goal, or accepting it with a goal queued.
+  const [confirm, setConfirm] = useState<Confirm>(null)
   const [startNext, setStartNext] = useState(true)
-  const [accepting, setAccepting] = useState(false)
   const goal = board.data?.goal
   const queue = board.data?.queue ?? []
   const next = queue[0]
@@ -118,11 +120,11 @@ export function GoalBar({
   if (!board.data) {
     return board.error ? <p className="text-destructive border-b px-4 py-2 text-xs">{board.error}</p> : null
   }
-  const open = goal && openGoal(goal.state)
+  const bar = goalBar(goal, queue.length)
   const upNext = nextUp(queue)
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm">
-      {open ? (
+    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-goal-bar={bar.mode}>
+      {goal && bar.mode === "open" ? (
         <>
           <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{goalBadge[goal.state]}</Badge>
           <FromChip goal={goal} name={name} />
@@ -143,27 +145,27 @@ export function GoalBar({
           <span className="text-muted-foreground text-xs" title="Turns that the goal used of its budget">
             {goal.used}/{goal.budget} turns
           </span>
-          {goal.state === "delivered" &&
-            (next ? (
-              <Button size="xs" aria-haspopup="dialog" onClick={() => setAccepting(true)}>
-                Accept and start next…
-              </Button>
-            ) : (
-              <Button size="xs" onClick={() => void act(() => api.acceptGoal(goal.id))}>
-                Accept
-              </Button>
-            ))}
-          {goal.state === "paused" && goal.used < goal.budget && (
+          {bar.actions.includes("acceptNext") && (
+            <Button size="xs" aria-haspopup="dialog" onClick={() => setConfirm({ kind: "accept", goalId: goal.id })}>
+              Accept and start next…
+            </Button>
+          )}
+          {bar.actions.includes("accept") && (
+            <Button size="xs" onClick={() => void act(() => api.acceptGoal(goal.id))}>
+              Accept
+            </Button>
+          )}
+          {bar.actions.includes("resume") && (
             <Button size="xs" onClick={() => void act(() => api.extendGoal(goal.id, 0))}>
               Resume
             </Button>
           )}
-          {goal.state !== "delivered" && (
+          {bar.actions.includes("extend") && (
             <Button size="xs" variant="outline" onClick={() => void act(() => api.extendGoal(goal.id, 10))}>
               Add 10 turns
             </Button>
           )}
-          {ending ? (
+          {confirms(confirm, "end", goal.id) ? (
             <>
               <span className="text-xs">End the goal? Its work stops for good.</span>
               {next && (
@@ -175,11 +177,11 @@ export function GoalBar({
               <Button
                 size="xs"
                 variant="destructive"
-                onClick={() => void act(() => api.endGoal(goal.id, startNext)).then(() => setEnding(false))}
+                onClick={() => void act(() => api.endGoal(goal.id, startNext)).then(() => setConfirm(null))}
               >
                 End goal
               </Button>
-              <Button size="xs" variant="ghost" onClick={() => setEnding(false)}>
+              <Button size="xs" variant="ghost" onClick={() => setConfirm(null)}>
                 Keep it
               </Button>
             </>
@@ -189,17 +191,17 @@ export function GoalBar({
               variant="ghost"
               onClick={() => {
                 setStartNext(true)
-                setEnding(true)
+                setConfirm({ kind: "end", goalId: goal.id })
               }}
             >
               End goal
             </Button>
           )}
-          {goal.state === "delivered" && next && (
+          {bar.actions.includes("acceptNext") && (
             <span className="text-muted-foreground w-full text-xs">Next goal starts when you accept {goal.text}.</span>
           )}
         </>
-      ) : onHold(goal?.state, queue.length) && next ? (
+      ) : bar.mode === "hold" && next ? (
         <>
           <Badge variant="outline">Queue on hold</Badge>
           <span className="min-w-0 flex-1 truncate" title={next.text}>
@@ -230,7 +232,10 @@ export function GoalBar({
       <HandOverDialog open={handing} onOpenChange={setHanding} from={team} teams={teams} onDone={board.reload} />
       {board.error && <span className="text-destructive w-full text-xs">{board.error}</span>}
       {goal && next && (
-        <Dialog open={accepting} onOpenChange={setAccepting}>
+        <Dialog
+          open={confirms(confirm, "accept", goal.id)}
+          onOpenChange={(v) => setConfirm(v ? { kind: "accept", goalId: goal.id } : null)}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Accept {goal.text}?</DialogTitle>
@@ -242,11 +247,11 @@ export function GoalBar({
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => void act(() => api.acceptGoal(goal.id, false)).then(() => setAccepting(false))}
+                onClick={() => void act(() => api.acceptGoal(goal.id, false)).then(() => setConfirm(null))}
               >
                 Accept, hold the queue
               </Button>
-              <Button onClick={() => void act(() => api.acceptGoal(goal.id, true)).then(() => setAccepting(false))}>
+              <Button onClick={() => void act(() => api.acceptGoal(goal.id, true)).then(() => setConfirm(null))}>
                 Accept and start next
               </Button>
             </DialogFooter>

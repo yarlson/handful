@@ -5,6 +5,9 @@ import {
   GROUPS,
   intakeLabel,
   moved,
+  confirms,
+  GOAL_ACTIONS,
+  goalBar,
   nextUp,
   onHold,
   openGoal,
@@ -132,7 +135,9 @@ test("a move is announced with the goal's new place", () => {
 
 test("the queue holds when no goal is open and one is queued", () => {
   for (const s of ["active", "delivered", "paused"]) assert.isTrue(openGoal(s))
-  for (const s of ["done", "ended", "queued", undefined]) assert.isFalse(openGoal(s))
+  for (const s of ["done", "ended", "queued", "incoming", "declined", "toString", undefined]) {
+    assert.isFalse(openGoal(s))
+  }
   assert.isTrue(onHold(undefined, 1))
   assert.isTrue(onHold("ended", 2))
   assert.isTrue(onHold("done", 1))
@@ -156,4 +161,49 @@ test("requests in progress at once go from 1 to the number of members", () => {
   assert.equal(slotsError("", 3), msg)
   assert.equal(slotsError("  ", 3), msg)
   assert.equal(slotsError("x", 3), msg)
+})
+
+const g = (state: string, used = 3, budget = 30) => ({ state, used, budget })
+
+test("an open goal shows its state's buttons in order", () => {
+  assert.deepEqual(GOAL_ACTIONS, {
+    active: ["extend", "end"],
+    delivered: ["accept", "end"],
+    paused: ["resume", "extend", "end"],
+  })
+  assert.deepEqual(goalBar(g("active"), 0), { mode: "open", state: "active", actions: ["extend", "end"] })
+  assert.deepEqual(goalBar(g("active"), 2), { mode: "open", state: "active", actions: ["extend", "end"] })
+  assert.deepEqual(goalBar(g("delivered"), 0), { mode: "open", state: "delivered", actions: ["accept", "end"] })
+  assert.deepEqual(goalBar(g("paused"), 0), { mode: "open", state: "paused", actions: ["resume", "extend", "end"] })
+})
+
+test("a delivered goal with a goal queued asks about the next one", () => {
+  assert.deepEqual(goalBar(g("delivered"), 1), { mode: "open", state: "delivered", actions: ["acceptNext", "end"] })
+})
+
+test("a paused goal resumes only while it has turns left", () => {
+  assert.deepEqual(goalBar(g("paused", 29, 30), 0), {
+    mode: "open",
+    state: "paused",
+    actions: ["resume", "extend", "end"],
+  })
+  assert.deepEqual(goalBar(g("paused", 30, 30), 0), { mode: "open", state: "paused", actions: ["extend", "end"] })
+  assert.deepEqual(goalBar(g("paused", 31, 30), 1), { mode: "open", state: "paused", actions: ["extend", "end"] })
+})
+
+test("without an open goal the bar holds the queue or is idle", () => {
+  for (const state of ["done", "ended", "queued", "incoming", "declined"]) {
+    assert.deepEqual(goalBar(g(state), 1), { mode: "hold" }, state)
+    assert.deepEqual(goalBar(g(state), 0), { mode: "idle" }, state)
+  }
+  assert.deepEqual(goalBar(undefined, 2), { mode: "hold" })
+  assert.deepEqual(goalBar(null, 0), { mode: "idle" })
+})
+
+test("a confirm is open only for its own kind and goal", () => {
+  assert.isTrue(confirms({ kind: "end", goalId: "g1" }, "end", "g1"))
+  assert.isTrue(confirms({ kind: "accept", goalId: "g1" }, "accept", "g1"))
+  assert.isFalse(confirms({ kind: "end", goalId: "g1" }, "accept", "g1"))
+  assert.isFalse(confirms({ kind: "end", goalId: "g1" }, "end", "g2"))
+  assert.isFalse(confirms(null, "end", "g1"))
 })

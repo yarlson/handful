@@ -422,3 +422,34 @@ func TestABurstOfUserPostsQueuesOneTurnPerMember(t *testing.T) {
 		t.Fatalf("queued = %v; want Bo's mention turn, Ana's turn in the other room and Bo's turn for the user's post", got)
 	}
 }
+
+func TestCancelQueuedTurnsOfStopsABotsOrARoomsQueuedTurnsOnly(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bots := newAgents(t, svc, "Ana", "Bo", "Cy")
+	room, err := svc.CreateRoom(ctx, "Plan", "", []string{bots["Ana"].ID, bots["Bo"].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.CreateRoom(ctx, "Other", "", []string{bots["Cy"].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{bots["Ana"].ID, bots["Cy"].ID, room.ID, other.ID} {
+		if _, _, err := svc.SubmitUserMessage(ctx, id, "hi", "n-"+id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.CancelQueuedTurnsOf(ctx, bots["Ana"].ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := queued(t, svc, bots); !equal(got, []string{"Cy", "Bo@room", "Cy@room"}) {
+		t.Fatalf("queued after cancelling Ana's turns = %v; want Cy's, and Bo's and Cy's in the rooms", got)
+	}
+	if err := svc.CancelQueuedTurnsOf(ctx, room.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := queued(t, svc, bots); !equal(got, []string{"Cy", "Cy@room"}) {
+		t.Fatalf("queued after cancelling the room's turns = %v; want Cy's two", got)
+	}
+}

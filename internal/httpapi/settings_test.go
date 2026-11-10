@@ -297,7 +297,16 @@ func TestRestartUnderLaunchdAnswersAndThenEndsTheServer(t *testing.T) {
 		t.Fatalf("restart mode = %q; want manual", got.Restart)
 	}
 	var asked []bool
-	h, svc, _ := settingsHandler(t, "", func(s *Settings) { s.Restart = func(idle bool) { asked = append(asked, idle) } })
+	var svc *core.Service
+	h, svc, _ = settingsHandler(t, "", func(s *Settings) {
+		// As the restarter does: an idle restart holds drain mode before the answer.
+		s.Restart = func(idle bool) {
+			asked = append(asked, idle)
+			if idle {
+				svc.HoldDrain(core.DrainRestart, true)
+			}
+		}
+	})
 	if got := readSettings(t, h); got.Restart != "launchd" {
 		t.Fatalf("restart mode = %q; want launchd", got.Restart)
 	}
@@ -363,17 +372,23 @@ func TestSettingsHaveNoStartErrorWhenTheServerWouldStart(t *testing.T) {
 	}
 }
 
-func TestLeavingDrainModeDropsAWaitingRestartAtOnce(t *testing.T) {
+func TestOnlyDeleteRestartCancelsAWaitingRestart(t *testing.T) {
 	cancelled := 0
 	h, _, _ := settingsHandler(t, "", func(s *Settings) {
 		s.Restart = func(bool) {}
 		s.CancelRestart = func() { cancelled++ }
 	})
-	if rec := do(h, "POST", "/api/drain", `{}`, jsonHeader); rec.Code != http.StatusOK || cancelled != 0 {
-		t.Fatalf("drain on = %d, cancelled %d; want 200 and nothing cancelled", rec.Code, cancelled)
+	// The updater's drain is its own: ending it leaves a waiting restart.
+	do(h, "POST", "/api/drain", `{}`, jsonHeader)
+	if rec := do(h, "DELETE", "/api/drain", "", nil); rec.Code != http.StatusOK || cancelled != 0 {
+		t.Fatalf("drain off = %d, cancelled %d; want 200 and the restart left waiting", rec.Code, cancelled)
 	}
-	if rec := do(h, "DELETE", "/api/drain", "", nil); rec.Code != http.StatusOK || cancelled != 1 {
-		t.Fatalf("drain off = %d, cancelled %d; want 200 and the waiting restart dropped", rec.Code, cancelled)
+	if rec := do(h, "DELETE", "/api/restart", "", nil); rec.Code != http.StatusOK || cancelled != 1 || !strings.Contains(rec.Body.String(), `"version"`) {
+		t.Fatalf("cancel restart = %d %s, cancelled %d; want 200 with the version body and the restart dropped", rec.Code, rec.Body, cancelled)
+	}
+	h, _, _ = settingsHandler(t, "", nil)
+	if rec := do(h, "DELETE", "/api/restart", "", nil); rec.Code != http.StatusNotImplemented {
+		t.Fatalf("cancel restart outside launchd = %d; want 501", rec.Code)
 	}
 }
 
@@ -383,6 +398,7 @@ func TestSettingsWritesNeedTheAppsOwnOrigin(t *testing.T) {
 		{"PATCH", "/api/settings", `{"model": "haiku"}`},
 		{"PUT", "/api/settings/file", `{}`},
 		{"POST", "/api/restart", `{"when": "now"}`},
+		{"DELETE", "/api/restart", ""},
 	} {
 		foreign := do(h, c.method, c.target, c.body, map[string]string{"Content-Type": "application/json", "Origin": "http://evil.example"})
 		req := httptest.NewRequestWithContext(t.Context(), c.method, "http://evil.example:7777"+c.target, strings.NewReader(c.body))
@@ -405,6 +421,38 @@ func TestAServerWithoutASettingsFileHasNoSettings(t *testing.T) {
 	} {
 		if rec := do(h, c.method, c.target, c.body, jsonHeader); rec.Code != http.StatusNotFound {
 			t.Errorf("%s %s = %d; want 404", c.method, c.target, rec.Code)
+		}
+	}
+}
+
+func TestAWaitingRestartShowsOnEveryReadSoAReloadFindsIt(t *testing.T) {
+	wait := &RestartWait{Since: 1_000, Deadline: 1_801_000}
+	expired := false
+	h, _, _ := settingsHandler(t, "", func(s *Settings) {
+		s.Restart = func(bool) {}
+		s.RestartState = func() (*RestartWait, bool) { return wait, expired }
+	})
+	for _, target := range []string{"/api/settings", "/api/version"} {
+		rec := do(h, "GET", target, "", nil)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"restartWait":{"since":1000,"deadline":1801000}`) || strings.Contains(rec.Body.String(), "restartExpired") {
+			t.Fatalf("GET %s while a restart waits = %d %s; want restartWait and no expiry", target, rec.Code, rec.Body)
+		}
+	}
+	wait, expired = nil, true
+	for _, target := range []string{"/api/settings", "/api/version"} {
+		rec := do(h, "GET", target, "", nil)
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "restartWait") || !strings.Contains(rec.Body.String(), `"restartExpired":true`) {
+			t.Fatalf("GET %s after the limit = %d %s; want restartExpired and no restartWait", target, rec.Code, rec.Body)
+		}
+	}
+}
+
+func TestAServerWithoutARestarterReportsNoRestartState(t *testing.T) {
+	h, _, _ := settingsHandler(t, "", nil)
+	for _, target := range []string{"/api/settings", "/api/version"} {
+		rec := do(h, "GET", target, "", nil)
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "restartWait") || strings.Contains(rec.Body.String(), "restartExpired") {
+			t.Fatalf("GET %s = %d %s; want no restart state", target, rec.Code, rec.Body)
 		}
 	}
 }

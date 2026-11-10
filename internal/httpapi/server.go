@@ -69,6 +69,7 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("PATCH /api/settings", s.patchSettings)
 	mux.HandleFunc("PUT /api/settings/file", s.resetSettingsFile)
 	mux.HandleFunc("POST /api/restart", s.restart)
+	mux.HandleFunc("DELETE /api/restart", s.cancelRestart)
 	mux.HandleFunc("GET /api/bots", s.listBots)
 	mux.HandleFunc("POST /api/bots", s.createBot)
 	mux.HandleFunc("PUT /api/bots/order", s.reorderBots)
@@ -363,6 +364,14 @@ func (s *server) updateBot(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// No turn of the bot starts from here on, so none starts in the folder
+	// that the deletion removes.
+	done, err := s.runner.BeginDelete(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	defer done()
 	if _, err := s.runner.Interrupt(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
@@ -375,7 +384,7 @@ func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if err := s.svc.DeleteBot(r.Context(), id); err != nil {
+	if err := s.runner.FinishDelete(r.Context(), id); err != nil {
 		s.fail(w, r, err)
 		return
 	}

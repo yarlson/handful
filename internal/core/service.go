@@ -818,6 +818,19 @@ func (s *Service) PublishTasks(id string, tasks []BackgroundTask) {
 	s.hub.Publish(Event{Type: "tasks", BotID: id, Tasks: &tasks})
 }
 
+// The states of an idle restart that a restart event reports.
+const (
+	RestartWaiting    = "waiting"    // it waits for the running work to end
+	RestartCancelled  = "cancelled"  // drain mode ended, or the file went bad, before it restarted
+	RestartExpired    = "expired"    // the time limit passed with work still running
+	RestartRestarting = "restarting" // the server ends now so that launchd starts it again
+)
+
+// PublishRestart sends a change of the server's restart.
+func (s *Service) PublishRestart(state string) {
+	s.hub.Publish(Event{Type: "restart", State: state})
+}
+
 // PublishPause sends when new turns start again after a usage limit; the
 // zero time means that the pause ended.
 func (s *Service) PublishPause(until time.Time) {

@@ -213,12 +213,16 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	if err := cmd.Start(); err != nil {
 		return fail(fmt.Errorf("start %s: %w", r.cfg.ClaudePath, err))
 	}
+	// The record lets the next server end this process group if this one
+	// crashes, since only a clean stop signals it.
+	r.recordProcess(cmd.Process.Pid)
 	s := &session{key: key, bot: bot, token: token, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
 	r.mu.Lock()
 	r.sessions[key] = s
 	r.mu.Unlock()
 	r.wg.Go(func() {
 		r.serve(s, cmd, stdout, stderr)
+		r.forgetProcess(cmd.Process.Pid)
 	})
 	return s, nil
 }

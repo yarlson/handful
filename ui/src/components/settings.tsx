@@ -591,7 +591,11 @@ function loadSaved(): SavedValues {
 }
 
 function storeSaved(saved: SavedValues): SavedValues {
-  sessionStorage.setItem(SAVED_KEY, JSON.stringify(saved))
+  try {
+    sessionStorage.setItem(SAVED_KEY, JSON.stringify(saved))
+  } catch {
+    // Storage that refuses the write keeps the values for this page view only.
+  }
   return saved
 }
 

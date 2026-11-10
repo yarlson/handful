@@ -90,3 +90,21 @@ test("a failed request without a server error throws its status", async () => {
   const err = await api.board("t1").catch((e: Error) => e)
   assert.strictEqual((err as Error).message, "GET /api/teams/t1/board failed with 502")
 })
+
+test("settings and restart calls go to the server's routes with their bodies", async () => {
+  const calls = stubFetch(200)
+  await api.settings()
+  await api.patchSettings({ maxParallel: 4, model: null })
+  await api.resetSettingsFile()
+  await api.restart("idle")
+  await api.restart("now")
+  await api.cancelRestart()
+  assert.deepEqual(calls, [
+    { method: "GET", url: "/api/settings", body: undefined },
+    { method: "PATCH", url: "/api/settings", body: { maxParallel: 4, model: null } },
+    { method: "PUT", url: "/api/settings/file", body: {} },
+    { method: "POST", url: "/api/restart", body: { when: "idle" } },
+    { method: "POST", url: "/api/restart", body: { when: "now" } },
+    { method: "DELETE", url: "/api/restart", body: undefined },
+  ])
+})

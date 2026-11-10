@@ -363,7 +363,7 @@ function SidebarItem({
       {(bot.incomingHandoffs ?? 0) > 0 && (
         <span
           className="rounded-full bg-sky-500/15 px-1.5 text-xs text-sky-700 dark:text-sky-400"
-          aria-label={`${bot.incomingHandoffs} incoming ${bot.incomingHandoffs === 1 ? "handoff" : "handoffs"}`}
+          aria-label={`${bot.incomingHandoffs} in the inbox`}
         >
           {bot.incomingHandoffs}
         </span>

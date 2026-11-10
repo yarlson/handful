@@ -48,10 +48,6 @@ const team: Bot = {
 const board = (b: Partial<Board>): Board => ({
   goal: null,
   items: [],
-  requests: [],
-  queue: [],
-  slots: { limit: 1, used: 0, applies: false },
-  asked: [],
   teams: {},
   ...b,
 })

@@ -85,6 +85,7 @@ export function GoalBar({
   onShowBoard,
   teams = [],
   draining = false,
+  pause = "Paused for update",
 }: {
   team: Bot
   version: number
@@ -93,6 +94,8 @@ export function GoalBar({
   teams?: Bot[]
   // draining: the server starts no new turns until it restarts for an update.
   draining?: boolean
+  // pause names the drain: for an update or for a restart.
+  pause?: string
 }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
   const [handing, setHanding] = useState(false)
@@ -123,7 +126,7 @@ export function GoalBar({
         <>
           <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{goalBadge[goal.state]}</Badge>
           <FromChip goal={goal} name={name} />
-          {draining && goal.state === "active" && <PausedForUpdate />}
+          {draining && goal.state === "active" && <PausedForUpdate label={pause} />}
           <span className="min-w-0 flex-1 truncate" title={goal.text}>
             {goal.text}
           </span>

@@ -9,6 +9,7 @@ import {
   PauseCircle,
   Plug,
   Plus,
+  Settings as SettingsIcon,
   ShieldQuestion,
   Users,
 } from "lucide-react"
@@ -19,6 +20,8 @@ import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
 import { GoalBar } from "@/components/board"
+import { openSettingsPage, SettingsPage } from "@/components/settings"
+import { isSettingsPath, pauseLabel, sectionOfPath } from "@/lib/settings"
 import { UpdatePill, useUpdate } from "@/components/update-pill"
 import { shown } from "@/lib/updates"
 import { WaitingView } from "@/components/questions"
@@ -524,6 +527,7 @@ export function App() {
     setError,
     pausedUntil,
     draining,
+    restartRev,
     select,
     refreshBots,
     reorder,
@@ -533,6 +537,8 @@ export function App() {
   const resizing = useRef(false)
   useEffect(() => saveSidebarWidth(width), [width])
   const [selected, setSelected] = useState<string | null>(chatInLocation)
+  // path is the address bar's path; /settings… shows the Settings page instead of the chats.
+  const [path, setPath] = useState(() => location.pathname)
   const [creating, setCreating] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
   const [creatingTeam, setCreatingTeam] = useState(false)
@@ -551,6 +557,7 @@ export function App() {
 
   const openChat = (id: string) => {
     if (location.pathname !== chatPath(id)) history.pushState(null, "", chatPath(id))
+    setPath(location.pathname)
     setWaitingOpen(false)
     setSelected(id)
   }
@@ -574,14 +581,18 @@ export function App() {
   })
 
   useEffect(() => {
-    const onPopState = () => setSelected(chatInLocation())
+    const onPopState = () => {
+      setPath(location.pathname)
+      const id = chatInLocation()
+      if (id) setSelected(id)
+    }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
   }, [])
   useEffect(() => {
     if (bots.length === 0 || bots.some((b) => b.id === selected)) return
     // Replace, not push: otherwise Back returns to the missing chat, which opens the first chat again.
-    history.replaceState(null, "", chatPath(bots[0].id))
+    if (!isSettingsPath(location.pathname)) history.replaceState(null, "", chatPath(bots[0].id))
     setSelected(bots[0].id)
   }, [bots, selected])
   useEffect(() => select(selected), [selected, select])
@@ -595,6 +606,30 @@ export function App() {
   const entries = orderedEntries(transcript)
   const waiting = useLoad(() => api.waiting(), waitingKey(bots))
   const waitingN = waiting.data ? waitingCount(waiting.data) : 0
+
+  // A drain that the updater didn't start is a settings restart.
+  const pause = pauseLabel(update.state?.state === "waiting" || update.state?.state === "limit")
+
+  if (isSettingsPath(path)) {
+    return (
+      <>
+        <SettingsPage
+          section={sectionOfPath(path)}
+          onSection={(s) => {
+            history.replaceState(null, "", `/settings/${s}`)
+            setPath(location.pathname)
+          }}
+          onBack={() => {
+            history.pushState(null, "", selected ? chatPath(selected) : "/")
+            setPath(location.pathname)
+          }}
+          onManageConnectors={() => setConnectors(true)}
+          restartRev={restartRev}
+        />
+        <ConnectorsDialog open={connectors} onOpenChange={setConnectors} bots={agents} />
+      </>
+    )
+  }
 
   return (
     <div className="bg-background text-foreground flex h-screen">
@@ -658,6 +693,9 @@ export function App() {
           <span className="flex-1">{linkLabel(link)}</span>
           <Button size="xs" variant="ghost" onClick={() => setConnectors(true)}>
             <Plug /> Connectors
+          </Button>
+          <Button size="xs" variant="ghost" onClick={() => openSettingsPage("general")}>
+            <SettingsIcon /> Settings
           </Button>
         </div>
       </aside>
@@ -759,6 +797,7 @@ export function App() {
                 onShowBoard={() => showTab("board")}
                 teams={teams}
                 draining={draining}
+                pause={pause}
               />
             )}
             <div className="flex min-h-0 flex-1">
@@ -768,6 +807,7 @@ export function App() {
                 status={transcriptStatus.get(bot.id) ?? "unloaded"}
                 answering={answering.get(bot.id) ?? null}
                 draining={draining}
+                pause={pause}
                 pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
                 onAnswer={(q) => setAnswer(bot.id, q)}
                 mentionables={

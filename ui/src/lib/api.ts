@@ -1,6 +1,7 @@
 import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifacts"
 import { errorMessage } from "./errors"
 import type { ServerVersion } from "./updates"
+import type { Key, Plain, SettingsView } from "./settings"
 import type { Intake, Slots } from "./queue"
 import type { ItemEvent, OpenQuestion, QuestionState, Waiting } from "./questions"
 import type { Defaults, Effective } from "./model"
@@ -223,6 +224,7 @@ export type ServerEvent =
   | { type: "bots" }
   | { type: "pause"; pausedUntil?: string }
   | { type: "drain"; draining: boolean }
+  | { type: "restart"; state: "waiting" | "cancelled" | "expired" | "restarting" }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -247,6 +249,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   listBots: () => request<Bot[]>("GET", "/api/bots"),
   version: () => request<ServerVersion>("GET", "/api/version"),
+  settings: () => request<SettingsView>("GET", "/api/settings"),
+  // A null value removes the key from config.json, so its default applies.
+  patchSettings: (patch: Partial<Record<Key, Plain | null>>) => request<SettingsView>("PATCH", "/api/settings", patch),
+  resetSettingsFile: () => request<SettingsView>("PUT", "/api/settings/file", {}),
+  restart: (when: "now" | "idle") => request<ServerVersion>("POST", "/api/restart", { when }),
+  // Cancels a waiting settings restart; the updater's own wait stays.
+  cancelRestart: () => request<unknown>("DELETE", "/api/restart"),
   reorderBots: (ids: string[]) => request<void>("PUT", "/api/bots/order", { ids }),
   createBot: (name: string, instructions: string, values: { model?: string; effort?: string } = {}) =>
     request<Bot>("POST", "/api/bots", { name, instructions, ...values }),

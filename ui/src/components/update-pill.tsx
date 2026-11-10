@@ -508,12 +508,13 @@ export function UpdatePill({
   )
 }
 
-// PausedForUpdate is the goal bar's badge while the server waits to restart.
-export function PausedForUpdate() {
+// PausedForUpdate is the goal bar's badge while the server waits to restart, for an update
+// or for new settings.
+export function PausedForUpdate({ label = "Paused for update" }: { label?: string }) {
   return (
     <Badge variant="secondary" title="New turns wait until YarGPT restarts. Running turns finish.">
       <Pause className="size-3" aria-hidden />
-      Paused for update
+      {label}
     </Badge>
   )
 }

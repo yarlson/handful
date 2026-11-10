@@ -129,6 +129,37 @@ func TestTheLeadsBoardShowsEachInboxTasksDecisionClock(t *testing.T) {
 	}
 }
 
+// The lead's board says how many of the team's turns in the last hour were
+// on no task, and by whom, so the lead can make tasks of that work; a member's
+// board and a team with none say nothing of it.
+func TestTheLeadsBoardCountsTheTeamsTurnsOnNoTask(t *testing.T) {
+	t.Parallel()
+	dev := core.Bot{ID: "dev", Name: "Dev", Members: []core.Member{{ID: "dl", Name: "Dee"}, {ID: "bo", Name: "Bo"}}, Team: &core.Team{LeadID: "dl", DecisionMinutes: 30}}
+	three := core.OffTask{Count: 3, Turns: []core.OffTaskTurn{{BotName: "Bo"}, {BotName: "Dee"}, {BotName: "Bo"}}}
+	one := core.OffTask{Count: 1, Turns: []core.OffTaskTurn{{BotName: "Bo"}}}
+	running := &core.Goal{ID: "now", Text: "Ship.", State: core.GoalActive, Budget: 10}
+	const pointer = "Turn work that takes more than one turn into a task: propose it with update_board propose, then take it.\n"
+
+	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Goal: running, OffTask: three}, core.Turn{}, nil, time.Time{}); !strings.HasSuffix(got, "\n3 turns of your team in the last hour were on no task (Bo, Dee). "+pointer) {
+		t.Errorf("lead's board with 3 turns on no task = %q; want the count, the names once each and the pointer at the end", got)
+	}
+	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{OffTask: one}, core.Turn{}, nil, time.Time{}); !strings.Contains(got, "<board>") || !strings.HasSuffix(got, "\n1 turn of your team in the last hour was on no task (Bo). "+pointer) {
+		t.Errorf("lead's board with no task and 1 turn on no task = %q; want the board and the line", got)
+	}
+	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Goal: running}, core.Turn{}, nil, time.Time{}); strings.Contains(got, "on no task") {
+		t.Errorf("lead's board with no turn on no task = %q; want no line", got)
+	}
+	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{}, core.Turn{}, nil, time.Time{}); got != "" {
+		t.Errorf("lead's empty board = %q; want none", got)
+	}
+	if got := boardPrompt(core.Bot{ID: "bo"}, dev, core.Board{Goal: running, OffTask: three}, core.Turn{}, nil, time.Time{}); strings.Contains(got, "on no task") {
+		t.Errorf("member's board = %q; want no off-task line", got)
+	}
+	if got := boardPrompt(core.Bot{ID: "bo"}, dev, core.Board{OffTask: three}, core.Turn{}, nil, time.Time{}); got != "" {
+		t.Errorf("member's board with only turns on no task = %q; want none", got)
+	}
+}
+
 // A lead's decision on an inbox task shows the team's Now task too; another
 // goal's turn still doesn't.
 func TestADecisionTurnSeesTheNowTask(t *testing.T) {

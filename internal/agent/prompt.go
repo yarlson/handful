@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -258,7 +259,9 @@ func otherTeams(pc promptContext) string {
 // "" when the board has neither. now, in the user's time zone, dates the
 // inbox's decision clocks.
 func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []core.ItemEvent, now time.Time) string {
-	if board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 && len(board.Inbox) == 0 && len(board.Done) == 0 && len(board.Sent) == 0 {
+	lead, _ := team.Lead()
+	leads := lead.ID == bot.ID
+	if boardEmpty(board) && (!leads || board.OffTask.Count == 0) {
 		return ""
 	}
 	text := "\n\n" + boardTable(team, board, now)
@@ -271,9 +274,21 @@ func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []co
 	if t.BoardRole == core.RoleRetro {
 		return text + retroBrief
 	}
-	if lead, _ := team.Lead(); lead.ID != bot.ID {
+	if !leads {
 		return text
 	}
+	return text + leadBriefs(board)
+}
+
+// boardEmpty reports whether a board has no task and no request to show.
+func boardEmpty(board core.Board) bool {
+	return board.Goal == nil && len(board.Requests) == 0 && len(board.Queue) == 0 && len(board.Inbox) == 0 && len(board.Done) == 0 && len(board.Sent) == 0
+}
+
+// leadBriefs is what the lead must do about its board: plan the Now task,
+// answer requests, decide on the inbox and turn work on no task into tasks.
+func leadBriefs(board core.Board) string {
+	var text string
 	if board.Goal != nil {
 		text += leadBrief
 	}
@@ -283,7 +298,26 @@ func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []co
 	if len(board.Inbox) > 0 {
 		text += inboxBrief
 	}
-	return text
+	return text + offTaskLine(board.OffTask)
+}
+
+// offTaskLine tells the lead how much of its team's work in the last hour
+// was on no task, and by whom; "" when none was.
+func offTaskLine(off core.OffTask) string {
+	if off.Count == 0 {
+		return ""
+	}
+	var names []string
+	for _, turn := range off.Turns {
+		if !slices.Contains(names, turn.BotName) {
+			names = append(names, turn.BotName)
+		}
+	}
+	count := fmt.Sprintf("%d turns of your team in the last hour were", off.Count)
+	if off.Count == 1 {
+		count = "1 turn of your team in the last hour was"
+	}
+	return fmt.Sprintf("\n%s on no task (%s). Turn work that takes more than one turn into a task: propose it with update_board propose, then take it.\n", count, strings.Join(names, ", "))
 }
 
 // boardTable lists a team's goal and its items, and the requests of other

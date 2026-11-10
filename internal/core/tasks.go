@@ -326,8 +326,13 @@ func (s *Service) PassOn(ctx context.Context, a Actor, goalID, toTeamID, note st
 }
 
 // passTarget checks where team passes task g on to, with what note: a team
-// with members, other than team and the task's sender.
+// with members, other than team and the task's sender. A member's proposal
+// is not passed on: it is the team's own idea, with no other team to see
+// where it went, so the lead sends it as a task of the team instead.
 func (s *Service) passTarget(ctx context.Context, team Bot, g Goal, toTeamID, note string) (Bot, string, error) {
+	if g.Origin == OriginProposal {
+		return Bot{}, "", invalid("%q is a proposal of your team's member; to give it to another team, send it with send_task, then push the proposal back", g.Text)
+	}
 	note, err := textOf("the note", note, maxItemNote, true)
 	if err != nil {
 		return Bot{}, "", err

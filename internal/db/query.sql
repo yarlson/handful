@@ -397,10 +397,11 @@ UPDATE goals SET queue_pos = ? WHERE id = ? AND state = 'queued';
 SELECT * FROM goals WHERE id = ?;
 
 -- name: GetLatestGoal :one
--- A goal that never started (queued, incoming, declined, or a handoff
--- withdrawn before it started) is not the team's latest goal.
+-- A goal that never started (queued, incoming, declined, or one withdrawn
+-- or cancelled before it started, which left its budget 0) is not the
+-- team's latest goal, whoever sent it.
 SELECT * FROM goals WHERE team_id = ? AND state NOT IN ('queued', 'incoming', 'later', 'declined')
-  AND NOT (state = 'ended' AND origin = 'handoff' AND budget = 0)
+  AND NOT (state = 'ended' AND budget = 0)
 ORDER BY state IN ('active', 'paused') DESC, state = 'delivered' DESC, created_at DESC, rowid DESC
 LIMIT 1;
 

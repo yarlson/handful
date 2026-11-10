@@ -908,13 +908,14 @@ func (q *Queries) GetItem(ctx context.Context, id string) (Item, error) {
 
 const getLatestGoal = `-- name: GetLatestGoal :one
 SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id FROM goals WHERE team_id = ? AND state NOT IN ('queued', 'incoming', 'later', 'declined')
-  AND NOT (state = 'ended' AND origin = 'handoff' AND budget = 0)
+  AND NOT (state = 'ended' AND budget = 0)
 ORDER BY state IN ('active', 'paused') DESC, state = 'delivered' DESC, created_at DESC, rowid DESC
 LIMIT 1
 `
 
-// A goal that never started (queued, incoming, declined, or a handoff
-// withdrawn before it started) is not the team's latest goal.
+// A goal that never started (queued, incoming, declined, or one withdrawn
+// or cancelled before it started, which left its budget 0) is not the
+// team's latest goal, whoever sent it.
 func (q *Queries) GetLatestGoal(ctx context.Context, teamID string) (Goal, error) {
 	row := q.db.QueryRowContext(ctx, getLatestGoal, teamID)
 	var i Goal

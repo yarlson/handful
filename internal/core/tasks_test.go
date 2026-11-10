@@ -822,3 +822,58 @@ func TestATaskWaitsOnlyOnAnOpenStep(t *testing.T) {
 		t.Fatalf("the user links a waiting step: err = %v; want ErrInvalid", err)
 	}
 }
+
+func TestAProposalIsNotPassedOnButSentAsTheTeamsTask(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	p, err := h.svc.ProposeTask(ctx, Actor{BotID: h.eve.ID, TeamID: h.docs.ID}, NewTask{Text: "Tidy the docs."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, h.svc)
+	_, err = h.svc.PassOn(ctx, h.docsLead, p.ID, h.dev.ID, "Dev tidies.")
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "send it with send_task, then push the proposal back") {
+		t.Fatalf("pass on a proposal: err = %v; want ErrInvalid that says to send it", err)
+	}
+	if got := h.goalNow(t, p.ID); got.TeamID != h.docs.ID || got.State != GoalIncoming || got.Passes != 0 {
+		t.Fatalf("proposal after a refused pass = %+v; want it unchanged in Docs's inbox", got)
+	}
+	h.wantWakes(t, "a refused pass")
+}
+
+func TestATaskWithdrawnBeforeItStartedIsNotTheTeamsLatestGoal(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	user := Actor{Role: RoleUser}
+	for name, send := range map[string]func() Goal{
+		"the user's task": func() Goal {
+			g, err := h.svc.UserTask(ctx, h.docs.ID, NewTask{Text: "Write the FAQ."}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return g
+		},
+		"a proposal": func() Goal {
+			g, err := h.svc.ProposeTask(ctx, Actor{BotID: h.eve.ID, TeamID: h.docs.ID}, NewTask{Text: "Tidy the docs."})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return g
+		},
+		"another team's task": func() Goal { return h.handOver(t, f.lead, f.team, h.docs, "Guide.") },
+	} {
+		g := send()
+		withdrawer := user
+		if g.Origin == OriginHandoff {
+			withdrawer = f.lead
+		}
+		if _, err := h.svc.WithdrawTask(ctx, withdrawer, g.ID); err != nil {
+			t.Fatalf("%s: withdraw: %v", name, err)
+		}
+		if board, err := h.svc.Board(ctx, h.docs.ID); err != nil || board.Goal != nil {
+			t.Fatalf("%s: Docs's goal after a withdrawal = %+v, %v; want none", name, board.Goal, err)
+		}
+		finishQueued(t, h.svc)
+	}
+}

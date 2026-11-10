@@ -239,16 +239,20 @@ type skillInput struct {
 }
 
 type boardInput struct {
-	Action     string   `json:"action" jsonschema:"list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer, withdraw, hand_over, accept_handoff, ask_sender, answer_handoff, decline_handoff or withdraw_handoff"`
+	Action     string   `json:"action" jsonschema:"tasks: send_task, take, order, ask, answer_task, later, pass_on, push_back, propose, close, approve, stop, withdraw; steps: create, assign, submit, block, unblock, drop, pass, changes; list shows the board. Older names still work: start_goal, deliver, request, defer, undefer, hand_over, accept_handoff, ask_sender, answer_handoff, decline_handoff, withdraw_handoff"`
 	ItemID     string   `json:"item_id,omitempty" jsonschema:"the item to act on; required except for list, start_goal, create, deliver and request; for request, the other team's request that this work is for, when your team serves requests of several goals"`
 	Revisit    string   `json:"revisit,omitempty" jsonschema:"defer: when the request comes back: goal_end (when your team's current goal ends), manual (when you undefer it) or an RFC 3339 date-time"`
-	TeamID     string   `json:"team_id,omitempty" jsonschema:"request and hand_over: the other team"`
-	GoalID     string   `json:"goal_id,omitempty" jsonschema:"accept_handoff, ask_sender, answer_handoff, decline_handoff and withdraw_handoff: the handed-over goal"`
+	TeamID     string   `json:"team_id,omitempty" jsonschema:"send_task and pass_on: the other team"`
+	GoalID     string   `json:"goal_id,omitempty" jsonschema:"the task to act on, for take, ask, answer_task, later, pass_on, push_back, close, approve, stop and withdraw (and changes on a done task)"`
+	Position   int64    `json:"position,omitempty" jsonschema:"take: the task's place in your plan, from 1; empty puts it at the end"`
+	Order      []string `json:"order,omitempty" jsonschema:"order: the ids of every task in your plan, in the new order"`
+	Until      string   `json:"until,omitempty" jsonschema:"later: when the task comes back to your inbox, an RFC 3339 date-time at most 7 days ahead"`
+	WaitsFor   string   `json:"waits_for,omitempty" jsonschema:"send_task: the id of your own step that waits on the task"`
 	NeededBy   []string `json:"needed_by,omitempty" jsonschema:"request: ids of todo or blocked items of your active goal that wait on the request; they then depend on it"`
-	Artifacts  []string `json:"artifact_ids,omitempty" jsonschema:"hand_over: ids of artifacts the other team needs"`
-	Text       string   `json:"text,omitempty" jsonschema:"start_goal and hand_over: the goal in the user's words; ask_sender: your question; answer_handoff: your answer; decline_handoff: why; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; assign: a note, required when you take a request out of order; drop: a note, required on another team's request; pass: an optional note; defer: why the request waits; deliver: the result for the user"`
+	Artifacts  []string `json:"artifact_ids,omitempty" jsonschema:"send_task: ids of artifacts the other team needs"`
+	Text       string   `json:"text,omitempty" jsonschema:"send_task and propose: the task in a line; ask: your question; answer_task: your answer; later: why it waits; pass_on: a note for the next team; push_back: the reason the sender reads; close: the result, what was done and where it is, and one line for each thing left out of scope; changes on a done task: what must change; start_goal and hand_over: the goal in the user's words; ask_sender: your question; answer_handoff: your answer; decline_handoff: why; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes: what must change and why; assign: a note, required when you take a request out of order; drop: a note, required on another team's request; pass: an optional note; defer: why the request waits; deliver: the result for the user"`
 	Title      string   `json:"title,omitempty" jsonschema:"create and request: a short title, unique in the goal"`
-	Brief      string   `json:"brief,omitempty" jsonschema:"create, request and hand_over: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
+	Brief      string   `json:"brief,omitempty" jsonschema:"send_task, propose, create, request and hand_over: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
 	Acceptance string   `json:"acceptance,omitempty" jsonschema:"create and request: how a reviewer can tell that the item is done"`
 	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the item"`
 	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the item; optional"`
@@ -285,7 +289,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
 	if inTeam(svc, current) {
-		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: the user's goal and its items. list shows the board. The lead starts a goal (start_goal, in a turn that the user's post started), adds items (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop); another member's create is a proposal for the lead. An item's owner hands it on with submit, or stops it with block and a question. Its reviewer passes it or asks for changes. When every item is done or dropped, the lead delivers the result to the user (deliver). A start_goal while the team works on a goal queues the new goal; the user orders the queue. A lead gives another team work that its goal does not wait on with hand_over; that team's lead accepts it, asks its sender (ask_sender, answered with answer_handoff) or declines it, and the sender can withdraw it until it starts. A lead asks another team for a part that items of its goal wait on with request and needed_by, and withdraws a request it no longer needs with withdraw. The lead of the asked team accepts it with assign, declines it with drop and a note, or defers it with defer, a note and when to revisit; undefer brings a deferred request back."}, h.updateBoard)
+		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team, the user's too, arrives in the team's inbox. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close); whoever asked approves it or asks for changes, and stop stops a task, keeping its steps."}, h.updateBoard)
 	}
 	if isBuilder(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: core.ToolCreateSetup, Description: createSetupDescription}, h.createSetup)
@@ -820,10 +824,10 @@ var boardActions = map[string]boardAction{
 	"unblock":    itemAction((*core.Service).UnblockItem),
 	"drop":       itemAction((*core.Service).DropItem),
 	"pass":       itemAction((*core.Service).PassItem),
-	"changes":    itemAction((*core.Service).RequestChanges),
+	"changes":    tools.boardChanges,
 	"defer":      tools.boardDefer,
 	"undefer":    requestAction((*core.Service).UndeferItem),
-	"withdraw":   requestAction((*core.Service).WithdrawItem),
+	"withdraw":   tools.boardWithdraw,
 	"hand_over":  tools.boardHandOver,
 	// The receiving lead's actions on a handoff, and the sender's.
 	"accept_handoff": goalAction(func(s *core.Service, ctx context.Context, a core.Actor, id, _ string) (core.Goal, error) {
@@ -835,12 +839,25 @@ var boardActions = map[string]boardAction{
 	"withdraw_handoff": goalAction(func(s *core.Service, ctx context.Context, a core.Actor, id, _ string) (core.Goal, error) {
 		return s.WithdrawHandoff(ctx, a, id)
 	}),
+	// Tasks: one inbox per team, and the lead's decisions on it.
+	"send_task":   tools.boardSendTask,
+	"propose":     tools.boardPropose,
+	"take":        tools.boardTake,
+	"order":       tools.boardOrder,
+	"later":       tools.boardLater,
+	"pass_on":     tools.boardPassOn,
+	"ask":         goalAction((*core.Service).AskTask),
+	"answer_task": goalAction((*core.Service).AnswerTask),
+	"push_back":   goalAction((*core.Service).PushBack),
+	"close":       goalAction((*core.Service).CloseTask),
+	"approve":     goalAction(noText((*core.Service).ApproveTask)),
+	"stop":        goalAction(noText((*core.Service).StopTask)),
 }
 
 func (t tools) updateBoard(ctx context.Context, rc runContext, in boardInput) (*mcp.CallToolResult, any, error) {
 	act, ok := boardActions[in.Action]
 	if !ok {
-		return nil, nil, errors.New("action must be list, start_goal, create, assign, submit, block, unblock, drop, pass, changes, deliver, request, defer, undefer, withdraw, hand_over, accept_handoff, ask_sender, answer_handoff, decline_handoff or withdraw_handoff")
+		return nil, nil, errors.New("action must be one of: send_task, take, order, ask, answer_task, later, pass_on, push_back, propose, close, approve, stop, withdraw, create, assign, submit, block, unblock, drop, pass, changes, list")
 	}
 	teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
 	if err != nil {
@@ -929,7 +946,7 @@ func (t tools) queuedReply(ctx context.Context, teamID string, g core.Goal) (str
 	}
 	when := "the user starts the next goal of the queue"
 	if cur := board.Goal; cur != nil && cur.Open() {
-		when = fmt.Sprintf("the user accepts or ends %q", cur.Text)
+		when = fmt.Sprintf("%q is closed or stopped", cur.Text)
 	}
 	return fmt.Sprintf("Queued as #%d for %s; it starts when %s. Don't plan it now.", g.QueuePos, team.Name, when), nil
 }
@@ -959,6 +976,89 @@ func parseRevisit(s string) (string, int64, error) {
 		return "", 0, fmt.Errorf("revisit must be %s, %s or an RFC 3339 date-time such as 2026-11-10T09:00:00+02:00", core.RevisitGoalEnd, core.RevisitManual)
 	}
 	return core.RevisitDate, at.UnixMilli(), nil
+}
+
+// noText adapts a change of a task that takes no text to goalAction.
+func noText(change func(*core.Service, context.Context, core.Actor, string) (core.Goal, error)) func(*core.Service, context.Context, core.Actor, string, string) (core.Goal, error) {
+	return func(s *core.Service, ctx context.Context, a core.Actor, id, _ string) (core.Goal, error) {
+		return change(s, ctx, a, id)
+	}
+}
+
+// boardSendTask sends another team a task, into its lead's inbox.
+func (t tools) boardSendTask(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	g, err := t.svc.SendTask(ctx, a, in.TeamID, core.NewTask{Text: in.Text, Brief: in.Brief, ArtifactIDs: in.Artifacts, WaitsOn: in.WaitsFor})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Sent %q (task id %s) to that team's inbox. Its lead takes it, asks you, defers it, passes it on or pushes it back; you hear back in this channel. That team pays for the work.", g.Text, g.ID), nil
+}
+
+// boardPropose puts a task for the member's own team into its inbox.
+func (t tools) boardPropose(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	g, err := t.svc.ProposeTask(ctx, a, core.NewTask{Text: in.Text, Brief: in.Brief, ArtifactIDs: in.Artifacts})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Proposed %q (task id %s); it waits in your team's inbox for the lead's decision.", g.Text, g.ID), nil
+}
+
+// boardTake puts a task of the inbox into the plan, at a position or the end.
+func (t tools) boardTake(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	g, err := t.svc.TakeTask(ctx, a, in.GoalID, in.Position)
+	if err != nil {
+		return "", err
+	}
+	if g.State == core.GoalActive {
+		return fmt.Sprintf("Took %q; it is your Now task: plan it into steps with create.", g.Text), nil
+	}
+	return fmt.Sprintf("Took %q as #%d in your plan; it starts when the tasks before it are closed. Don't plan it now.", g.Text, g.QueuePos), nil
+}
+
+// boardOrder puts the team's plan in a new order.
+func (t tools) boardOrder(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	if err := t.svc.OrderPlan(ctx, a, a.TeamID, in.Order); err != nil {
+		return "", err
+	}
+	return "The plan is in the new order.", nil
+}
+
+// boardLater defers a task of the inbox until an RFC 3339 date-time.
+func (t tools) boardLater(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	until, err := time.Parse(time.RFC3339, in.Until)
+	if err != nil {
+		return "", errors.New("until must be an RFC 3339 date-time at most 7 days ahead, such as 2026-11-12T09:00:00+02:00")
+	}
+	g, err := t.svc.LaterTask(ctx, a, in.GoalID, in.Text, until.UnixMilli())
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%q waits until %s; it comes back to your inbox then.", g.Text, until.Format(time.RFC3339)), nil
+}
+
+// boardPassOn sends a task of the inbox on to the team it belongs to.
+func (t tools) boardPassOn(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	g, err := t.svc.PassOn(ctx, a, in.GoalID, in.TeamID, in.Text)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Passed %q on; it is in that team's inbox now.", g.Text), nil
+}
+
+// boardChanges asks for changes: to a done task with goal_id, else to a step.
+func (t tools) boardChanges(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	if in.GoalID != "" {
+		return goalAction((*core.Service).ChangesTask)(t, ctx, a, in)
+	}
+	return itemAction((*core.Service).RequestChanges)(t, ctx, a, in)
+}
+
+// boardWithdraw withdraws a task the team sent, with goal_id, else a request.
+func (t tools) boardWithdraw(ctx context.Context, a core.Actor, in boardInput) (string, error) {
+	if in.GoalID != "" {
+		return goalAction(noText((*core.Service).WithdrawTask))(t, ctx, a, in)
+	}
+	return requestAction((*core.Service).WithdrawItem)(t, ctx, a, in)
 }
 
 // boardHandOver gives another team work as a goal of its own.

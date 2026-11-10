@@ -12,8 +12,11 @@
 --     wakes, such as hearing an answer or a result, which are board work.
 -- Background-task report turns (source 'task') count, with the task they inherit.
 --
--- Run by hand on a copy of the database, never on the live one:
---   sqlite3 -readonly copy.db
+-- Run by hand on a copy of the database, never on the live one. The
+-- database is in WAL mode, so open the copy as immutable; -readonly alone
+-- fails to open it:
+--   sqlite3 ~/.yargpt/yargpt.db ".backup copy.db"
+--   sqlite3 "file:copy.db?immutable=1"
 --   .param set :from 1794200000000
 --   .param set :to   1794804800000
 --   .read docs/measures/off-task-share.sql

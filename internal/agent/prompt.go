@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -301,23 +300,23 @@ func leadBriefs(board core.Board) string {
 	return text + offTaskLine(board.OffTask)
 }
 
-// offTaskLine tells the lead how much of its team's work in the last hour
-// was on no task, and by whom; "" when none was.
+// offTaskLine tells the lead which of its team's turns in the last hour were
+// on no task, each with the id that make_task takes; "" when none was.
 func offTaskLine(off core.OffTask) string {
 	if off.Count == 0 {
 		return ""
 	}
-	var names []string
-	for _, turn := range off.Turns {
-		if !slices.Contains(names, turn.BotName) {
-			names = append(names, turn.BotName)
-		}
-	}
-	count := fmt.Sprintf("%d turns of your team in the last hour were", off.Count)
+	var b strings.Builder
 	if off.Count == 1 {
-		count = "1 turn of your team in the last hour was"
+		b.WriteString("\n1 turn of your team in the last hour was on no task:\n")
+	} else {
+		fmt.Fprintf(&b, "\n%d turns of your team in the last hour were on no task:\n", off.Count)
 	}
-	return fmt.Sprintf("\n%s on no task (%s). Turn work that takes more than one turn into a task: propose it with update_board propose, then take it.\n", count, strings.Join(names, ", "))
+	for _, turn := range off.Turns {
+		fmt.Fprintf(&b, "- turn %s, %s: %s\n", turn.TurnID, turn.BotName, turn.FirstLine)
+	}
+	b.WriteString("Turn work that takes more than one turn into a task: update_board make_task with the task in a line (text), a brief and the turn_ids of that work takes it into your plan and attaches the turns.\n")
+	return b.String()
 }
 
 // boardTable lists a team's goal and its items, and the requests of other

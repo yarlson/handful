@@ -365,3 +365,49 @@ test("the Now task, planned and done tasks each open their history", () => {
   for (const t of ["Ship CSV export", "Add PDF export", "Spec the updater"])
     assert.include(html, `aria-label="History: ${t}"`)
 })
+
+const offTask = {
+  count: 2,
+  turns: [
+    { turnId: "t1", botId: "b", botName: "Bo", startedAt: 0, firstLine: "Rebased the context-menu PR" },
+    { turnId: "t2", botId: "b", botName: "Bo", startedAt: 0, firstLine: "" },
+  ],
+}
+
+test("turns on no task show in a box with who, and Make a task; none hide it", () => {
+  const html = render(board({ offTask }))
+  assert.include(html, 'aria-labelledby="off-task-heading"')
+  assert.include(html, ">Not on a task</h3>")
+  assert.include(html, "<strong>2 turns in the last hour</strong> weren&#x27;t on any task: Bo.")
+  assert.include(html, 'aria-label="Make a task: 2 turns on no task"')
+  assert.include(html, 'aria-expanded="false" aria-controls="off-task-turns"')
+  assert.notInclude(html, "Rebased the context-menu PR")
+  assert.notInclude(render(board({ offTask: { count: 0, turns: [] } })), "Not on a task")
+  assert.notInclude(render(board({})), "Not on a task")
+})
+
+const budget = { today: 212, limit: 400, suggested: 0, paused: false, warn: false }
+
+test("today's budget shows the turns used against the limit, and the paused state", () => {
+  const html = render(board({ budget }))
+  assert.include(html, 'aria-labelledby="budget-heading"')
+  assert.include(html, "212 of 400 turns used")
+  assert.include(html, 'style="width:53%"')
+  assert.include(html, 'aria-label="Change the limit: Dev"')
+  assert.notInclude(html, "Paused: new turns wait")
+  const paused = render(board({ budget: { ...budget, today: 400, paused: true } }))
+  assert.include(paused, "Paused: new turns wait until midnight or a higher limit.")
+  assert.include(paused, "bg-amber-500")
+})
+
+test("a watched day shows its count with no limit, then the suggested limit to accept", () => {
+  const watched = render(board({ budget: { ...budget, limit: 0 } }))
+  assert.include(watched, "212 turns (no limit yet)")
+  assert.notInclude(watched, 'style="width')
+  assert.notInclude(watched, "Suggested limit")
+  assert.include(watched, 'aria-label="Set a limit: Dev"')
+  const suggested = render(board({ budget: { ...budget, limit: 0, suggested: 350 } }))
+  assert.include(suggested, "Suggested limit: 350 turns a day.")
+  assert.include(suggested, ">Use 350</button>")
+  assert.notInclude(render(board({ budget: { ...budget, suggested: 350 } })), "Suggested limit")
+})

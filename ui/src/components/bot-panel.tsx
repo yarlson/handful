@@ -21,7 +21,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { slotsError } from "@/lib/queue"
-import { decisionError, inboxError } from "@/lib/tasks"
+import { budgetError, decisionError, inboxError } from "@/lib/tasks"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { cn } from "@/lib/utils"
 import { BoardTab } from "@/components/board"
@@ -512,7 +512,7 @@ const deleteNote = {
 function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSettings }) {
   const [lead, setLead] = useState(settings.leadId)
   const [agreement, setAgreement] = useState(settings.agreement)
-  const [budget, setBudget] = useState(String(settings.goalBudget))
+  const [budget, setBudget] = useState(String(settings.dailyBudget ?? 0))
   const [slots, setSlots] = useState(String(settings.requestSlots ?? 1))
   const [decision, setDecision] = useState(String(settings.decisionMinutes ?? 30))
   const [inboxMax, setInboxMax] = useState(String(settings.inboxMax ?? 10))
@@ -525,12 +525,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
   const members = team.members ?? []
   const save = async () => {
     try {
-      const goalBudget = Number(budget)
-      if (!Number.isInteger(goalBudget) || goalBudget < 1 || goalBudget > 500) {
-        setResult(failed("Turns per task must be a whole number from 1 to 500."))
-        return
-      }
-      const badTask = decisionError(decision) ?? inboxError(inboxMax, perSender)
+      const badTask = budgetError(budget) ?? decisionError(decision) ?? inboxError(inboxMax, perSender)
       if (badTask) {
         setResult(failed(badTask))
         return
@@ -545,7 +540,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
       await api.updateTeam(team.id, {
         ...(lead !== settings.leadId && { leadId: lead }),
         agreement,
-        goalBudget,
+        dailyBudget: Number(budget),
         requestSlots: Number(slots),
         decisionMinutes: Number(decision),
         inboxMax: Number(inboxMax),
@@ -589,17 +584,20 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         </p>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="team-settings-budget">Turns per task</Label>
+        <Label htmlFor="team-settings-budget">Turns per day</Label>
         <Input
           id="team-settings-budget"
           type="number"
-          min={1}
-          max={500}
+          min={0}
+          max={10000}
           value={budget}
+          aria-describedby="team-settings-budget-help"
           onChange={(e) => setBudget(e.target.value)}
         />
-        <p className="text-muted-foreground text-xs">
-          For the next task. A task pauses when its turns are used up; add turns above the chat.
+        <p id="team-settings-budget-help" className="text-muted-foreground text-xs">
+          Every turn of the team's members counts, chat included; the lead's decisions don't. At the limit the team
+          pauses until midnight. 0 is no limit: the Work tab then shows the day's count and, after a week, a suggested
+          limit.
         </p>
       </div>
       <div className="flex flex-col gap-1.5">
@@ -802,7 +800,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
       </div>
       {bot.team && (
         <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.goalBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}:${bot.team.decisionMinutes}:${bot.team.inboxMax}:${bot.team.inboxPerSender}`}
+          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.dailyBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}:${bot.team.decisionMinutes}:${bot.team.inboxMax}:${bot.team.inboxPerSender}`}
           team={bot}
           settings={bot.team}
         />

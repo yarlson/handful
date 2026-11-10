@@ -1,9 +1,21 @@
 import { useEffect, useState, type ReactNode } from "react"
-import { api, type Artifact, type Board, type Bot, type Goal, type Item, type NeedsYouItem } from "@/lib/api"
+import {
+  api,
+  type Artifact,
+  type Board,
+  type Bot,
+  type Goal,
+  type Item,
+  type NeedsYouItem,
+  type OffTask,
+} from "@/lib/api"
 import { actorOf, eventTone, type ItemEvent } from "@/lib/questions"
 import { useLoad } from "@/components/bot-panel"
 import {
   awaitsAnswer,
+  budgetError,
+  budgetLine,
+  budgetShare,
   canWithdraw,
   clockLine,
   clockStop,
@@ -16,10 +28,12 @@ import {
   sourceLabel,
   historyKey,
   taskError,
+  taskTurns,
   taskEventLabel,
   teamOption,
   teamSummary,
   turnsLine,
+  type Budget,
   type ClockStop,
   type Names,
   type Tone,
@@ -137,6 +151,162 @@ export function TextAction({
         </Button>
       </div>
     </div>
+  )
+}
+
+// OffTaskBox lists the team's turns in the last hour that were on no task: who, when and the
+// first line. Make a task… turns them into a task the team takes at once, so the count drops.
+export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask; act: Act }) {
+  const [shown, setShown] = useState(false)
+  if (offTask.count === 0) return null
+  const who = [...new Set(offTask.turns.map((t) => t.botName))].join(", ")
+  const turns = offTask.count === 1 ? "1 turn" : `${offTask.count} turns`
+  const picked = taskTurns(offTask.turns)
+  return (
+    <section aria-labelledby="off-task-heading" className="flex flex-col gap-1.5">
+      <h3 id="off-task-heading" className="text-muted-foreground text-xs font-medium uppercase">
+        Not on a task
+      </h3>
+      <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
+        <p>
+          <strong>{`${turns} in the last hour`}</strong>
+          {` weren't on any task: ${who}.`}
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            size="xs"
+            variant="outline"
+            aria-expanded={shown}
+            aria-controls="off-task-turns"
+            onClick={() => setShown((v) => !v)}
+          >
+            {shown ? "Hide them" : "Show them"}
+          </Button>
+          <TextAction
+            id={`make-task-${team.id}`}
+            label={
+              picked.left > 0
+                ? `What is the task? ${team.name} takes it at once, with the oldest ${picked.take.length} of these ${turns}; make another for the other ${picked.left}.`
+                : `What is the task? ${team.name} takes it at once, with these ${turns}.`
+            }
+            open={`Make a task: ${turns} on no task`}
+            submit="Make a task"
+            onSubmit={(text) => act(() => api.makeTask(team.id, { text, turnIds: picked.take.map((t) => t.turnId) }))}
+          />
+        </div>
+        {shown && (
+          <ul id="off-task-turns" className="flex flex-col gap-1">
+            {offTask.turns.map((t) => (
+              <li key={t.turnId}>
+                <span className="font-medium">{t.botName}</span>
+                <span className="text-muted-foreground">{` · ${clock(t.startedAt)}`}</span>
+                {t.firstLine && (
+                  <span className="block truncate" title={t.firstLine}>
+                    {t.firstLine}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// LimitAction sets a team's turns per day: Raise… on a budget, or the suggested limit.
+function LimitAction({ team, open, value, act }: { team: Bot; open: string; value: number; act: Act }) {
+  const [text, setText] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const id = `limit-${team.id}`
+  if (text === null)
+    return (
+      <Button size="xs" variant="outline" aria-label={open} onClick={() => setText(String(value))}>
+        {open.split(":")[0]}…
+      </Button>
+    )
+  const save = () => {
+    const bad = budgetError(text)
+    setError(bad)
+    if (bad) return
+    void act(() => api.updateTeam(team.id, { dailyBudget: Number(text) })).then((ok) => {
+      if (ok) setText(null)
+    })
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-1.5 text-xs">
+      <Label htmlFor={id} className="text-xs font-normal">
+        Turns per day
+      </Label>
+      <input
+        id={id}
+        type="number"
+        min={0}
+        max={10000}
+        className="border-input h-6 w-20 rounded-md border bg-transparent px-1 text-xs"
+        value={text}
+        aria-invalid={error ? true : undefined}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <Button size="xs" onClick={save}>
+        Save
+      </Button>
+      <Button size="xs" variant="ghost" onClick={() => setText(null)}>
+        Cancel
+      </Button>
+      {error && <span className="text-destructive w-full">{error}</span>}
+    </span>
+  )
+}
+
+// BudgetSection is a team's day in its Work tab: turns used against the daily limit, the
+// paused state, and the suggested limit once the first week of watching is over.
+export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget; act: Act }) {
+  const share = budgetShare(budget)
+  return (
+    <section aria-labelledby="budget-heading" className="flex flex-col gap-1.5 text-xs">
+      <h3 id="budget-heading" className="text-muted-foreground font-medium uppercase">
+        Today
+      </h3>
+      <p>
+        {budgetLine(budget)}
+        <span className="text-muted-foreground"> · resets at midnight</span>
+      </p>
+      {share !== null && (
+        // The line above says the same in words, so the bar is only for the eye.
+        <div aria-hidden="true" className="bg-muted h-1.5 overflow-hidden rounded-full">
+          <div
+            className={cn("h-full", budget.paused || budget.warn ? "bg-amber-500" : "bg-foreground")}
+            style={{ width: `${share}%` }}
+          />
+        </div>
+      )}
+      {budget.paused && (
+        <p className="text-amber-700 dark:text-amber-400">
+          Paused: new turns wait until midnight or a higher limit. The lead's decisions still run.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {budget.suggested > 0 && budget.limit === 0 && (
+          <>
+            <span className="text-muted-foreground">{`Suggested limit: ${budget.suggested} turns a day.`}</span>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => void act(() => api.updateTeam(team.id, { dailyBudget: budget.suggested }))}
+            >
+              {`Use ${budget.suggested}`}
+            </Button>
+          </>
+        )}
+        <LimitAction
+          team={team}
+          open={`${budget.limit === 0 ? "Set a limit" : "Change the limit"}: ${team.name}`}
+          value={budget.limit || budget.suggested || 100}
+          act={act}
+        />
+      </div>
+    </section>
   )
 }
 
@@ -507,11 +677,16 @@ function NeedsYouRow({
   chat,
   act,
   onOpen,
+  team,
+  limit,
 }: {
   n: NeedsYouItem
   chat: string
   act: Act
   onOpen: (chatId: string) => void
+  // team and limit are the team a budget item is about, and its daily limit.
+  team?: Bot
+  limit?: number
 }) {
   const line = needsYouLine(n, chat)
   const id = n.goalId
@@ -519,7 +694,7 @@ function NeedsYouRow({
     <li
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm",
-        (n.kind === "missed" || n.kind === "stuck") && "border-amber-500/50",
+        n.kind !== "approve" && n.kind !== "question" && "border-amber-500/50",
       )}
     >
       <p className="min-w-0 flex-1">
@@ -552,6 +727,14 @@ function NeedsYouRow({
             onSubmit={(text) => act(() => api.pushBack(id, text))}
           />
         </>
+      )}
+      {(n.kind === "budget_warning" || n.kind === "budget_reached") && team && (
+        <LimitAction team={team} open={`Raise: ${team.name}`} value={(limit ?? 0) + 50} act={act} />
+      )}
+      {n.kind === "budget_reached" && (
+        <Button size="xs" variant="outline" onClick={() => void act(() => api.waitForBudget(n.chatId))}>
+          Wait until midnight
+        </Button>
       )}
       <Button size="xs" variant="ghost" onClick={() => onOpen(n.chatId)}>
         Open chat
@@ -608,6 +791,8 @@ export function AcrossTeams({
                   chat={chatName(n.chatId)}
                   act={act}
                   onOpen={onOpen}
+                  team={teams.find((t) => t.id === n.chatId)}
+                  limit={boards.get(n.chatId)?.budget?.limit}
                 />
               ))}
             </ul>
@@ -644,6 +829,9 @@ export function AcrossTeams({
                             <strong>Now:</strong> {s.now ?? "nothing"}
                           </span>
                           <span className="text-muted-foreground text-xs">{countsLine(s)}</span>
+                          {s.budget && (
+                            <span className="text-muted-foreground text-xs">Today {budgetLine(s.budget)}</span>
+                          )}
                         </>
                       )}
                     </button>

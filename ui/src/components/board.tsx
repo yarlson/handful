@@ -7,8 +7,11 @@ import {
   SendTaskDialog,
   SentSection,
   SourceChip,
+  BudgetSection,
+  OffTaskBox,
   TaskHistory,
   TextAction,
+  ToneChip,
   when,
   WithdrawAction,
   type Act,
@@ -79,7 +82,8 @@ export function TaskBar({
   pause = "Paused for update",
 }: {
   team: Bot
-  version: number
+  // version changes when the team's transcript, turns or daily budget change; it reloads the bar.
+  version: string
   onShowWork?: () => void
   onOpenInbox?: () => void
   // teams are the app's teams, to send tasks to.
@@ -133,8 +137,9 @@ export function TaskBar({
               {upNext}
             </button>
           )}
-          <span className="text-muted-foreground text-xs" title="Turns that the task used of its budget">
-            {goal.used}/{goal.budget} turns
+          {board.data.budget?.paused && <ToneChip tone="attention">Today's turns used</ToneChip>}
+          <span className="text-muted-foreground text-xs">
+            {goal.used} {goal.used === 1 ? "turn" : "turns"} so far
           </span>
           {bar.actions.includes("approve") && (
             <Button
@@ -157,11 +162,6 @@ export function TaskBar({
           {bar.actions.includes("resume") && (
             <Button size="xs" onClick={() => void act(() => api.extendGoal(goal.id, 0))}>
               Resume
-            </Button>
-          )}
-          {bar.actions.includes("extend") && (
-            <Button size="xs" variant="outline" onClick={() => void act(() => api.extendGoal(goal.id, 10))}>
-              Add 10 turns
             </Button>
           )}
           {bar.actions.includes("stop") &&
@@ -715,6 +715,8 @@ export function BoardView({
       {plan.length > 0 && (
         <PlanList team={team} plan={plan} held={!now && plan.length > 0} act={act} names={names} rev={rev} />
       )}
+      {data.offTask && <OffTaskBox team={team} offTask={data.offTask} act={act} />}
+      {data.budget && <BudgetSection team={team} budget={data.budget} act={act} />}
       <section className="flex flex-col gap-1.5" aria-labelledby="inbox-heading">
         <h3 id="inbox-heading" className="text-muted-foreground text-xs font-medium uppercase">
           Inbox ({inbox.length})

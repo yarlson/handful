@@ -58,9 +58,15 @@ func TestHandoffEndpointsHandOverAnswerAcceptDeclineAndWithdraw(t *testing.T) {
 	if rec := do(h, "POST", "/api/goals/"+first.ID+"/answer-handoff", `{`, jsonHeader); rec.Code != http.StatusBadRequest {
 		t.Fatalf("answer with bad JSON: %d %s", rec.Code, rec.Body)
 	}
-	rec = do(h, "POST", "/api/goals/"+first.ID+"/accept-handoff", ``, jsonHeader)
-	if err := json.Unmarshal(rec.Body.Bytes(), &g); rec.Code != http.StatusOK || err != nil || g.State != core.GoalActive {
-		t.Fatalf("accept: %d %s", rec.Code, rec.Body)
+	// The user has no Accept: the lead takes a task in.
+	if rec := do(h, "POST", "/api/goals/"+first.ID+"/accept-handoff", ``, jsonHeader); rec.Code != http.StatusNotFound {
+		t.Fatalf("the old accept: %d %s; want it gone", rec.Code, rec.Body)
+	}
+	if rec := do(h, "POST", "/api/tasks/"+first.ID+"/take", ``, jsonHeader); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "lead decides") {
+		t.Fatalf("the user takes a task its lead decides on: %d %s; want 400", rec.Code, rec.Body)
+	}
+	if g, err = svc.TakeTask(ctx, core.Actor{BotID: bots[1].ID, TeamID: docs.ID, Role: core.RoleLead}, first.ID, 0); err != nil || g.State != core.GoalActive {
+		t.Fatalf("the lead takes it = %+v, %v; want it active", g, err)
 	}
 	rec = do(h, "POST", "/api/goals/"+second.ID+"/decline-handoff", `{"text":"Not ours."}`, jsonHeader)
 	if err := json.Unmarshal(rec.Body.Bytes(), &g); rec.Code != http.StatusOK || err != nil || g.State != core.GoalDeclined || g.IntakeNote != "Not ours." {
@@ -92,15 +98,12 @@ func TestHandoffEndpointsHandOverAnswerAcceptDeclineAndWithdraw(t *testing.T) {
 		t.Fatalf("bots: %s; want Docs's incoming handoff", rec.Body)
 	}
 
-	rec = do(h, "PATCH", "/api/teams/"+docs.ID, `{"startHandoffs":"ask"}`, jsonHeader)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"startHandoffs":"ask"`) {
-		t.Fatalf("set startHandoffs: %d %s", rec.Code, rec.Body)
+	// startHandoffs is gone: a form that still sends it saves the rest.
+	rec = do(h, "PATCH", "/api/teams/"+docs.ID, `{"startHandoffs":"ask","inboxMax":5,"inboxPerSender":2}`, jsonHeader)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "startHandoffs") || !strings.Contains(rec.Body.String(), `"inboxMax":5,"inboxPerSender":2`) {
+		t.Fatalf("set the inbox limits: %d %s", rec.Code, rec.Body)
 	}
-	if rec := do(h, "PATCH", "/api/teams/"+docs.ID, `{"startHandoffs":"never"}`, jsonHeader); rec.Code != http.StatusBadRequest {
-		t.Fatalf("set a bad startHandoffs: %d %s", rec.Code, rec.Body)
-	}
-	rec = do(h, "POST", "/api/teams", `{"name":"Ops","memberIds":["`+bots[0].ID+`"],"startHandoffs":"ask"}`, jsonHeader)
-	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"startHandoffs":"ask"`) {
-		t.Fatalf("create a team that asks: %d %s", rec.Code, rec.Body)
+	if rec := do(h, "PATCH", "/api/teams/"+docs.ID, `{"inboxPerSender":6}`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("set more per sender than the inbox holds: %d %s", rec.Code, rec.Body)
 	}
 }

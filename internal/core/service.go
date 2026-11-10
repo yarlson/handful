@@ -96,6 +96,9 @@ type Turn struct {
 	GoalID    string
 	ItemID    string // the item of a work or review turn
 	BoardRole string // RoleLead, RoleWork, RoleReview or RoleRetro for a board turn
+	// Decision marks a lead turn that decides on GoalID, a task in the team's
+	// inbox: it runs whatever the task's state, and no goal pays for it.
+	Decision bool
 }
 
 // FromUserPost reports whether a post of the user woke the turn in its room:
@@ -720,7 +723,7 @@ func (s *Service) enqueueTurn(ctx context.Context, t Turn) (string, error) {
 func (s *Service) queueTurn(ctx context.Context, q *db.Queries, t Turn) (string, error) {
 	turn, err := q.InsertTurn(ctx, db.InsertTurnParams{
 		ID: uuid.NewString(), BotID: t.BotID, Source: t.Source, Prompt: t.Prompt, Status: "queued", RoomID: t.RoomID, Hops: t.Hops,
-		GoalID: t.GoalID, ItemID: t.ItemID, BoardRole: t.BoardRole, CreatedAt: s.nowMs(),
+		GoalID: t.GoalID, ItemID: t.ItemID, BoardRole: t.BoardRole, Decision: boolInt(t.Decision), CreatedAt: s.nowMs(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("queue %s turn for bot %s: %w", t.Source, t.BotID, err)
@@ -750,7 +753,7 @@ func (s *Service) QueuedTurns(ctx context.Context, limit int) ([]Turn, error) {
 	for _, r := range rows {
 		turns = append(turns, Turn{
 			ID: r.ID, BotID: r.BotID, Source: r.Source, Prompt: r.Prompt, RoomID: r.RoomID, Hops: r.Hops,
-			GoalID: r.GoalID, ItemID: r.ItemID, BoardRole: r.BoardRole,
+			GoalID: r.GoalID, ItemID: r.ItemID, BoardRole: r.BoardRole, Decision: r.Decision == 1,
 		})
 	}
 	return turns, nil

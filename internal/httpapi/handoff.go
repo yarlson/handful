@@ -49,8 +49,24 @@ func (s *server) handoffAction(act func(*core.Service, *http.Request, core.Actor
 	}
 }
 
-func acceptHandoff(svc *core.Service, r *http.Request, a core.Actor, id, _ string) (core.Goal, error) {
-	return svc.AcceptHandoff(r.Context(), a, id)
+func pushBack(svc *core.Service, r *http.Request, a core.Actor, id, text string) (core.Goal, error) {
+	return svc.PushBack(r.Context(), a, id, text)
+}
+
+func stopTask(svc *core.Service, r *http.Request, a core.Actor, id, _ string) (core.Goal, error) {
+	return svc.StopTask(r.Context(), a, id)
+}
+
+func reopenTask(svc *core.Service, r *http.Request, a core.Actor, id, _ string) (core.Goal, error) {
+	return svc.ReopenTask(r.Context(), a, id)
+}
+
+func approveTask(svc *core.Service, r *http.Request, a core.Actor, id, _ string) (core.Goal, error) {
+	return svc.ApproveTask(r.Context(), a, id)
+}
+
+func changesTask(svc *core.Service, r *http.Request, a core.Actor, id, text string) (core.Goal, error) {
+	return svc.ChangesTask(r.Context(), a, id, text)
 }
 
 func answerHandoff(svc *core.Service, r *http.Request, a core.Actor, id, text string) (core.Goal, error) {
@@ -63,4 +79,80 @@ func declineHandoff(svc *core.Service, r *http.Request, a core.Actor, id, text s
 
 func withdrawHandoff(svc *core.Service, r *http.Request, a core.Actor, id, _ string) (core.Goal, error) {
 	return svc.WithdrawHandoff(r.Context(), a, id)
+}
+
+// userTask gives a team a task from the user: into its inbox, or, with
+// startNow, to the top of its plan.
+func (s *server) userTask(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Text        string   `json:"text"`
+		Brief       string   `json:"brief"`
+		ArtifactIDs []string `json:"artifactIds"`
+		StartNow    bool     `json:"startNow"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.svc.UserTask(r.Context(), r.PathValue("id"), core.NewTask{Text: in.Text, Brief: in.Brief, ArtifactIDs: in.ArtifactIDs}, in.StartNow)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, g)
+}
+
+// takeTask is the user's take of a task from a team's inbox into its plan.
+func (s *server) takeTask(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Position int64 `json:"position"`
+	}
+	if err := decodeOptional(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.svc.TakeTask(r.Context(), core.Actor{Role: core.RoleUser}, r.PathValue("id"), in.Position)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
+}
+
+// orderPlan puts a team's planned tasks in the user's order.
+func (s *server) orderPlan(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Order []string `json:"order"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.svc.OrderPlan(r.Context(), core.Actor{Role: core.RoleUser}, r.PathValue("id"), in.Order); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// pinTask pins or unpins a planned task.
+func (s *server) pinTask(pinned bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		g, err := s.svc.PinTask(r.Context(), r.PathValue("id"), pinned)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, g)
+	}
+}
+
+// taskEvents is a task's history: its decisions and its steps' events.
+func (s *server) taskEvents(w http.ResponseWriter, r *http.Request) {
+	events, err := s.svc.TaskEvents(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
 }

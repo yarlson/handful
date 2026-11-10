@@ -99,7 +99,8 @@ compact)
 slow)
   lifecycle started
   who=$(basename "$(dirname "$PWD")")
-  case "$input" in *LONG*) who="$who-long"; pause=3 ;; *) pause=0.3 ;; esac
+  # QUICK wins over LONG, for a turn whose room history quotes a LONG post.
+  case "$input" in *QUICK*) pause=0.3 ;; *LONG*) who="$who-long"; pause=3 ;; *) pause=0.3 ;; esac
   echo "start $who" >> "$dir/order.log"
   sleep $pause
   echo "end $who" >> "$dir/order.log"

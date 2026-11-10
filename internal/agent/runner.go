@@ -163,16 +163,23 @@ func (r *Runner) settleItems(ctx context.Context) {
 }
 
 // leadState is what the decision clock needs to know of the leads: whether
-// turns wait for a usage limit, and whether a lead's bot runs a turn.
+// turns wait for a usage limit, and which bots run a turn. It copies the
+// busy bots under r.mu, so SettleItems never takes r.mu inside a database
+// transaction, the reverse of dispatch's order.
 func (r *Runner) leadState() core.LeadState {
-	return core.LeadState{Paused: r.PausedUntil().After(time.Now()), Busy: r.botBusy}
-}
-
-// botBusy reports whether the bot runs a turn.
-func (r *Runner) botBusy(botID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.botBusyLocked(botID)
+	paused := r.pausedUntil.After(time.Now())
+	busy := map[string]bool{}
+	for id := range r.running {
+		busy[id] = true
+	}
+	for _, s := range r.sessions {
+		if s.waking {
+			busy[s.key.botID] = true
+		}
+	}
+	return core.LeadState{Paused: paused, Busy: busy}
 }
 
 // hasSession reports whether a claude process runs for the bot's seat in a room.

@@ -19,15 +19,15 @@ const (
 // TaskMissed is the event of a task whose lead did not decide in time.
 const TaskMissed = "missed"
 
-// LeadState is what the runner knows about whether a lead could act now:
-// the runner is paused for a usage limit, and which bots run a turn. A nil
-// Busy means that no bot does.
+// LeadState is what the runner knew, at the start of a settle tick, about
+// whether a lead could act: the runner is paused for a usage limit, and the
+// bots that run a turn. It is a copy, not a call back into the runner: the
+// tick holds database transactions, and the runner takes its lock before
+// it opens one, so a call back could deadlock.
 type LeadState struct {
 	Paused bool
-	Busy   func(botID string) bool
+	Busy   map[string]bool // bot id -> it runs a turn
 }
-
-func (l LeadState) busy(botID string) bool { return l.Busy != nil && l.Busy(botID) }
 
 // runDecisionClocks counts, on one settle tick, the time that each task in
 // an inbox waits for its lead's decision. Only time when the lead could act
@@ -52,7 +52,7 @@ func (s *Service) runDecisionClocks(ctx context.Context, state LeadState) error 
 				return err
 			}
 		}
-		canAct := ok && !state.Paused && !draining && !stopped[team.ID] && !state.busy(lead.ID)
+		canAct := ok && !state.Paused && !draining && !stopped[team.ID] && !state.Busy[lead.ID]
 		if err := s.tickDecision(ctx, team, lead, row, canAct); err != nil {
 			return err
 		}

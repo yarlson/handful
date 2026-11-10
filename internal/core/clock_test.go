@@ -130,7 +130,7 @@ func TestTheDecisionClockStandsWhileTheLeadCannotAct(t *testing.T) {
 		off   func()
 	}{
 		"a usage limit":  {state: LeadState{Paused: true}},
-		"the lead's bot": {state: LeadState{Busy: func(id string) bool { return id == c.bo.ID }}},
+		"the lead's bot": {state: LeadState{Busy: map[string]bool{c.bo.ID: true}}},
 		"a drain":        {on: func() { c.svc.SetDraining(true) }, off: func() { c.svc.SetDraining(false) }},
 		"a stopped team": {
 			on: func() {

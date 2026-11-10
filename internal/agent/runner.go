@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,39 @@ type runningTurn struct {
 	roomID string
 	itemID string // set for a work or review turn on a team's item
 	goalID string // set for a board turn: the goal it works for
+	board  bool   // a board turn: it counts toward the board turns' cap
 	since  time.Time
+}
+
+// leadDecision reports whether t is a lead's board turn: a wake to decide on
+// or plan the team's work. It doesn't wait for the room's chat and goes
+// ahead of other queued turns, so the lead's decisions don't queue behind
+// conversation.
+func leadDecision(t core.Turn) bool { return t.BoardRole == core.RoleLead }
+
+// boardTurn reports whether t counts toward the cap on board turns: work for
+// a goal, or a lead's decision.
+func boardTurn(t core.Turn) bool { return t.GoalID != "" || leadDecision(t) }
+
+// leadsTurn reports whether t is one of a lead's board turns, which dispatch
+// tries first: a decision, or the retro of an accepted goal. The retro
+// stays among them, so that it keeps its place before the planning of the
+// next goal, which is queued after it.
+func leadsTurn(t core.Turn) bool { return leadDecision(t) || t.BoardRole == core.RoleRetro }
+
+// dispatchOrder puts the leads' board turns first and keeps the queue order
+// otherwise.
+func dispatchOrder(turns []core.Turn) []core.Turn {
+	slices.SortStableFunc(turns, func(a, b core.Turn) int {
+		if leadsTurn(a) == leadsTurn(b) {
+			return 0
+		}
+		if leadsTurn(a) {
+			return -1
+		}
+		return 1
+	})
+	return turns
 }
 
 func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
@@ -333,7 +366,7 @@ func (r *Runner) dispatch(ctx context.Context) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, t := range turns {
+	for _, t := range dispatchOrder(turns) {
 		if len(r.running) >= r.cfg.MaxParallel {
 			return
 		}
@@ -349,7 +382,7 @@ func (r *Runner) dispatch(ctx context.Context) {
 			continue
 		}
 		turnCtx, cancel := context.WithCancel(ctx)
-		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, itemID: t.ItemID, goalID: t.GoalID, since: time.Now()}
+		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, itemID: t.ItemID, goalID: t.GoalID, board: boardTurn(t), since: time.Now()}
 		r.publish(t.BotID, true)
 		if t.RoomID != "" {
 			r.publish(t.RoomID, true)
@@ -380,16 +413,19 @@ func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
 		return false
 	}
 	// A room runs one conversation turn at a time, so each member sees the
-	// replies before its own.
-	if t.RoomID != "" && t.ItemID == "" && r.chatBusyLocked(t.RoomID) {
+	// replies before its own. A lead's decision doesn't wait for it.
+	if t.RoomID != "" && t.ItemID == "" && !leadDecision(t) && r.chatBusyLocked(t.RoomID) {
 		return false
 	}
-	if t.GoalID == "" {
+	if !boardTurn(t) {
 		return true
 	}
 	// Board turns leave a slot for the user's other chats.
 	if r.boardTurnsLocked() >= max(1, r.cfg.MaxParallel-1) {
 		return false
+	}
+	if t.GoalID == "" {
+		return true
 	}
 	ok, err := r.svc.GoalAllows(ctx, t)
 	if err != nil {
@@ -401,7 +437,7 @@ func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
 func (r *Runner) boardTurnsLocked() int {
 	n := 0
 	for _, rt := range r.running {
-		if rt.goalID != "" {
+		if rt.board {
 			n++
 		}
 	}

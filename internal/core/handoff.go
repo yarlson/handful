@@ -84,11 +84,15 @@ func toHandoff(row db.Goal) Handoff {
 	return Handoff{
 		Origin: row.Origin, FromTeamID: row.FromTeamID, FromBotID: row.FromBotID, FromGoalID: row.FromGoalID, Brief: row.Brief,
 		ArtifactIDs: ids, IntakeNote: row.IntakeNote, AskedAt: row.AskedAt, AskRounds: row.AskRounds, Depth: row.Depth,
-		NeedsUser: row.AskRounds > MaxAskRounds || row.Passes > MaxPasses || row.MissedAt > 0, MissedAt: row.MissedAt, DecisionMs: row.DecisionMs,
+		NeedsUser: askedOut(row.AskRounds) || row.Passes > MaxPasses || row.MissedAt > 0, MissedAt: row.MissedAt, DecisionMs: row.DecisionMs,
 		Pinned: row.Pinned == 1, LaterUntil: row.LaterUntil,
 		Passes: row.Passes, PassedBy: row.PassedBy, WaitsOnItemID: row.WaitsOnItemID,
 	}
 }
+
+// askedOut reports whether a task's leads asked about it more often than
+// MaxAskRounds allows, so that the user settles it.
+func askedOut(rounds int64) bool { return rounds > MaxAskRounds }
 
 // NewTask is the work that a task carries: what to do, the context the
 // receiver needs, the artifacts that go with it, and the sender's step that

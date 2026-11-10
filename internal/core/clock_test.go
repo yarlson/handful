@@ -192,14 +192,12 @@ func TestEveryInboxCountsItsOwnDecisionTime(t *testing.T) {
 	first := c.handOver(t, c.lead, c.team, c.docs, "Guide.")
 	second := c.handOver(t, c.lead, c.team, c.dev, "Host it.")
 	finishQueued(t, c.svc)
-	// Cal, Dev's lead, runs another turn: only Docs's clock counts.
-	busy := LeadState{Busy: func(id string) bool { return id == c.cal.ID }}
-	c.tick(t, 0, busy)
-	c.ticks(t, 30*time.Minute, busy)
-	if !c.goalNow(t, first.ID).NeedsUser || c.goalNow(t, second.ID).DecisionMs != 0 {
-		t.Fatalf("Docs's task = %+v, Dev's = %+v; want Docs's missed and Dev's clock standing", c.goalNow(t, first.ID), c.goalNow(t, second.ID))
+	c.tick(t, 0, LeadState{})
+	c.ticks(t, 30*time.Minute, LeadState{})
+	if !c.goalNow(t, first.ID).NeedsUser || !c.goalNow(t, second.ID).NeedsUser {
+		t.Fatalf("Docs's task = %+v, Dev's = %+v; want both missed", c.goalNow(t, first.ID), c.goalNow(t, second.ID))
 	}
-	c.wantNeeds(t, "", "missed Guide. (Dee)")
+	c.wantNeeds(t, "", "missed Guide. (Dee)", "missed Host it. (Cal)")
 }
 
 func TestTheDecisionTimeIsFiveMinutesToADay(t *testing.T) {

@@ -96,7 +96,7 @@ func (s *Service) tasksForTheUser(ctx context.Context) ([]NeedsYou, error) {
 // taskForTheUser says why task row waits for the user.
 func (s *Service) taskForTheUser(ctx context.Context, row db.Goal) (NeedsYou, error) {
 	n := NeedsYou{Kind: NeedStuck, ChatID: row.TeamID, GoalID: row.ID, Text: row.Text, Reason: fmt.Sprintf("passed on %d times", MaxPasses)}
-	if row.AskRounds > MaxAskRounds {
+	if askedOut(row.AskRounds) {
 		n.Reason = fmt.Sprintf("asked %d times", MaxAskRounds)
 	}
 	if row.MissedAt > 0 {

@@ -13,7 +13,7 @@ import (
 const (
 	DefaultDecisionMinutes = 30
 	minDecisionMinutes     = 5
-	maxDecisionMinutes     = 24 * 60
+	maxDecisionMinutes     = 1440 // a day
 )
 
 // TaskMissed is the event of a task whose lead did not decide in time.

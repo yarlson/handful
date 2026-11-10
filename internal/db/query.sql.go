@@ -220,6 +220,29 @@ func (q *Queries) AskAboutHandoff(ctx context.Context, arg AskAboutHandoffParams
 	return result.RowsAffected()
 }
 
+const attachOffTaskTurn = `-- name: AttachOffTaskTurn :execrows
+UPDATE turns SET goal_id = ?1
+WHERE id = ?2 AND room_id = ?3 AND goal_id = '' AND board_role NOT IN ('lead', 'retro')
+  AND started_at IS NOT NULL
+`
+
+type AttachOffTaskTurnParams struct {
+	GoalID string `json:"goal_id"`
+	ID     string `json:"id"`
+	TeamID string `json:"team_id"`
+}
+
+// Attaches a turn of a team that is on no task to the task made from it. It
+// stays a conversation turn, with no board role, so it does not count
+// against the budget of the task.
+func (q *Queries) AttachOffTaskTurn(ctx context.Context, arg AttachOffTaskTurnParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, attachOffTaskTurn, arg.GoalID, arg.ID, arg.TeamID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cancelQueuedGoalTurns = `-- name: CancelQueuedGoalTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'the goal ended', finished_at = ?
 WHERE goal_id = ? AND status = 'queued' AND board_role <> ''
@@ -2980,6 +3003,68 @@ func (q *Queries) ListNeedsUserGoals(ctx context.Context, arg ListNeedsUserGoals
 	return items, nil
 }
 
+const listOffTaskTurns = `-- name: ListOffTaskTurns :many
+SELECT t.id, t.bot_id, b.name, CAST(t.started_at AS INTEGER) AS started_at, t.prompt,
+  CAST(COALESCE((SELECT json_extract(e.body, '$.text') FROM entries e
+    WHERE e.bot_id = t.room_id AND e.turn_id = t.id AND e.kind = 'bot' AND json_extract(e.body, '$.speakerId') = t.bot_id
+    ORDER BY e.seq LIMIT 1), '') AS TEXT) AS first_post
+FROM turns t JOIN bots b ON b.id = t.bot_id
+WHERE t.room_id = ?1 AND t.goal_id = '' AND t.board_role NOT IN ('lead', 'retro')
+  AND t.started_at >= CAST(?2 AS INTEGER)
+  AND NOT (t.source = 'room' AND t.hops = 0 AND t.board_role = '' AND t.bot_id = ?3)
+ORDER BY t.started_at, t.rowid
+`
+
+type ListOffTaskTurnsParams struct {
+	TeamID string `json:"team_id"`
+	Since  int64  `json:"since"`
+	LeadID string `json:"lead_id"`
+}
+
+type ListOffTaskTurnsRow struct {
+	ID        string `json:"id"`
+	BotID     string `json:"bot_id"`
+	Name      string `json:"name"`
+	StartedAt int64  `json:"started_at"`
+	Prompt    string `json:"prompt"`
+	FirstPost string `json:"first_post"`
+}
+
+// The turns of a team since a time (ms) that are on no task (spec 9cf81412
+// section 5 point 4), oldest first, with the first post of the bot in the
+// turn. Left out: the lead's board turns (decisions and its other wakes),
+// retros, and the turns of the lead that a user post woke, which are the
+// talk of the lead with the user.
+func (q *Queries) ListOffTaskTurns(ctx context.Context, arg ListOffTaskTurnsParams) ([]ListOffTaskTurnsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOffTaskTurns, arg.TeamID, arg.Since, arg.LeadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOffTaskTurnsRow
+	for rows.Next() {
+		var i ListOffTaskTurnsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BotID,
+			&i.Name,
+			&i.StartedAt,
+			&i.Prompt,
+			&i.FirstPost,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenEntries = `-- name: ListOpenEntries :many
 SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
 WHERE (kind = 'approval' AND json_extract(body, '$.status') = 'pending')
@@ -3568,6 +3653,57 @@ func (q *Queries) MissDecision(ctx context.Context, arg MissDecisionParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const offTaskShare = `-- name: OffTaskShare :many
+SELECT tm.team_id,
+  CAST(COALESCE(SUM(t.goal_id = ''), 0) AS INTEGER) AS off_task,
+  COUNT(t.id) AS total
+FROM teams tm JOIN turns t ON t.room_id = tm.team_id
+WHERE t.started_at >= ?1 AND t.started_at < ?2 AND t.board_role <> 'lead'
+  AND NOT (t.source = 'room' AND t.hops = 0 AND t.board_role = '' AND t.bot_id = COALESCE(
+    (SELECT rm.bot_id FROM room_members rm WHERE rm.room_id = tm.team_id AND rm.bot_id = tm.lead_bot_id),
+    (SELECT rm.bot_id FROM room_members rm JOIN bots b ON b.id = rm.bot_id WHERE rm.room_id = tm.team_id
+     ORDER BY b.position, b.created_at, b.rowid LIMIT 1),
+    ''))
+GROUP BY tm.team_id
+ORDER BY tm.team_id
+`
+
+type OffTaskShareParams struct {
+	FromMs sql.NullInt64 `json:"from_ms"`
+	ToMs   sql.NullInt64 `json:"to_ms"`
+}
+
+type OffTaskShareRow struct {
+	TeamID  string `json:"team_id"`
+	OffTask int64  `json:"off_task"`
+	Total   int64  `json:"total"`
+}
+
+// The measure of acceptance criterion 21; docs/measures/off-task-share.sql
+// holds the same SELECT, and a test keeps them equal.
+func (q *Queries) OffTaskShare(ctx context.Context, arg OffTaskShareParams) ([]OffTaskShareRow, error) {
+	rows, err := q.db.QueryContext(ctx, offTaskShare, arg.FromMs, arg.ToMs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OffTaskShareRow
+	for rows.Next() {
+		var i OffTaskShareRow
+		if err := rows.Scan(&i.TeamID, &i.OffTask, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const passGoal = `-- name: PassGoal :execrows

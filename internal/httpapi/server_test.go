@@ -744,7 +744,7 @@ func TestGoalEndpointsStartExtendAndEndAGoal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil); rec.Code != http.StatusOK || rec.Body.String() != `{"goal":null,"items":[],"requests":[],"queue":[],"slots":{"limit":1,"used":0,"applies":false},"asked":[],"incoming":[],"handedOver":[],"inbox":[],"plan":[],"done":[],"sent":[],"teams":{}}`+"\n" {
+	if rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil); rec.Code != http.StatusOK || rec.Body.String() != `{"goal":null,"items":[],"requests":[],"queue":[],"slots":{"limit":1,"used":0,"applies":false},"asked":[],"incoming":[],"handedOver":[],"inbox":[],"plan":[],"done":[],"sent":[],"offTask":{"count":0,"turns":[]},"teams":{}}`+"\n" {
 		t.Fatalf("board without a goal: %d %s", rec.Code, rec.Body)
 	}
 	rec := do(h, "POST", "/api/teams/"+team.ID+"/goals", `{"text":"Ship CSV export."}`, jsonHeader)

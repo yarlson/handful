@@ -197,3 +197,60 @@ func TestNeedsYouListsTheUsersTasksAndQuestionsAndTheDecisionTimeIsATeamSetting(
 		t.Fatalf("PATCH 45 = %s; want the team with 45 minutes", rec.Body)
 	}
 }
+
+func TestOffTaskTurnsAreListedAndMadeIntoATask(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bo, err := svc.CreateBot(ctx, "Bo", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := svc.CreateTeam(ctx, "Ship", "", []string{ana.ID, bo.ID}, core.TeamSettings{LeadID: ana.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The user's @mention starts Bo's turn on no task: Ship has no Now task.
+	if _, _, err := svc.SubmitUserMessage(ctx, team.ID, "@Bo which format?", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := svc.QueuedTurns(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var boTurn string
+	for _, tr := range turns {
+		if tr.BotID == bo.ID {
+			boTurn = tr.ID
+		}
+		if _, err := svc.StartTurn(ctx, tr.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := do(h, "GET", "/api/teams/"+team.ID+"/off-task", "", nil)
+	var off core.OffTask
+	if err := json.Unmarshal(rec.Body.Bytes(), &off); rec.Code != http.StatusOK || err != nil || off.Count != 1 || off.Turns[0].TurnID != boTurn || off.Turns[0].BotName != "Bo" {
+		t.Fatalf("off-task = %d %s; want Bo's turn", rec.Code, rec.Body)
+	}
+	if rec := do(h, "GET", "/api/teams/missing/off-task", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("off-task of a missing team: %d", rec.Code)
+	}
+	if rec := do(h, "POST", "/api/teams/"+team.ID+"/tasks/from-turns", `{"text":"Pick a format.","turnIds":["gone"]}`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("make a task of a missing turn: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(h, "POST", "/api/teams/"+team.ID+"/tasks/from-turns", `{`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("make a task with bad JSON: %d", rec.Code)
+	}
+	rec = do(h, "POST", "/api/teams/"+team.ID+"/tasks/from-turns", `{"text":"Pick a format.","brief":"CSV or XML.","turnIds":["`+boTurn+`"]}`, jsonHeader)
+	var g core.Goal
+	if err := json.Unmarshal(rec.Body.Bytes(), &g); rec.Code != http.StatusCreated || err != nil || g.State != core.GoalActive || g.Origin != core.OriginUser || g.Brief != "CSV or XML." {
+		t.Fatalf("make a task = %d %s; want the user's task, started", rec.Code, rec.Body)
+	}
+	rec = do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"offTask":{"count":0,"turns":[]}`) {
+		t.Fatalf("board after the make = %d %s; want no turns on no task", rec.Code, rec.Body)
+	}
+}

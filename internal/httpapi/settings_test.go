@@ -43,10 +43,11 @@ type settingsReply struct {
 		Path  string `json:"path"`
 		Error string `json:"error"`
 	} `json:"file"`
-	Build   string                     `json:"build"`
-	Restart string                     `json:"restart"`
-	Values  map[string]json.RawMessage `json:"values"`
-	Runtime []RuntimeValue             `json:"runtime"`
+	Build      string                     `json:"build"`
+	Restart    string                     `json:"restart"`
+	StartError string                     `json:"startError"`
+	Values     map[string]json.RawMessage `json:"values"`
+	Runtime    []RuntimeValue             `json:"runtime"`
 }
 
 type valueReply struct {
@@ -105,7 +106,7 @@ func TestSettingsShowEachValueWithItsDefaultSourceAndRunningValue(t *testing.T) 
 	want := map[string]valueReply{
 		// A key the file changed after the server started: pending, as value != running.
 		"maxParallel":          {Value: 4.0, Default: 3.0, Source: "file", Running: 3.0, Restart: true},
-		"claude":               {Value: "/missing/claude", Default: "claude", Source: "file", Running: "claude", Restart: true, Error: "The server can't find /missing/claude; it won't start after a restart with this value."},
+		"claude":               {Value: "/missing/claude", Default: "claude", Source: "file", Running: "claude", Restart: true, Error: "YarGPT won't start with this program. Fix it before restarting."},
 		"updates.autoCheck":    {Value: false, Default: true, Source: "file", Running: true},
 		"updates.drainMinutes": {Value: 30.0, Default: 30.0, Source: "default", Running: 30.0},
 		"model":                {Value: "", Default: "", Source: "default", Running: "", Restart: true},
@@ -333,6 +334,21 @@ func TestARestartIsRefusedWhenTheServerWouldNotStart(t *testing.T) {
 	}
 	if on, _ := svc.Draining(); on || restarted {
 		t.Fatalf("draining %v, restarted %v after refused restarts; want neither", on, restarted)
+	}
+	// The app restarts through its own bridge, so GET says the same thing first.
+	want := `config.json: "effort" must be one of low, medium, high, xhigh, max`
+	if got := readSettings(t, h); got.StartError != want {
+		t.Fatalf("startError = %q; want %q", got.StartError, want)
+	}
+}
+
+func TestSettingsHaveNoStartErrorWhenTheServerWouldStart(t *testing.T) {
+	h, _, _ := settingsHandler(t, `{"effort": "high"}`, func(s *Settings) {
+		s.StartupCheck = func() (string, error) { return "", nil }
+	})
+	rec := do(h, "GET", "/api/settings", "", nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "startError") {
+		t.Fatalf("settings = %d %s; want no startError", rec.Code, rec.Body)
 	}
 }
 

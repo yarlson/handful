@@ -65,6 +65,9 @@ type settingsView struct {
 	File    fileView       `json:"file"`
 	Build   string         `json:"build"`
 	Restart string         `json:"restart"` // "launchd" or "manual"
+	// StartError is the error a server started again now would stop with;
+	// absent when it would start. Every restart path refuses while it is set.
+	StartError string `json:"startError,omitempty"`
 	Values  orderedValues  `json:"values"`
 	Runtime []RuntimeValue `json:"runtime"`
 }
@@ -150,6 +153,9 @@ func (s *server) settingsView() settingsView {
 	if err != nil {
 		v.File.Error = err.Error()
 	}
+	if _, startErr := s.wouldNotStart(); startErr != nil {
+		v.StartError = startErr.Error()
+	}
 	for _, key := range config.Keys {
 		v.Values = append(v.Values, s.valueOf(f, err == nil, key))
 	}
@@ -195,7 +201,7 @@ func (s *server) startupProblem(key string, value any) string {
 		return ""
 	}
 	if _, err := s.settings.LookPath(text); err != nil {
-		return "The server can't find " + text + "; it won't start after a restart with this value."
+		return "YarGPT won't start with this program. Fix it before restarting."
 	}
 	return ""
 }

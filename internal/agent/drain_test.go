@@ -82,7 +82,9 @@ func TestDrainModeLetsRunningTurnsFinishAndHoldsTheQueueUntilItEnds(t *testing.T
 	}
 	waitFor(t, "the held turns run", func() bool {
 		raw, _ := os.ReadFile(filepath.Join(h.dir, "order.log"))
-		return strings.Count(string(raw), "end ") == 4
+		// Solo's two turns, Ana's message and the team's board work; the
+		// team's lead may run one more turn, so count at least 4.
+		return strings.Count(string(raw), "end ") >= 4
 	})
 }
 

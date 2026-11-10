@@ -6,8 +6,6 @@ import { assert, test } from "vitest"
 // The UI never names the workflow's old concepts (spec 9cf81412, principle 9 and AC23).
 const BANNED = /\b(slots?|triage|handoffs?|goals?|items?)\b/i
 
-// Attributes whose values the user reads or hears.
-const SHOWN = new Set(["aria-label", "title", "placeholder", "alt", "label", "open", "submit", "lead", "rest"])
 // Attributes and calls whose strings are code: classes, ids, keys and kinds.
 const CODE_ATTRS =
   /^(className|id|key|htmlFor|role|type|variant|size|href|src|value|name|defaultValue|aria-(controls|labelledby|describedby)|data-.*)$/
@@ -24,6 +22,9 @@ const CODE_CALLS = new Set([
   "replace",
   "includes",
 ])
+// CODE_VALUES are the strings that stay as code on purpose: the old command and attention
+// names the server still sends or accepts.
+const CODE_VALUES = new Set(["goal", "/goal"])
 
 type Node = { type: string; [key: string]: unknown }
 
@@ -35,45 +36,44 @@ function classList(text: string): boolean {
   return words.filter((w) => /[-:]/.test(w)).length * 2 >= words.length
 }
 
-// shownStrings lists the strings of a TSX or TS source that the user can read: JSX text,
-// the values of shown attributes, and every other string or template with a space in it,
-// except class lists, imports, types and the arguments of code calls.
+// shownStrings lists the strings of a TSX or TS source that the user may read: JSX text and
+// every string and template, except code. Code is a class list, an import, a type, a key, an
+// operand of a comparison or a case, the argument of a code call or the value of a code
+// attribute, and the values in CODE_VALUES.
 export function shownStrings(path: string, source: string): string[] {
   const { program, errors } = parseSync(path, source, { lang: path.endsWith(".tsx") ? "tsx" : "ts" })
   if (errors.length > 0) throw new Error(`${path}: ${errors[0].message}`)
   const out: string[] = []
-  const visit = (node: unknown, code: boolean, shown: boolean) => {
-    if (Array.isArray(node)) return node.forEach((n) => visit(n, code, shown))
+  const add = (text: string) => {
+    if (!classList(text) && !CODE_VALUES.has(text)) out.push(text)
+  }
+  const visit = (node: unknown, code: boolean) => {
+    if (Array.isArray(node)) return node.forEach((n) => visit(n, code))
     if (!node || typeof node !== "object") return
     const n = node as Node
     // Objects without a type, such as a regex's flags, hold no strings the user reads.
     if (typeof n.type !== "string") return
     if (n.type === "JSXText") return void out.push(String(n.value))
     if (n.type === "ImportDeclaration" || n.type === "ExportAllDeclaration" || n.type.startsWith("TS")) return
-    if (n.type === "Literal" && typeof n.value === "string") {
-      if (!code && (shown || (/\s/.test(n.value) && !classList(n.value)))) out.push(n.value)
-      return
-    }
-    if (n.type === "TemplateElement") {
-      const text = (n.value as { cooked?: string }).cooked ?? ""
-      if (!code && (shown || /\s/.test(text))) out.push(text)
-      return
-    }
+    if (n.type === "Literal" && typeof n.value === "string") return void (code || add(n.value))
+    if (n.type === "TemplateElement") return void (code || add((n.value as { cooked?: string }).cooked ?? ""))
     if (n.type === "JSXAttribute") {
       const name = (n.name as { name?: string }).name ?? ""
-      return visit(n.value, CODE_ATTRS.test(name), SHOWN.has(name))
+      return visit(n.value, code || CODE_ATTRS.test(name))
     }
     if (n.type === "CallExpression") {
       const callee = n.callee as { name?: string; property?: { name?: string } }
       const fn = callee.name ?? callee.property?.name ?? ""
-      visit(n.callee, code, false)
-      return visit(n.arguments, code || CODE_CALLS.has(fn), false)
+      visit(n.callee, code)
+      return visit(n.arguments, code || CODE_CALLS.has(fn))
     }
-    if (n.type === "Property" && !n.computed)
-      return visit(n.value, code, shown || SHOWN.has(String((n.key as { name?: string }).name)))
-    for (const [k, v] of Object.entries(n)) if (k !== "type" && k !== "start" && k !== "end") visit(v, code, shown)
+    if (n.type === "BinaryExpression" && /^[!=]==?$/.test(String(n.operator))) return visit([n.left, n.right], true)
+    if (n.type === "SwitchCase") return void (visit(n.test, true), visit(n.consequent, code))
+    if (n.type === "Property") return void (n.computed && visit(n.key, true), visit(n.value, code))
+    if (n.type === "MemberExpression") return void (visit(n.object, code), n.computed && visit(n.property, true))
+    for (const [k, v] of Object.entries(n)) if (k !== "type" && k !== "start" && k !== "end") visit(v, code)
   }
-  visit(program, false, false)
+  visit(program, false)
   return out
 }
 
@@ -85,22 +85,48 @@ function sources(dir: string): string[] {
   })
 }
 
-test("the scanner finds a banned word in JSX text, shown attributes and sentences, not in code", () => {
+test("the scanner finds a banned word in any string the user may read, not in code", () => {
   const found = shownStrings(
     "x.tsx",
     `import { goal } from "@/lib/goal"
      type K = "goal"
      const a = s === "goal" ? 1 : 2
+     switch (k) { case "item": break }
      const b = cn("flex items-center")
      const b2 = "grid size-10 place-items-center rounded-full"
      const c = request("POST", "/api/goals/1")
+     const commands = ["clear", "goal"]
+     const m = map["slots"]
      const d = \`Next goal: \${x}\`
      const e = <div className="items-start" id="goal" title="Your goal">End goal {"the item"}</div>
-     const f = { label: "Slot", kind: "item" }`,
+     const f = { label: "Slot", kind: "item" }
+     const g = <h3>{"Goals"}</h3>
+     const h = <h3>{x ? "Goals" : "Tasks"}</h3>
+     const LABELS = { queued: "Goal", sent: "Handoff" }
+     function word() { return x ? "Slot" : "Triage" }
+     const TABS = ["Goals", "Members"]
+     const i = <Badge>{pinned ? "item" : "step"}</Badge>
+     const j = <Chip text="Handoff" />`,
   )
   assert.deepEqual(
     found.filter((s) => BANNED.test(s)),
-    ["Next goal: ", "Your goal", "End goal ", "the item", "Slot"],
+    [
+      "Next goal: ",
+      "Your goal",
+      "End goal ",
+      "the item",
+      "Slot",
+      "item",
+      "Goals",
+      "Goals",
+      "Goal",
+      "Handoff",
+      "Slot",
+      "Triage",
+      "Goals",
+      "item",
+      "Handoff",
+    ],
   )
 })
 

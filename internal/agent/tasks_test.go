@@ -210,7 +210,12 @@ func TestEveryTaskActionWorksThroughUpdateBoard(t *testing.T) {
 	}
 
 	runbook := send("Write the runbook.", nil)
-	call("docs", map[string]any{"action": "pass_on", "goal_id": runbook, "team_id": ops.ID, "text": "Ops owns runbooks."})
+	if got, isErr := callText(t, docsLead, "update_board", map[string]any{"action": "pass_on", "goal_id": runbook, "team_id": "no-such-team", "text": "x"}); !isErr || strings.HasPrefix(got, "Passed") {
+		t.Fatalf("pass_on to an unknown team = %q (error %v); want core's error", got, isErr)
+	}
+	if got := call("docs", map[string]any{"action": "pass_on", "goal_id": runbook, "team_id": ops.ID, "text": "Ops owns runbooks."}); got != `Passed "Write the runbook." on; it is in that team's inbox now.` {
+		t.Fatalf("pass_on = %q", got)
+	}
 	if g, err := h.svc.GoalBoard(ctx, runbook); err != nil || g.Goal.TeamID != ops.ID {
 		t.Fatalf("passed task = %+v, %v; want it at Ops", g.Goal, err)
 	}

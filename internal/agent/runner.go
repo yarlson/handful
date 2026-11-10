@@ -86,7 +86,7 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 	resume := time.NewTimer(0)
 	resume.Stop()
 	return &Runner{
-		svc: svc, cfg: cfg, tokens: newTokenRegistry(), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
+		svc: svc, cfg: cfg, tokens: newTokenRegistry(log), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
 		resume: resume, maxLimitPause: limitPauseMax, publish: svc.PublishState, environ: os.Environ,
 	}
 }

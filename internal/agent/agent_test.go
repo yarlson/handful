@@ -3807,3 +3807,81 @@ func TestALateCallAfterATaskTurnEndsActsOnNoTurn(t *testing.T) {
 		t.Fatalf("late approval = %s; want an immediate denial: no turn is running", text)
 	}
 }
+
+func TestRevokingATokenClosesItsMCPSessions(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	callText(t, cs, "update_routine", map[string]any{"action": "list"})
+	sessions := func() int {
+		n := 0
+		h.runner.tokens.mu.Lock()
+		servers := slices.Clone(h.runner.tokens.servers[token])
+		h.runner.tokens.mu.Unlock()
+		for _, s := range servers {
+			for range s.Sessions() {
+				n++
+			}
+		}
+		return n
+	}
+	if n := sessions(); n != 1 {
+		t.Fatalf("server sessions of the live token = %d; want 1", n)
+	}
+	var logs syncBuffer
+	h.runner.tokens.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h.runner.tokens.mu.Lock()
+	servers := slices.Clone(h.runner.tokens.servers[token])
+	h.runner.tokens.mu.Unlock()
+	h.runner.tokens.revoke(token)
+	for _, s := range servers {
+		for range s.Sessions() {
+			t.Fatal("a session of the revoked token is still open")
+		}
+	}
+	if n := sessions(); n != 0 {
+		t.Fatalf("server sessions kept for the revoked token = %d; want 0", n)
+	}
+	if got := logs.String(); got != "" {
+		t.Fatalf("closing a live session logged %q; want nothing", got)
+	}
+}
+
+// A token revoked while its MCP server is being made gets no server, so
+// nothing is kept that revoke would never close.
+func TestAServerForARevokedTokenIsNeitherServedNorKept(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	token, err := h.runner.tokens.issue(runContext{BotID: bot.ID, BotName: bot.Name, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := h.runner.toolServerFor(token); s == nil {
+		t.Fatal("no server for a live token")
+	}
+	h.runner.tokens.revoke(token)
+	if s := h.runner.toolServerFor(token); s != nil {
+		t.Fatal("a server for a revoked token")
+	}
+	if h.runner.tokens.addServer(token, mcp.NewServer(&mcp.Implementation{Name: "x", Version: "1"}, nil)) {
+		t.Fatal("addServer accepted a revoked token")
+	}
+	h.runner.tokens.mu.Lock()
+	kept := len(h.runner.tokens.servers[token])
+	h.runner.tokens.mu.Unlock()
+	if kept != 0 {
+		t.Fatalf("servers kept for the revoked token = %d; want 0", kept)
+	}
+}

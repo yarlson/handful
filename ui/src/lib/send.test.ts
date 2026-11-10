@@ -1,5 +1,5 @@
 import { assert, test } from "vitest"
-import { answers, EMPTY_GOAL, GOAL_WITH_FILES, sendPlan, type SendPlan } from "./send.ts"
+import { answers, EMPTY_TASK, TASK_WITH_FILES, sendPlan, type SendPlan } from "./send.ts"
 
 test("an empty draft without files sends nothing", () => {
   assert.deepEqual(sendPlan("", 0, false), { kind: "skip" })
@@ -15,25 +15,29 @@ test("text is sent trimmed as a message", () => {
   assert.deepEqual(sendPlan("hi", 1, true), { kind: "message", text: "hi" })
 })
 
-test("/goal starts a goal only in a team's chat", () => {
-  assert.deepEqual(sendPlan(" /goal Ship CSV ", 0, true), { kind: "goal", goal: "Ship CSV" })
-  assert.deepEqual(sendPlan("/goal Ship CSV", 0, false), { kind: "message", text: "/goal Ship CSV" })
-  assert.deepEqual(sendPlan("/goals", 0, true), { kind: "message", text: "/goals" })
+test("/task, or its old name /goal, sends a task only in a team's chat", () => {
+  assert.deepEqual(sendPlan(" /task Ship CSV ", 0, true), { kind: "task", task: "Ship CSV" })
+  assert.deepEqual(sendPlan("/goal Ship CSV", 0, true), { kind: "task", task: "Ship CSV" })
+  assert.deepEqual(sendPlan("/task Ship CSV", 0, false), {
+    kind: "message",
+    text: "/task Ship CSV",
+  })
+  assert.deepEqual(sendPlan("/tasks", 0, true), { kind: "message", text: "/tasks" })
 })
 
 test("the errors say what to fix", () => {
-  assert.equal(EMPTY_GOAL, "Write the goal after /goal, for example: /goal Add CSV export")
-  assert.equal(GOAL_WITH_FILES, "A goal is text only: remove the attachments, or send them in a message")
+  assert.equal(EMPTY_TASK, "Write the task after /task, for example: /task Add CSV export")
+  assert.equal(TASK_WITH_FILES, "A task is text only: remove the attachments, or send them in a message")
 })
 
-test("an empty /goal is rejected with an example", () => {
-  assert.deepEqual(sendPlan("/goal  ", 0, true), { kind: "invalid", error: EMPTY_GOAL })
-  // The empty goal is the first problem named, even with files.
-  assert.deepEqual(sendPlan("/goal", 1, true), { kind: "invalid", error: EMPTY_GOAL })
+test("an empty /task is rejected with an example", () => {
+  assert.deepEqual(sendPlan("/task  ", 0, true), { kind: "invalid", error: EMPTY_TASK })
+  // The empty task is the first problem named, even with files.
+  assert.deepEqual(sendPlan("/task", 1, true), { kind: "invalid", error: EMPTY_TASK })
 })
 
-test("a goal with files is rejected", () => {
-  assert.deepEqual(sendPlan("/goal Ship", 1, true), { kind: "invalid", error: GOAL_WITH_FILES })
+test("a task with files is rejected", () => {
+  assert.deepEqual(sendPlan("/task Ship", 1, true), { kind: "invalid", error: TASK_WITH_FILES })
 })
 
 test("/clear and /compact without files are commands in any chat", () => {
@@ -58,7 +62,7 @@ test("other slash words are messages", () => {
 test("only a message answers the Answer chip's question", () => {
   const plans: [SendPlan, boolean][] = [
     [{ kind: "message", text: "x" }, true],
-    [{ kind: "goal", goal: "x" }, false],
+    [{ kind: "task", task: "x" }, false],
     [{ kind: "clear" }, false],
     [{ kind: "compact" }, false],
     [{ kind: "skip" }, false],

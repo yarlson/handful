@@ -9,7 +9,7 @@ test("a bot's own chat offers every skill", () => {
 
 test("a team's chat offers the skills that no team command hides", () => {
   assert.deepEqual(offeredSkills(skills, { kind: "room", team: {} }), [{ id: "grill-me" }, { id: "review" }])
-  assert.deepEqual(teamCommands, ["clear", "compact", "goal"])
+  assert.deepEqual(teamCommands, ["clear", "compact", "task", "goal"])
 })
 
 test("a plain room offers no skills", () => {

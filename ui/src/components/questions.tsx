@@ -167,7 +167,7 @@ export function AnswerChip({ answering, onClear }: { answering: Asked; onClear: 
 }
 
 // WaitingView lists everything that waits for the user across chats: open questions grouped
-// by chat, oldest first, and the chats with approvals or paused goals.
+// by chat, oldest first, and the chats with approvals or paused tasks.
 export function WaitingView({
   waiting,
   bots,
@@ -230,7 +230,7 @@ export function WaitingView({
       {(approvals.length > 0 || paused.length > 0) && (
         <section aria-labelledby="waiting-other" className="flex flex-col gap-1.5">
           <h3 id="waiting-other" className="text-sm font-medium">
-            Approvals and paused goals
+            Approvals and paused tasks
           </h3>
           {approvals.map((b) => (
             <Button key={b.id} size="sm" variant="ghost" className="justify-start" onClick={() => onOpen(b.id)}>
@@ -239,7 +239,7 @@ export function WaitingView({
           ))}
           {paused.map((b) => (
             <Button key={b.id} size="sm" variant="ghost" className="justify-start" onClick={() => onOpen(b.id)}>
-              {b.name}: the goal is paused
+              {b.name}: the task is paused
             </Button>
           ))}
         </section>

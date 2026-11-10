@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
 import {
   Inbox,
+  LayoutDashboard,
   AlertTriangle,
   Bot as BotIcon,
   MessageCircleQuestion,
@@ -19,7 +20,9 @@ import { linkLabel } from "@/lib/connection"
 import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
-import { GoalBar } from "@/components/board"
+import { TaskBar } from "@/components/board"
+import { AcrossScreen, InboxScreen } from "@/components/tasks"
+import { tasksKey } from "@/lib/tasks"
 import { openSettingsPage, SettingsPage } from "@/components/settings"
 import { isSettingsPath, pauseLabel, sectionOfPath } from "@/lib/settings"
 import { UpdatePill, useUpdate } from "@/components/update-pill"
@@ -108,7 +111,10 @@ function NewBotDialog({
               inherited={
                 defaults
                   ? inheritedFromGlobal(defaults)
-                  : { model: { value: "", source: "claude-code" }, effort: { value: "", source: "claude-code" } }
+                  : {
+                      model: { value: "", source: "claude-code" },
+                      effort: { value: "", source: "claude-code" },
+                    }
               }
               defaults={defaults}
             />
@@ -220,7 +226,13 @@ function NewTeamDialog({
   const toggle = (id: string, on: boolean) => setMembers((prev) => (on ? [...prev, id] : prev.filter((m) => m !== id)))
   const create = async () => {
     try {
-      const team = await api.createTeam({ name, instructions: purpose, memberIds: members, leadId, agreement })
+      const team = await api.createTeam({
+        name,
+        instructions: purpose,
+        memberIds: members,
+        leadId,
+        agreement,
+      })
       setName("")
       setPurpose("")
       setAgreement("")
@@ -334,8 +346,8 @@ function SidebarItem({
         </ShieldQuestion>
       )}
       {bot.attention === "goal" && (
-        <PauseCircle className="size-4 shrink-0 text-amber-500" aria-label="The goal is paused">
-          <title>The goal is paused</title>
+        <PauseCircle className="size-4 shrink-0 text-amber-500" aria-label="The task is paused">
+          <title>The task is paused</title>
         </PauseCircle>
       )}
       {bot.attention === "model" && (
@@ -544,7 +556,8 @@ export function App() {
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [connectors, setConnectors] = useState(false)
   const [panel, setPanel] = useState(true)
-  const [waitingOpen, setWaitingOpen] = useState(false)
+  // screen is what the main area shows: the selected chat, its team's inbox, Waiting for you or Across teams.
+  const [screen, setScreen] = useState<"chat" | "inbox" | "waiting" | "across">("chat")
   const [show, setShow] = useState<{ tab: string; n: number } | undefined>()
   const showTab = (tab: string) => {
     setPanel(true)
@@ -558,7 +571,7 @@ export function App() {
   const openChat = (id: string) => {
     if (location.pathname !== chatPath(id)) history.pushState(null, "", chatPath(id))
     setPath(location.pathname)
-    setWaitingOpen(false)
+    setScreen("chat")
     setSelected(id)
   }
   // The question that each chat's next message answers, set by an Answer button.
@@ -606,6 +619,10 @@ export function App() {
   const entries = orderedEntries(transcript)
   const waiting = useLoad(() => api.waiting(), waitingKey(bots))
   const waitingN = waiting.data ? waitingCount(waiting.data) : 0
+  const taskKey = tasksKey(bots)
+  const needs = useLoad(() => api.needsYou(), taskKey)
+  const needsN = needs.data?.length ?? 0
+  const chatName = (id: string) => bots.find((b) => b.id === id)?.name ?? "a deleted chat"
 
   // A drain that the updater didn't start is a settings restart.
   const pause = pauseLabel(update.state?.state === "waiting" || update.state?.state === "limit")
@@ -640,12 +657,32 @@ export function App() {
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
           <button
             type="button"
-            aria-current={waitingOpen ? "page" : undefined}
+            aria-current={screen === "across" ? "page" : undefined}
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-              waitingOpen ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
+              screen === "across" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
             )}
-            onClick={() => setWaitingOpen(true)}
+            onClick={() => setScreen("across")}
+          >
+            <LayoutDashboard className="size-4 shrink-0" />
+            <span className="flex-1">Across teams</span>
+            {needsN > 0 && (
+              <span
+                className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
+                aria-label={`${needsN} need you`}
+              >
+                {needsN}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            aria-current={screen === "waiting" ? "page" : undefined}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+              screen === "waiting" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
+            )}
+            onClick={() => setScreen("waiting")}
           >
             <Inbox className="size-4 shrink-0" />
             <span className="flex-1">Waiting for you</span>
@@ -742,10 +779,35 @@ export function App() {
         {pausedUntil && (
           <div className="bg-amber-500/10 px-4 py-2 text-sm">
             Claude usage limit reached. New turns wait until{" "}
-            {new Date(pausedUntil).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}.
+            {new Date(pausedUntil).toLocaleString([], {
+              weekday: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            .
           </div>
         )}
-        {waitingOpen && waiting.data ? (
+        {screen === "across" ? (
+          <AcrossScreen
+            needs={needs.data ?? []}
+            teams={teams}
+            version={taskKey}
+            chatName={chatName}
+            onOpen={openChat}
+            onChange={needs.reload}
+          />
+        ) : screen === "inbox" && bot?.team ? (
+          <InboxScreen
+            key={bot.id}
+            team={bot}
+            version={`${transcript?.rev ?? 0}:${taskKey}`}
+            teams={teams}
+            botName={(id) => bots.find((b) => b.id === id)?.name ?? "a deleted bot"}
+            usageLimit={Boolean(pausedUntil)}
+            draining={draining}
+            onBack={() => setScreen("chat")}
+          />
+        ) : screen === "waiting" && waiting.data ? (
           <WaitingView
             waiting={waiting.data}
             bots={bots}
@@ -790,11 +852,12 @@ export function App() {
               </Button>
             </header>
             {bot.team && (
-              <GoalBar
+              <TaskBar
                 key={bot.id}
                 team={bot}
                 version={transcript?.rev ?? 0}
-                onShowBoard={() => showTab("board")}
+                onShowWork={() => showTab("board")}
+                onOpenInbox={() => setScreen("inbox")}
                 teams={teams}
                 draining={draining}
                 pause={pause}
@@ -825,6 +888,7 @@ export function App() {
                     onDeleted={() => setSelected(null)}
                     show={show}
                     teams={teams}
+                    onOpenInbox={() => setScreen("inbox")}
                   />
                 </aside>
               )}
@@ -835,7 +899,7 @@ export function App() {
             Create a bot to start.
           </div>
         )}
-        {(waitingOpen || !bot) && update.state && shown(update.state) && (
+        {(screen !== "chat" || !bot) && update.state && shown(update.state) && (
           <div className="@container">
             <UpdatePill update={update} bots={bots} floating />
           </div>

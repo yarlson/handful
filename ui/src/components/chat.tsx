@@ -28,7 +28,7 @@ import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type Men
 import { Popover } from "radix-ui"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { imageHost, isExternalLink, isLocalImage } from "@/lib/links"
-import { goalCommand } from "@/lib/goal"
+import { taskCommand } from "@/lib/task-command"
 import { answers, sendPlan } from "@/lib/send"
 import { offeredSkills, teamSkillOf } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
@@ -250,7 +250,7 @@ function SetupSummary({ setup }: { setup: SetupProposal }) {
                   </p>
                 )}
                 {team.goalBudget !== undefined && (
-                  <p className="text-muted-foreground text-xs">{team.goalBudget} turns per goal</p>
+                  <p className="text-muted-foreground text-xs">{team.goalBudget} turns per task</p>
                 )}
               </li>
             ))}
@@ -571,10 +571,20 @@ export function EntryView({
   }
 }
 
-type Suggestion = { token: string; label: string; detail?: string; kind: "bot" | "everyone" | "command" | "skill" }
+type Suggestion = {
+  token: string
+  label: string
+  detail?: string
+  kind: "bot" | "everyone" | "command" | "skill"
+}
 
 const commands: Suggestion[] = [
-  { token: "/clear", label: "/clear", detail: "Start a fresh context. The chat stays visible.", kind: "command" },
+  {
+    token: "/clear",
+    label: "/clear",
+    detail: "Start a fresh context. The chat stays visible.",
+    kind: "command",
+  },
   {
     token: "/compact",
     label: "/compact",
@@ -586,9 +596,9 @@ const commands: Suggestion[] = [
 // teamCommands are the commands that only a team's chat offers.
 const teamCommands: Suggestion[] = [
   {
-    token: goalCommand,
-    label: goalCommand,
-    detail: "Give the team a new goal: /goal <what the team should do>",
+    token: taskCommand,
+    label: taskCommand,
+    detail: "Send the team's lead a task: /task <what the team should do>",
     kind: "command",
   },
 ]
@@ -610,13 +620,26 @@ function suggestionsFor(
     ).map((name) => ({ token: `@${name}`, label: name, kind: "bot" as const }))
     const here = inRoom && matchNames(["here"], query.query).length > 0
     return here
-      ? [{ token: "@here", label: "here", detail: "All members of the room", kind: "everyone" as const }, ...names]
+      ? [
+          {
+            token: "@here",
+            label: "here",
+            detail: "All members of the room",
+            kind: "everyone" as const,
+          },
+          ...names,
+        ]
       : names
   }
   const all = [
     ...(inTeam ? teamCommands : []),
     ...commands,
-    ...skills.map((sk) => ({ token: `/${sk.id}`, label: `/${sk.id}`, detail: sk.description, kind: "skill" as const })),
+    ...skills.map((sk) => ({
+      token: `/${sk.id}`,
+      label: `/${sk.id}`,
+      detail: sk.description,
+      kind: "skill" as const,
+    })),
   ]
   const byKey = new Map(all.map((s) => [s.token.slice(1), s]))
   return matchNames([...byKey.keys()], query.query).map((key) => byKey.get(key)!)
@@ -740,7 +763,7 @@ function Composer({
     setSending(true)
     setError(null)
     try {
-      if (plan.kind === "goal") await api.startGoal(bot.id, plan.goal)
+      if (plan.kind === "task") await api.userTask(bot.id, { text: plan.task })
       else if (plan.kind === "clear") await api.clearContext(bot.id)
       else if (plan.kind === "compact") await api.compactContext(bot.id)
       else

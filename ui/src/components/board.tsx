@@ -1,51 +1,42 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { ArrowDown, ArrowUp, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Pin, PinOff } from "lucide-react"
 import { api, type Board, type Bot, type Goal, type Item, type Request } from "@/lib/api"
 import { PausedForUpdate } from "@/components/update-pill"
-import { HandedOverSection, HandOverDialog, IncomingSection } from "@/components/handoff"
-import { fromLabel } from "@/lib/handoff"
+import {
+  clock,
+  SendTaskDialog,
+  SentSection,
+  SourceChip,
+  TextAction,
+  when,
+  WithdrawAction,
+  type Act,
+} from "@/components/tasks"
 import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@/lib/questions"
 import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  canWithdraw,
-  confirms,
-  goalBar,
-  grouped,
-  intakeLabel,
-  moved,
-  nextUp,
-  onHold,
-  placeNote,
-  reasonLine,
-  showsPosition,
-  slotHeader,
-  type Confirm,
-} from "@/lib/queue"
+import { fromUser, leadName, memberName, nextUp, taskBar, type Names } from "@/lib/tasks"
+import { canWithdraw, grouped, intakeLabel, moved, placeNote, reasonLine, showsPosition, slotHeader } from "@/lib/queue"
 import { cn } from "@/lib/utils"
 
-const goalBadge: Record<Goal["state"], string> = {
-  active: "Goal",
-  delivered: "Delivered",
+export type { Act }
+
+// taskWord names a task's state as text.
+const taskWord: Record<Goal["state"], string> = {
+  active: "Now",
   paused: "Paused",
-  done: "Done",
+  delivered: "Done, waiting for approval",
+  done: "Approved",
   ended: "Ended",
-  queued: "Queued",
-  incoming: "Incoming",
-  declined: "Declined",
+  stopped: "Stopped",
+  queued: "Planned",
+  incoming: "In the inbox",
+  later: "Later",
+  declined: "Pushed back",
 }
 
-// stateOrder lists item states in the order the board shows them: what needs
+// stateOrder lists step states in the order the board shows them: what needs
 // attention first, what is over last.
 const stateOrder: Item["state"][] = ["blocked", "review", "doing", "todo", "done", "dropped"]
 
@@ -58,41 +49,39 @@ const stateLabel: Record<Item["state"], string> = {
   dropped: "Dropped",
 }
 
-// teamNamer names other teams from the board's names, then from the app's teams.
-function teamNamer(board: { teams: Record<string, string> } | null | undefined, teams: Bot[]) {
-  return (id: string) => board?.teams[id] ?? teams.find((t) => t.id === id)?.name ?? "a deleted team"
+// boardNames names other teams from the board's names, then from the app's teams, and
+// members from the team's own.
+function boardNames(board: { teams: Record<string, string> } | null | undefined, teams: Bot[], team: Bot): Names {
+  return {
+    team: (id) => board?.teams[id] ?? teams.find((t) => t.id === id)?.name ?? "a deleted team",
+    member: (id) => memberName(team, id),
+    at: when,
+  }
 }
 
-// FromChip marks a goal that another team, or the user, handed over.
-function FromChip({ goal, name }: { goal: Goal; name: (id: string) => string }) {
-  const label = fromLabel(goal, name)
-  return label ? (
-    <Badge variant="outline" className="shrink-0 border-sky-500/50 text-sky-700 dark:text-sky-400">
-      {label}
-    </Badge>
-  ) : null
+// FromChip marks a task that came from another team or a member, not from the user.
+function FromChip({ goal, names }: { goal: Goal; names: Names }) {
+  return fromUser(goal) ? null : <SourceChip goal={goal} names={names} />
 }
 
-function memberName(team: Bot, id: string) {
-  return team.members?.find((m) => m.id === id)?.name ?? "a former member"
-}
-
-// GoalBar shows a team's goal above its channel, with the controls of its
-// budget and of the goals queued after it. A goal starts with "/goal <text>" in
-// the team's chat, which adds a board event to the transcript: its new rev
-// reloads the bar. onShowBoard opens the board tab, where the queue is.
-export function GoalBar({
+// TaskBar shows a team's Now task above its channel, with the controls of its budget, the
+// way into the team's inbox, and the next task in the plan. "/task <text>" in the team's
+// chat sends the lead a task, which adds a board event to the transcript: its new rev reloads
+// the bar. onShowWork opens the Work tab, where the plan is.
+export function TaskBar({
   team,
   version,
-  onShowBoard,
+  onShowWork,
+  onOpenInbox,
   teams = [],
   draining = false,
   pause = "Paused for update",
 }: {
   team: Bot
   version: number
-  onShowBoard?: () => void
-  // teams are the app's teams, to hand work over to.
+  onShowWork?: () => void
+  onOpenInbox?: () => void
+  // teams are the app's teams, to send tasks to.
   teams?: Bot[]
   // draining: the server starts no new turns until it restarts for an update.
   draining?: boolean
@@ -100,34 +89,35 @@ export function GoalBar({
   pause?: string
 }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
-  const [handing, setHanding] = useState(false)
-  const name = teamNamer(board.data, teams)
-  // confirm is the bar's one open confirmation: ending the goal, or accepting it with a goal queued.
-  const [confirm, setConfirm] = useState<Confirm>(null)
-  const [startNext, setStartNext] = useState(true)
+  const [sending, setSending] = useState(false)
+  // stopping is the task whose Stop waits for a confirm; a confirm left open never stops the next task.
+  const [stopping, setStopping] = useState<string | null>(null)
+  const names = boardNames(board.data, teams, team)
   const goal = board.data?.goal
-  const queue = board.data?.queue ?? []
-  const next = queue[0]
+  const plan = board.data?.plan ?? []
+  const inbox = board.data?.inbox?.length ?? 0
   const act = async (action: () => Promise<unknown>) => {
     try {
       await action()
       board.setError(null)
       board.reload()
+      return true
     } catch (e) {
       board.setError((e as Error).message)
+      return false
     }
   }
   if (!board.data) {
     return board.error ? <p className="text-destructive border-b px-4 py-2 text-xs">{board.error}</p> : null
   }
-  const bar = goalBar(goal, queue.length)
-  const upNext = nextUp(queue)
+  const bar = taskBar(goal, plan.length)
+  const upNext = nextUp(plan)
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-goal-bar={bar.mode}>
-      {goal && bar.mode === "open" ? (
+    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-task-bar={bar.mode}>
+      {goal && bar.mode === "now" ? (
         <>
-          <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{goalBadge[goal.state]}</Badge>
-          <FromChip goal={goal} name={name} />
+          <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{taskWord[goal.state]}</Badge>
+          <FromChip goal={goal} names={names} />
           {draining && goal.state === "active" && <PausedForUpdate label={pause} />}
           <span className="min-w-0 flex-1 truncate" title={goal.text}>
             {goal.text}
@@ -137,23 +127,31 @@ export function GoalBar({
               type="button"
               className="text-muted-foreground hover:text-foreground max-w-[30%] truncate text-xs underline-offset-2 hover:underline"
               title={upNext}
-              onClick={onShowBoard}
+              onClick={onShowWork}
             >
               {upNext}
             </button>
           )}
-          <span className="text-muted-foreground text-xs" title="Turns that the goal used of its budget">
+          <span className="text-muted-foreground text-xs" title="Turns that the task used of its budget">
             {goal.used}/{goal.budget} turns
           </span>
-          {bar.actions.includes("acceptNext") && (
-            <Button size="xs" aria-haspopup="dialog" onClick={() => setConfirm({ kind: "accept", goalId: goal.id })}>
-              Accept and start next…
+          {bar.actions.includes("approve") && (
+            <Button
+              size="xs"
+              aria-label={`Approve: ${goal.text}`}
+              onClick={() => void act(() => api.approveTask(goal.id))}
+            >
+              Approve
             </Button>
           )}
-          {bar.actions.includes("accept") && (
-            <Button size="xs" onClick={() => void act(() => api.acceptGoal(goal.id))}>
-              Accept
-            </Button>
+          {bar.actions.includes("changes") && (
+            <TextAction
+              id={`bar-changes-${goal.id}`}
+              label="What should change? The task comes back as Now."
+              open={`Ask for changes: ${goal.text}`}
+              submit="Ask for changes"
+              onSubmit={(text) => act(() => api.changesTask(goal.id, text))}
+            />
           )}
           {bar.actions.includes("resume") && (
             <Button size="xs" onClick={() => void act(() => api.extendGoal(goal.id, 0))}>
@@ -165,99 +163,73 @@ export function GoalBar({
               Add 10 turns
             </Button>
           )}
-          {confirms(confirm, "end", goal.id) ? (
-            <>
-              <span className="text-xs">End the goal? Its work stops for good.</span>
-              {next && (
-                <label className="flex items-center gap-1.5 text-xs">
-                  <Checkbox checked={startNext} onCheckedChange={(v) => setStartNext(v === true)} />
-                  Start the next goal: {next.text}
-                </label>
-              )}
-              <Button
-                size="xs"
-                variant="destructive"
-                onClick={() => void act(() => api.endGoal(goal.id, startNext)).then(() => setConfirm(null))}
-              >
-                End goal
+          {bar.actions.includes("stop") &&
+            (stopping === goal.id ? (
+              <>
+                <span className="text-xs">Stop the task? Running turns finish, and its steps stay.</span>
+                <Button
+                  size="xs"
+                  variant="destructive"
+                  onClick={() => void act(() => api.stopTask(goal.id)).then(() => setStopping(null))}
+                >
+                  Stop task
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => setStopping(null)}>
+                  Keep it
+                </Button>
+              </>
+            ) : (
+              <Button size="xs" variant="ghost" onClick={() => setStopping(goal.id)}>
+                Stop…
               </Button>
-              <Button size="xs" variant="ghost" onClick={() => setConfirm(null)}>
-                Keep it
-              </Button>
-            </>
-          ) : (
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => {
-                setStartNext(true)
-                setConfirm({ kind: "end", goalId: goal.id })
-              }}
-            >
-              End goal
-            </Button>
-          )}
-          {bar.actions.includes("acceptNext") && (
-            <span className="text-muted-foreground w-full text-xs">Next goal starts when you accept {goal.text}.</span>
-          )}
+            ))}
         </>
-      ) : bar.mode === "hold" && next ? (
+      ) : goal && bar.mode === "stopped" ? (
         <>
-          <Badge variant="outline">Queue on hold</Badge>
-          <span className="min-w-0 flex-1 truncate" title={next.text}>
-            next: {next.text}
+          <Badge variant="outline">Stopped</Badge>
+          <span className="min-w-0 flex-1 truncate" title={goal.text}>
+            {goal.text}
+          </span>
+          <Button size="xs" variant="outline" onClick={() => void act(() => api.reopenTask(goal.id))}>
+            Reopen
+          </Button>
+          <span className="text-muted-foreground shrink-0 text-xs">Reopen puts it back in the inbox.</span>
+        </>
+      ) : bar.mode === "hold" && plan[0] ? (
+        <>
+          <Badge variant="outline">Plan on hold</Badge>
+          <span className="min-w-0 flex-1 truncate" title={plan[0].text}>
+            next: {plan[0].text}
           </span>
           <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
             Start now
           </Button>
-          <span className="text-muted-foreground shrink-0 text-xs">
-            Or type <code className="font-mono">/goal &lt;what the team should do&gt;</code> to queue another.
-          </span>
         </>
       ) : (
         <>
-          <span className="text-muted-foreground min-w-0 flex-1 truncate" title={goal?.text}>
-            {goal ? `Last goal (${goal.state}): ${goal.text}` : "No goal running. Handing over doesn't need one."}
-          </span>
+          <span className="text-muted-foreground min-w-0 flex-1 truncate">Nothing now.</span>
           <span className="text-muted-foreground shrink-0 text-xs">
-            To start one, type <code className="font-mono">/goal &lt;what the team should do&gt;</code> in the chat.
+            To send the lead a task, type <code className="font-mono">/task &lt;what the team should do&gt;</code> in
+            the chat.
           </span>
         </>
       )}
+      <Button
+        size="xs"
+        variant="outline"
+        aria-label={`Inbox, ${inbox} waiting`}
+        onClick={onOpenInbox}
+        disabled={!onOpenInbox}
+      >
+        Inbox <strong>{inbox}</strong>
+      </Button>
       {teams.length > 1 && (
-        <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setHanding(true)}>
-          Hand over…
+        <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
+          Send to a team…
         </Button>
       )}
-      <HandOverDialog open={handing} onOpenChange={setHanding} from={team} teams={teams} onDone={board.reload} />
+      <SendTaskDialog open={sending} onOpenChange={setSending} from={team} teams={teams} onDone={board.reload} />
       {board.error && <span className="text-destructive w-full text-xs">{board.error}</span>}
-      {goal && next && (
-        <Dialog
-          open={confirms(confirm, "accept", goal.id)}
-          onOpenChange={(v) => setConfirm(v ? { kind: "accept", goalId: goal.id } : null)}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Accept {goal.text}?</DialogTitle>
-              <DialogDescription>
-                The next goal starts and uses its own budget: <strong>{next.text}</strong> (
-                {team.team?.goalBudget ?? 30} turns).
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => void act(() => api.acceptGoal(goal.id, false)).then(() => setConfirm(null))}
-              >
-                Accept, hold the queue
-              </Button>
-              <Button onClick={() => void act(() => api.acceptGoal(goal.id, true)).then(() => setConfirm(null))}>
-                Accept and start next
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   )
 }
@@ -379,126 +351,6 @@ export function HistoryList({ id, item, events }: { id: string; item: Item; even
   )
 }
 
-// QueueList shows a team's queued goals, which only the user orders, starts or cancels.
-function QueueList({
-  team,
-  board,
-  held,
-  act,
-  name,
-}: {
-  team: Bot
-  board: Board
-  held: boolean
-  act: Act
-  name: (id: string) => string
-}) {
-  const [note, setNote] = useState("")
-  // focus is the goal whose move button keeps the keyboard once the list shows the new order.
-  const focus = useRef<{ id: string; step: -1 | 1; to: number } | null>(null)
-  const ids = board.queue.map((g) => g.id)
-  useEffect(() => {
-    const f = focus.current
-    if (!f) return
-    const at = ids.indexOf(f.id)
-    // Wait for the reloaded board, which has the goal at its new place.
-    if (at !== f.to) return
-    // At an end the button it used is disabled; the other one takes the keyboard.
-    const atEnd = f.step < 0 ? at === 0 : at === ids.length - 1
-    const dir = f.step < 0 !== atEnd ? "up" : "down"
-    document.getElementById(`queue-${f.id}-${dir}`)?.focus()
-    focus.current = null
-  })
-  const move = async (g: Goal, i: number, step: -1 | 1) => {
-    const order = moved(ids, i, step)
-    if (!order) return
-    const ok = await act(() => api.reorderGoals(team.id, order))
-    if (!ok) return
-    setNote(placeNote(g.text, i + step + 1, ids.length))
-    focus.current = { id: g.id, step, to: i + step }
-  }
-  // cancelling is the goal whose cancel waits for a confirm: a cancel can't be undone.
-  const [cancelling, setCancelling] = useState<string | null>(null)
-  return (
-    <section className="flex flex-col gap-1.5" aria-labelledby="queue-heading">
-      <h3 id="queue-heading" className="text-muted-foreground text-xs font-medium uppercase">
-        Next up ({board.queue.length})
-      </h3>
-      <ol className="flex flex-col gap-1.5">
-        {board.queue.map((g, i) => (
-          <li key={g.id} className="flex flex-wrap items-start gap-2 rounded-md border p-2 text-sm">
-            <span className="text-muted-foreground w-4 shrink-0 text-xs">{i + 1}</span>
-            <FromChip goal={g} name={name} />
-            <span className="line-clamp-2 flex-1" title={g.text}>
-              {g.text}
-            </span>
-            <Button
-              id={`queue-${g.id}-up`}
-              size="icon-xs"
-              variant="ghost"
-              aria-label={`Move ${g.text} up`}
-              disabled={i === 0}
-              onClick={() => void move(g, i, -1)}
-            >
-              <ArrowUp />
-            </Button>
-            <Button
-              id={`queue-${g.id}-down`}
-              size="icon-xs"
-              variant="ghost"
-              aria-label={`Move ${g.text} down`}
-              disabled={i === board.queue.length - 1}
-              onClick={() => void move(g, i, 1)}
-            >
-              <ArrowDown />
-            </Button>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={`Cancel goal ${g.text}`}
-              title="Cancel goal"
-              aria-expanded={cancelling === g.id}
-              onClick={() => setCancelling(g.id)}
-            >
-              <X />
-            </Button>
-            {cancelling === g.id && (
-              <div className="flex w-full items-center gap-2 text-xs">
-                <span className="flex-1">Cancel this goal? It won't start, and this can't be undone.</span>
-                <Button
-                  size="xs"
-                  variant="destructive"
-                  onClick={() => void act(() => api.cancelGoal(g.id)).then(() => setCancelling(null))}
-                >
-                  Cancel goal
-                </Button>
-                <Button size="xs" variant="ghost" onClick={() => setCancelling(null)}>
-                  Keep it
-                </Button>
-              </div>
-            )}
-          </li>
-        ))}
-      </ol>
-      {held ? (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground flex-1">On hold.</span>
-          <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
-            Start now
-          </Button>
-        </div>
-      ) : (
-        <p className="text-muted-foreground text-xs">Starts when you accept or end the current goal.</p>
-      )}
-      <p className="sr-only" aria-live="polite">
-        {note}
-      </p>
-    </section>
-  )
-}
-
-export type Act = (action: () => Promise<unknown>) => Promise<boolean>
-
 // RequestCard shows a request to the team: who asked, where it waits and why.
 function RequestCard({ team, r, teams, act }: { team: Bot; r: Request; teams: Record<string, string>; act: Act }) {
   return (
@@ -567,9 +419,162 @@ function AskedCard({ r, teams, act }: { r: Request; teams: Record<string, string
   )
 }
 
-// BoardTab lists a team's goal and its items, the goals queued after it, the
-// requests of other teams to it and what it asked of other teams.
-export function BoardTab({ team, version, teams = [] }: { team: Bot; version: number; teams?: Bot[] }) {
+// PlanList shows a team's planned tasks in the lead's order. The user moves them, pins one
+// where it is so the lead can't move it, starts the first when the plan holds, or withdraws one.
+function PlanList({
+  team,
+  plan,
+  held,
+  act,
+  names,
+}: {
+  team: Bot
+  plan: Goal[]
+  held: boolean
+  act: Act
+  names: Names
+}) {
+  const [note, setNote] = useState("")
+  // focus is the task whose move button keeps the keyboard once the list shows the new order.
+  const focus = useRef<{ id: string; step: -1 | 1; to: number } | null>(null)
+  const ids = plan.map((g) => g.id)
+  useEffect(() => {
+    const f = focus.current
+    if (!f) return
+    const at = ids.indexOf(f.id)
+    // Wait for the reloaded board, which has the task at its new place.
+    if (at !== f.to) return
+    // At an end the button it used is disabled; the other one takes the keyboard.
+    const atEnd = f.step < 0 ? at === 0 : at === ids.length - 1
+    const dir = f.step < 0 !== atEnd ? "up" : "down"
+    document.getElementById(`plan-${f.id}-${dir}`)?.focus()
+    focus.current = null
+  })
+  const move = async (g: Goal, i: number, step: -1 | 1) => {
+    const order = moved(ids, i, step)
+    if (!order) return
+    const ok = await act(() => api.orderPlan(team.id, order))
+    if (!ok) return
+    setNote(placeNote(g.text, i + step + 1, ids.length))
+    focus.current = { id: g.id, step, to: i + step }
+  }
+  return (
+    <section className="flex flex-col gap-1.5" aria-labelledby="plan-heading">
+      <h3 id="plan-heading" className="text-muted-foreground text-xs font-medium uppercase">
+        Next, in {leadName(team)}'s order ({plan.length})
+      </h3>
+      <ol className="flex flex-col gap-1.5">
+        {plan.map((g, i) => (
+          <li key={g.id} className="flex flex-col gap-1 rounded-md border p-2 text-sm">
+            <div className="flex items-start gap-2">
+              <span className="text-muted-foreground w-4 shrink-0 text-xs">{i + 1}</span>
+              <span className="line-clamp-2 flex-1" title={g.text}>
+                {g.text}
+              </span>
+              <FromChip goal={g} names={names} />
+              {g.pinned && <Badge variant="outline">pinned</Badge>}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-1">
+              <Button
+                id={`plan-${g.id}-up`}
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Move ${g.text} up`}
+                disabled={i === 0}
+                onClick={() => void move(g, i, -1)}
+              >
+                <ArrowUp />
+              </Button>
+              <Button
+                id={`plan-${g.id}-down`}
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Move ${g.text} down`}
+                disabled={i === plan.length - 1}
+                onClick={() => void move(g, i, 1)}
+              >
+                <ArrowDown />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={g.pinned ? `Unpin ${g.text}` : `Pin ${g.text} at #${i + 1}`}
+                aria-pressed={g.pinned === true}
+                title={g.pinned ? "Unpin: the lead can move it again" : "Pin: the lead can't move it"}
+                onClick={() => void act(() => api.pinTask(g.id, !g.pinned))}
+              >
+                {g.pinned ? <PinOff /> : <Pin />}
+              </Button>
+              <WithdrawAction g={g} to={team.name} act={act} />
+            </div>
+          </li>
+        ))}
+      </ol>
+      {held ? (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground flex-1">On hold.</span>
+          <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
+            Start now
+          </Button>
+        </div>
+      ) : (
+        <p className="text-muted-foreground text-xs">The first one starts when the Now task is done or stopped.</p>
+      )}
+      <p className="sr-only" aria-live="polite">
+        {note}
+      </p>
+    </section>
+  )
+}
+
+// DoneList shows the tasks that are done and wait for approval by whoever asked. The team
+// doesn't wait for it; the user can approve or ask for changes here.
+function DoneList({ done, act, names }: { done: Goal[]; act: Act; names: Names }) {
+  if (done.length === 0) return null
+  return (
+    <section className="flex flex-col gap-1.5" aria-labelledby="done-heading">
+      <h3 id="done-heading" className="text-muted-foreground text-xs font-medium uppercase">
+        Done, waiting for approval ({done.length})
+      </h3>
+      <ul className="flex flex-col gap-1.5">
+        {done.map((g) => (
+          <li key={g.id} className="flex flex-col gap-1.5 rounded-md border p-2 text-sm">
+            <div className="flex items-start gap-2">
+              <span className="flex-1 font-medium">{g.text}</span>
+              <FromChip goal={g} names={names} />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="xs" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
+                Approve
+              </Button>
+              <TextAction
+                id={`changes-${g.id}`}
+                label="What should change? The task comes back as Now, first in the plan."
+                open={`Ask for changes: ${g.text}`}
+                submit="Ask for changes"
+                onSubmit={(text) => act(() => api.changesTask(g.id, text))}
+              />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// BoardTab is a team's Work tab: its Now task and steps, the plan, the inbox, the requests of
+// other teams to it, and what it sent other teams.
+export function BoardTab({
+  team,
+  version,
+  teams = [],
+  onOpenInbox,
+}: {
+  team: Bot
+  version: number
+  teams?: Bot[]
+  onOpenInbox?: () => void
+}) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
   const act: Act = async (action) => {
     try {
@@ -583,7 +588,9 @@ export function BoardTab({ team, version, teams = [] }: { team: Bot; version: nu
     }
   }
   if (!board.data) return board.error ? <p className="text-destructive text-xs">{board.error}</p> : null
-  return <BoardView team={team} data={board.data} error={board.error} act={act} teams={teams} />
+  return (
+    <BoardView team={team} data={board.data} error={board.error} act={act} teams={teams} onOpenInbox={onOpenInbox} />
+  )
 }
 
 // BoardView draws a loaded board; act runs a change and reloads it.
@@ -593,58 +600,88 @@ export function BoardView({
   error,
   act,
   teams: allTeams = [],
+  onOpenInbox,
 }: {
   team: Bot
   data: Board
   error: string | null
   act: Act
   teams?: Bot[]
+  onOpenInbox?: () => void
 }) {
   const { goal, items, requests, teams } = data
-  const name = teamNamer(data, allTeams)
-  const queue = data.queue ?? []
+  const names = boardNames(data, allTeams, team)
+  const plan = data.plan ?? []
+  const inbox = data.inbox ?? []
   const asked = data.asked ?? []
   const groups = grouped(requests)
   const own = items.filter((i) => i.teamId === team.id || !asked.some((a) => a.id === i.id))
+  const now = goal?.state === "active" || goal?.state === "paused"
   return (
     <div className="flex flex-col gap-3">
       {error && <p className="text-destructive text-xs">{error}</p>}
-      <IncomingSection incoming={data.incoming ?? []} name={name} act={act} />
-      {goal ? (
-        <p className="text-sm">{goal.text}</p>
-      ) : (
-        <p className="text-muted-foreground text-sm">No goal yet. The lead adds items when the team works on one.</p>
-      )}
-      {goal && own.length === 0 && <p className="text-muted-foreground text-sm">No items yet.</p>}
+      <section className="flex flex-col gap-1.5" aria-labelledby="now-heading">
+        <h3 id="now-heading" className="text-muted-foreground text-xs font-medium uppercase">
+          {now || !goal ? "Now" : "Latest task"}
+        </h3>
+        {goal ? (
+          <div className="flex flex-col gap-1 text-sm">
+            <div className="flex flex-wrap items-start gap-2">
+              <span className="flex-1 font-medium">{goal.text}</span>
+              <FromChip goal={goal} names={names} />
+              {!now && <Badge variant="outline">{taskWord[goal.state]}</Badge>}
+              {goal.state === "paused" && <Badge variant="destructive">Paused</Badge>}
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {goal.used} {goal.used === 1 ? "turn" : "turns"} so far · started {clock(goal.createdAt)}
+            </p>
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            Nothing now. The lead splits a task into steps when it starts.
+          </p>
+        )}
+        {goal && own.length === 0 && <p className="text-muted-foreground text-sm">No steps yet.</p>}
+      </section>
       {stateOrder.map((state) => {
         const group = own.filter((i) => i.state === state)
         if (group.length === 0) return null
         return (
           <section key={state} className="flex flex-col gap-1.5">
-            <h3 className="text-muted-foreground text-xs font-medium uppercase">
+            <h4 className="text-muted-foreground text-xs font-medium">
               {stateLabel[state]} ({group.length})
-            </h3>
+            </h4>
             {group.map((item) => (
               <ItemCard key={item.id} team={team} item={item} teams={teams} />
             ))}
           </section>
         )
       })}
-      {queue.length > 0 && (
-        <QueueList
-          team={team}
-          board={{ ...data, queue }}
-          held={onHold(goal?.state, queue.length)}
-          act={act}
-          name={name}
-        />
-      )}
+      <DoneList done={data.done ?? []} act={act} names={names} />
+      {plan.length > 0 && <PlanList team={team} plan={plan} held={!now && plan.length > 0} act={act} names={names} />}
+      <section className="flex flex-col gap-1.5" aria-labelledby="inbox-heading">
+        <h3 id="inbox-heading" className="text-muted-foreground text-xs font-medium uppercase">
+          Inbox ({inbox.length})
+        </h3>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground flex-1">
+            {inbox.length === 0
+              ? "Nothing waits for a decision."
+              : `${inbox.length} ${inbox.length === 1 ? "task waits" : "tasks wait"} for ${leadName(team)}'s decision.`}
+          </span>
+          {onOpenInbox && (
+            <Button size="xs" variant="outline" onClick={onOpenInbox}>
+              Open inbox
+            </Button>
+          )}
+        </div>
+      </section>
       {requests.length > 0 && data.slots && (
         <section className="flex flex-col gap-2" aria-labelledby="requests-heading">
           <h3 id="requests-heading" className="text-muted-foreground text-xs font-medium uppercase">
             {slotHeader(data.slots, requests)}
           </h3>
-          <p className="text-muted-foreground text-xs">Parts that another team's running goal waits on.</p>
+          <p className="text-muted-foreground text-xs">Parts that another team's running task waits on.</p>
           {groups.map((g) =>
             g.group === "closed" ? (
               <details key={g.group} className="text-xs">
@@ -680,7 +717,7 @@ export function BoardView({
           ))}
         </section>
       )}
-      <HandedOverSection goals={data.handedOver ?? []} name={name} act={act} />
+      <SentSection goals={data.handedOver ?? []} names={names} act={act} />
     </div>
   )
 }

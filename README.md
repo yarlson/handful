@@ -161,7 +161,7 @@ To create one, click **+** next to **Teams**. Give the team a name and a purpose
 - The working agreement holds your rules for how the team works and when work is done, for example "Tests pass, and another member checks each change." In the team, it overrides each member's own instructions on how work is done and checked.
 - The members work in the team's shared folder, `~/.yargpt/teams/<team id>/workspace`.
 - The members save what the whole team needs in team memory. Open the team panel, then **Memory**, to see it or add to it. Team memory reaches the members only in the team's turns.
-- In a team turn, a member talks only to its team, in the team's channel. It does not message other bots.
+- In a team turn, a member talks only to its team, in the team's channel. It does not message other bots. It can also post to a room it is a member of, when the post @mentions no one, so no bot wakes and the team's goal pays for no turn (for example, a lead's report). A post that would wake someone is refused, with the names of who it would wake.
 - To change the lead or the working agreement, open the team panel, then **Settings**. When the lead leaves the team, the first member leads.
 - A bot can be a member of several teams. It keeps a separate Claude Code session for each team.
 

@@ -76,7 +76,7 @@ type Runner struct {
 type runningTurn struct {
 	cancel context.CancelFunc
 	roomID string
-	itemID string // set for a work or review turn on a team's item
+	work   bool   // a work or review turn on a step: not conversation
 	goalID string // set for a board turn: the goal it works for
 	board  bool   // a board turn: it counts toward the board turns' cap
 	since  time.Time
@@ -88,9 +88,16 @@ type runningTurn struct {
 // conversation.
 func leadDecision(t core.Turn) bool { return t.BoardRole == core.RoleLead }
 
-// boardTurn reports whether t counts toward the cap on board turns: work for
-// a goal, or a lead's decision.
-func boardTurn(t core.Turn) bool { return t.GoalID != "" || leadDecision(t) }
+// boardTurn reports whether t counts toward the cap on board turns: a turn
+// with a board role (work, review, a lead's wake or a retro). A conversation
+// turn that only inherits a task (spec §5) stays conversation.
+func boardTurn(t core.Turn) bool { return t.BoardRole != "" }
+
+// stepTurn reports whether t works on or reviews a step, so it runs beside
+// the room's conversation.
+func stepTurn(t core.Turn) bool {
+	return t.BoardRole == core.RoleWork || t.BoardRole == core.RoleReview
+}
 
 // leadsTurn reports whether t is one of a lead's board turns, which dispatch
 // tries first: a decision, or the retro of an accepted goal. The retro
@@ -223,7 +230,7 @@ func (r *Runner) botBusyLocked(botID string) bool {
 // turn that works on no item. Work and reviews of items run beside it.
 func (r *Runner) chatBusyLocked(roomID string) bool {
 	for _, rt := range r.running {
-		if rt.roomID == roomID && rt.itemID == "" {
+		if rt.roomID == roomID && !rt.work {
 			return true
 		}
 	}
@@ -327,7 +334,7 @@ func (r *Runner) CancelGoal(goalID string) int {
 	r.mu.Lock()
 	var cancels []context.CancelFunc
 	for _, rt := range r.running {
-		if rt.goalID == goalID {
+		if rt.board && rt.goalID == goalID {
 			cancels = append(cancels, rt.cancel)
 		}
 	}
@@ -402,7 +409,7 @@ func (r *Runner) dispatch(ctx context.Context) {
 			continue
 		}
 		turnCtx, cancel := context.WithCancel(ctx)
-		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, itemID: t.ItemID, goalID: t.GoalID, board: boardTurn(t), since: time.Now()}
+		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, work: stepTurn(t), goalID: t.GoalID, board: boardTurn(t), since: time.Now()}
 		r.publish(t.BotID, true)
 		if t.RoomID != "" {
 			r.publish(t.RoomID, true)
@@ -435,7 +442,7 @@ func (r *Runner) mayStartLocked(ctx context.Context, t core.Turn) bool {
 	// A room runs one conversation turn at a time, so each member sees the
 	// replies before its own. A lead's board turn doesn't wait for it, so a
 	// retro keeps its place ahead of the next goal's planning.
-	if t.RoomID != "" && t.ItemID == "" && !leadsTurn(t) && r.chatBusyLocked(t.RoomID) {
+	if t.RoomID != "" && !stepTurn(t) && !leadsTurn(t) && r.chatBusyLocked(t.RoomID) {
 		return false
 	}
 	if !boardTurn(t) {
@@ -728,7 +735,11 @@ func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (str
 		if err != nil {
 			return "", core.RoomUpdate{}, err
 		}
-		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes, time.Now().In(r.svc.Location()))
+		onTask, err := r.inheritedTask(ctx, t)
+		if err != nil {
+			return "", core.RoomUpdate{}, err
+		}
+		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes, time.Now().In(r.svc.Location())) + onTask
 		if skill, args, ok := r.teamSkill(update, t); ok {
 			prompt += "\n\n" + skillPrompt(skill, args)
 		}
@@ -746,6 +757,28 @@ func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (str
 		prompt += mediaNote(r.svc.MediaDir(), media)
 	}
 	return prompt, core.RoomUpdate{}, nil
+}
+
+// inheritedTask names the task, and the step, that a conversation turn
+// inherited from the turn that woke it; "" for a turn on no task or a
+// board turn, whose brief names its work.
+func (r *Runner) inheritedTask(ctx context.Context, t core.Turn) (string, error) {
+	if t.GoalID == "" || t.BoardRole != "" {
+		return "", nil
+	}
+	board, err := r.svc.GoalBoard(ctx, t.GoalID)
+	if err != nil || board.Goal == nil {
+		return "", err
+	}
+	return onTaskLine(board, t.ItemID), nil
+}
+
+// onTaskLine tells a member which task, and step, its turn is for.
+func onTaskLine(board core.Board, itemID string) string {
+	if it, ok := findItem(board, itemID); ok {
+		return fmt.Sprintf("\nThis turn is on the task %q (task id %s), step %q (id %s).\n", board.Goal.Text, board.Goal.ID, it.Title, it.ID)
+	}
+	return fmt.Sprintf("\nThis turn is on the task %q (task id %s).\n", board.Goal.Text, board.Goal.ID)
 }
 
 // itemChanges returns the change requests of the item of a work or review

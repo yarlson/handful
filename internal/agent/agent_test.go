@@ -275,6 +275,24 @@ task-wake)
     result "woke"
   done
   ;;
+task-report)
+  # The first message starts a background task. The next message ends it,
+  # and Claude Code wakes the model for its report, with no new task.
+  lifecycle started
+  init
+  echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Build the site"}]}'
+  result "started"
+  lifecycle completed
+  while IFS= read -r input; do
+    lifecycle started
+    result "pong"
+    lifecycle completed
+    echo '{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","summary":"Background command \"Build the site\" completed (exit code 0)"}'
+    init
+    result "woke"
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+  done
+  ;;
 chatty)
   # A long turn that prints a line every 0.2 seconds.
   lifecycle started
@@ -1912,7 +1930,7 @@ func TestOnlyConversationInARoomHoldsUpTheNextConversationTurn(t *testing.T) {
 		want    bool
 	}{
 		{"nothing runs", nil, false, false},
-		{"an item's work runs", map[string]runningTurn{"b": {roomID: "t", itemID: "i"}}, false, false},
+		{"an item's work runs", map[string]runningTurn{"b": {roomID: "t", work: true}}, false, false},
 		{"a conversation turn runs", map[string]runningTurn{"b": {roomID: "t"}}, false, true},
 		{"a conversation turn elsewhere", map[string]runningTurn{"b": {roomID: "other"}}, false, false},
 		{"a task turn runs in the room", nil, true, true},

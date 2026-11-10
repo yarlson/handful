@@ -23,7 +23,8 @@ func conflict(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrConflict, fmt.Sprintf(format, args...))
 }
 
-// openGoalWith returns the open goal of a team with q, if any.
+// openGoalWith returns the latest goal of a team with q, and whether it is
+// the team's Now task (active or paused).
 func openGoalWith(ctx context.Context, q *db.Queries, teamID string) (db.Goal, bool, error) {
 	row, err := q.GetLatestGoal(ctx, teamID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -32,7 +33,7 @@ func openGoalWith(ctx context.Context, q *db.Queries, teamID string) (db.Goal, b
 	if err != nil {
 		return db.Goal{}, false, fmt.Errorf("get the goal of team %s: %w", teamID, err)
 	}
-	return row, toGoal(row, 0).Open(), nil
+	return row, toGoal(row, 0).Now(), nil
 }
 
 func queuedGoals(ctx context.Context, q *db.Queries, teamID string) ([]Goal, error) {
@@ -83,11 +84,9 @@ func renumber(ctx context.Context, q *db.Queries, queue []Goal) error {
 }
 
 // nextGoal makes the head of a team's queue its active goal with q, when the
-// team has no open goal, and wakes the lead to plan it. It returns false when
+// team has no Now task, and wakes the lead to plan it. It returns false when
 // no goal started.
-// Unless force, a handoff at the head waits for the user in a team that
-// starts handoffs only when asked.
-func (s *Service) nextGoal(ctx context.Context, q *db.Queries, teamID string, force bool) (Goal, bool, error) {
+func (s *Service) nextGoal(ctx context.Context, q *db.Queries, teamID string) (Goal, bool, error) {
 	_, open, err := openGoalWith(ctx, q, teamID)
 	if err != nil || open {
 		return Goal{}, false, err
@@ -101,9 +100,6 @@ func (s *Service) nextGoal(ctx context.Context, q *db.Queries, teamID string, fo
 		return Goal{}, false, err
 	}
 	g := queue[0]
-	if !force && holds(team, g) {
-		return Goal{}, false, nil
-	}
 	if _, err := q.ActivateGoal(ctx, db.ActivateGoalParams{Budget: team.Team.GoalBudget, ID: g.ID}); err != nil {
 		return Goal{}, false, fmt.Errorf("start goal %s: %w", g.ID, err)
 	}
@@ -178,7 +174,7 @@ func (s *Service) StartNextGoal(ctx context.Context, teamID string) (Goal, error
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		var started bool
 		var err error
-		if g, started, err = s.nextGoal(ctx, q, teamID, true); err != nil {
+		if g, started, err = s.nextGoal(ctx, q, teamID); err != nil {
 			return err
 		}
 		if !started {

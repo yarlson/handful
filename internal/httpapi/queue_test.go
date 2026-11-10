@@ -78,7 +78,7 @@ func TestGoalQueueEndpointsQueueReorderStartAndCancelGoals(t *testing.T) {
 	}
 }
 
-func TestAcceptEndpointCanHoldTheQueue(t *testing.T) {
+func TestCloseStartsTheNextGoalAndAcceptComesLater(t *testing.T) {
 	h, svc := newTestHandler(t)
 	ctx := context.Background()
 	ana, err := svc.CreateBot(ctx, "Ana", "")
@@ -115,22 +115,20 @@ func TestAcceptEndpointCanHoldTheQueue(t *testing.T) {
 	}
 	second, _ := svc.StartGoal(ctx, team.ID, "Two.")
 	third, _ := svc.StartGoal(ctx, team.ID, "Three.")
+	// A close starts the next goal at once; the accept comes later.
 	deliver()
+	if b, _ := svc.Board(ctx, team.ID); b.Goal.ID != second.ID || len(b.Queue) != 1 || len(b.Done) != 1 || b.Done[0].ID != first.ID {
+		t.Fatalf("board after a close = %+v; want the next goal Now and the closed one done", b)
+	}
 	if rec := do(h, "POST", "/api/goals/"+first.ID+"/accept", `{"startNext":false}`, jsonHeader); rec.Code != http.StatusOK {
-		t.Fatalf("accept and hold: %d %s", rec.Code, rec.Body)
-	}
-	if b, _ := svc.Board(ctx, team.ID); b.Goal.ID != first.ID || len(b.Queue) != 2 {
-		t.Fatalf("board after an accept that holds = %+v; want the queue held", b)
-	}
-	if _, err := svc.StartNextGoal(ctx, team.ID); err != nil {
-		t.Fatal(err)
+		t.Fatalf("accept: %d %s", rec.Code, rec.Body)
 	}
 	deliver()
 	if rec := do(h, "POST", "/api/goals/"+second.ID+"/accept", ``, jsonHeader); rec.Code != http.StatusOK {
 		t.Fatalf("accept: %d %s", rec.Code, rec.Body)
 	}
 	if b, _ := svc.Board(ctx, team.ID); b.Goal.ID != third.ID || b.Goal.State != core.GoalActive {
-		t.Fatalf("board after an accept = %+v; want the next goal active", b.Goal)
+		t.Fatalf("board after the second close = %+v; want the third goal active", b.Goal)
 	}
 }
 

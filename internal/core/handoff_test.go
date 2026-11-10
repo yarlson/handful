@@ -43,7 +43,7 @@ func (h *handoffFixture) handOver(t *testing.T, a Actor, from, to Bot, text stri
 }
 
 // queuedTurns lists every queued turn as "who role @team", with "+goal" when
-// a goal pays for it.
+// a goal pays for it and "+decision" for a lead's decision on a task.
 func (h *handoffFixture) queuedTurns(t *testing.T) []string {
 	t.Helper()
 	turns, err := h.svc.QueuedTurns(context.Background(), 100)
@@ -55,6 +55,9 @@ func (h *handoffFixture) queuedTurns(t *testing.T) []string {
 		paid := ""
 		if tr.GoalID != "" {
 			paid = " +goal"
+		}
+		if tr.Decision {
+			paid = " +decision"
 		}
 		out = append(out, fmt.Sprintf("%s %s @%s%s", h.names[tr.BotID], tr.BoardRole, h.teamNames[tr.RoomID], paid))
 	}
@@ -87,7 +90,7 @@ func TestAHandoffDuringAnActiveGoalCostsTheSenderNothing(t *testing.T) {
 	if g.State != GoalIncoming || g.TeamID != h.docs.ID || g.Text != "Fix the export bug." || g.Budget != 0 || !sameHandoff(g.Handoff, want) {
 		t.Fatalf("handoff = %+v; want an incoming goal of Docs with %+v", g, want)
 	}
-	h.wantQueued(t, "the handoff", "Dee lead @Docs")
+	h.wantQueued(t, "the handoff", "Dee lead @Docs +decision")
 	runQueued(t, h.svc)
 	after := h.goalNow(t, f.goal.ID)
 	if after.Used != before.Used || after.Budget != before.Budget || after.State != GoalActive {
@@ -96,10 +99,10 @@ func TestAHandoffDuringAnActiveGoalCostsTheSenderNothing(t *testing.T) {
 	if board, _ := h.svc.Board(ctx, f.team.ID); len(board.Items) != 1 || board.Items[0].ID != parse.ID {
 		t.Fatalf("Ship's items = %+v; want only Parse", board.Items)
 	}
-	if text := lastEventText(t, h.svc, h.docs.ID); text != "Team Ship handed over a goal: Fix the export bug." {
+	if text := lastEventText(t, h.svc, h.docs.ID); text != "Team Ship sent a task: Fix the export bug." {
 		t.Fatalf("Docs channel = %q", text)
 	}
-	if text := lastEventText(t, h.svc, f.team.ID); text != "Bo handed over to team Docs: Fix the export bug." {
+	if text := lastEventText(t, h.svc, f.team.ID); text != "Bo sent team Docs a task: Fix the export bug." {
 		t.Fatalf("Ship channel = %q", text)
 	}
 	docsBoard, err := h.svc.Board(ctx, h.docs.ID)
@@ -145,9 +148,10 @@ func TestATeamWithoutAGoalOrWithADeliveredOneHandsOver(t *testing.T) {
 	if _, err := h.svc.DeliverGoal(ctx, f.lead, "Parsed."); err != nil {
 		t.Fatal(err)
 	}
+	// A delivered task waits for approval without being Ship's work now.
 	g = h.handOver(t, f.lead, f.team, h.dev, "Ship the parser.")
-	if g.FromGoalID != f.goal.ID || g.State != GoalIncoming {
-		t.Fatalf("handoff while delivered = %+v", g)
+	if g.FromGoalID != "" || g.State != GoalIncoming {
+		t.Fatalf("handoff while delivered = %+v; want it from no task of Ship's", g)
 	}
 	if got := h.goalNow(t, f.goal.ID); got.State != GoalDelivered {
 		t.Fatalf("Ship's goal = %s; want it still delivered", got.State)
@@ -161,7 +165,7 @@ func TestHandoffsLandInTheReceiversBudgetAndWakesInNone(t *testing.T) {
 	runQueued(t, h.svc)
 	shipUsed := h.goalNow(t, f.goal.ID).Used
 	g := h.handOver(t, f.lead, f.team, h.docs, "Write the guide.")
-	h.wantQueued(t, "the handoff", "Dee lead @Docs")
+	h.wantQueued(t, "the handoff", "Dee lead @Docs +decision")
 	runQueued(t, h.svc)
 	if _, err := h.svc.AskSender(ctx, h.docsLead, g.ID, "Which format?"); err != nil {
 		t.Fatal(err)
@@ -171,7 +175,7 @@ func TestHandoffsLandInTheReceiversBudgetAndWakesInNone(t *testing.T) {
 	if _, err := h.svc.AnswerHandoff(ctx, f.lead, g.ID, "Markdown."); err != nil {
 		t.Fatal(err)
 	}
-	h.wantQueued(t, "the answer", "Dee lead @Docs")
+	h.wantQueued(t, "the answer", "Dee lead @Docs +decision")
 	runQueued(t, h.svc)
 	got, err := h.svc.AcceptHandoff(ctx, h.docsLead, g.ID)
 	if err != nil || got.State != GoalActive || got.Budget != DefaultGoalBudget || got.Used != 0 {
@@ -215,76 +219,52 @@ func TestAHandoffOutlivesTheSendersGoal(t *testing.T) {
 	h.wantQueued(t, "the sender's goal ended", "Cal lead @Dev +goal")
 }
 
-func TestAnAcceptedHandoffStartsOrQueuesOrWaitsForTheUser(t *testing.T) {
+func TestATakenTaskStartsOrJoinsThePlanAtItsPlace(t *testing.T) {
 	h := newHandoffFixture(t)
 	ctx := context.Background()
 	f := h.boardFixture
-	// Docs is free and starts handoffs: it starts, and its lead plans it.
+	// Docs is free: the task starts, and its lead plans it.
 	first := h.handOver(t, f.lead, f.team, h.docs, "First.")
 	finishQueued(t, h.svc)
-	g, err := h.svc.AcceptHandoff(ctx, h.docsLead, first.ID)
+	g, err := h.svc.TakeTask(ctx, h.docsLead, first.ID, 0)
 	if err != nil || g.State != GoalActive || g.QueuePos != 0 {
-		t.Fatalf("accept on a free team = %+v, %v; want it active", g, err)
+		t.Fatalf("take on a free team = %+v, %v; want it active", g, err)
 	}
-	h.wantQueued(t, "the accept", "Dee lead @Docs +goal")
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs accepted your handoff "First."; it started.` {
+	h.wantQueued(t, "the take", "Dee lead @Docs +goal")
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs took your task "First."; it started.` {
 		t.Fatalf("Ship channel = %q", text)
 	}
-	if text := lastEventText(t, h.svc, h.docs.ID); text != `Dee accepted the handoff "First."; it started.` {
+	if text := lastEventText(t, h.svc, h.docs.ID); text != `Dee took the task "First."; it started.` {
 		t.Fatalf("Docs channel = %q", text)
 	}
 	finishQueued(t, h.svc)
-	// Docs is busy: the next one queues at the end.
-	if _, err := h.svc.StartGoal(ctx, h.docs.ID, "Own goal."); err != nil {
-		t.Fatal(err)
-	}
+	// Docs is busy: the next ones go into the plan, at the end or at a place.
 	second := h.handOver(t, f.lead, f.team, h.docs, "Second.")
-	g, err = h.svc.AcceptHandoff(ctx, Actor{Role: RoleUser}, second.ID)
-	if err != nil || g.State != GoalQueued || g.QueuePos != 2 {
-		t.Fatalf("accept on a busy team = %+v, %v; want it queued at #2", g, err)
+	third := h.handOver(t, h.devLed, h.dev, h.docs, "Third.")
+	if g, err = h.svc.TakeTask(ctx, h.docsLead, second.ID, 0); err != nil || g.State != GoalQueued || g.QueuePos != 1 {
+		t.Fatalf("take on a busy team = %+v, %v; want it planned at #1", g, err)
 	}
-	if text := lastEventText(t, h.svc, h.docs.ID); text != `The user accepted the handoff "Second."; it is #2 in the queue.` {
+	if text := lastEventText(t, h.svc, h.docs.ID); text != `Dee took the task "Second."; it is #1 in the plan.` {
 		t.Fatalf("Docs channel = %q", text)
 	}
-	// Dev waits for the user: a free Dev queues it, on hold.
-	ask := StartAsk
-	if _, err := h.svc.UpdateTeam(ctx, h.dev.ID, TeamPatch{StartHandoffs: &ask}); err != nil {
+	if g, err = h.svc.TakeTask(ctx, h.docsLead, third.ID, 1); err != nil || g.QueuePos != 1 {
+		t.Fatalf("take at #1 = %+v, %v; want it first", g, err)
+	}
+	if got := h.goalNow(t, second.ID); got.QueuePos != 2 {
+		t.Fatalf("the task it went above = #%d; want #2", got.QueuePos)
+	}
+	for _, pos := range []int64{-1, 4} {
+		fourth := h.handOver(t, f.lead, f.team, h.docs, fmt.Sprintf("Fourth %d.", pos))
+		if _, err := h.svc.TakeTask(ctx, h.docsLead, fourth.ID, pos); !errors.Is(err, ErrInvalid) {
+			t.Errorf("take at %d: err = %v; want ErrInvalid", pos, err)
+		}
+	}
+	// When the Now task ends, the head of the plan starts on its own.
+	if err := h.svc.EndGoal(ctx, first.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	third := h.handOver(t, f.lead, f.team, h.dev, "Third.")
-	finishQueued(t, h.svc)
-	g, err = h.svc.AcceptHandoff(ctx, h.devLed, third.ID)
-	if err != nil || g.State != GoalQueued || g.QueuePos != 1 {
-		t.Fatalf("accept on a team that asks = %+v, %v; want it queued at #1", g, err)
-	}
-	h.wantQueued(t, "an accept that waits for the user")
-	if board, _ := h.svc.Board(ctx, h.dev.ID); board.Goal != nil || len(board.Queue) != 1 {
-		t.Fatalf("Dev's board = %+v; want no goal and the queue on hold", board)
-	}
-	started, err := h.svc.StartNextGoal(ctx, h.dev.ID)
-	if err != nil || started.ID != third.ID || started.State != GoalActive {
-		t.Fatalf("Start now = %+v, %v; want the handoff active", started, err)
-	}
-	// While Dev is busy, an accepted handoff waits for the user when the goal ends.
-	fourth := h.handOver(t, f.lead, f.team, h.dev, "Fourth.")
-	if _, err := h.svc.AcceptHandoff(ctx, h.devLed, fourth.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.svc.EndGoal(ctx, third.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	if got := h.goalNow(t, fourth.ID); got.State != GoalQueued {
-		t.Fatalf("the next handoff after the end = %s; want it held for the user", got.State)
-	}
-	if text := lastEventText(t, h.svc, h.dev.ID); text != "The queue is on hold: start the next goal when you are ready." {
-		t.Fatalf("Dev channel = %q", text)
-	}
-	// A user's goal at the head still starts on its own.
-	if _, err := h.svc.StartGoal(ctx, h.dev.ID, "Own Dev goal."); err != nil {
-		t.Fatal(err)
-	}
-	if got := h.goalNow(t, fourth.ID); got.State != GoalQueued || got.QueuePos != 1 {
-		t.Fatalf("the held handoff = %+v; want it still first in the queue", got)
+	if got := h.goalNow(t, third.ID); got.State != GoalActive {
+		t.Fatalf("the head after the end = %s; want it active", got.State)
 	}
 }
 
@@ -329,7 +309,7 @@ func TestAFullQueueTakesNoMoreHandoffs(t *testing.T) {
 		}
 	}
 	g := h.handOver(t, f.lead, f.team, h.docs, "One too many.")
-	if _, err := h.svc.AcceptHandoff(ctx, h.docsLead, g.ID); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "10 goals queued") {
+	if _, err := h.svc.AcceptHandoff(ctx, h.docsLead, g.ID); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "10 tasks planned") {
 		t.Fatalf("accept into a full queue: err = %v; want ErrInvalid", err)
 	}
 	if got := h.goalNow(t, g.ID); got.State != GoalIncoming {
@@ -360,10 +340,10 @@ func TestTheReceiverAsksTheSenderAndTheSenderAnswers(t *testing.T) {
 		t.Fatalf("stored question = %+v", got.Handoff)
 	}
 	h.wantQueued(t, "the question", "Bo lead @Ship")
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs asks about your handoff "Guide.": Which format?` {
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs asks about your task "Guide.": Which format?` {
 		t.Fatalf("Ship channel = %q", text)
 	}
-	if text := lastEventText(t, h.svc, h.docs.ID); text != `Dee asked about the handoff "Guide." (1 of 3): Which format?` {
+	if text := lastEventText(t, h.svc, h.docs.ID); text != `Dee asked about the task "Guide." (1 of 3): Which format?` {
 		t.Fatalf("Docs channel = %q", text)
 	}
 	finishQueued(t, h.svc)
@@ -377,11 +357,11 @@ func TestTheReceiverAsksTheSenderAndTheSenderAnswers(t *testing.T) {
 	if got := h.goalNow(t, g.ID); got.Brief != answered.Brief || got.AskedAt != 0 {
 		t.Fatalf("stored answer = %+v", got.Handoff)
 	}
-	h.wantQueued(t, "the answer", "Dee lead @Docs")
-	if text := lastEventText(t, h.svc, h.docs.ID); text != `Bo answered about the handoff "Guide.": Markdown.` {
+	h.wantQueued(t, "the answer", "Dee lead @Docs +decision")
+	if text := lastEventText(t, h.svc, h.docs.ID); text != `Bo answered about the task "Guide.": Markdown.` {
 		t.Fatalf("Docs channel = %q", text)
 	}
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Bo answered team Docs about the handoff "Guide.": Markdown.` {
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Bo answered team Docs about the task "Guide.": Markdown.` {
 		t.Fatalf("Ship channel = %q", text)
 	}
 }
@@ -393,7 +373,7 @@ func TestTheReceiverAsksTheUserAboutTheUsersHandoff(t *testing.T) {
 	if err != nil || g.FromTeamID != "" || g.FromBotID != "" || g.Depth != 0 {
 		t.Fatalf("the user's handoff = %+v, %v", g, err)
 	}
-	if text := lastEventText(t, h.svc, h.docs.ID); text != "The user handed over a goal: From the user." {
+	if text := lastEventText(t, h.svc, h.docs.ID); text != "The user sent a task: From the user." {
 		t.Fatalf("Docs channel = %q", text)
 	}
 	finishQueued(t, h.svc)
@@ -412,17 +392,17 @@ func TestTheReceiverAsksTheUserAboutTheUsersHandoff(t *testing.T) {
 	if err != nil || !strings.HasSuffix(got.Brief, "Answer from The user: Today.") {
 		t.Fatalf("the user's answer = %+v, %v", got, err)
 	}
-	h.wantQueued(t, "the user's answer", "Dee lead @Docs")
+	h.wantQueued(t, "the user's answer", "Dee lead @Docs +decision")
 	// The user hands over for team Ship.
 	f := h.boardFixture
 	g, err = h.svc.HandOver(ctx, Actor{Role: RoleUser}, f.team.ID, h.dev.ID, NewHandoff{Text: "For Ship."})
 	if err != nil || g.FromTeamID != f.team.ID || g.FromBotID != "" || g.FromGoalID != f.goal.ID {
 		t.Fatalf("the user's handoff for Ship = %+v, %v", g, err)
 	}
-	if text := lastEventText(t, h.svc, h.dev.ID); text != "The user, for team Ship, handed over a goal: For Ship." {
+	if text := lastEventText(t, h.svc, h.dev.ID); text != "The user, for team Ship, sent a task: For Ship." {
 		t.Fatalf("Dev channel = %q", text)
 	}
-	if text := lastEventText(t, h.svc, f.team.ID); text != "The user handed over to team Dev: For Ship." {
+	if text := lastEventText(t, h.svc, f.team.ID); text != "The user sent team Dev a task: For Ship." {
 		t.Fatalf("Ship channel = %q", text)
 	}
 	if _, err := h.svc.HandOver(ctx, Actor{Role: RoleUser}, "missing", h.dev.ID, NewHandoff{Text: "x"}); !errors.Is(err, ErrNotFound) {
@@ -447,10 +427,10 @@ func TestADeclinedHandoffNeedsAReasonAndTellsTheSender(t *testing.T) {
 		t.Fatalf("declined goal = %+v; want declined, not open", stored)
 	}
 	h.wantQueued(t, "the decline", "Bo lead @Ship")
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs declined your handoff "Guide.": Not ours.` {
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs pushed back your task "Guide.": Not ours.` {
 		t.Fatalf("Ship channel = %q", text)
 	}
-	if text := lastEventText(t, h.svc, h.docs.ID); text != `Dee declined the handoff "Guide.": Not ours.` {
+	if text := lastEventText(t, h.svc, h.docs.ID); text != `Dee pushed back the task "Guide.": Not ours.` {
 		t.Fatalf("Docs channel = %q", text)
 	}
 	if _, err := h.svc.DeclineHandoff(ctx, h.docsLead, g.ID, "Again."); !errors.Is(err, ErrInvalid) {
@@ -498,10 +478,10 @@ func TestTheSenderWithdrawsAHandoffUntilItStarts(t *testing.T) {
 	if err != nil || got.State != GoalEnded {
 		t.Fatalf("withdraw an incoming handoff = %+v, %v", got, err)
 	}
-	if text := lastEventText(t, h.svc, h.docs.ID); text != `Withdrawn by Bo: the handoff "Incoming.".` {
+	if text := lastEventText(t, h.svc, h.docs.ID); text != `Withdrawn by Bo: the task "Incoming.".` {
 		t.Fatalf("Docs channel = %q", text)
 	}
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Bo withdrew the handoff "Incoming." from team Docs.` {
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Bo withdrew the task "Incoming." from team Docs.` {
 		t.Fatalf("Ship channel = %q", text)
 	}
 	if _, err := h.svc.WithdrawHandoff(ctx, Actor{Role: RoleUser}, first.ID); err != nil {
@@ -556,14 +536,14 @@ func TestTheSenderHearsWhatBecameOfItsHandoff(t *testing.T) {
 	if _, err := h.svc.DeliverGoal(ctx, h.docsLead, "The guide is in guide.md."); err != nil {
 		t.Fatal(err)
 	}
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs delivered: The guide is in guide.md. — your handoff "Guide."` {
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs delivered: The guide is in guide.md. — your task "Guide."` {
 		t.Fatalf("Ship channel after the delivery = %q", text)
 	}
 	h.wantQueued(t, "the delivery", "Bo lead @Ship")
 	if _, err := h.svc.AcceptGoal(ctx, g.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs finished, and the user accepted, your handoff "Guide."` {
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Docs finished, and the user accepted, your task "Guide."` {
 		t.Fatalf("Ship channel after the accept = %q", text)
 	}
 	other := h.handOver(t, f.lead, f.team, h.dev, "Build.")
@@ -573,7 +553,7 @@ func TestTheSenderHearsWhatBecameOfItsHandoff(t *testing.T) {
 	if err := h.svc.EndGoal(ctx, other.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Dev stopped: the user ended your handoff "Build."` {
+	if text := lastEventText(t, h.svc, f.team.ID); text != `Team Dev stopped: the user ended your task "Build."` {
 		t.Fatalf("Ship channel after the end = %q", text)
 	}
 	// A sender that is gone hears nothing, and the board names it.
@@ -621,16 +601,8 @@ func TestHandoffsCannotLoopOrPileUp(t *testing.T) {
 		}
 	}
 	_, err := h.svc.HandOver(ctx, opsLead, ops.ID, f.team.ID, NewHandoff{Text: "Step 4."})
-	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "This work came through 3 handoffs; ask the user before passing it on.") {
-		t.Fatalf("a fourth handoff: err = %v; want the depth limit", err)
-	}
-	// At most 10 handoffs wait for a team.
-	for i := range MaxIncoming {
-		h.handOver(t, f.lead, f.team, ops, fmt.Sprintf("Wait %d.", i))
-	}
-	_, err = h.svc.HandOver(ctx, f.lead, f.team.ID, ops.ID, NewHandoff{Text: "One more."})
-	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "Ops has 10 handoffs waiting; ask the user.") {
-		t.Fatalf("an 11th handoff: err = %v; want the incoming limit", err)
+	if !errors.Is(err, ErrInvalid) || err.Error() != "invalid input: This work came through 3 teams; ask the user before sending it on." {
+		t.Fatalf("a fourth send: err = %v; want the depth limit", err)
 	}
 }
 
@@ -677,7 +649,7 @@ func TestTheAskLoopEndsWithTheUserAfterThreeRounds(t *testing.T) {
 	for range 10 {
 		runQueued(t, h.svc)
 		if _, err := h.svc.AskSender(ctx, h.docsLead, g.ID, fmt.Sprintf("Question %d?", asks+1)); err != nil {
-			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `You asked Bo 3 times about Guide.; accept it, decline it, or ask the user.`) {
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `You asked Bo 3 times about Guide.; take it, push it back, or ask the user.`) {
 				t.Fatalf("the 4th question: err = %v; want the round limit", err)
 			}
 			break
@@ -698,7 +670,7 @@ func TestTheAskLoopEndsWithTheUserAfterThreeRounds(t *testing.T) {
 		t.Fatalf("handoff after 3 rounds = %+v; want it to need the user", stored)
 	}
 	open, err := h.svc.OpenQuestions(ctx, h.docs.ID)
-	want := `Dee and Bo couldn't settle "Guide." in 3 rounds: Question 3? Accept, decline or answer it?`
+	want := `Dee and Bo couldn't settle "Guide." in 3 rounds: Question 3? Take it, push it back or answer it?`
 	if err != nil || len(open) != 1 || open[0].AskerID != h.dee.ID || open[0].Question != want {
 		t.Fatalf("open questions = %+v, %v; want %q", open, err, want)
 	}
@@ -769,25 +741,33 @@ func TestARequestNamesTheItemsThatWaitOnIt(t *testing.T) {
 	}
 }
 
-func TestStartHandoffsIsAutoOrAsk(t *testing.T) {
+func TestTheInboxLimitsAreTheUsersTeamSettings(t *testing.T) {
 	h := newHandoffFixture(t)
 	ctx := context.Background()
-	for _, v := range []string{StartAsk, StartAuto} {
-		team, err := h.svc.UpdateTeam(ctx, h.docs.ID, TeamPatch{StartHandoffs: &v})
-		if err != nil || team.Team.StartHandoffs != v {
-			t.Fatalf("set %q = %+v, %v", v, team.Team, err)
-		}
-		if got, _ := h.svc.GetBot(ctx, h.docs.ID); got.Team.StartHandoffs != v {
-			t.Fatalf("stored %q = %q", v, got.Team.StartHandoffs)
+	if got, _ := h.svc.GetBot(ctx, h.docs.ID); got.Team.InboxMax != 10 || got.Team.InboxPerSender != 3 {
+		t.Fatalf("default limits = %d, %d; want 10 and 3", got.Team.InboxMax, got.Team.InboxPerSender)
+	}
+	inboxMax, perSender := int64(5), int64(2)
+	team, err := h.svc.UpdateTeam(ctx, h.docs.ID, TeamPatch{InboxMax: &inboxMax, InboxPerSender: &perSender})
+	if err != nil || team.Team.InboxMax != 5 || team.Team.InboxPerSender != 2 {
+		t.Fatalf("set limits = %+v, %v", team.Team, err)
+	}
+	if got, _ := h.svc.GetBot(ctx, h.docs.ID); got.Team.InboxMax != 5 || got.Team.InboxPerSender != 2 {
+		t.Fatalf("stored limits = %+v", got.Team)
+	}
+	for _, c := range []struct{ inboxMax, perSender int64 }{{51, 2}, {-1, 2}, {5, 6}, {5, -1}} {
+		if _, err := h.svc.UpdateTeam(ctx, h.docs.ID, TeamPatch{InboxMax: &c.inboxMax, InboxPerSender: &c.perSender}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("limits %d, %d: err = %v; want ErrInvalid", c.inboxMax, c.perSender, err)
 		}
 	}
-	bad := "sometimes"
-	if _, err := h.svc.UpdateTeam(ctx, h.docs.ID, TeamPatch{StartHandoffs: &bad}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("set %q: err = %v; want ErrInvalid", bad, err)
+	for _, c := range []struct{ inboxMax, perSender int64 }{{50, 50}, {1, 1}} {
+		if _, err := h.svc.UpdateTeam(ctx, h.docs.ID, TeamPatch{InboxMax: &c.inboxMax, InboxPerSender: &c.perSender}); err != nil {
+			t.Errorf("limits %d, %d: %v; want them saved", c.inboxMax, c.perSender, err)
+		}
 	}
-	team, err := h.svc.CreateTeam(ctx, "Asks", "", []string{h.eve.ID}, TeamSettings{StartHandoffs: StartAsk})
-	if err != nil || team.Team.StartHandoffs != StartAsk {
-		t.Fatalf("a team created to ask = %+v, %v", team.Team, err)
+	created, err := h.svc.CreateTeam(ctx, "Small", "", []string{h.eve.ID}, TeamSettings{InboxMax: 4, InboxPerSender: 1})
+	if err != nil || created.Team.InboxMax != 4 || created.Team.InboxPerSender != 1 {
+		t.Fatalf("a team created with limits = %+v, %v", created.Team, err)
 	}
 }
 

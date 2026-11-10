@@ -33,8 +33,10 @@ const maxResultInEvent = 500
 
 // ItemEvent is one change of a board item.
 type ItemEvent struct {
-	ID        string `json:"id"`
-	ItemID    string `json:"itemId"`
+	ID     string `json:"id"`
+	ItemID string `json:"itemId"`
+	// GoalID is set on a decision on a task, which belongs to no item.
+	GoalID    string `json:"goalId,omitempty"`
 	Kind      string `json:"kind"`
 	ActorID   string `json:"actorId"`   // a bot id, or "" for the user and the app
 	ActorName string `json:"actorName"` // the name at that time

@@ -184,7 +184,7 @@ func TestConcurrentStartsMakeOneActiveGoalAndQueueTheRest(t *testing.T) {
 	}
 }
 
-func TestAcceptingAGoalStartsTheNextAfterTheRetro(t *testing.T) {
+func TestClosingATaskStartsTheNextAtOnceAndApprovalAddsTheRetro(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
 	next, err := f.svc.StartGoal(ctx, f.team.ID, "Ship JSON export.")
@@ -200,25 +200,32 @@ func TestAcceptingAGoalStartsTheNextAfterTheRetro(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.finish(t, f.create(t, f.lead, item("Parse", f.ana.ID, "")), f.ana)
+	finishQueued(t, f.svc)
 	if _, err := f.svc.DeliverGoal(ctx, f.lead, "Done."); err != nil {
 		t.Fatal(err)
+	}
+	g := f.goalNow(t, next.ID)
+	if g.State != GoalActive || g.Budget != 12 || g.QueuePos != 0 {
+		t.Fatalf("next goal after the close = %+v; want it active at once with the team's budget now", g)
+	}
+	if got := f.queuedOf(t); !slices.Equal(got, []string{"Bo lead new"}) {
+		t.Fatalf("queued after the close = %q; want the next goal's planning", got)
+	}
+	if text := lastEventText(t, f.svc, f.team.ID); text != "Next goal started: Ship JSON export." {
+		t.Fatalf("channel event = %q", text)
+	}
+	if done := f.goalNow(t, f.goal.ID); done.State != GoalDelivered {
+		t.Fatalf("the closed goal = %s; want it waiting for approval", done.State)
 	}
 	finishQueued(t, f.svc)
 	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.queuedOf(t); !slices.Equal(got, []string{"Bo retro old", "Bo lead new"}) {
-		t.Fatalf("queued after the accept = %q; want the retro before the next goal's planning", got)
-	}
-	g := f.goalNow(t, next.ID)
-	if g.State != GoalActive || g.Budget != 12 || g.QueuePos != 0 {
-		t.Fatalf("next goal = %+v; want it active with the team's budget now", g)
+	if got := f.queuedOf(t); !slices.Equal(got, []string{"Bo retro old"}) {
+		t.Fatalf("queued after the approval = %q; want the retro", got)
 	}
 	if l := f.goalNow(t, later.ID); l.State != GoalQueued || l.QueuePos != 1 {
 		t.Fatalf("later goal = %+v; want it first in the queue now", l)
-	}
-	if text := lastEventText(t, f.svc, f.team.ID); text != "Next goal started: Ship JSON export." {
-		t.Fatalf("channel event = %q", text)
 	}
 }
 
@@ -275,43 +282,26 @@ func TestEndingAGoalStartsTheNextOrHoldsTheQueue(t *testing.T) {
 	}
 }
 
-func TestDeliveringAGoalNeverStartsTheQueue(t *testing.T) {
+func TestADoneTaskDoesNotHoldItsTeam(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
-	next, err := f.svc.StartGoal(ctx, f.team.ID, "Ship JSON export.")
-	if err != nil {
-		t.Fatal(err)
-	}
 	f.finish(t, f.create(t, f.lead, item("Parse", f.ana.ID, "")), f.ana)
 	if _, err := f.svc.DeliverGoal(ctx, f.lead, "Done."); err != nil {
 		t.Fatal(err)
 	}
-	f.create(t, f.lead, item("More", "", ""))
-	if err := f.svc.EndGoal(ctx, f.goal.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	if g := f.goalNow(t, next.ID); g.State != GoalActive {
-		t.Fatalf("next goal = %+v; want it active only after the end", g)
-	}
-}
-
-func TestQueueWaitsWhileADeliveredGoalReopens(t *testing.T) {
-	f := newBoardFixture(t, 30)
-	ctx := context.Background()
+	// With nothing planned, a new goal starts at once beside the done one.
 	next, err := f.svc.StartGoal(ctx, f.team.ID, "Ship JSON export.")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || next.State != GoalActive {
+		t.Fatalf("a goal beside a done one = %+v, %v; want it active", next, err)
 	}
-	f.finish(t, f.create(t, f.lead, item("Parse", f.ana.ID, "")), f.ana)
-	if _, err := f.svc.DeliverGoal(ctx, f.lead, "Done."); err != nil {
-		t.Fatal(err)
+	board, err := f.svc.Board(ctx, f.team.ID)
+	if err != nil || board.Goal == nil || board.Goal.ID != next.ID || len(board.Done) != 1 || board.Done[0].ID != f.goal.ID {
+		t.Fatalf("board = %+v, %v; want the new goal Now and the old one done", board, err)
 	}
-	if g := f.goalNow(t, next.ID); g.State != GoalQueued {
-		t.Fatalf("next goal after the delivery = %+v; want it queued", g)
-	}
-	f.create(t, f.lead, item("More", "", ""))
-	if g := f.goalNow(t, next.ID); g.State != GoalQueued || f.goalNow(t, f.goal.ID).State != GoalActive {
-		t.Fatalf("next goal after a reopen = %+v; want it queued and the old goal active", g)
+	// A new item goes to the Now goal, not the done one.
+	more := f.create(t, f.lead, item("More", "", ""))
+	if more.GoalID != next.ID || f.goalNow(t, f.goal.ID).State != GoalDelivered {
+		t.Fatalf("item %+v; want it on the Now goal, and the done one untouched", more)
 	}
 }
 

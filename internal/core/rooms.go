@@ -97,7 +97,7 @@ func insertRoom(ctx context.Context, q *db.Queries, id, name, instructions strin
 		}
 	}
 	if team != nil {
-		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, RequestSlots: team.RequestSlots, StartHandoffs: team.StartHandoffs}); err != nil {
+		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, RequestSlots: team.RequestSlots, InboxMax: team.InboxMax, InboxPerSender: team.InboxPerSender}); err != nil {
 			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
 		}
 	}

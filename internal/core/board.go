@@ -23,8 +23,10 @@ const (
 	GoalPaused    = "paused"
 	GoalDone      = "done"
 	GoalEnded     = "ended"
-	GoalIncoming  = "incoming" // a handoff that its team has not accepted; never open
-	GoalDeclined  = "declined" // a handoff that its team declined; final
+	GoalIncoming  = "incoming" // a task in its team's inbox, waiting for the lead's decision; never open
+	GoalDeclined  = "declined" // a task that its lead pushed back; final
+	GoalLater     = "later"    // a task that its lead deferred; it returns to the inbox when due
+	GoalStopped   = "stopped"  // a task stopped with its steps kept; reopening returns it to the inbox
 
 	ItemTodo    = "todo"
 	ItemDoing   = "doing"
@@ -66,6 +68,12 @@ type Goal struct {
 // Open reports whether the goal can still change: it is active, delivered or paused.
 func (g Goal) Open() bool {
 	return g.State == GoalActive || g.State == GoalDelivered || g.State == GoalPaused
+}
+
+// Now reports whether the goal is the task its team works on: active or
+// paused. A delivered task waits for approval without holding its team.
+func (g Goal) Now() bool {
+	return g.State == GoalActive || g.State == GoalPaused
 }
 
 // Item is one piece of a goal's work.
@@ -131,6 +139,15 @@ type Board struct {
 	// days, newest first.
 	Incoming   []Goal `json:"incoming"`
 	HandedOver []Goal `json:"handedOver"`
+	// Inbox is the tasks that wait for the lead's decision: arrived, asked
+	// or deferred, oldest first. Plan is the taken tasks in their order (as
+	// Queue). Done is the closed tasks that wait for approval. Sent is the
+	// tasks the team sent that are still in another team's inbox or plan,
+	// or being done there.
+	Inbox []Goal `json:"inbox"`
+	Plan  []Goal `json:"plan"`
+	Done  []Goal `json:"done"`
+	Sent  []Goal `json:"sent"`
 	// Teams names the other teams that the board's items and requests involve.
 	Teams map[string]string `json:"teams"`
 }
@@ -249,7 +266,7 @@ func (s *Service) latestGoal(ctx context.Context, teamID string) (Goal, bool, er
 // Board returns the open goal of a team, or its latest goal, the goal's
 // items, and the open requests of other teams to it.
 func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
-	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Teams: map[string]string{}}
+	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Teams: map[string]string{}}
 	g, ok, err := s.latestGoal(ctx, teamID)
 	if err != nil {
 		return Board{}, err
@@ -1209,9 +1226,10 @@ func (s *Service) StartItemWork(ctx context.Context, itemID, botID string) error
 
 // GoalAllows reports whether a board turn may start: its goal is active and
 // has turns left. At the budget, it pauses the goal. A turn of a goal that is
-// over or gone is cancelled. A retro turn always may start.
+// over or gone is cancelled. A retro turn and a lead's decision turn always
+// may start.
 func (s *Service) GoalAllows(ctx context.Context, t Turn) (bool, error) {
-	if t.BoardRole == RoleRetro {
+	if t.BoardRole == RoleRetro || t.Decision {
 		return true, nil
 	}
 	g, err := s.goal(ctx, s.q, t.GoalID)
@@ -1423,9 +1441,10 @@ func waitsOn(it Item, items []Item) (string, string) {
 	return "", ""
 }
 
-// DeliverGoal hands the result of the actor's goal to the user when every
-// item is closed: the lead's summary goes into the channel as a question,
-// and the user accepts the goal or asks for changes.
+// DeliverGoal closes the actor's Now task when every step is closed: the
+// lead's result goes into the channel as a question, and whoever asked
+// approves it or asks for changes. The team does not wait for that: the next
+// planned task starts at once.
 func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goal, error) {
 	team, g, summary, err := s.deliverable(ctx, a, summary)
 	if err != nil {
@@ -1440,21 +1459,33 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 		return Goal{}, fmt.Errorf("encode the delivery: %w", err)
 	}
 	var e Entry
+	var after goalAfter
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		if err := s.setGoalState(ctx, q, g, GoalDelivered); err != nil {
 			return err
 		}
+		if err := s.taskEvent(ctx, q, a, g, TaskClosed, summary); err != nil {
+			return err
+		}
 		row, err := q.AppendEntry(ctx, db.AppendEntryParams{BotID: team.ID, ID: uuid.NewString(), Kind: KindBot, TurnID: a.TurnID, Body: string(body), CreatedAt: s.nowMs()})
+		if err != nil {
+			return err
+		}
 		e = toEntry(row)
+		after.next, after.started, err = s.nextGoal(ctx, q, team.ID)
 		return err
 	})
 	if err != nil {
 		return Goal{}, err
 	}
 	g.State = GoalDelivered
+	s.signalTurns()
 	s.hub.Publish(Event{Type: "entry", BotID: team.ID, Entry: &e})
 	s.hub.Publish(Event{Type: "bots"})
-	return g, s.handoffResult(ctx, g, "delivered: "+summary+" —", true)
+	if err := s.handoffResult(ctx, g, "delivered: "+summary+" —", true); err != nil {
+		return Goal{}, err
+	}
+	return g, s.nextGoalNote(ctx, after.next, after.started)
 }
 
 // deliverable checks that the actor, the lead, can deliver its team's active
@@ -1520,6 +1551,9 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool)
 		if err := s.setGoalState(ctx, q, g, GoalDone); err != nil {
 			return err
 		}
+		if err := s.taskEvent(ctx, q, Actor{Role: RoleUser}, g, TaskApproved, ""); err != nil {
+			return err
+		}
 		if lead, ok := team.Lead(); ok {
 			// The retro turn comes first, so the lead looks back before it plans the next goal.
 			if _, err := s.queueTurn(ctx, q, Turn{BotID: lead.ID, Source: SourceRoom, RoomID: team.ID, GoalID: g.ID, BoardRole: RoleRetro, Prompt: "The user accepted the goal."}); err != nil {
@@ -1566,7 +1600,7 @@ func (s *Service) afterGoal(ctx context.Context, q *db.Queries, teamID string, s
 		return goalAfter{}, err
 	}
 	if startNext {
-		if after.next, after.started, err = s.nextGoal(ctx, q, teamID, false); err != nil || after.started {
+		if after.next, after.started, err = s.nextGoal(ctx, q, teamID); err != nil || after.started {
 			return after, err
 		}
 	}
@@ -1646,6 +1680,9 @@ func (s *Service) EndGoal(ctx context.Context, goalID string, startNext bool) er
 // member's process runs in a team.
 func (s *Service) SettleItems(ctx context.Context, live func(botID, teamID string) bool) error {
 	if err := s.revisitDue(ctx); err != nil {
+		return err
+	}
+	if err := s.dueLater(ctx); err != nil {
 		return err
 	}
 	goals, err := s.q.ListOpenGoals(ctx)
@@ -1766,7 +1803,7 @@ func (s *Service) GoalBoard(ctx context.Context, goalID string) (Board, error) {
 	if err != nil {
 		return Board{}, err
 	}
-	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Teams: map[string]string{}}
+	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Teams: map[string]string{}}
 	if err := s.withHistory(ctx, board.Items); err != nil {
 		return Board{}, err
 	}

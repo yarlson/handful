@@ -39,9 +39,11 @@ type Team struct {
 	// RequestSlots is how many requests of other teams the team works on at
 	// once while its own goal is active: 1 to the number of members.
 	RequestSlots int64 `json:"requestSlots"`
-	// StartHandoffs is what an accepted handoff does when the team is free:
-	// StartAuto starts it, StartAsk holds the queue until the user starts it.
-	StartHandoffs string `json:"startHandoffs"`
+	// InboxMax is how many tasks may wait in the team's inbox at once, and
+	// InboxPerSender how many of them from one sending team. The user's tasks
+	// are exempt.
+	InboxMax       int64 `json:"inboxMax"`
+	InboxPerSender int64 `json:"inboxPerSender"`
 }
 
 func (b Bot) IsTeam() bool { return b.Team != nil }
@@ -69,18 +71,21 @@ type TeamSettings struct {
 	DefaultModel  string
 	DefaultEffort string
 	RequestSlots  int64
-	StartHandoffs string // "" means StartAuto
+	// Zero InboxMax and InboxPerSender mean DefaultInboxMax and DefaultInboxPerSender.
+	InboxMax       int64
+	InboxPerSender int64
 }
 
 // TeamPatch changes the settings of a team. A nil field keeps its value.
 type TeamPatch struct {
-	LeadID        *string
-	Agreement     *string
-	GoalBudget    *int64
-	DefaultModel  *string
-	DefaultEffort *string
-	RequestSlots  *int64
-	StartHandoffs *string
+	LeadID         *string
+	Agreement      *string
+	GoalBudget     *int64
+	DefaultModel   *string
+	DefaultEffort  *string
+	RequestSlots   *int64
+	InboxMax       *int64
+	InboxPerSender *int64
 }
 
 // TeamWorkspace is the shared folder of a team. Every turn in the team runs there.
@@ -121,7 +126,8 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		if err := q.UpdateTeam(ctx, db.UpdateTeamParams{
 			LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
-			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots, StartHandoffs: updated.StartHandoffs, TeamID: id,
+			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots,
+			InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, TeamID: id,
 		}); err != nil {
 			return fmt.Errorf("update team %s: %w", id, err)
 		}
@@ -151,7 +157,8 @@ func (p TeamPatch) apply(t Team) TeamSettings {
 	setIf(&set.DefaultModel, p.DefaultModel)
 	setIf(&set.DefaultEffort, p.DefaultEffort)
 	setIf(&set.RequestSlots, p.RequestSlots)
-	setIf(&set.StartHandoffs, p.StartHandoffs)
+	setIf(&set.InboxMax, p.InboxMax)
+	setIf(&set.InboxPerSender, p.InboxPerSender)
 	return set
 }
 
@@ -193,22 +200,31 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if slots < 1 || slots > int64(len(members)) {
 		return nil, invalid("Requests in progress at once must be from 1 to %d.", len(members))
 	}
-	start, err := validStartHandoffs(set.StartHandoffs)
+	inboxMax, perSender, err := validInbox(set.InboxMax, set.InboxPerSender)
 	if err != nil {
 		return nil, err
 	}
-	return &Team{LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots, StartHandoffs: start}, nil
+	return &Team{
+		LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots,
+		InboxMax: inboxMax, InboxPerSender: perSender,
+	}, nil
 }
 
-// validStartHandoffs checks what accepted handoffs do; "" means StartAuto.
-func validStartHandoffs(start string) (string, error) {
-	if start == "" {
-		return StartAuto, nil
+// validInbox checks a team's inbox limits; zero means the default.
+func validInbox(inboxMax, perSender int64) (int64, int64, error) {
+	if inboxMax == 0 {
+		inboxMax = DefaultInboxMax
 	}
-	if start != StartAuto && start != StartAsk {
-		return "", invalid("Accepted handoffs must start %q or wait for the user (%q).", StartAuto, StartAsk)
+	if perSender == 0 {
+		perSender = DefaultInboxPerSender
 	}
-	return start, nil
+	if inboxMax < 1 || inboxMax > maxInboxMax {
+		return 0, 0, invalid("The inbox holds 1 to %d tasks.", maxInboxMax)
+	}
+	if perSender < 1 || perSender > inboxMax {
+		return 0, 0, invalid("Tasks from one team must be from 1 to %d, the size of the inbox.", inboxMax)
+	}
+	return inboxMax, perSender, nil
 }
 
 // teamOf returns the team settings of a room, or nil when the room is no team.
@@ -233,7 +249,7 @@ func toTeam(row db.Team, members []Member) *Team {
 	}
 	return &Team{
 		LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
-		RequestSlots: clampSlots(row.RequestSlots, len(members)), StartHandoffs: row.StartHandoffs,
+		RequestSlots: clampSlots(row.RequestSlots, len(members)), InboxMax: row.InboxMax, InboxPerSender: row.InboxPerSender,
 	}
 }
 

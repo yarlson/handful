@@ -56,8 +56,8 @@ SELECT COUNT(*) FROM entries WHERE turn_id = ? AND kind = 'bot';
 SELECT body FROM entries WHERE bot_id = ? AND turn_id = ? AND kind = 'user' LIMIT 1;
 
 -- name: InsertTurn :one
-INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, hops, goal_id, item_id, board_role, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, hops, goal_id, item_id, board_role, decision, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: InsertRunningTurn :one
@@ -290,7 +290,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -299,7 +299,7 @@ SELECT * FROM teams WHERE team_id = ?;
 SELECT * FROM teams;
 
 -- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, start_handoffs = ? WHERE team_id = ?;
+UPDATE teams SET lead_bot_id = ?, agreement = ?, goal_budget = ?, default_model = ?, default_effort = ?, request_slots = ?, inbox_max = ?, inbox_per_sender = ? WHERE team_id = ?;
 
 -- name: SetRequestSlots :exec
 UPDATE teams SET request_slots = ? WHERE team_id = ?;
@@ -309,13 +309,52 @@ INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
--- name: InsertHandoffGoal :one
-INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, depth)
-VALUES (?, ?, ?, 'incoming', 0, 0, ?, 'handoff', ?, ?, ?, ?, ?, ?)
+-- name: InsertTask :one
+-- A task that arrives in its team's inbox, or that the user starts at once.
+INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, depth, waits_on_item_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListIncomingGoals :many
 SELECT * FROM goals WHERE team_id = ? AND state = 'incoming' ORDER BY created_at, rowid;
+
+-- name: ListInboxGoals :many
+-- The tasks in a team's inbox: waiting for a decision, asked, or deferred.
+SELECT * FROM goals WHERE team_id = ? AND state IN ('incoming', 'later') ORDER BY created_at, rowid;
+
+-- name: ListDoneGoals :many
+-- A team's tasks that are done and wait for approval.
+SELECT * FROM goals WHERE team_id = ? AND state = 'delivered' ORDER BY created_at, rowid;
+
+-- name: SetGoalLater :execrows
+UPDATE goals SET state = 'later', later_until = sqlc.arg(later_until), intake_note = sqlc.arg(intake_note), asked_at = 0
+WHERE id = sqlc.arg(id) AND state = 'incoming';
+
+-- name: ListDueLaterGoals :many
+SELECT * FROM goals WHERE state = 'later' AND later_until <= sqlc.arg(now) ORDER BY later_until, rowid;
+
+-- name: ReturnToInbox :execrows
+-- A deferred task that came due, or a stopped one that is reopened, goes back to the inbox.
+UPDATE goals SET state = 'incoming', later_until = 0, queue_pos = 0, pinned = 0
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
+-- name: PassGoal :execrows
+UPDATE goals SET team_id = sqlc.arg(team_id), passes = passes + 1, passed_by = sqlc.arg(passed_by), intake_note = sqlc.arg(intake_note), asked_at = 0
+WHERE id = sqlc.arg(id) AND state = 'incoming' AND team_id = sqlc.arg(from_team_id);
+
+-- name: SetGoalPinned :execrows
+UPDATE goals SET pinned = ? WHERE id = ? AND state = 'queued';
+
+-- name: InsertGoalEvent :exec
+INSERT INTO goal_events (id, goal_id, kind, actor_id, actor_name, text, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListGoalEvents :many
+SELECT * FROM goal_events WHERE goal_id = ? ORDER BY created_at, rowid;
+
+-- name: CountQueuedDecisionTurns :one
+SELECT COUNT(*) FROM turns
+WHERE bot_id = ? AND room_id = ? AND goal_id = ? AND board_role = 'lead' AND decision = 1 AND status = 'queued';
 
 -- name: CountIncomingGoals :many
 SELECT team_id, COUNT(*) AS n FROM goals WHERE state = 'incoming' GROUP BY team_id;
@@ -360,9 +399,9 @@ SELECT * FROM goals WHERE id = ?;
 -- name: GetLatestGoal :one
 -- A goal that never started (queued, incoming, declined, or a handoff
 -- withdrawn before it started) is not the team's latest goal.
-SELECT * FROM goals WHERE team_id = ? AND state NOT IN ('queued', 'incoming', 'declined')
+SELECT * FROM goals WHERE team_id = ? AND state NOT IN ('queued', 'incoming', 'later', 'declined')
   AND NOT (state = 'ended' AND origin = 'handoff' AND budget = 0)
-ORDER BY state IN ('active', 'delivered', 'paused') DESC, created_at DESC, rowid DESC
+ORDER BY state IN ('active', 'paused') DESC, state = 'delivered' DESC, created_at DESC, rowid DESC
 LIMIT 1;
 
 -- name: ListOpenGoals :many
@@ -384,7 +423,7 @@ SELECT goal_id FROM turns WHERE id = ?;
 
 -- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns
-WHERE goal_id = ? AND started_at IS NOT NULL AND board_role <> 'retro';
+WHERE goal_id = ? AND started_at IS NOT NULL AND board_role <> 'retro' AND decision = 0;
 
 -- name: CancelQueuedGoalTurns :exec
 UPDATE turns SET status = 'interrupted', error = 'the goal ended', finished_at = ?

@@ -80,7 +80,7 @@ func TestTheHandoffMigrationKeepsTheBoardAsItWas(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, `INSERT INTO goals (id, team_id, text, state, budget, created_at) VALUES ('g-two', 'ship', 'Two.', 'active', 30, 4)`); err == nil {
 		t.Fatal("a second open goal was stored")
 	}
-	if _, err := q.InsertHandoffGoal(ctx, InsertHandoffGoalParams{ID: "h1", TeamID: "ship", Text: "Handed.", CreatedAt: 5, FromTeamID: "docs", FromBotID: "bo", ArtifactIds: "[]", Depth: 1}); err != nil {
+	if _, err := q.InsertTask(ctx, InsertTaskParams{ID: "h1", TeamID: "ship", Text: "Handed.", State: "incoming", CreatedAt: 5, Origin: "handoff", FromTeamID: "docs", FromBotID: "bo", ArtifactIds: "[]", Depth: 1}); err != nil {
 		t.Fatalf("hand over to a team with an open goal: %v", err)
 	}
 	if _, err := conn.ExecContext(ctx, `UPDATE goals SET state = 'shelved' WHERE id = 'h1'`); err == nil {

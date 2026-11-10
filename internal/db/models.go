@@ -59,23 +59,38 @@ type Entry struct {
 }
 
 type Goal struct {
-	ID          string `json:"id"`
-	TeamID      string `json:"team_id"`
-	Text        string `json:"text"`
-	State       string `json:"state"`
-	Budget      int64  `json:"budget"`
-	QueuePos    int64  `json:"queue_pos"`
-	CreatedAt   int64  `json:"created_at"`
-	Origin      string `json:"origin"`
-	FromTeamID  string `json:"from_team_id"`
-	FromBotID   string `json:"from_bot_id"`
-	FromGoalID  string `json:"from_goal_id"`
-	Brief       string `json:"brief"`
-	ArtifactIds string `json:"artifact_ids"`
-	IntakeNote  string `json:"intake_note"`
-	AskedAt     int64  `json:"asked_at"`
-	AskRounds   int64  `json:"ask_rounds"`
-	Depth       int64  `json:"depth"`
+	ID            string `json:"id"`
+	TeamID        string `json:"team_id"`
+	Text          string `json:"text"`
+	State         string `json:"state"`
+	Budget        int64  `json:"budget"`
+	QueuePos      int64  `json:"queue_pos"`
+	CreatedAt     int64  `json:"created_at"`
+	Origin        string `json:"origin"`
+	FromTeamID    string `json:"from_team_id"`
+	FromBotID     string `json:"from_bot_id"`
+	FromGoalID    string `json:"from_goal_id"`
+	Brief         string `json:"brief"`
+	ArtifactIds   string `json:"artifact_ids"`
+	IntakeNote    string `json:"intake_note"`
+	AskedAt       int64  `json:"asked_at"`
+	AskRounds     int64  `json:"ask_rounds"`
+	Depth         int64  `json:"depth"`
+	Pinned        int64  `json:"pinned"`
+	LaterUntil    int64  `json:"later_until"`
+	Passes        int64  `json:"passes"`
+	PassedBy      string `json:"passed_by"`
+	WaitsOnItemID string `json:"waits_on_item_id"`
+}
+
+type GoalEvent struct {
+	ID        string `json:"id"`
+	GoalID    string `json:"goal_id"`
+	Kind      string `json:"kind"`
+	ActorID   string `json:"actor_id"`
+	ActorName string `json:"actor_name"`
+	Text      string `json:"text"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 type Item struct {
@@ -148,14 +163,16 @@ type Routine struct {
 }
 
 type Team struct {
-	TeamID        string `json:"team_id"`
-	LeadBotID     string `json:"lead_bot_id"`
-	Agreement     string `json:"agreement"`
-	GoalBudget    int64  `json:"goal_budget"`
-	DefaultModel  string `json:"default_model"`
-	DefaultEffort string `json:"default_effort"`
-	RequestSlots  int64  `json:"request_slots"`
-	StartHandoffs string `json:"start_handoffs"`
+	TeamID         string `json:"team_id"`
+	LeadBotID      string `json:"lead_bot_id"`
+	Agreement      string `json:"agreement"`
+	GoalBudget     int64  `json:"goal_budget"`
+	DefaultModel   string `json:"default_model"`
+	DefaultEffort  string `json:"default_effort"`
+	RequestSlots   int64  `json:"request_slots"`
+	StartHandoffs  string `json:"start_handoffs"`
+	InboxMax       int64  `json:"inbox_max"`
+	InboxPerSender int64  `json:"inbox_per_sender"`
 }
 
 type ToolGrant struct {
@@ -180,4 +197,5 @@ type Turn struct {
 	GoalID      string         `json:"goal_id"`
 	ItemID      string         `json:"item_id"`
 	BoardRole   string         `json:"board_role"`
+	Decision    int64          `json:"decision"`
 }

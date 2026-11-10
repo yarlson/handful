@@ -129,34 +129,112 @@ func TestTheLeadsBoardShowsEachInboxTasksDecisionClock(t *testing.T) {
 	}
 }
 
-// The lead's board says how many of the team's turns in the last hour were
-// on no task, and by whom, so the lead can make tasks of that work; a member's
-// board and a team with none say nothing of it.
-func TestTheLeadsBoardCountsTheTeamsTurnsOnNoTask(t *testing.T) {
+// The lead's board lists the team's turns in the last hour that were on no
+// task, with the ids make_task takes, so the lead can make tasks of that
+// work; a member's board and a team with none say nothing of it.
+func TestTheLeadsBoardListsTheTeamsTurnsOnNoTask(t *testing.T) {
 	t.Parallel()
 	dev := core.Bot{ID: "dev", Name: "Dev", Members: []core.Member{{ID: "dl", Name: "Dee"}, {ID: "bo", Name: "Bo"}}, Team: &core.Team{LeadID: "dl", DecisionMinutes: 30}}
-	three := core.OffTask{Count: 3, Turns: []core.OffTaskTurn{{BotName: "Bo"}, {BotName: "Dee"}, {BotName: "Bo"}}}
-	one := core.OffTask{Count: 1, Turns: []core.OffTaskTurn{{BotName: "Bo"}}}
+	two := core.OffTask{Count: 2, Turns: []core.OffTaskTurn{{TurnID: "t1", BotName: "Bo", FirstLine: "Fixed the flaky test."}, {TurnID: "t2", BotName: "Dee", FirstLine: "Asked Bo about it."}}}
+	one := core.OffTask{Count: 1, Turns: []core.OffTaskTurn{{TurnID: "t1", BotName: "Bo", FirstLine: "Fixed the flaky test."}}}
 	running := &core.Goal{ID: "now", Text: "Ship.", State: core.GoalActive, Budget: 10}
-	const pointer = "Turn work that takes more than one turn into a task: propose it with update_board propose, then take it.\n"
+	const pointer = "Turn work that takes more than one turn into a task: update_board make_task with the task in a line (text), a brief and the turn_ids of that work takes it into your plan and attaches the turns.\n"
 
-	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Goal: running, OffTask: three}, core.Turn{}, nil, time.Time{}); !strings.HasSuffix(got, "\n3 turns of your team in the last hour were on no task (Bo, Dee). "+pointer) {
-		t.Errorf("lead's board with 3 turns on no task = %q; want the count, the names once each and the pointer at the end", got)
+	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Goal: running, OffTask: two}, core.Turn{}, nil, time.Time{}); !strings.HasSuffix(got, "\n2 turns of your team in the last hour were on no task:\n- turn t1, Bo: Fixed the flaky test.\n- turn t2, Dee: Asked Bo about it.\n"+pointer) {
+		t.Errorf("lead's board with 2 turns on no task = %q; want the count, each turn with its id and the pointer at the end", got)
 	}
-	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{OffTask: one}, core.Turn{}, nil, time.Time{}); !strings.Contains(got, "<board>") || !strings.HasSuffix(got, "\n1 turn of your team in the last hour was on no task (Bo). "+pointer) {
-		t.Errorf("lead's board with no task and 1 turn on no task = %q; want the board and the line", got)
+	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{OffTask: one}, core.Turn{}, nil, time.Time{}); !strings.Contains(got, "<board>") || !strings.HasSuffix(got, "\n1 turn of your team in the last hour was on no task:\n- turn t1, Bo: Fixed the flaky test.\n"+pointer) {
+		t.Errorf("lead's board with no task and 1 turn on no task = %q; want the board and the list", got)
 	}
 	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{Goal: running}, core.Turn{}, nil, time.Time{}); strings.Contains(got, "on no task") {
-		t.Errorf("lead's board with no turn on no task = %q; want no line", got)
+		t.Errorf("lead's board with no turn on no task = %q; want no list", got)
 	}
 	if got := boardPrompt(core.Bot{ID: "dl"}, dev, core.Board{}, core.Turn{}, nil, time.Time{}); got != "" {
 		t.Errorf("lead's empty board = %q; want none", got)
 	}
-	if got := boardPrompt(core.Bot{ID: "bo"}, dev, core.Board{Goal: running, OffTask: three}, core.Turn{}, nil, time.Time{}); strings.Contains(got, "on no task") {
-		t.Errorf("member's board = %q; want no off-task line", got)
+	if got := boardPrompt(core.Bot{ID: "bo"}, dev, core.Board{Goal: running, OffTask: two}, core.Turn{}, nil, time.Time{}); strings.Contains(got, "on no task") {
+		t.Errorf("member's board = %q; want no off-task list", got)
 	}
-	if got := boardPrompt(core.Bot{ID: "bo"}, dev, core.Board{OffTask: three}, core.Turn{}, nil, time.Time{}); got != "" {
+	if got := boardPrompt(core.Bot{ID: "bo"}, dev, core.Board{OffTask: two}, core.Turn{}, nil, time.Time{}); got != "" {
 		t.Errorf("member's board with only turns on no task = %q; want none", got)
+	}
+}
+
+// The lead makes a task of the team's turns on no task with make_task: the
+// task is taken into the plan with the turns attached, and the board lists
+// none of them any more. A member is refused.
+func TestTheLeadMakesATaskOfTurnsOnNoTask(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	ship, ana, bo, _ := h.newTeam(t)
+	h.newGoal(t, ship, boardItem("Publish", "Publish the guide.", bo.ID, ""))
+	finishQueuedTurns(t, h)
+	started := time.Now().Add(-5 * time.Minute).UnixMilli()
+	for _, id := range []string{"chat-1", "chat-2"} {
+		if _, err := h.conn.ExecContext(ctx, `INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, created_at, started_at) VALUES (?, ?, 'room', 'Bo mentioned you.', 'done', ?, 1, ?, ?)`, id, bo.ID, ship.ID, started, started); err != nil {
+			t.Fatal(err)
+		}
+	}
+	offTask := func() int64 {
+		t.Helper()
+		board, err := h.svc.Board(ctx, ship.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return board.OffTask.Count
+	}
+	if n := offTask(); n != 2 {
+		t.Fatalf("turns on no task before = %d; want 2", n)
+	}
+	srv := httptest.NewServer(h.runner.MCPHandler())
+	t.Cleanup(srv.Close)
+	token, err := h.runner.tokens.issue(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t-bo", RoomID: ship.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := mcpSession(t, srv.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { member.Close() })
+	args := map[string]any{"action": "make_task", "text": "Fix the flaky test.", "brief": "Bo started it in chat.", "turn_ids": []string{"chat-1", "chat-2"}}
+	if got, isErr := callText(t, member, "update_board", args); !isErr || !strings.Contains(got, "only the lead of Ship, or the user, makes a task from turns") {
+		t.Fatalf("a member's make_task = %q (error %v); want it refused", got, isErr)
+	}
+	lead := boardSession(t, h, srv, ana, ship, false)
+	got, isErr := callText(t, lead, "update_board", args)
+	if isErr || !strings.HasPrefix(got, `Made "Fix the flaky test." (task id `) || !strings.HasSuffix(got, ` of those turns, as #1 in your plan; it starts when the tasks before it are closed. Don't plan it now.`) {
+		t.Fatalf("the lead's make_task = %q (error %v); want the task taken as #1 in the plan", got, isErr)
+	}
+	if n := offTask(); n != 0 {
+		t.Errorf("turns on no task after make_task = %d; want 0", n)
+	}
+	board, err := h.svc.Board(ctx, ship.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(board.Plan) != 1 || board.Plan[0].Text != "Fix the flaky test." {
+		t.Fatalf("plan = %+v; want the made task", board.Plan)
+	}
+	var attached int
+	if err := h.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM turns WHERE goal_id = ? AND id IN ('chat-1', 'chat-2')`, board.Plan[0].ID).Scan(&attached); err != nil || attached != 2 {
+		t.Fatalf("turns attached to the made task = %d, %v; want 2", attached, err)
+	}
+
+	// A team with no Now task starts the made task at once.
+	cy := h.newNamedBot(t, "Cy")
+	docs, err := h.svc.CreateTeam(ctx, "Docs", "Write docs.", []string{cy.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.conn.ExecContext(ctx, `INSERT INTO turns (id, bot_id, source, prompt, status, room_id, hops, created_at, started_at) VALUES ('docs-chat', ?, 'room', 'Cy mentioned you.', 'done', ?, 1, ?, ?)`, cy.ID, docs.ID, started, started); err != nil {
+		t.Fatal(err)
+	}
+	docsLead := boardSession(t, h, srv, cy, docs, false)
+	got, isErr = callText(t, docsLead, "update_board", map[string]any{"action": "make_task", "text": "Write the guide.", "turn_ids": []string{"docs-chat"}})
+	if isErr || !strings.HasSuffix(got, ` of those turns; it is your Now task: plan it into steps with create.`) {
+		t.Fatalf("make_task with nothing Now = %q (error %v); want it started", got, isErr)
 	}
 }
 

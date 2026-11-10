@@ -20,9 +20,11 @@ import {
   runtimeSource,
   SECTIONS,
   shortPath,
+  unchanged,
   updateKeys,
   type Key,
   type Plain,
+  type SavedValues,
   type Section,
   type SettingsView,
   type Value,
@@ -191,7 +193,7 @@ function Under({
 }
 
 // useField keeps one field's input, error and Saved flash.
-function useField(k: Key, v: Value, save: Save) {
+function useField(k: Key, save: Save) {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   useEffect(() => {
@@ -200,7 +202,6 @@ function useField(k: Key, v: Value, save: Save) {
     return () => clearTimeout(t)
   }, [saved])
   const commit = async (value: Plain | null) => {
-    if (value !== null && value === v.value && v.source !== "default") return
     const err = await save(k, value)
     setError(err)
     setSaved(err === null)
@@ -234,9 +235,13 @@ export function TextField({
     setShown(v.value)
     setText(String(v.value))
   }
-  const f = useField(k, v, save)
+  const f = useField(k, save)
   const disabled = locked || v.source === "flag"
   const done = () => {
+    if (unchanged(text, v.value)) {
+      f.setError(null)
+      return
+    }
     const err = check(k, text)
     f.setError(err)
     if (err) return
@@ -311,10 +316,14 @@ export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: 
     setCustom(!known)
     if (!known) setText(String(v.value))
   }
-  const f = useField(k, v, save)
+  const f = useField(k, save)
   const disabled = locked || v.source === "flag"
   const err = f.error ?? v.error
   const saveCustom = () => {
+    if (unchanged(text, v.value)) {
+      f.setError(null)
+      return
+    }
     const e = check(k, text)
     f.setError(e)
     if (!e && text.trim()) void f.commit(text.trim())
@@ -378,7 +387,7 @@ export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: 
 // SwitchField saves on change.
 export function SwitchField({ k, v, save, locked }: { k: Key; v: Value; save: Save; locked: boolean }) {
   const id = `setting-${k.replace(".", "-")}`
-  const f = useField(k, v, save)
+  const f = useField(k, save)
   return (
     <Row id={id} label={LABELS[k]} chips={<Chips v={v} />} help={helpOf(k)}>
       <Switch
@@ -487,7 +496,7 @@ function RestartDialog({
           ))}
         </ul>
         <p className="text-muted-foreground text-xs">
-          New turns wait while YarGPT waits for them, up to 30 minutes. Then it asks you again.
+          New turns wait until they finish. You can cancel the restart on this page while it waits.
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -504,10 +513,12 @@ function RestartDialog({
 }
 
 // useRestart runs a restart through the desktop app or the server, and reloads the page when
-// the server is back.
-function useRestart() {
-  const [state, setState] = useState<"idle" | "now" | "draining" | "error">("idle")
+// the server is back. Whether the server waits for bots comes from the server, so a
+// waiting restart shows again after the page is left or reloaded.
+function useRestart(draining: boolean) {
+  const [local, setState] = useState<"idle" | "now" | "error">("idle")
   const [error, setError] = useState<string | null>(null)
+  const state = local === "now" ? "now" : draining ? "draining" : local
   useEffect(() => {
     if (state !== "now" && state !== "draining") return
     let down = false
@@ -544,7 +555,7 @@ function useRestart() {
       } else {
         await api.restart(when)
       }
-      setState(when === "now" ? "now" : "draining")
+      if (when === "now") setState("now")
     } catch (e) {
       setError((e as Error).message)
       setState("error")
@@ -553,12 +564,29 @@ function useRestart() {
   const cancel = async () => {
     try {
       await api.undrain()
-      setState("idle")
     } catch (e) {
       setError((e as Error).message)
     }
   }
   return { state, error, restart, cancel }
+}
+
+const SAVED_KEY = "yargpt.settings.saved"
+
+// loadSaved reads the values this page saved in this browser session, which survive leaving
+// the page and reloading it.
+function loadSaved(): SavedValues {
+  try {
+    return JSON.parse(sessionStorage.getItem(SAVED_KEY) ?? "{}") as SavedValues
+  } catch {
+    // Unreadable storage counts as nothing saved.
+    return {}
+  }
+}
+
+function storeSaved(saved: SavedValues): SavedValues {
+  sessionStorage.setItem(SAVED_KEY, JSON.stringify(saved))
+  return saved
 }
 
 // SettingsPage is the whole Settings page: its sections, and saving each value as it changes.
@@ -567,7 +595,10 @@ export function SettingsPage({
   onSection,
   onBack,
   onManageConnectors,
+  draining = false,
 }: {
+  // draining: the server waits for running bots before a settings restart.
+  draining?: boolean
   section: Section
   onSection: (s: Section) => void
   onBack: () => void
@@ -580,10 +611,11 @@ export function SettingsPage({
   const [running, setRunning] = useState<{ bots: RunningBot[]; at: number }>({ bots: [], at: 0 })
   const [asking, setAsking] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   // The keys this page saved: a pending key it didn't save changed on disk.
-  const [savedHere, setSavedHere] = useState(() => new Set<Key>())
-  const restart = useRestart()
+  const [saved, setSaved] = useState(loadSaved)
+  const restart = useRestart(draining)
   const load = () =>
     api.settings().then(
       (v) => {
@@ -605,8 +637,9 @@ export function SettingsPage({
   }, [])
   const save: Save = async (key, value) => {
     try {
-      setView(await api.patchSettings({ [key]: value }))
-      setSavedHere((s) => new Set(s).add(key))
+      const next = await api.patchSettings({ [key]: value })
+      setView(next)
+      setSaved((s) => storeSaved({ ...s, [key]: next.values[key]?.value }))
       return null
     } catch (e) {
       return (e as Error).message
@@ -636,7 +669,7 @@ export function SettingsPage({
   const val = (k: Key) => view.values[k]
   const bridge = settingsBridge()
   const updates = updateKeys(view.build)
-  const disk = diskNotice(view, diskChanges(view, savedHere))
+  const disk = diskNotice(view, diskChanges(view, saved))
   const title = SECTIONS.find((s) => s.id === section)?.label ?? "General"
   return (
     <div className="bg-background text-foreground flex h-screen min-w-0 flex-1">
@@ -701,6 +734,7 @@ export function SettingsPage({
               className="border-destructive/40 text-destructive mb-6 rounded-lg border px-4 py-3 text-sm"
             >
               <p>config.json has an error: {view.file.error}. Fix it in an editor, or reset it.</p>
+              {resetError && <p className="mt-1">Couldn't reset the file: {resetError}</p>}
               <div className="mt-2 flex gap-2">
                 {bridge && (
                   <Button size="sm" variant="outline" onClick={bridge.openFile}>
@@ -714,10 +748,13 @@ export function SettingsPage({
                       size="sm"
                       variant="destructive"
                       onClick={() =>
-                        void api.resetSettingsFile().then((v) => {
-                          setView(v)
-                          setResetting(false)
-                        })
+                        void api.resetSettingsFile().then(
+                          (v) => {
+                            setView(v)
+                            setResetting(false)
+                          },
+                          (e: Error) => setResetError(e.message),
+                        )
                       }
                     >
                       Reset file

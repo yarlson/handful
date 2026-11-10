@@ -194,10 +194,19 @@ export function updateKeys(build: SettingsView["build"]): { keys: Key[]; disable
   return { keys: ["updates.autoCheck", "updates.drainMinutes"], disabled: build === "adhoc" }
 }
 
-// diskChanges are pending keys the page didn't save itself: config.json changed by hand
-// after the server started.
-export function diskChanges(view: SettingsView, savedHere: Set<Key>): Key[] {
-  return pendingKeys(view).filter((k) => !savedHere.has(k))
+// SavedValues are the values this page saved in this session, by key.
+export type SavedValues = Partial<Record<Key, Plain>>
+
+// diskChanges are pending keys whose value isn't one the page saved: config.json changed
+// by hand after the server started. A pending key always has its value.
+export function diskChanges(view: SettingsView, saved: SavedValues): Key[] {
+  return pendingKeys(view).filter((k) => !(k in saved) || saved[k] !== (view.values[k] as Value).value)
+}
+
+// unchanged tells whether a field still holds the value it showed, so leaving it saves
+// nothing.
+export function unchanged(text: string, value: Plain): boolean {
+  return text.trim() === String(value)
 }
 
 // diskNotice words the changed-on-disk notice, or null when there's none.

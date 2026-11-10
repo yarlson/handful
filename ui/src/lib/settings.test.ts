@@ -22,6 +22,7 @@ import {
   runtimeSource,
   sectionOfPath,
   shortPath,
+  unchanged,
   updateKeys,
   type SettingsView,
   type Value,
@@ -169,12 +170,24 @@ test("a pending change the page didn't make is a change on disk", () => {
     maxParallel: v({ value: 4, running: 3, source: "file" }),
     model: v({ value: "opus", running: "", source: "file" }),
   })
-  assert.deepEqual(diskChanges(vw, new Set(["model"])), ["maxParallel"])
-  assert.deepEqual(diskChanges(vw, new Set()), ["model", "maxParallel"])
+  assert.deepEqual(diskChanges(vw, { model: "opus" }), ["maxParallel"])
+  assert.deepEqual(diskChanges(vw, {}), ["model", "maxParallel"])
+  // A hand edit after the page's own save is a change on disk again.
+  assert.deepEqual(diskChanges(vw, { model: "opus", maxParallel: 5 }), ["maxParallel"])
+  assert.deepEqual(diskChanges(vw, { model: "opus", maxParallel: 4 }), [])
   assert.deepEqual(diskNotice(vw, ["maxParallel"]), [
     { key: "maxParallel", text: " is 4 in the file, 3 in the running server" },
   ])
   assert.isNull(diskNotice(vw, []))
+})
+
+test("a field that still holds what it showed saves nothing when left", () => {
+  assert.isTrue(unchanged("3", 3))
+  assert.isTrue(unchanged(" 3 ", 3))
+  assert.isTrue(unchanged("claude", "claude"))
+  assert.isTrue(unchanged("50", 50))
+  assert.isFalse(unchanged("4", 3))
+  assert.isFalse(unchanged("", 3))
 })
 
 test("runtime values have names and sources", () => {

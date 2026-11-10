@@ -7,11 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"yargpt/internal/core"
+	"yargpt/internal/db"
 	"yargpt/internal/httpapi"
 )
 
@@ -113,13 +116,13 @@ func TestSettingsOfTheServerNameTheFlagsAndTheirSources(t *testing.T) {
 func TestSettingsOfAServerFromATerminalOfferNoRestart(t *testing.T) {
 	o := options{dataDir: "/data", set: map[string]bool{}}
 	log := slog.New(slog.DiscardHandler)
-	r, s := o.settingsOf(func() {}, func(string) string { return "" }, func() int { return 1 }, log)
-	if r != nil || s.Restart != nil || s.CancelRestart != nil || s.Path != "/data/config.json" || s.LookPath == nil || s.StartupCheck == nil || s.Build != httpapi.BuildSource {
+	r, s := o.settingsOf(func() {}, func(string) string { return "" }, func() int { return 1 }, func(string) {}, func(bool) {}, log)
+	if r != nil || s.Restart != nil || s.CancelRestart != nil || s.RestartState != nil || s.Path != "/data/config.json" || s.LookPath == nil || s.StartupCheck == nil || s.Build != httpapi.BuildSource {
 		t.Fatalf("settings from a terminal = %v, %+v; want no restarter, and a startup check", r, s)
 	}
 	stopped := false
-	r, s = o.settingsOf(func() { stopped = true }, func(string) string { return launchdLabel }, func() int { return 1 }, log)
-	if r == nil || s.Restart == nil || s.CancelRestart == nil {
+	r, s = o.settingsOf(func() { stopped = true }, func(string) string { return launchdLabel }, func() int { return 1 }, func(string) {}, func(bool) {}, log)
+	if r == nil || s.Restart == nil || s.CancelRestart == nil || s.RestartState == nil {
 		t.Fatal("settings under launchd: want a restarter")
 	}
 	s.Restart(false)
@@ -152,25 +155,25 @@ func TestBuildKindTellsTheSignedAppFromALocalOneAndASourceBuild(t *testing.T) {
 }
 
 // restartWatch runs waitIdle with a tick that send drives. A send returns
-// once waitIdle took the tick, so the tick before it is fully handled.
-func restartWatch(t *testing.T, draining *atomic.Bool, busy *atomic.Int32) (r *restarter, send func(), stopped, done chan struct{}) {
+// once waitIdle took the tick, so the tick before it is fully handled. held
+// is the restart's own hold on drain mode.
+func restartWatch(t *testing.T, held *atomic.Bool, busy *atomic.Int32) (r *restarter, send func(), stopped, done chan struct{}) {
 	t.Helper()
-	return restartWatchWith(t, draining, busy, func() (string, error) { return "", nil })
+	return restartWatchWith(t, held, busy, func() (string, error) { return "", nil })
 }
 
-// restartWatchWith is restartWatch with a startup check; leaving drain mode
-// stores false in draining.
-func restartWatchWith(t *testing.T, draining *atomic.Bool, busy *atomic.Int32, check func() (string, error)) (r *restarter, send func(), stopped, done chan struct{}) {
+// restartWatchWith is restartWatch with a startup check.
+func restartWatchWith(t *testing.T, held *atomic.Bool, busy *atomic.Int32, check func() (string, error)) (r *restarter, send func(), stopped, done chan struct{}) {
 	t.Helper()
 	stopped = make(chan struct{}, 1)
-	r = newRestarter(func() { stopped <- struct{}{} }, check, slog.New(slog.DiscardHandler))
+	r = newRestarter(func() { stopped <- struct{}{} }, check, func() time.Duration { return 30 * time.Minute }, func(string) {}, held.Store, slog.New(slog.DiscardHandler))
 	tick := make(chan time.Time)
 	done = make(chan struct{})
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(func() { cancel(); <-done })
 	go func() {
 		defer close(done)
-		r.waitIdle(ctx, tick, draining.Load, func() int { return int(busy.Load()) }, func() { draining.Store(false) })
+		r.waitIdle(ctx, tick, func() int { return int(busy.Load()) })
 	}()
 	send = func() {
 		select {
@@ -181,21 +184,21 @@ func restartWatchWith(t *testing.T, draining *atomic.Bool, busy *atomic.Int32, c
 	return r, send, stopped, done
 }
 
-func TestAnIdleRestartWaitsUntilNoWorkRuns(t *testing.T) {
-	var draining atomic.Bool
+func TestAnIdleRestartHoldsDrainModeAndWaitsUntilNoWorkRuns(t *testing.T) {
+	var held atomic.Bool
 	var busy atomic.Int32
-	draining.Store(true)
-	busy.Store(2)
-	r, send, stopped, done := restartWatch(t, &draining, &busy)
 	busy.Store(0)
+	r, send, stopped, done := restartWatch(t, &held, &busy)
 	send() // nothing asked yet: no restart, even with no work
-	send()
-	if r.result() != nil {
-		t.Fatal("restarted with no restart asked")
+	if r.result() != nil || held.Load() {
+		t.Fatal("restarted or held drain mode with no restart asked")
 	}
 	busy.Store(2)
 	r.restart(true)
 	r.restart(true) // asking twice is one request
+	if !held.Load() {
+		t.Fatal("an idle restart does not hold drain mode")
+	}
 	send()
 	send()
 	if r.result() != nil {
@@ -205,38 +208,17 @@ func TestAnIdleRestartWaitsUntilNoWorkRuns(t *testing.T) {
 	send()
 	<-stopped
 	<-done
-	if !errors.Is(r.result(), errRestart) {
-		t.Fatalf("result = %v; want errRestart", r.result())
-	}
-}
-
-func TestLeavingDrainModeCancelsAnIdleRestart(t *testing.T) {
-	var draining atomic.Bool
-	var busy atomic.Int32
-	draining.Store(true)
-	busy.Store(1)
-	r, send, _, _ := restartWatch(t, &draining, &busy)
-	r.restart(true)
-	send()
-	draining.Store(false)
-	send()
-	send()
-	draining.Store(true)
-	busy.Store(0)
-	send()
-	send()
-	if r.result() != nil {
-		t.Fatal("restarted after the drain ended; want the request cancelled")
+	if !errors.Is(r.result(), errRestart) || !held.Load() {
+		t.Fatalf("result = %v, held %v; want errRestart, with drain mode still held so no turn starts before the exit", r.result(), held.Load())
 	}
 }
 
 func TestAnIdleRestartGivesUpWhenTheFileWentBadMeanwhile(t *testing.T) {
-	var draining atomic.Bool
+	var held atomic.Bool
 	var busy atomic.Int32
 	var bad atomic.Bool
-	draining.Store(true)
 	busy.Store(1)
-	r, send, stopped, _ := restartWatchWith(t, &draining, &busy, func() (string, error) {
+	r, send, stopped, _ := restartWatchWith(t, &held, &busy, func() (string, error) {
 		if bad.Load() {
 			return "effort", errors.New("bad effort")
 		}
@@ -253,31 +235,173 @@ func TestAnIdleRestartGivesUpWhenTheFileWentBadMeanwhile(t *testing.T) {
 		t.Fatal("restarted into a file the server would not start with")
 	default:
 	}
-	if r.result() != nil || r.pending.Load() || draining.Load() {
-		t.Fatalf("result %v, pending %v, draining %v; want the restart given up and drain mode left", r.result(), r.pending.Load(), draining.Load())
+	if wait, _ := r.state(); r.result() != nil || wait != nil || held.Load() {
+		t.Fatalf("result %v, waiting %v, held %v; want the restart given up and its hold let go", r.result(), wait, held.Load())
 	}
 }
 
-func TestCancelDropsAWaitingRestart(t *testing.T) {
-	var draining atomic.Bool
+func TestCancelDropsAWaitingRestartAndItsHold(t *testing.T) {
+	var held atomic.Bool
 	var busy atomic.Int32
-	draining.Store(true)
 	busy.Store(1)
-	r, send, _, _ := restartWatch(t, &draining, &busy)
+	r, send, _, _ := restartWatch(t, &held, &busy)
 	r.restart(true)
 	r.cancel()
 	busy.Store(0)
 	send()
 	send()
-	if r.result() != nil {
-		t.Fatal("restarted after cancel; want the request dropped")
+	if r.result() != nil || held.Load() {
+		t.Fatalf("result %v, held %v after cancel; want no restart and the hold let go", r.result(), held.Load())
 	}
 }
 
 func TestANilRestarterWatchesNothing(t *testing.T) {
 	var r *restarter
-	r.watch(t.Context(), nil, nil)()
+	r.watch(t.Context(), nil)()
 	if r.result() != nil {
 		t.Fatal("a nil restarter asked for a restart")
 	}
+}
+
+func TestAnIdleRestartReportsItsDeadlineAndGivesUpAtIt(t *testing.T) {
+	var held atomic.Bool
+	busy := func() int { return 1 }
+	start := time.UnixMilli(1_000_000)
+	clock := start
+	var states []string
+	stopped := make(chan struct{}, 1)
+	r := newRestarter(func() { stopped <- struct{}{} }, func() (string, error) { return "", nil },
+		func() time.Duration { return 30 * time.Minute }, func(s string) { states = append(states, s) }, held.Store, slog.New(slog.DiscardHandler))
+	r.clock = func() time.Time { return clock }
+
+	r.restart(true)
+	clock = start.Add(time.Minute)
+	r.restart(true) // asking again keeps the first deadline
+	want := httpapi.RestartWait{Since: start.UnixMilli(), Deadline: start.Add(30 * time.Minute).UnixMilli()}
+	if wait, expired := r.state(); wait == nil || *wait != want || expired {
+		t.Fatalf("state = %v, expired %v; want %+v", wait, expired, want)
+	}
+	clock = start.Add(30*time.Minute - time.Millisecond)
+	if r.idleTick(busy) || !held.Load() {
+		t.Fatal("gave up or restarted before the deadline")
+	}
+	clock = start.Add(30 * time.Minute)
+	if r.idleTick(busy) {
+		t.Fatal("restarted at the deadline while work runs")
+	}
+	if wait, expired := r.state(); wait != nil || !expired || held.Load() || r.result() != nil {
+		t.Fatalf("after the deadline: waiting %v, expired %v, held %v, result %v; want given up, expired, hold let go", wait, expired, held.Load(), r.result())
+	}
+	// Cancelling nothing keeps the expiry; the next request clears it.
+	r.cancel()
+	if _, expired := r.state(); !expired {
+		t.Fatal("a cancel with no waiting restart cleared the expiry")
+	}
+	r.restart(true)
+	if _, expired := r.state(); expired {
+		t.Fatal("a new restart request kept the old expiry")
+	}
+	r.cancel()
+	if wait, expired := r.state(); wait != nil || expired {
+		t.Fatalf("after cancel: waiting %v, expired %v; want neither", wait, expired)
+	}
+	if want := []string{core.RestartWaiting, core.RestartExpired, core.RestartWaiting, core.RestartCancelled}; !slices.Equal(states, want) {
+		t.Fatalf("published states = %q; want %q", states, want)
+	}
+	select {
+	case <-stopped:
+		t.Fatal("the server ended")
+	default:
+	}
+}
+
+func TestARestartNowClearsAnExpiryAndSaysItRestarts(t *testing.T) {
+	var states []string
+	stopped := false
+	r := newRestarter(func() { stopped = true }, func() (string, error) { return "", nil },
+		func() time.Duration { return time.Minute }, func(s string) { states = append(states, s) }, func(bool) {}, slog.New(slog.DiscardHandler))
+	r.mu.Lock()
+	r.expired = true
+	r.mu.Unlock()
+	r.restart(false)
+	if _, expired := r.state(); expired || !stopped || len(states) != 0 {
+		t.Fatalf("expired %v, stopped %v, states %q; want the expiry cleared and the server ended, with no waiting restart to report", expired, stopped, states)
+	}
+	r = newRestarter(func() {}, func() (string, error) { return "", nil },
+		func() time.Duration { return time.Minute }, func(s string) { states = append(states, s) }, func(bool) {}, slog.New(slog.DiscardHandler))
+	r.restart(true)
+	if !r.idleTick(func() int { return 0 }) {
+		t.Fatal("an idle restart with no work did not restart")
+	}
+	if want := []string{core.RestartWaiting, core.RestartRestarting}; !slices.Equal(states, want) {
+		t.Fatalf("states = %q; want %q", states, want)
+	}
+}
+
+// The updater and a restart hold drain mode apart: either ending leaves the
+// other's hold, so no turn starts while the other still waits.
+func TestARestartAndTheUpdaterHoldDrainModeApart(t *testing.T) {
+	svc := newServiceForTest(t)
+	hold := func(on bool) { svc.HoldDrain(core.DrainRestart, on) }
+	r := newRestarter(func() {}, func() (string, error) { return "", nil },
+		func() time.Duration { return time.Minute }, func(string) {}, hold, slog.New(slog.DiscardHandler))
+	draining := func() bool { on, _ := svc.Draining(); return on }
+
+	r.restart(true)
+	svc.SetDraining(true) // the updater asks while the restart waits
+	r.cancel()
+	if !draining() {
+		t.Fatal("cancelling the restart ended drain mode that the updater holds")
+	}
+	r.restart(true)
+	svc.SetDraining(false) // the updater gives up while the restart waits
+	if wait, _ := r.state(); !draining() || wait == nil {
+		t.Fatalf("draining %v, waiting %v after the updater let go; want the restart to keep waiting and holding", draining(), wait)
+	}
+	svc.SetDraining(true)
+	r.clock = func() time.Time { return time.Now().Add(time.Hour) }
+	r.idleTick(func() int { return 1 }) // the restart expires
+	if !draining() {
+		t.Fatal("an expired restart ended drain mode that the updater holds")
+	}
+	svc.SetDraining(false)
+	if draining() {
+		t.Fatal("drain mode still on after both let go")
+	}
+}
+
+func TestTheDrainLimitComesFreshFromTheFile(t *testing.T) {
+	dir := t.TempDir()
+	o := options{dataDir: dir, Updates: updateSettings{DrainMinutes: 30}}
+	if got := o.drainLimit(); got != 30*time.Minute {
+		t.Fatalf("limit with no file = %v; want the running 30m", got)
+	}
+	for file, want := range map[string]time.Duration{
+		`{"updates": {"drainMinutes": 45}}`:  45 * time.Minute,
+		`{"updates": {"drainMinutes": 1}}`:   5 * time.Minute,
+		`{"updates": {"drainMinutes": 999}}`: 240 * time.Minute,
+		`{"updates": {}}`:                    30 * time.Minute,
+		`{"maxParallel": 4,}`:                30 * time.Minute,
+	} {
+		writeConfig(t, dir, file)
+		if got := o.drainLimit(); got != want {
+			t.Errorf("limit with %s = %v; want %v", file, got, want)
+		}
+	}
+}
+
+// newServiceForTest opens a service on a new database in a temp folder.
+func newServiceForTest(t *testing.T) *core.Service {
+	t.Helper()
+	dir := t.TempDir()
+	conn, err := db.Open(t.Context(), filepath.Join(dir, "yargpt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	svc, err := core.New(conn, dir, time.Local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc
 }

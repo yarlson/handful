@@ -1219,7 +1219,7 @@ func TestBoardTurnsTellEachRoleWhatToDo(t *testing.T) {
 	}
 	board, _ := h.svc.Board(ctx, team.ID)
 	// Both board turns start at once, so the work turn sees 1 or 2 turns used.
-	if goalLine := regexp.MustCompile(`Goal \(id ` + board.Goal.ID + `, active, [12] of 30 turns used\): Ship CSV export\.`); !goalLine.MatchString(byRole["work"]) {
+	if goalLine := regexp.MustCompile(`Goal \(id ` + board.Goal.ID + `, active, [12] turns so far\): Ship CSV export\.`); !goalLine.MatchString(byRole["work"]) {
 		t.Errorf("Ana's work turn lacks the goal line %s", goalLine)
 	}
 	for _, want := range []string{
@@ -1412,7 +1412,7 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 
 	table := boardTable(team, board, time.Time{})
 	for _, want := range []string{
-		"Goal (id g1, active, 3 of 30 turns used): Ship CSV.",
+		"<board>\nTeam's turns today: 0 (no daily limit).\nGoal (id g1, active, 3 turns so far): Ship CSV.",
 		"- \"Parse\" (id i1) [doing] owner Ana (id a1), reviewer Bo (id b1)\n",
 		`- "Old" (id i2) [blocked] owner a former member (id gone), after "Parse". Blocked: Who owns this?`,
 	} {

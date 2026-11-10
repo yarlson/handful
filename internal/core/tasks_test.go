@@ -564,6 +564,9 @@ func TestStopKeepsTheStepsAndReopenReturnsTheTaskToTheInbox(t *testing.T) {
 		t.Fatalf("the step after the stop = %+v; want it kept", got)
 	}
 	h.wantQueued(t, "the stop", "Bo lead @Ship +goal")
+	if board, err := h.svc.Board(ctx, f.team.ID); err != nil || len(board.Stopped) != 1 || board.Stopped[0].ID != f.goal.ID {
+		t.Fatalf("stopped on the board = %+v, %v; want the stopped task, though it isn't the latest", board.Stopped, err)
+	}
 	if got := h.goalNow(t, next.ID); got.State != GoalActive {
 		t.Fatalf("the next task = %s; want it started", got.State)
 	}
@@ -586,6 +589,54 @@ func TestStopKeepsTheStepsAndReopenReturnsTheTaskToTheInbox(t *testing.T) {
 	}
 	if got := h.goalNow(t, later.ID); got.State != GoalStopped || got.QueuePos != 0 {
 		t.Fatalf("stopped planned task = %+v", got)
+	}
+}
+
+func TestTheBoardListsTheStoppedTasksOfThirtyDaysTheLastStoppedFirst(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	clock := time.UnixMilli(1_800_000_000_000)
+	h.svc.now = func() time.Time { return clock }
+	user := Actor{Role: RoleUser}
+	stop := func(text string) Goal {
+		t.Helper()
+		g, err := h.svc.StartGoal(ctx, f.team.ID, text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.svc.StopTask(ctx, user, g.ID); err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	old := stop("Old.")
+	clock = clock.Add(time.Hour)
+	recent := stop("Recent.")
+	if _, err := h.svc.StopTask(ctx, user, f.goal.ID); err != nil {
+		t.Fatal(err)
+	}
+	ids := func() []string {
+		t.Helper()
+		board, err := h.svc.Board(ctx, f.team.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, g := range board.Stopped {
+			out = append(out, g.ID)
+		}
+		return out
+	}
+	if got, want := ids(), []string{recent.ID, f.goal.ID, old.ID}; !slices.Equal(got, want) {
+		t.Fatalf("stopped = %q; want %q: the last stopped first", got, want)
+	}
+	if _, err := h.svc.ReopenTask(ctx, user, recent.ID); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(30 * 24 * time.Hour)
+	if got := ids(); len(got) != 1 || got[0] != f.goal.ID {
+		t.Fatalf("stopped 30 days on = %q; want only the task stopped 30 days ago, none older, none reopened", got)
 	}
 }
 

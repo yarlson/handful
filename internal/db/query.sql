@@ -396,6 +396,14 @@ WHERE bot_id = ? AND room_id = ? AND goal_id = ? AND board_role = 'lead' AND dec
 -- name: CountIncomingGoals :many
 SELECT team_id, COUNT(*) AS n FROM goals WHERE state = 'incoming' GROUP BY team_id;
 
+-- name: ListStoppedGoals :many
+-- The stopped tasks of a team that were stopped since a time (ms), the one
+-- stopped last first.
+SELECT * FROM goals
+WHERE team_id = sqlc.arg(team_id) AND state = 'stopped'
+  AND (SELECT MAX(ev.created_at) FROM goal_events ev WHERE ev.goal_id = goals.id AND ev.kind = 'stopped') >= sqlc.arg(since)
+ORDER BY (SELECT MAX(ev.created_at) FROM goal_events ev WHERE ev.goal_id = goals.id AND ev.kind = 'stopped') DESC, rowid DESC;
+
 -- name: ListHandedOverGoals :many
 -- The handoffs of a team since a time (ms), newest first.
 SELECT * FROM goals WHERE origin = 'handoff' AND from_team_id = sqlc.arg(from_team_id) AND created_at >= sqlc.arg(since)

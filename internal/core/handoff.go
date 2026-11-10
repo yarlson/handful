@@ -1034,8 +1034,28 @@ func (s *Service) fillHandoffs(ctx context.Context, teamID string, board *Board)
 	if err := s.fillSent(ctx, teamID, board); err != nil {
 		return err
 	}
+	if err := s.fillStopped(ctx, teamID, board); err != nil {
+		return err
+	}
 	board.Plan = board.Queue
 	return s.nameHandoffTeams(ctx, board)
+}
+
+// fillStopped adds the team's tasks stopped in the last 30 days.
+func (s *Service) fillStopped(ctx context.Context, teamID string, board *Board) error {
+	since := s.now().Add(-30 * 24 * time.Hour).UnixMilli()
+	rows, err := s.q.ListStoppedGoals(ctx, db.ListStoppedGoalsParams{TeamID: teamID, Since: since})
+	if err != nil {
+		return fmt.Errorf("list the stopped tasks of team %s: %w", teamID, err)
+	}
+	for _, row := range rows {
+		g, err := s.goal(ctx, s.q, row.ID)
+		if err != nil {
+			return err
+		}
+		board.Stopped = append(board.Stopped, g)
+	}
+	return nil
 }
 
 // fillSent adds the tasks that a team sent in the last 30 days: all of them

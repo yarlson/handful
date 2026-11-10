@@ -7,6 +7,8 @@ import {
   diskChanges,
   diskNotice,
   display,
+  drainLimit,
+  minutesUntil,
   edited,
   flagHelp,
   flagName,
@@ -284,4 +286,17 @@ test("each setting's pending dot lands on its own section", () => {
   assert.deepEqual(one("effort"), ["general"])
   assert.deepEqual(one("updates.autoCheck"), ["updates"])
   assert.deepEqual(one("updates.drainMinutes"), ["updates"])
+})
+
+test("a waiting restart counts its whole minutes left, never below 0", () => {
+  const now = 1_000_000
+  assert.equal(minutesUntil(now + 21 * 60_000, now), 21)
+  assert.equal(minutesUntil(now + 20 * 60_000 + 1, now), 21)
+  assert.equal(minutesUntil(now, now), 0)
+  assert.equal(minutesUntil(now - 5 * 60_000, now), 0)
+})
+
+test("a restart waits as long as updates.drainMinutes says, 30 by default", () => {
+  assert.equal(drainLimit(view({ "updates.drainMinutes": v({ value: 45, default: 30 }) })), 45)
+  assert.equal(drainLimit(view({})), 30)
 })

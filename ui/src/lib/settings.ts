@@ -30,6 +30,8 @@ export type SettingsView = {
   build: "app" | "adhoc" | "source"
   restart: "launchd" | "manual"
   startError?: string
+  restartWait?: { since: number; deadline: number } // an idle restart waits, until deadline (ms)
+  restartExpired?: boolean // the last idle restart gave up at its deadline
   values: Partial<Record<Key, Value>>
   runtime: RuntimeValue[]
 }
@@ -253,6 +255,17 @@ export function restartRoute(view: SettingsView, running: number, hasBridge: boo
   if (view.startError) return "blocked"
   if (view.restart === "manual" && !hasBridge) return "manual"
   return running > 0 ? "ask" : "now"
+}
+
+// minutesUntil is the whole minutes left until a time (ms), never below 0.
+export function minutesUntil(deadline: number, now: number): number {
+  return Math.max(0, Math.ceil((deadline - now) / 60_000))
+}
+
+// drainLimit is how long an idle restart waits for running bots, in minutes.
+export function drainLimit(view: SettingsView): number {
+  const v = view.values["updates.drainMinutes"]?.value
+  return typeof v === "number" ? v : 30
 }
 
 // pauseLabel names a drain: an update's, or a settings restart's.

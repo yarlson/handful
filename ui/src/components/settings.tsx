@@ -7,6 +7,8 @@ import {
   diskChanges,
   diskNotice,
   display,
+  drainLimit,
+  minutesUntil,
   edited,
   flagHelp,
   flagName,
@@ -460,12 +462,14 @@ export function RestartBanner({ view, onRestart }: { view: SettingsView; onResta
 function RestartDialog({
   running,
   now,
+  limit,
   open,
   onOpenChange,
   onRestart,
 }: {
   running: RunningBot[]
   now: number
+  limit: number
   open: boolean
   onOpenChange: (v: boolean) => void
   onRestart: (when: "now" | "idle") => void
@@ -496,7 +500,7 @@ function RestartDialog({
           ))}
         </ul>
         <p className="text-muted-foreground text-xs">
-          New turns wait until they finish. You can cancel the restart on this page while it waits.
+          New turns wait while YarGPT waits for them, up to {limit} minutes. Then it asks you again.
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -513,12 +517,12 @@ function RestartDialog({
 }
 
 // useRestart runs a restart through the desktop app or the server, and reloads the page when
-// the server is back. Whether the server waits for bots comes from the server, so a
-// waiting restart shows again after the page is left or reloaded.
-function useRestart(draining: boolean) {
+// the server is back. Whether an idle restart waits comes from the server (restartWait), so
+// it shows again after the page is left or reloaded. onChange reloads the settings.
+function useRestart(waiting: boolean, onChange: () => void) {
   const [local, setState] = useState<"idle" | "now" | "error">("idle")
   const [error, setError] = useState<string | null>(null)
-  const state = local === "now" ? "now" : draining ? "draining" : local
+  const state = local === "now" ? "now" : waiting ? "draining" : local
   useEffect(() => {
     if (state !== "now" && state !== "draining") return
     let down = false
@@ -556,6 +560,7 @@ function useRestart(draining: boolean) {
         await api.restart(when)
       }
       if (when === "now") setState("now")
+      else onChange()
     } catch (e) {
       setError((e as Error).message)
       setState("error")
@@ -563,7 +568,8 @@ function useRestart(draining: boolean) {
   }
   const cancel = async () => {
     try {
-      await api.undrain()
+      await api.cancelRestart()
+      onChange()
     } catch (e) {
       setError((e as Error).message)
     }
@@ -595,10 +601,10 @@ export function SettingsPage({
   onSection,
   onBack,
   onManageConnectors,
-  draining = false,
+  restartRev = 0,
 }: {
-  // draining: the server waits for running bots before a settings restart.
-  draining?: boolean
+  // restartRev changes with each restart event from the server; the page reloads on it.
+  restartRev?: number
   section: Section
   onSection: (s: Section) => void
   onBack: () => void
@@ -615,7 +621,6 @@ export function SettingsPage({
   const [copied, setCopied] = useState(false)
   // The keys this page saved: a pending key it didn't save changed on disk.
   const [saved, setSaved] = useState(loadSaved)
-  const restart = useRestart(draining)
   const load = () =>
     api.settings().then(
       (v) => {
@@ -624,6 +629,25 @@ export function SettingsPage({
       },
       (e: Error) => setLoadError(e.message),
     )
+  const restart = useRestart(Boolean(view?.restartWait), () => void load())
+  // now ticks while a restart waits, for its minutes left.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!view?.restartWait) return
+    const tick = () => setNow(Date.now())
+    const first = setTimeout(tick, 0)
+    const t = setInterval(tick, 15_000)
+    return () => {
+      clearTimeout(first)
+      clearInterval(t)
+    }
+  }, [view?.restartWait])
+  // A restart event (waiting, cancelled, expired) reloads the settings that report it.
+  useEffect(() => {
+    if (restartRev > 0) void load()
+    // load reads only the API; restartRev is the trigger.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [restartRev])
   useEffect(() => {
     void load()
     api.version().then(
@@ -712,9 +736,12 @@ export function SettingsPage({
               Restarting… YarGPT is back in a few seconds.
             </output>
           )}
-          {restart.state === "draining" && (
+          {restart.state === "draining" && view.restartWait && (
             <output className="bg-muted mb-6 flex items-center gap-3 rounded-lg px-4 py-3 text-sm">
-              <span className="flex-1">YarGPT restarts when the running bots finish. New turns wait.</span>
+              <span className="flex-1">
+                YarGPT restarts when the running bots finish. New turns wait. If they're still working in{" "}
+                {minutesUntil(view.restartWait.deadline, now)} min, it asks you again.
+              </span>
               <Button size="sm" variant="outline" onClick={() => void restart.cancel()}>
                 Cancel restart
               </Button>
@@ -725,7 +752,24 @@ export function SettingsPage({
               {restart.error}
             </p>
           )}
-          {restart.state !== "now" && restart.state !== "draining" && (
+          {restart.state !== "now" && restart.state !== "draining" && view.restartExpired && (
+            <div
+              role="alert"
+              className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+            >
+              <span className="min-w-0 flex-1">
+                Bots were still working after {drainLimit(view)} min, so YarGPT didn't restart. Restart now stops their
+                turns.
+              </span>
+              <Button size="sm" variant="outline" onClick={() => void restart.restart("now")}>
+                Restart now
+              </Button>
+              <Button size="sm" onClick={() => void restart.restart("idle")}>
+                Wait {drainLimit(view)} more min
+              </Button>
+            </div>
+          )}
+          {restart.state !== "now" && restart.state !== "draining" && !view.restartExpired && (
             <RestartBanner view={view} onRestart={() => void askRestart()} />
           )}
           {view.file.error && (
@@ -977,6 +1021,7 @@ export function SettingsPage({
       <RestartDialog
         running={running.bots}
         now={running.at}
+        limit={view ? drainLimit(view) : 30}
         open={asking}
         onOpenChange={setAsking}
         onRestart={(when) => {

@@ -29,6 +29,8 @@ export function useYarGPT() {
   // draining: the server starts no new turns until it restarts for an update. The stream's
   // drain events and GET /api/version both set it; drain.rev drops answers they overtook.
   const [draining, setDraining] = useState(false)
+  // restartRev counts the server's settings-restart events, so the Settings page reloads.
+  const [restartRev, setRestartRev] = useState(0)
   const drain = useRef<Drain>(NO_DRAIN)
   const setDrain = useCallback((d: Drain) => {
     drain.current = d
@@ -143,6 +145,8 @@ export function useYarGPT() {
         setBots((prev) => prev.map((b) => (b.id === ev.botId ? { ...b, running: ev.running } : b)))
       } else if (ev.type === "pause") {
         setPausedUntil(ev.pausedUntil ?? null)
+      } else if (ev.type === "restart") {
+        setRestartRev((n) => n + 1)
       } else if (ev.type === "drain") {
         setDrain(drainChanged(drain.current, ev.draining))
       } else if (ev.type === "tasks") {
@@ -190,6 +194,7 @@ export function useYarGPT() {
     setError,
     pausedUntil,
     draining,
+    restartRev,
     select,
     refreshBots,
     reorder,

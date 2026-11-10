@@ -527,6 +527,7 @@ export function App() {
     setError,
     pausedUntil,
     draining,
+    restartRev,
     select,
     refreshBots,
     reorder,
@@ -623,7 +624,7 @@ export function App() {
             setPath(location.pathname)
           }}
           onManageConnectors={() => setConnectors(true)}
-          draining={draining && pause === "Paused for restart"}
+          restartRev={restartRev}
         />
         <ConnectorsDialog open={connectors} onOpenChange={setConnectors} bots={agents} />
       </>

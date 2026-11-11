@@ -1,10 +1,27 @@
 // The bridge between the Settings page and the main process:
-// window.yargptSettings. It restarts the server, chooses the Claude Code
-// program and opens or reveals the settings file. Electron and the launch
-// agent come in as dependencies, so the tests run without them.
-// The methods of window.yargptSettings, in preload.js. Each one is the IPC
+// window.handfulSettings. It restarts the server, chooses the Claude Code
+// program, opens or reveals the settings file, and shows the old app in the
+// Finder. Electron and the launch agent come in as dependencies, so the tests
+// run without them.
+const path = require("node:path")
+
+// The methods of window.handfulSettings, in preload.js. Each one is the IPC
 // channel settings:<name>.
-const settingsMethods = ["restartServer", "chooseClaude", "openFile", "revealFile", "revealLog"]
+const settingsMethods = ["restartServer", "chooseClaude", "openFile", "revealFile", "revealLog", "showYarGPTApp"]
+
+// The old app, which the move notice's button shows (S4): in /Applications,
+// or next to Handful.app. The first of oldAppPlaces that exists is shown.
+const oldAppName = "YarGPT.app"
+
+// oldAppPlaces returns where showYarGPTApp looks for YarGPT.app, in order.
+function oldAppPlaces(appBundle) {
+  const places = [path.join("/Applications", oldAppName)]
+  if (appBundle) {
+    const nextTo = path.join(path.dirname(appBundle), oldAppName)
+    if (!places.includes(nextTo)) places.push(nextTo)
+  }
+  return places
+}
 
 const restartWhens = new Set(["now", "idle"])
 
@@ -42,8 +59,12 @@ function settingsAPI(base, fetchImpl = fetch) {
 //   dialog: {showOpenDialog(options), showErrorBox(title, text)}
 //   shell: {openPath(file), showItemInFolder(file)}
 //   ensureSettingsFile(): creates config.json when it is missing, returns its path
-//   configFile, logFile: the files that revealFile and revealLog show
-function createSettingsBridge({ api, registerAgent, startServer, dialog, shell, ensureSettingsFile, configFile, logFile }) {
+//   configFile(): the path of config.json, which revealFile shows; the data
+//     folder can move while the app runs, so it is asked each time
+//   logFile: the server log, which revealLog shows
+//   appBundle: the path of the running Handful.app
+//   exists(file): whether file exists
+function createSettingsBridge({ api, registerAgent, startServer, dialog, shell, ensureSettingsFile, configFile, logFile, appBundle, exists }) {
   let restarting = null
 
   async function restartNow() {
@@ -93,18 +114,27 @@ function createSettingsBridge({ api, registerAgent, startServer, dialog, shell, 
     try {
       file = ensureSettingsFile()
     } catch (err) {
-      dialog.showErrorBox("YarGPT could not create the settings file", err.message)
+      dialog.showErrorBox("Handful could not create the settings file", err.message)
       return
     }
     const err = await shell.openPath(file)
-    if (err) dialog.showErrorBox("YarGPT could not open the settings file", `${file}: ${err}`)
+    if (err) dialog.showErrorBox("Handful could not open the settings file", `${file}: ${err}`)
   }
 
   // The page names no file: these show only config.json and the server log.
-  const revealFile = () => shell.showItemInFolder(configFile)
+  const revealFile = () => shell.showItemInFolder(configFile())
   const revealLog = () => shell.showItemInFolder(logFile)
 
-  return { restartServer, chooseClaude, openFile, revealFile, revealLog }
+  // showYarGPTApp shows the old app in the Finder, so that the user can
+  // remove it, and resolves whether it found one. The page names no path.
+  async function showYarGPTApp() {
+    const found = oldAppPlaces(appBundle).find((place) => exists(place))
+    if (!found) return false
+    shell.showItemInFolder(found)
+    return true
+  }
+
+  return { restartServer, chooseClaude, openFile, revealFile, revealLog, showYarGPTApp }
 }
 
 // registerSettingsIPC answers the settings:* channels for the trusted page
@@ -119,4 +149,4 @@ function registerSettingsIPC(ipcMain, bridge, isTrusted) {
   }
 }
 
-module.exports = { settingsMethods, settingsAPI, createSettingsBridge, registerSettingsIPC }
+module.exports = { settingsMethods, oldAppPlaces, settingsAPI, createSettingsBridge, registerSettingsIPC }

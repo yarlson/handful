@@ -59,18 +59,13 @@ app-universal-deps: ui
 app-universal-package:
 	cd desktop && $(MISE) npm run build:universal -- $(MAC_SIGNING) $(if $(VERSION),-c.extraMetadata.version=$(VERSION))
 
-# Regenerates the committed icons from their SVG sources. It needs
-# rsvg-convert (Homebrew librsvg), which mise does not have, and iconutil.
+# Regenerates the menu-bar icon from its SVG source, and the site's
+# apple-touch-icon from the UI's maskable icon. It needs rsvg-convert
+# (Homebrew librsvg), which mise does not have. The app icon,
+# desktop/build/icon.icns, is a committed brand asset that no target builds.
 icons:
 	rsvg-convert -w 32 -h 32 cmd/handful/tray.svg -o cmd/handful/tray.png
 	sips -s dpiWidth 144 -s dpiHeight 144 cmd/handful/tray.png >/dev/null
-	rm -rf target/icon.iconset && mkdir -p target/icon.iconset
-	rsvg-convert -w 824 -h 824 --page-width 1024 --page-height 1024 --left 100 --top 100 ui/public/logo.svg -o target/icon-1024.png
-	for s in 16 32 128 256 512; do \
-		sips -z $$s $$s target/icon-1024.png --out target/icon.iconset/icon_$${s}x$${s}.png >/dev/null && \
-		sips -z $$((s * 2)) $$((s * 2)) target/icon-1024.png --out target/icon.iconset/icon_$${s}x$${s}@2x.png >/dev/null || exit 1; \
-	done
-	iconutil -c icns target/icon.iconset -o desktop/build/icon.icns
 	sips -z 180 180 ui/public/icon-maskable-512.png --out web/public/apple-touch-icon.png >/dev/null
 
 fmt:

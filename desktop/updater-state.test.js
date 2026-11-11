@@ -110,7 +110,7 @@ test("errors of the updater map to the kinds that the window explains", () => {
     [Object.assign(new Error("mismatch"), { code: "ERR_CHECKSUM_MISMATCH" }), "checksum"],
     [
       new Error(
-        "Code signature at URL file:///x/YarGPT.app/ did not pass validation: code failed to satisfy specified code requirement(s)",
+        "Code signature at URL file:///x/Handful.app/ did not pass validation: code failed to satisfy specified code requirement(s)",
       ),
       "signature",
     ],
@@ -128,13 +128,13 @@ test("errors of the updater map to the kinds that the window explains", () => {
 })
 
 test("the release page is the version's tag, or the latest release", () => {
-  assert.equal(releaseURLFor("1.4.0"), "https://github.com/yarlson/yargpt/releases/tag/v1.4.0")
-  assert.equal(releaseURLFor("v1.4.0"), "https://github.com/yarlson/yargpt/releases/tag/v1.4.0")
-  assert.equal(releaseURLFor(undefined), "https://github.com/yarlson/yargpt/releases/latest")
+  assert.equal(releaseURLFor("1.4.0"), "https://github.com/yarlson/handful/releases/tag/v1.4.0")
+  assert.equal(releaseURLFor("v1.4.0"), "https://github.com/yarlson/handful/releases/tag/v1.4.0")
+  assert.equal(releaseURLFor(undefined), "https://github.com/yarlson/handful/releases/latest")
 })
 
-test("the feed's version is read from latest-mac.yml", () => {
-  assert.equal(feedVersion("version: 1.4.0\nfiles:\n  - url: YarGPT-universal-mac.zip\n"), "1.4.0")
+test("the feed's version is read from handful-mac.yml", () => {
+  assert.equal(feedVersion("version: 1.4.0\nfiles:\n  - url: Handful-universal-mac.zip\n"), "1.4.0")
   assert.equal(feedVersion("files: []\nversion: '1.4.0-rc.1'\n"), "1.4.0-rc.1")
   assert.equal(feedVersion('version: "v2.0.0" # tag\n'), "2.0.0")
   assert.equal(feedVersion("path: x.zip\n"), null)
@@ -144,14 +144,14 @@ test("the feed's version is read from latest-mac.yml", () => {
 
 test("only a Developer ID signature can update itself", () => {
   const developerID = [
-    "Executable=/Applications/YarGPT.app/Contents/MacOS/YarGPT",
-    "Identifier=dev.yarlson.yargpt",
+    "Executable=/Applications/Handful.app/Contents/MacOS/Handful",
+    "Identifier=dev.yarlson.handful",
     "Authority=Developer ID Application: Yar Kravtsov (ABCDE12345)",
     "Authority=Developer ID Certification Authority",
     "Authority=Apple Root CA",
     "TeamIdentifier=ABCDE12345",
   ].join("\n")
-  const adHoc = "Identifier=dev.yarlson.yargpt\nSignature=adhoc\nTeamIdentifier=not set\n"
+  const adHoc = "Identifier=dev.yarlson.handful\nSignature=adhoc\nTeamIdentifier=not set\n"
   assert.equal(isDeveloperIDSigned(developerID), true)
   assert.equal(isDeveloperIDSigned(adHoc), false)
   assert.equal(isDeveloperIDSigned("Authority=Apple Development: someone"), false)
@@ -184,7 +184,7 @@ test("the app menu's update item follows the state", () => {
   assert.deepEqual(item({ state: "limit", version: "1.4.0" }), { label: "Restart to Update 1.4.0…", enabled: true, action: "restart" })
   assert.equal(item({ state: "waiting", version: "1.4.0" }).label, "Updating to 1.4.0 when bots finish…")
   assert.deepEqual(item({ state: "restarting" }), { label: "Restarting…", enabled: false, action: null })
-  assert.deepEqual(item({ state: "source", version: "1.4.0" }), { label: "Get YarGPT 1.4.0…", enabled: true, action: "openReleasePage" })
+  assert.deepEqual(item({ state: "source", version: "1.4.0" }), { label: "Get Handful 1.4.0…", enabled: true, action: "openReleasePage" })
 })
 
 test("a new server waits for the old server's turns only when it reports some", () => {
@@ -285,7 +285,7 @@ test("an update downloads after an automatic check and is then ready", () => {
       transferred: 5,
       total: 10,
       drainMinutes: 30,
-      releaseUrl: "https://github.com/yarlson/yargpt/releases/tag/v1.4.0",
+      releaseUrl: "https://github.com/yarlson/handful/releases/tag/v1.4.0",
       hiddenByLater: false,
     },
   )
@@ -375,7 +375,7 @@ test("an automatic check that fails for another reason shows the error", () => {
 test("a copy that can only report releases stays silent when its automatic check fails", () => {
   const { m } = model({ mode: "source" })
   m.beginCheck(false)
-  m.checkFailed(new Error("404 from https://github.com/x/latest-mac.yml"))
+  m.checkFailed(new Error("404 from https://github.com/x/handful-mac.yml"))
   assert.equal(m.snapshot().state, "hidden")
 })
 
@@ -386,7 +386,7 @@ test("a copy that cannot update itself shows that a release is out", () => {
   const s = m.snapshot()
   assert.equal(s.state, "source")
   assert.equal(s.version, "1.4.0")
-  assert.equal(s.releaseUrl, "https://github.com/yarlson/yargpt/releases/tag/v1.4.0")
+  assert.equal(s.releaseUrl, "https://github.com/yarlson/handful/releases/tag/v1.4.0")
   assert.equal(m.interceptsQuit(), false)
 })
 
@@ -539,7 +539,7 @@ test("a server that stays on its old version shows an error", () => {
   const s = m.snapshot()
   assert.equal(s.state, "error")
   assert.equal(s.error, "other")
-  assert.equal(s.errorText, "The server is still on 1.3.2. Quit and reopen YarGPT.")
+  assert.equal(s.errorText, "The server is still on 1.3.2. Quit and reopen Handful.")
 })
 
 test("a store that cannot write does not break the updater", (t) => {

@@ -1,5 +1,5 @@
 // The updater of the app, in the main process. Release builds, signed with a
-// Developer ID, check the latest release's latest-mac.yml once a day,
+// Developer ID, check the latest release's handful-mac.yml once a day,
 // download an update in the background, and install it only when the user
 // asks: Restart now, Update when idle, or ⌘Q. Copies that are signed ad-hoc,
 // such as make app builds, cannot update themselves, because Squirrel.Mac
@@ -11,13 +11,13 @@ const { execFile } = require("node:child_process")
 const fs = require("node:fs")
 const path = require("node:path")
 const { feedURL, UpdaterModel, botsWorkingText, isDeveloperIDSigned, menuItemFor } = require("./updater-state")
-const { createScheduler, fetchFeedVersion, fileStore, loadSettings, runningOf, serverAPI, sharedDrain } = require("./updater-io")
+const { createScheduler, fetchFeedVersion, fileStore, loadSettings, runningOf, serverAPI } = require("./updater-io")
 
 const readyPollInterval = 30_000
 const waitPollInterval = 5_000
 const installTimeout = 120_000
 
-// The methods of window.yargptUpdater, in preload.js, without get.
+// The methods of window.handfulUpdater, in preload.js, without get.
 const bridgeMethods = [
   "download",
   "cancelDownload",
@@ -48,15 +48,14 @@ function signatureMode() {
 
 // createUpdater makes the updater. isTrusted(event) reports whether an IPC
 // call comes from the main frame of the app's page; onStateChange runs after
-// each change, for example to rebuild the menu. othersHoldDrain() reports
-// whether another part of the app still needs the server's drain.
-function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange, getWindow, othersHoldDrain = () => false }) {
-  const configFile = path.join(dataDir, "config.json")
-  const api = sharedDrain(serverAPI(serverURL), othersHoldDrain)
+// each change, for example to rebuild the menu. configFile() returns the
+// path of config.json, which can change while the app runs.
+function createUpdater({ serverURL, configFile, isTrusted, isAppURL, onStateChange, getWindow }) {
+  const api = serverAPI(serverURL)
   const model = new UpdaterModel({
     current: app.getVersion(),
     store: fileStore(path.join(app.getPath("userData"), "update-state.json")),
-    settings: loadSettings(configFile),
+    settings: loadSettings(configFile()),
   })
   let mode = "off" // off, auto or source; set by start
   let autoUpdater = null
@@ -124,7 +123,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
       if (manual) {
         void dialog.showMessageBox({
           type: "info",
-          message: "This copy of YarGPT can't check for updates",
+          message: "This copy of Handful can't check for updates",
           detail: "It runs from its source folder. Build the app with make app, or download it from GitHub.",
         })
       }
@@ -139,7 +138,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
       return
     }
     if (action === "upToDate") {
-      void dialog.showMessageBox({ type: "info", message: `YarGPT ${model.current} is up to date` })
+      void dialog.showMessageBox({ type: "info", message: `Handful ${model.current} is up to date` })
     } else if (action === "download") {
       void download(true)
     }
@@ -197,7 +196,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
   }
 
   async function updateWhenIdle() {
-    model.setSettings(loadSettings(configFile))
+    model.setSettings(loadSettings(configFile()))
     const response = await api.drain()
     if (model.startWaiting(runningOf(response)) === "install") install()
   }
@@ -251,7 +250,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
       : ["Update when they finish", "Restart now", "Cancel"]
     const { response } = await dialog.showMessageBox({
       type: "question",
-      message: "YarGPT has an update ready.",
+      message: "Handful has an update ready.",
       detail: `${botsWorkingText(running)} Restart now stops their turns.`,
       buttons,
       defaultId: 0,
@@ -288,7 +287,6 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
   }
 
   return {
-    holdsDrain: () => model.phase === "waiting" || model.phase === "limit",
     start() {
       registerIPC()
       started = (async () => {
@@ -296,7 +294,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
         mode = await signatureMode()
         model.mode = mode
         if (mode === "auto") loadUpdater()
-        scheduler = createScheduler({ model, settings: () => loadSettings(configFile), check })
+        scheduler = createScheduler({ model, settings: () => loadSettings(configFile()), check })
         scheduler.start()
       })()
       return started

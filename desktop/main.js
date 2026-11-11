@@ -1,4 +1,4 @@
-// The YarGPT app: a window on the server, which runs as a launch agent of
+// The Handful app: a window on the server, which runs as a launch agent of
 // this bundle, so that it keeps running when the app quits.
 const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, session, shell } = require("electron")
 const { execFile } = require("node:child_process")
@@ -7,25 +7,26 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { setTimeout: sleep } = require("node:timers/promises")
-const { promisify } = require("node:util")
-const { createBridge, teamIdentifierOf } = require("./bridge")
-const { createBridgeWindow } = require("./bridge-window")
-const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
+const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFileIn, settingsFile } = require("./app")
 const { contextMenuTemplate } = require("./context-menu")
 const { appMenuTemplate } = require("./menu")
-const { lastStartupErrorIn, serverErrorDialog } = require("./server-log")
+const { createOldServerGate, launchctlRunner } = require("./manual-move")
+const { lastStartupErrorIn, runServerErrorAction, serverErrorDialog } = require("./server-log")
 const { createSettingsBridge, registerSettingsIPC, settingsAPI } = require("./settings-bridge")
 const { createUpdater } = require("./updater")
 const { bundleChangeAction, finishingTurnsText, serverVersionAction } = require("./updater-state")
-const { loadSettings, runningOf, serverAPI, sharedDrain } = require("./updater-io")
+const { runningOf, serverAPI } = require("./updater-io")
 
-const agentLabel = "dev.yarlson.yargpt.server"
+const agentLabel = "dev.yarlson.handful.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
 const agentTarget = `gui/${process.getuid()}/${agentLabel}`
-const serverBinary = path.join(process.resourcesPath, "yargpt")
-const dataDir = path.join(os.homedir(), ".yargpt")
-const configFile = path.join(dataDir, "config.json")
-const logFile = path.join(os.homedir(), "Library", "Logs", "YarGPT", "server.log")
+const serverBinary = path.join(process.resourcesPath, "handful")
+// The data folder is ~/.handful, or ~/.yargpt until the server moves it
+// (app.js, settingsDir). The server can move it while the app runs, so it is
+// found each time it is used.
+const home = os.homedir()
+const configFile = () => settingsFile(home)
+const logFile = path.join(os.homedir(), "Library", "Logs", "Handful", "server.log")
 // The page copies messages to the clipboard and plays videos full screen.
 // Electron grants every other permission too, unless a handler refuses it.
 const pagePermissions = new Set(["clipboard-sanitized-write", "fullscreen"])
@@ -35,11 +36,7 @@ const api = serverAPI(serverURL)
 let window = null
 let opening = null
 let serverVersionChecked = false
-// The bridge to Handful; null until it starts, and in a copy without a
-// Developer ID team ID.
-let bridge = null
-let bridgeFound = false
-let bridgeQuitting = false
+let quitRequested = false
 
 // isTrusted reports whether an IPC call comes from the main frame of the
 // app's page; the updater and the settings bridge answer only it.
@@ -47,17 +44,39 @@ const isTrusted = (event) => isTrustedFrame(event.senderFrame?.url, !!event.send
 
 const updater = createUpdater({
   serverURL,
-  dataDir,
+  configFile,
   isAppURL,
   isTrusted,
   onStateChange: () => {
     if (app.isReady()) Menu.setApplicationMenu(buildMenu())
   },
   getWindow: () => window,
-  othersHoldDrain: () => bridge?.holdsDrain() ?? false,
 })
 
-// The Settings page's window.yargptSettings. Restart now registers the agent
+// The manual path of the move: before Handful registers its agent, the old
+// app's server, if it still holds the port, is stopped with the user's
+// choice, once per launch. When the user quits instead, or the old server
+// does not stop, the app quits without registering anything (manual-move.js).
+const oldServerGate = createOldServerGate(
+  {
+    api,
+    launchctl: launchctlRunner(execFile, process.getuid()),
+    dialog: {
+      showMessageBox: (options) => dialog.showMessageBox(options),
+      showErrorBox: (title, text) => dialog.showErrorBox(title, text),
+    },
+    openExternal: (url) => shell.openExternal(url).catch((err) => console.error("open Login Items:", err)),
+    sleep,
+    now: Date.now,
+    uid: process.getuid(),
+  },
+  () => {
+    quitRequested = true
+    app.quit()
+  },
+)
+
+// The Settings page's window.handfulSettings. Restart now registers the agent
 // again, as a new server does, and waits for the server to answer.
 const settingsBridge = createSettingsBridge({
   api: settingsAPI(serverURL),
@@ -68,9 +87,11 @@ const settingsBridge = createSettingsBridge({
     showErrorBox: (title, text) => dialog.showErrorBox(title, text),
   },
   shell,
-  ensureSettingsFile: () => ensureSettingsFile(dataDir),
+  ensureSettingsFile: () => ensureSettingsFileIn(home),
   configFile,
   logFile,
+  appBundle: appBundle(),
+  exists: (file) => fs.existsSync(file),
 })
 
 if (!app.requestSingleInstanceLock()) {
@@ -81,7 +102,7 @@ if (!app.requestSingleInstanceLock()) {
     else void showWindow()
   })
   app.on("activate", () => void showWindow())
-  // The menu-bar icon's Check for updates… opens yargpt://check-for-updates.
+  // The menu-bar icon's Check for updates… opens handful://check-for-updates.
   // macOS sends it before ready when the URL launches the app.
   app.on("open-url", (event, url) => {
     event.preventDefault()
@@ -89,18 +110,8 @@ if (!app.requestSingleInstanceLock()) {
   })
   // Keep running without windows, as macOS apps do; activate opens a new one.
   app.on("window-all-closed", () => {})
-  // ⌘Q releases a move's hold on the server's drain mode, and asks about a
-  // downloaded update first. A move that succeeds quits with app.exit, which
-  // skips this.
-  app.on("before-quit", (event) => {
-    if (!bridgeQuitting && bridge?.holdsDrain()) {
-      event.preventDefault()
-      bridgeQuitting = true
-      void bridge.releaseDrain().finally(() => app.quit())
-      return
-    }
-    updater.handleBeforeQuit(event)
-  })
+  // ⌘Q asks about a downloaded update first.
+  app.on("before-quit", (event) => updater.handleBeforeQuit(event))
   app.whenReady().then(() => {
     Menu.setApplicationMenu(buildMenu())
     registerSettingsIPC(ipcMain, settingsBridge, isTrusted)
@@ -111,8 +122,7 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler(
       (_contents, permission, origin) => pagePermissions.has(permission) && isAppURL(origin),
     )
-    // The bridge looks for Handful once the window has opened.
-    return showWindow().finally(() => void startBridge().catch((err) => console.error("start the Handful bridge:", err)))
+    return showWindow()
   })
 }
 
@@ -198,7 +208,7 @@ async function waitForServer(ms) {
   return false
 }
 
-// openAppURL handles a yargpt: address: it shows the window and checks for
+// openAppURL handles a handful: address: it shows the window and checks for
 // updates.
 function openAppURL(url) {
   if (!isCheckForUpdatesURL(url)) return
@@ -255,9 +265,11 @@ async function checkServerVersion() {
 
 // ensureServer makes the server of this app run. It registers the agent when
 // the server binary changed since the last registration, and starts the
-// server when it does not answer, for example after Exit server. It returns
-// false when the server does not start.
+// server when it does not answer, for example after Exit server. Before all
+// that, the old app's server is stopped if it holds the port, or the app
+// quits (manual-move.js). It returns false when the server does not start.
 async function ensureServer() {
+  if (!(await oldServerGate())) return false
   const digest = serverDigest()
   const registered = digest === registeredDigest()
   if (registered && (await serverAnswers())) return true
@@ -303,7 +315,7 @@ async function startServer(digest, registerAgain) {
 function showWindow() {
   opening ??= openWindow()
     .catch((err) => {
-      dialog.showErrorBox("YarGPT could not open its window", err.message)
+      dialog.showErrorBox("Handful could not open its window", err.message)
       return false
     })
     .finally(() => {
@@ -314,7 +326,7 @@ function showWindow() {
 
 async function openWindow() {
   if (!(await ensureServer())) {
-    showServerError()
+    if (!quitRequested) showServerError()
     return false
   }
   await checkServerVersion()
@@ -324,11 +336,11 @@ async function openWindow() {
     return true
   }
   // Hidden until the page paints, so a dark-mode window does not flash white.
-  // The preload script gives the page window.yargptUpdater and window.yargptSettings.
+  // The preload script gives the page window.handfulUpdater and window.handfulSettings.
   window = new BrowserWindow({
     width: 1280,
     height: 860,
-    title: "YarGPT",
+    title: "Handful",
     show: false,
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, sandbox: true },
   })
@@ -353,23 +365,27 @@ function showServerError() {
   if (status === "requires-approval") {
     const choice = dialog.showMessageBoxSync({
       type: "info",
-      message: "Allow the YarGPT server to run in the background",
-      detail: "Turn on YarGPT in System Settings › General › Login Items & Extensions. Then the server starts now and at every login.",
+      message: "Allow the Handful server to run in the background",
+      detail: "Turn on Handful in System Settings › General › Login Items & Extensions. Then the server starts now and at every login.",
       buttons: ["Open System Settings", "Later"],
     })
     if (choice === 0) void shell.openExternal("x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
     return
   }
   if (status !== "enabled") {
-    dialog.showErrorBox("YarGPT could not register its server", `macOS reports its launch agent as ${status}. Open YarGPT again to try again.`)
+    dialog.showErrorBox("Handful could not register its server", `macOS reports its launch agent as ${status}. Open Handful again to try again.`)
     return
   }
   // The detail shows the server's last startup error, such as an invalid
-  // config.json.
+  // config.json. When it is that both data folders exist, the box is S6.
   const { options, actions } = serverErrorDialog(lastStartupErrorIn(logFile), logFile)
-  const action = actions[dialog.showMessageBoxSync(options)]
-  if (action === "openSettingsFile") void openSettings()
-  else if (action === "openLog") void openFile(logFile, "the server log")
+  runServerErrorAction(actions[dialog.showMessageBoxSync(options)], {
+    home,
+    openSettingsFile: () => void openSettings(),
+    openLog: () => void openFile(logFile, "the server log"),
+    showItemInFolder: (file) => shell.showItemInFolder(file),
+    quit: () => app.quit(),
+  })
 }
 
 function openInBrowser(url) {
@@ -422,15 +438,15 @@ function showContextMenus(win) {
 
 async function openFile(file, name) {
   const err = await shell.openPath(file)
-  if (err) dialog.showErrorBox(`YarGPT could not open ${name}`, `${file}: ${err}`)
+  if (err) dialog.showErrorBox(`Handful could not open ${name}`, `${file}: ${err}`)
 }
 
 async function openSettings() {
   let file
   try {
-    file = ensureSettingsFile(dataDir)
+    file = ensureSettingsFileIn(home)
   } catch (err) {
-    dialog.showErrorBox("YarGPT could not create the settings file", err.message)
+    dialog.showErrorBox("Handful could not create the settings file", err.message)
     return
   }
   await openFile(file, "the settings file")
@@ -446,63 +462,13 @@ async function openSettingsPage() {
   }
 }
 
-// appBundle is the path of YarGPT.app.
+// appBundle is the path of the running Handful.app.
 function appBundle() {
   return path.resolve(process.execPath, "..", "..", "..")
 }
 
-// ownTeamID reads the team ID of the app's own signature. A dev copy, or one
-// signed ad-hoc, has none, and the bridge stays off.
-function ownTeamID() {
-  if (!app.isPackaged) return Promise.resolve(null)
-  return new Promise((resolve) => {
-    execFile("/usr/bin/codesign", ["-dv", "--verbose=2", appBundle()], { timeout: 10_000 }, (_err, stdout, stderr) =>
-      resolve(teamIdentifierOf(`${stdout}\n${stderr}`)),
-    )
-  })
-}
-
-const execFileAsync = promisify(execFile)
-
-// startBridge starts the bridge to Handful: it looks for Handful's release
-// now and every 6 hours, and shows its window when it finds one.
-async function startBridge() {
-  if (bridge) return
-  const teamID = await ownTeamID()
-  if (!teamID) {
-    console.debug("handful bridge: off, the app has no Developer ID team ID")
-    return
-  }
-  let bridgeWindow = null
-  bridge = createBridge({
-    api: sharedDrain(api, () => updater.holdsDrain()),
-    exec: (file, args) => execFileAsync(file, args, { timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024 }),
-    agent: {
-      unregister: unregisterAgent,
-      register: registerAgent,
-      startServer: async () => agentStatus() === "enabled" && startServer(serverDigest(), true),
-    },
-    shell,
-    // app.exit skips before-quit, so the updater does not ask about an update.
-    exit: () => app.exit(0),
-    askLimit: (question) => bridgeWindow.askLimit(question),
-    settings: () => loadSettings(configFile),
-    teamID,
-    yargptApp: appBundle(),
-    sleep: (ms) => sleep(ms),
-  })
-  bridgeWindow = createBridgeWindow(bridge)
-  bridge.onChange((s) => {
-    if (s.found === bridgeFound) return
-    bridgeFound = s.found
-    Menu.setApplicationMenu(buildMenu())
-  })
-  await bridge.start()
-}
-
 function buildMenu() {
-  const moveItem = bridge?.menuItem(() => void bridge.show()) ?? null
   return Menu.buildFromTemplate(
-    appMenuTemplate({ appName: app.name, updateItem: updater.menuItem(), moveItem, openSettingsPage, openSettingsFile: openSettings }),
+    appMenuTemplate({ appName: app.name, updateItem: updater.menuItem(), openSettingsPage, openSettingsFile: openSettings }),
   )
 }

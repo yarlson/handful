@@ -4,7 +4,7 @@
 
 const fs = require("node:fs")
 const path = require("node:path")
-const { HOUR, feedVersion, readSettings } = require("./updater-state")
+const { HOUR, feedFile, feedVersion, readSettings } = require("./updater-state")
 
 const firstCheckDelay = 60_000
 
@@ -72,13 +72,13 @@ function createScheduler({ model, settings, check, timers = globalThis, delay = 
   }
 }
 
-// fetchFeedVersion reads the version of latest-mac.yml in the feed. It
+// fetchFeedVersion reads the version of handful-mac.yml in the feed. It
 // throws on a network error or an HTTP status other than 200.
 async function fetchFeedVersion(feed, fetchImpl = fetch) {
-  const res = await fetchImpl(new URL("latest-mac.yml", feed), { signal: AbortSignal.timeout(15_000), redirect: "follow" })
-  if (!res.ok) throw new Error(`${res.status} from ${feed}latest-mac.yml`)
+  const res = await fetchImpl(new URL(feedFile, feed), { signal: AbortSignal.timeout(15_000), redirect: "follow" })
+  if (!res.ok) throw new Error(`${res.status} from ${feed}${feedFile}`)
   const version = feedVersion(await res.text())
-  if (!version) throw new Error(`latest-mac.yml in ${feed} has no version`)
+  if (!version) throw new Error(`${feedFile} in ${feed} has no version`)
   return version
 }
 
@@ -108,17 +108,10 @@ function serverAPI(base, fetchImpl = fetch) {
   }
 }
 
-// sharedDrain gives api with an undrain that leaves the server draining
-// while another part of the app still waits on the drain: the updater and
-// the bridge to Handful share the server's one drain hold.
-function sharedDrain(api, othersHold) {
-  return { ...api, undrain: () => (othersHold() ? Promise.resolve(null) : api.undrain()) }
-}
-
 // runningOf gives the running turns of an answer of /api/version. A server
 // that does not answer, or does not have the endpoint, counts as idle.
 function runningOf(response) {
   return response?.status === 200 && Array.isArray(response.body?.running) ? response.body.running : []
 }
 
-module.exports = { firstCheckDelay, fileStore, loadSettings, createScheduler, fetchFeedVersion, serverAPI, sharedDrain, runningOf }
+module.exports = { firstCheckDelay, fileStore, loadSettings, createScheduler, fetchFeedVersion, serverAPI, runningOf }

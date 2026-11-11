@@ -4,7 +4,7 @@ const path = require("node:path")
 // The server's address. The OAuth redirect URI holds the port, so it is fixed.
 const serverURL = "http://127.0.0.1:7777"
 
-// isAppURL reports whether url is a page of the YarGPT server.
+// isAppURL reports whether url is a page of the Handful server.
 function isAppURL(url) {
   try {
     return new URL(url).origin === serverURL
@@ -25,13 +25,13 @@ function isWebURL(url) {
 }
 
 // The menu-bar icon of the server opens this address for Check for updates….
-const checkForUpdatesURL = "yargpt://check-for-updates"
+const checkForUpdatesURL = "handful://check-for-updates"
 
 // isCheckForUpdatesURL reports whether url asks the app to check for updates.
 function isCheckForUpdatesURL(url) {
   try {
     const u = new URL(url)
-    return u.protocol === "yargpt:" && u.host === "check-for-updates" && (u.pathname === "" || u.pathname === "/")
+    return u.protocol === "handful:" && u.host === "check-for-updates" && (u.pathname === "" || u.pathname === "/")
   } catch {
     return false
   }
@@ -57,4 +57,49 @@ function ensureSettingsFile(dataDir) {
   return file
 }
 
-module.exports = { serverURL, checkForUpdatesURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile }
+// settingsDir returns the data folder that holds config.json: ~/.handful when
+// it exists, of any kind; else ~/.yargpt when it is a real folder, not a
+// link; else ~/.handful. The server moves a real ~/.yargpt to ~/.handful when
+// it starts, and refuses to start when both exist (S6), so the app must not
+// create ~/.handful while ~/.yargpt is a real folder. The server can move the
+// folder while the app runs, so call it each time the folder is used.
+function settingsDir(home, fsys = fs) {
+  const handful = path.join(home, ".handful")
+  if (lstatOrNull(handful, fsys)) return handful
+  const old = path.join(home, ".yargpt")
+  if (lstatOrNull(old, fsys)?.isDirectory()) return old
+  return handful
+}
+
+function lstatOrNull(file, fsys) {
+  try {
+    return fsys.lstatSync(file)
+  } catch {
+    return null
+  }
+}
+
+// settingsFile returns the path of config.json in settingsDir(home).
+function settingsFile(home, fsys = fs) {
+  return path.join(settingsDir(home, fsys), "config.json")
+}
+
+// ensureSettingsFileIn creates config.json in settingsDir(home) when it is
+// missing, and returns its path: Open Settings File and the Settings page's
+// openFile.
+function ensureSettingsFileIn(home, fsys = fs) {
+  return ensureSettingsFile(settingsDir(home, fsys))
+}
+
+module.exports = {
+  serverURL,
+  checkForUpdatesURL,
+  isAppURL,
+  isWebURL,
+  isCheckForUpdatesURL,
+  isTrustedFrame,
+  ensureSettingsFile,
+  settingsDir,
+  settingsFile,
+  ensureSettingsFileIn,
+}

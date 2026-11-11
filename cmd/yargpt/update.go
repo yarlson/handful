@@ -31,6 +31,9 @@ const (
 	updateCheckTick  = time.Hour
 	updateCheckFile  = "update-check.json"
 	noUpdateCheckEnv = "YARGPT_NO_UPDATE_CHECK"
+	// maxReleaseRedirects bounds the redirects before the release tag: a
+	// renamed repo adds one to the latest page's own.
+	maxReleaseRedirects = 5
 )
 
 // inAppBundle reports whether the executable at path is the server inside
@@ -134,14 +137,15 @@ func (n *updateNotice) note(latest string) {
 }
 
 // fetch reads the tag of the latest release from the redirect of its page,
-// which needs no GitHub API call.
+// which needs no GitHub API call. It follows the redirects of a renamed repo
+// on the same host, and stops at the one that names the tag.
 func (n *updateNotice) fetch(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, n.url, nil)
 	if err != nil {
 		return "", err
 	}
 	client := *n.client
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	client.CheckRedirect = releaseRedirect
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -156,6 +160,22 @@ func (n *updateNotice) fetch(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("the latest release tag %q is not a version", tag)
 	}
 	return tag, nil
+}
+
+// releaseRedirect follows a redirect of the latest release page while it
+// stays on the page's host, up to maxReleaseRedirects, and stops at the
+// redirect to the release tag, whose Location fetch reads.
+func releaseRedirect(req *http.Request, via []*http.Request) error {
+	if req.URL.Host != via[0].URL.Host {
+		return fmt.Errorf("the latest release page redirected to another host, %s", req.URL.Host)
+	}
+	if strings.Contains(req.URL.Path, "/releases/tag/") {
+		return http.ErrUseLastResponse
+	}
+	if len(via) > maxReleaseRedirects {
+		return fmt.Errorf("the latest release page redirected more than %d times", maxReleaseRedirects)
+	}
+	return nil
 }
 
 func (n *updateNotice) readCache() (updateCache, error) {

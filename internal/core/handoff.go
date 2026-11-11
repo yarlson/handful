@@ -1017,11 +1017,7 @@ func (s *Service) fillHandoffs(ctx context.Context, teamID string, board *Board)
 		return fmt.Errorf("list the inbox of team %s: %w", teamID, err)
 	}
 	for _, row := range inbox {
-		g := toGoal(row, 0)
-		board.Inbox = append(board.Inbox, g)
-		if g.State == GoalIncoming {
-			board.Incoming = append(board.Incoming, g)
-		}
+		board.Inbox = append(board.Inbox, toGoal(row, 0))
 	}
 	done, err := s.q.ListDoneGoals(ctx, teamID)
 	if err != nil {
@@ -1040,7 +1036,6 @@ func (s *Service) fillHandoffs(ctx context.Context, teamID string, board *Board)
 	if err := s.fillStopped(ctx, teamID, board); err != nil {
 		return err
 	}
-	board.Plan = board.Queue
 	if err := s.nameHandoffTeams(ctx, board); err != nil {
 		return err
 	}

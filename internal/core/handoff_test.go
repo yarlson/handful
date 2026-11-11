@@ -106,7 +106,7 @@ func TestAHandoffDuringAnActiveGoalCostsTheSenderNothing(t *testing.T) {
 		t.Fatalf("Ship channel = %q", text)
 	}
 	docsBoard, err := h.svc.Board(ctx, h.docs.ID)
-	if err != nil || docsBoard.Goal != nil || len(docsBoard.Incoming) != 1 || docsBoard.Incoming[0].ID != g.ID || docsBoard.Teams[f.team.ID] != "Ship" {
+	if err != nil || docsBoard.Goal != nil || len(docsBoard.Inbox) != 1 || docsBoard.Inbox[0].ID != g.ID || docsBoard.Teams[f.team.ID] != "Ship" {
 		t.Fatalf("Docs's board = %+v, %v; want the incoming handoff and no goal", docsBoard, err)
 	}
 	shipBoard, _ := h.svc.Board(ctx, f.team.ID)
@@ -452,7 +452,7 @@ func TestADeclinedHandoffNeedsAReasonAndTellsTheSender(t *testing.T) {
 		t.Fatalf("a goal after the decline = %+v, %v; want it active: a declined goal is not open", own, err)
 	}
 	board, _ := h.svc.Board(ctx, h.docs.ID)
-	if board.Goal == nil || board.Goal.ID != own.ID || len(board.Incoming) != 0 {
+	if board.Goal == nil || board.Goal.ID != own.ID || len(board.Inbox) != 0 {
 		t.Fatalf("Docs's board = %+v; want its own goal and nothing incoming", board)
 	}
 	// The user's handoff wakes no lead when it is declined.
@@ -573,7 +573,7 @@ func TestTheSenderHearsWhatBecameOfItsHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	board, err := h.svc.Board(ctx, h.docs.ID)
-	if err != nil || len(board.Incoming) != 1 || board.Incoming[0].ID != from.ID || board.Teams[h.dev.ID] != "a deleted team" {
+	if err != nil || len(board.Inbox) != 1 || board.Inbox[0].ID != from.ID || board.Teams[h.dev.ID] != "a deleted team" {
 		t.Fatalf("Docs's board = %+v, %v; want the handoff of a deleted team", board, err)
 	}
 	if _, err := h.svc.AcceptHandoff(ctx, h.docsLead, from.ID); err != nil {

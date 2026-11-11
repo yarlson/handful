@@ -38,7 +38,7 @@ func TestGoalQueueEndpointsQueueReorderStartAndCancelGoals(t *testing.T) {
 	}
 	rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil)
 	var board core.Board
-	if err := json.Unmarshal(rec.Body.Bytes(), &board); err != nil || len(board.Queue) != 2 || board.Queue[0].ID != third.ID || board.Queue[0].QueuePos != 1 {
+	if err := json.Unmarshal(rec.Body.Bytes(), &board); err != nil || len(board.Plan) != 2 || board.Plan[0].ID != third.ID || board.Plan[0].QueuePos != 1 {
 		t.Fatalf("board: %s; want Three first in the queue", rec.Body)
 	}
 	for name, c := range map[string]struct {
@@ -59,8 +59,8 @@ func TestGoalQueueEndpointsQueueReorderStartAndCancelGoals(t *testing.T) {
 	if rec := do(h, "POST", "/api/goals/"+first.ID+"/end", `{"startNext":false}`, jsonHeader); rec.Code != http.StatusNoContent {
 		t.Fatalf("end and hold: %d %s", rec.Code, rec.Body)
 	}
-	if b, _ := svc.Board(ctx, team.ID); len(b.Queue) != 2 {
-		t.Fatalf("queue after an end that holds = %+v; want both goals", b.Queue)
+	if b, _ := svc.Board(ctx, team.ID); len(b.Plan) != 2 {
+		t.Fatalf("queue after an end that holds = %+v; want both goals", b.Plan)
 	}
 	rec = do(h, "POST", "/api/teams/"+team.ID+"/goal-queue/start", ``, jsonHeader)
 	var started core.Goal
@@ -73,7 +73,7 @@ func TestGoalQueueEndpointsQueueReorderStartAndCancelGoals(t *testing.T) {
 	if rec := do(h, "POST", "/api/goals/"+third.ID+"/end", ``, jsonHeader); rec.Code != http.StatusNoContent {
 		t.Fatalf("end without a body: %d %s", rec.Code, rec.Body)
 	}
-	if b, _ := svc.Board(ctx, team.ID); len(b.Queue) != 0 || b.Goal.ID != third.ID || b.Goal.State != core.GoalEnded {
+	if b, _ := svc.Board(ctx, team.ID); len(b.Plan) != 0 || b.Goal.ID != third.ID || b.Goal.State != core.GoalEnded {
 		t.Fatalf("board after the end = %+v; want Three ended and no queue", b)
 	}
 }
@@ -117,7 +117,7 @@ func TestCloseStartsTheNextGoalAndAcceptComesLater(t *testing.T) {
 	third, _ := svc.StartGoal(ctx, team.ID, "Three.")
 	// A close starts the next goal at once; the accept comes later.
 	deliver()
-	if b, _ := svc.Board(ctx, team.ID); b.Goal.ID != second.ID || len(b.Queue) != 1 || len(b.Done) != 1 || b.Done[0].ID != first.ID {
+	if b, _ := svc.Board(ctx, team.ID); b.Goal.ID != second.ID || len(b.Plan) != 1 || len(b.Done) != 1 || b.Done[0].ID != first.ID {
 		t.Fatalf("board after a close = %+v; want the next goal Now and the closed one done", b)
 	}
 	if rec := do(h, "POST", "/api/goals/"+first.ID+"/accept", `{"startNext":false}`, jsonHeader); rec.Code != http.StatusOK {
@@ -132,10 +132,8 @@ func TestCloseStartsTheNextGoalAndAcceptComesLater(t *testing.T) {
 	}
 }
 
-// The request endpoints are gone: requests are tasks now. Team settings
-// still take requestSlots, which no longer limits anything, until the UI
-// stops sending it.
-func TestRequestEndpointsAreGoneAndRequestSlotsAreStillAccepted(t *testing.T) {
+// The request endpoints are gone: requests are tasks now.
+func TestRequestEndpointsAreGone(t *testing.T) {
 	h, svc := newTestHandler(t)
 	ctx := context.Background()
 	var bots []core.Bot
@@ -162,13 +160,5 @@ func TestRequestEndpointsAreGoneAndRequestSlotsAreStillAccepted(t *testing.T) {
 		if rec := do(h, "POST", "/api/items/"+it.ID+"/"+action, ``, jsonHeader); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("POST /api/items/{id}/%s: %d %s; want no such endpoint", action, rec.Code, rec.Body)
 		}
-	}
-	rec := do(h, "PATCH", "/api/teams/"+docs.ID, `{"requestSlots":2}`, jsonHeader)
-	var team struct{ Team core.Team }
-	if err := json.Unmarshal(rec.Body.Bytes(), &team); rec.Code != http.StatusOK || err != nil || team.Team.RequestSlots != 2 {
-		t.Fatalf("set request slots: %d %s", rec.Code, rec.Body)
-	}
-	if rec := do(h, "PATCH", "/api/teams/"+docs.ID, `{"requestSlots":3}`, jsonHeader); rec.Code != http.StatusBadRequest {
-		t.Fatalf("too many request slots: %d %s; want 400", rec.Code, rec.Body)
 	}
 }

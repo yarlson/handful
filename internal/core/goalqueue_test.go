@@ -91,7 +91,7 @@ func TestASecondGoalIsQueuedAndAQueueHoldsTen(t *testing.T) {
 		t.Fatalf("the lead's goal while one is active = %+v, %v; want it queued second", byLead, err)
 	}
 	board, err := f.svc.Board(ctx, f.team.ID)
-	if err != nil || board.Goal.ID != f.goal.ID || len(board.Queue) != 2 || board.Queue[0].ID != next.ID || board.Queue[1].ID != byLead.ID {
+	if err != nil || board.Goal.ID != f.goal.ID || len(board.Plan) != 2 || board.Plan[0].ID != next.ID || board.Plan[1].ID != byLead.ID {
 		t.Fatalf("board = %+v, %v; want the active goal and the queue in order", board, err)
 	}
 	if _, err := f.svc.CreateItem(ctx, f.lead, item("Parse", "", "")); err != nil {
@@ -281,9 +281,9 @@ func TestTheUserReordersAndCancelsQueuedGoals(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out []string
-		for i, g := range board.Queue {
+		for i, g := range board.Plan {
 			if g.QueuePos != int64(i+1) {
-				t.Fatalf("queue = %+v; want positions 1 to n", board.Queue)
+				t.Fatalf("queue = %+v; want positions 1 to n", board.Plan)
 			}
 			out = append(out, g.Text)
 		}

@@ -5,7 +5,7 @@ const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
 const { DAY, HOUR, UpdaterModel } = require("./updater-state")
-const { firstCheckDelay, fileStore, loadSettings, createScheduler, fetchFeedVersion, serverAPI, runningOf } = require("./updater-io")
+const { firstCheckDelay, fileStore, loadSettings, createScheduler, fetchFeedVersion, serverAPI, sharedDrain, runningOf } = require("./updater-io")
 
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yargpt-updater-"))
@@ -239,4 +239,18 @@ test("serverAPI calls /api/version and /api/drain, and tolerates an old or stopp
   const none = await serverAPI(`http://127.0.0.1:${port}`).version()
   assert.equal(none, null)
   assert.deepEqual(runningOf(none), [])
+})
+
+test("sharedDrain keeps the server draining while another part of the app waits on it", async () => {
+  const calls = []
+  const api = { version: () => "v", drain: () => calls.push("drain"), undrain: async () => calls.push("undrain") }
+  let othersHold = true
+  const shared = sharedDrain(api, () => othersHold)
+  assert.equal(await shared.undrain(), null)
+  assert.deepEqual(calls, [])
+  othersHold = false
+  await shared.undrain()
+  shared.drain()
+  assert.deepEqual(calls, ["undrain", "drain"])
+  assert.equal(shared.version(), "v")
 })

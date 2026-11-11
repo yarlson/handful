@@ -15,6 +15,12 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
+// LastYarGPTSchema is the number of YarGPT's migrations at the bridge release
+// v0.13.0, the last YarGPT release, which offers the move to Handful, the
+// app's new name. Handful's own migrations are numbered above it, so a
+// database at this version or below is one that YarGPT can still open.
+const LastYarGPTSchema = 19
+
 // Open opens the SQLite database at path and applies pending migrations.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"

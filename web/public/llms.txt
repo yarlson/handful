@@ -2,14 +2,6 @@
 
 > Handful runs personal AI agents, called bots, on your own computer. Each bot is a Claude Code CLI session with its own chat, memory, routines and working folder. Bots can work together in group chats, called rooms, and can message each other. There is no cloud service: the server, the SQLite database and the bots all run locally.
 
-Handful was called YarGPT until its rename. It is the same app.
-
-## Moving from YarGPT
-
-- Your bots, chats, teams, memory and settings move with the app. The data folder `~/.yargpt` becomes `~/.handful`, and `~/.yargpt` stays as a link to it, so saved paths keep working. Leave the link in place: `rm -rf ~/.yargpt/` deletes your data.
-- The Mac app: YarGPT 0.9.0 or later offers the move itself, with **Move to Handful**. For YarGPT 0.8.0 or earlier, download Handful-universal-mac.zip, open it and follow its steps.
-- From source: pull, build and run `bin/handful`. `YARGPT_NO_UPDATE_CHECK` is now `HANDFUL_NO_UPDATE_CHECK`.
-
 ## What Handful is
 
 - A Go server with a web UI. Each time a bot works, the server runs the Claude Code CLI (`claude`) on your machine, signed in with your own Claude subscription or an API key. Handful sells no tokens and adds no fees. Handful adds the chats, memory, schedules, approvals, rooms and bot-to-bot messages around it.
@@ -94,7 +86,7 @@ Handful was called YarGPT until its rename. It is the same app.
 ## Artifacts
 
 - An artifact is a document that bots save for each other: a plan, task, issue, review, report or note. All of your bots share all artifacts.
-- Handful stores artifacts in its database, `yargpt.db`, with no files on disk. Bots and integrations reach them only through the artifact tools or `/api/artifacts`, never by path. A bot passes an artifact's id in messages instead of a file path.
+- Handful stores artifacts in its SQLite database in `~/.handful`, with no files on disk. Bots and integrations reach them only through the artifact tools or `/api/artifacts`, never by path. A bot passes an artifact's id in messages instead of a file path.
 - Each artifact has a kind, a title (at most 200 characters), markdown content (at most 256 KiB), its author (a bot or you), the times it was created and last updated, up to 10 tags and up to 10 links (absolute `http` or `https` URLs in canonical form, of printable ASCII only, so spaces and non-ASCII characters must be percent-encoded, for example `%20` for a space).
 - A tag has at most 64 of the characters a-z, 0-9 and `. _ : / # -`, for example `dev-3` or `repo:handful`. Tags are stored in lowercase. A link is an `http` or `https` URL, for example a pull request.
 - Any bot can find and read any artifact. Only its author can change or delete it with the tools. You can change or delete any artifact.
@@ -343,7 +335,7 @@ To set `claude`, `model` or `maxParallel` without flags, put them in `~/.handful
 
 The data folder holds:
 
-- `yargpt.db`: bots, chats, memory, routines and artifacts (SQLite).
+- The SQLite database: bots, chats, memory, routines and artifacts.
 - `bots/<bot id>/`: each bot's working folder.
 - `skills/`: the skills that all bots share.
 - `media/`: the images and videos of messages.

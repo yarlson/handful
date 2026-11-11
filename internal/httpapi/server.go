@@ -409,9 +409,47 @@ func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// listEntries returns a chat's entries: with limit, a window of its newest
+// entries (below before, a seq, when given) in chat order; else the entries
+// whose rev is above after, the changes since a rev.
 func (s *server) listEntries(w http.ResponseWriter, r *http.Request) {
-	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	query := r.URL.Query()
+	if query.Has("limit") {
+		s.entryWindow(w, r)
+		return
+	}
+	if query.Has("before") {
+		s.fail(w, r, fmt.Errorf("%w: before needs limit", core.ErrInvalid))
+		return
+	}
+	after, _ := strconv.ParseInt(query.Get("after"), 10, 64)
 	entries, err := s.svc.Entries(r.Context(), r.PathValue("id"), after, 1000)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+func (s *server) entryWindow(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	if query.Has("after") {
+		s.fail(w, r, fmt.Errorf("%w: use after or limit, not both", core.ErrInvalid))
+		return
+	}
+	limit, err := strconv.Atoi(query.Get("limit"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: limit must be a number", core.ErrInvalid))
+		return
+	}
+	var before int64
+	if query.Has("before") {
+		if before, err = strconv.ParseInt(query.Get("before"), 10, 64); err != nil || before < 1 {
+			s.fail(w, r, fmt.Errorf("%w: before must be a seq above 0", core.ErrInvalid))
+			return
+		}
+	}
+	entries, err := s.svc.EntryWindow(r.Context(), r.PathValue("id"), before, limit)
 	if err != nil {
 		s.fail(w, r, err)
 		return

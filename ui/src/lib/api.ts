@@ -322,6 +322,12 @@ export const api = {
   deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),
   entries: (id: string, afterRev: number) =>
     request<{ entries: Entry[] }>("GET", `/api/bots/${id}/entries?after=${afterRev}`).then((r) => r.entries),
+  // entryWindow returns a chat's newest limit entries, below seq before when given, in chat order.
+  entryWindow: (id: string, limit: number, before?: number) =>
+    request<{ entries: Entry[] }>(
+      "GET",
+      `/api/bots/${id}/entries?limit=${limit}${before === undefined ? "" : `&before=${before}`}`,
+    ).then((r) => r.entries),
   // media are base64-encoded file contents.
   send: (id: string, text: string, media: string[] = [], answers: string[] = []) =>
     request<{ turnId: string }>("POST", `/api/bots/${id}/messages`, {

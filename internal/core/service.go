@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -546,6 +547,31 @@ func (s *Service) Entries(ctx context.Context, botID string, afterRev int64, lim
 	entries := make([]Entry, 0, len(rows))
 	for _, r := range rows {
 		entries = append(entries, toEntry(r))
+	}
+	return entries, nil
+}
+
+// MaxEntryWindow is the most entries EntryWindow returns at once.
+const MaxEntryWindow = 200
+
+// EntryWindow returns a chat's newest limit entries below beforeSeq, in chat
+// order (seq), so that a chat can open on its newest entries and load older
+// ones as the user scrolls up. beforeSeq 0 means the newest entries. A result
+// shorter than limit reaches the chat's first entry.
+func (s *Service) EntryWindow(ctx context.Context, botID string, beforeSeq int64, limit int) ([]Entry, error) {
+	if limit < 1 || limit > MaxEntryWindow {
+		return nil, invalid("limit must be from 1 to %d", MaxEntryWindow)
+	}
+	if beforeSeq == 0 {
+		beforeSeq = math.MaxInt64
+	}
+	rows, err := s.q.ListEntriesBeforeSeq(ctx, db.ListEntriesBeforeSeqParams{BotID: botID, Seq: beforeSeq, Limit: int64(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("list entries of bot %s: %w", botID, err)
+	}
+	entries := make([]Entry, len(rows))
+	for i, r := range rows {
+		entries[len(rows)-1-i] = toEntry(r)
 	}
 	return entries, nil
 }

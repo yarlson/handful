@@ -2348,6 +2348,52 @@ func (q *Queries) ListEntriesAfterRev(ctx context.Context, arg ListEntriesAfterR
 	return items, nil
 }
 
+const listEntriesBeforeSeq = `-- name: ListEntriesBeforeSeq :many
+SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
+WHERE bot_id = ? AND seq < ?
+ORDER BY seq DESC
+LIMIT ?
+`
+
+type ListEntriesBeforeSeqParams struct {
+	BotID string `json:"bot_id"`
+	Seq   int64  `json:"seq"`
+	Limit int64  `json:"limit"`
+}
+
+// A chat's newest entries below a seq, newest first.
+func (q *Queries) ListEntriesBeforeSeq(ctx context.Context, arg ListEntriesBeforeSeqParams) ([]Entry, error) {
+	rows, err := q.db.QueryContext(ctx, listEntriesBeforeSeq, arg.BotID, arg.Seq, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Entry
+	for rows.Next() {
+		var i Entry
+		if err := rows.Scan(
+			&i.BotID,
+			&i.Seq,
+			&i.Rev,
+			&i.ID,
+			&i.Kind,
+			&i.TurnID,
+			&i.Body,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGoalEvents = `-- name: ListGoalEvents :many
 SELECT id, goal_id, kind, actor_id, actor_name, text, created_at FROM goal_events WHERE goal_id = ? ORDER BY created_at, rowid
 `

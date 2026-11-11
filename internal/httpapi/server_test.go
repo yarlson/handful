@@ -176,6 +176,52 @@ func TestEntriesCatchUpByRevAndSPAFallback(t *testing.T) {
 	}
 }
 
+// A chat opens on a window of its newest entries and pages back with before;
+// a bad window is refused, and after keeps returning the changes since a rev.
+func TestEntriesWindowPagesBackAndRejectsABadOne(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	bot, err := svc.CreateBot(ctx, "Scout", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		if _, err := svc.AppendEntry(ctx, bot.ID, core.KindEvent, "", map[string]string{"text": itoa(int64(i))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := svc.Entries(ctx, bot.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(query string) []core.Entry {
+		t.Helper()
+		rec := do(h, "GET", "/api/bots/"+bot.ID+"/entries?"+query, "", nil)
+		var page struct{ Entries []core.Entry }
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); rec.Code != http.StatusOK || err != nil {
+			t.Fatalf("%s: %d %s", query, rec.Code, rec.Body)
+		}
+		return page.Entries
+	}
+	n := len(all)
+	newest := get("limit=2")
+	if len(newest) != 2 || newest[0].ID != all[n-2].ID || newest[1].ID != all[n-1].ID {
+		t.Fatalf("limit=2 = %+v; want the newest 2 in chat order", newest)
+	}
+	older := get("limit=2&before=" + itoa(newest[0].Seq))
+	if len(older) != n-2 || older[len(older)-1].ID != all[n-3].ID {
+		t.Fatalf("the 2 before seq %d = %+v; want the rest, up to the first entry", newest[0].Seq, older)
+	}
+	if changed := get("after=" + itoa(all[n-2].Rev)); len(changed) != 1 || changed[0].ID != all[n-1].ID {
+		t.Fatalf("after the second newest rev = %+v; want the newest only", changed)
+	}
+	for _, query := range []string{"limit=0", "limit=201", "limit=x", "limit=2&before=0", "limit=2&before=x", "before=3", "limit=2&after=0"} {
+		if rec := do(h, "GET", "/api/bots/"+bot.ID+"/entries?"+query, "", nil); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s; want 400", query, rec.Code, rec.Body)
+		}
+	}
+}
+
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
 
 func TestRoomEndpointsCreateListAndValidate(t *testing.T) {

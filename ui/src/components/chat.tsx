@@ -41,7 +41,7 @@ import { cn } from "@/lib/utils"
 import { botColor, colorId } from "@/lib/bot-color"
 import { FALLBACK_ALIASES, Hint, openSettings } from "@/components/model"
 import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
-import { AnswerChip, QuestionStrip } from "@/components/questions"
+import { AnswerChip, goTo, QuestionStrip } from "@/components/questions"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 import { emptyText, type TranscriptStatus } from "@/lib/transcript"
@@ -985,6 +985,9 @@ function Composer({
   )
 }
 
+// LOAD_OLDER_PX is how close to the top of the transcript a scroll loads the next older page.
+const LOAD_OLDER_PX = 800
+
 // itemsOf pairs the entries with their elements, which come first in the transcript's column.
 function itemsOf(column: HTMLElement | null, entries: Entry[]): Item[] {
   const kids = column?.children
@@ -995,6 +998,10 @@ function itemsOf(column: HTMLElement | null, entries: Entry[]): Item[] {
 export function Chat({
   bot,
   entries,
+  rev,
+  older = false,
+  onLoadOlder = () => {},
+  onReveal = async () => false,
   status = "ready",
   mentionables,
   answering = null,
@@ -1004,7 +1011,15 @@ export function Chat({
   pause = "Paused for update",
 }: {
   bot: Bot
+  // entries are the loaded window of the chat: its newest entries and the older pages loaded.
   entries: Entry[]
+  // rev is the chat's highest rev, also of updates to entries older than the window.
+  rev?: number
+  // older says the chat has entries older than the window; onLoadOlder loads the next page.
+  older?: boolean
+  onLoadOlder?: () => void
+  // onReveal loads older pages until an entry is loaded, and says whether it is.
+  onReveal?: (entryId: string) => Promise<boolean>
   // status is the transcript's load state, so an empty chat can say it is still loading.
   status?: TranscriptStatus
   mentionables: Member[]
@@ -1020,7 +1035,7 @@ export function Chat({
   // The chat's open questions, for the strip; reloaded as the transcript changes.
   const [questions, setQuestions] = useState<OpenQuestion[]>([])
   const [questionsAt, setQuestionsAt] = useState(0)
-  const transcriptRev = entries.reduce((max, e) => Math.max(max, e.rev), 0)
+  const transcriptRev = rev ?? entries.reduce((max, e) => Math.max(max, e.rev), 0)
   useEffect(() => {
     let live = true
     api.chatQuestions(bot.id).then(
@@ -1052,7 +1067,9 @@ export function Chat({
     const opened = shown.current !== bot.id
     const top = memory.target(bot.id, opened, el.scrollHeight)
     shown.current = bot.id
-    if (top === null) return
+    // An unpinned chat keeps the entry the user reads in place, also when an older page
+    // arrives above it.
+    if (top === null) return follower.settle(bot.id, el)
     // A chat the user left scrolled up reopens on the entry they left it at; its saved
     // scrollTop is only the fallback, since images above may not have loaded again yet.
     if (opened && !memory.pinned(bot.id) && follower.restore(bot.id, el, itemsOf(column.current, entries))) return
@@ -1069,7 +1086,26 @@ export function Chat({
     observer.observe(column.current)
     return () => observer.disconnect()
   }, [follower])
-  const onScroll = (el: HTMLDivElement) => setFollowing(follower.scrolled(bot.id, el, items()))
+  const onScroll = (el: HTMLDivElement) => {
+    setFollowing(follower.scrolled(bot.id, el, items()))
+    if (older && el.scrollTop < LOAD_OLDER_PX) onLoadOlder()
+  }
+  // jumping is the entry that Go to waits to show while older pages load; it shows once its
+  // page is rendered.
+  const jumping = useRef<string | null>(null)
+  const jumpTo = (entryId: string) => {
+    if (entries.some((e) => e.id === entryId)) return goTo(entryId)
+    jumping.current = entryId
+    void onReveal(entryId).then((found) => {
+      if (!found && jumping.current === entryId) jumping.current = null
+    })
+  }
+  useLayoutEffect(() => {
+    const id = jumping.current
+    if (!id || !document.getElementById(`entry-${id}`)) return
+    jumping.current = null
+    goTo(id)
+  }, [entries])
   // A wheel, key or touch input that scrolls up unpins the chat before its scroll arrives,
   // even a trackpad step too small to leave the bottom.
   useEffect(() => {
@@ -1211,6 +1247,7 @@ export function Chat({
       <div className="@container relative mx-auto w-full max-w-3xl">
         {pill}
         <QuestionStrip
+          onGoTo={jumpTo}
           questions={questions}
           room={bot.kind === "room"}
           onAnswer={answer}

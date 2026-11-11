@@ -2,27 +2,28 @@
 import type { ImageOutputFormat } from "astro";
 import { Picture } from "astro:assets";
 import Layout from "../layouts/Layout.astro";
-import GlassMark from "../components/GlassMark.astro";
+import Mark from "../components/Mark.astro";
 import Install from "../components/Install.astro";
 import { macDownloadUrl } from "../release";
 import botScreenshot from "../../../assets/screenshot.png";
 import roomScreenshot from "../../../assets/screenshot-dev-dark.png";
 import teamScreenshot from "../../../assets/screenshot-team.png";
 
-const title = "YarGPT: open-source Claude Code agents on your computer";
+const title = "Handful: open-source Claude Code agents on your computer";
 const description =
-	"YarGPT runs personal AI agents on your Mac or Linux computer. Each bot keeps its own chat, memory and routines, and works through Claude Code.";
+	"Handful runs personal AI agents on your Mac or Linux computer. Each bot keeps its own chat, memory and routines, and works through Claude Code.";
 const softwareApplication = {
 	"@context": "https://schema.org",
 	"@type": "SoftwareApplication",
-	name: "YarGPT",
+	name: "Handful",
+	alternateName: "YarGPT",
 	description,
 	url: Astro.site?.href,
 	applicationCategory: "DeveloperApplication",
 	operatingSystem: "macOS, Linux",
 	downloadUrl: macDownloadUrl,
 	license: "https://opensource.org/licenses/MIT",
-	sameAs: "https://github.com/yarlson/yargpt",
+	sameAs: "https://github.com/yarlson/handful",
 	offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
 	author: { "@type": "Person", name: "Yar Kravtsov" },
 };
@@ -56,8 +57,8 @@ const teamFeatures = [
 
 const localFeatures = [
 	{ title: "Your Claude account", text: "Each turn runs the Claude Code CLI on your machine." },
-	{ title: "Your files", text: "The SQLite database and every bot's folder are in ~/.yargpt." },
-	{ title: "One person", text: "YarGPT has no login. Use it on a computer that one person uses." },
+	{ title: "Your files", text: "The SQLite database and every bot's folder are in ~/.handful." },
+	{ title: "One person", text: "Handful has no login. Use it on a computer that one person uses." },
 	{ title: "Open source", text: "The code is on GitHub under the MIT License." },
 ];
 ---
@@ -67,25 +68,28 @@ const localFeatures = [
 	<div class={wrap}>
 		<header class="flex items-center justify-between py-5 lg:py-8">
 			<a href="/" class="inline-flex items-center gap-2.5 text-[0.9375rem] font-semibold tracking-[-0.01em]">
-				<GlassMark id="header-mark" size="1.75rem" />
-				YarGPT
+				<Mark id="header-mark" size="1.375rem" />
+				<span class="text-[1.375rem] font-semibold leading-none tracking-[-0.04em]">handful</span>
 			</a>
-			<a href="https://github.com/yarlson/yargpt" class="text-[0.9375rem] text-ink-2 transition-colors hover:text-ink">GitHub</a>
+			<a href="https://github.com/yarlson/handful" class="text-[0.9375rem] text-ink-2 transition-colors hover:text-ink">GitHub</a>
 		</header>
 	</div>
 
 	<main>
 		<section class={`${wrap} flex flex-col items-center pb-[clamp(3.5rem,11vh,7rem)] pt-[clamp(1.5rem,6vh,4.5rem)] text-center`}>
-			<GlassMark id="hero-mark" size="clamp(5.5rem, 14vmin, 7.5rem)" intro />
-			<h1 class="mt-[clamp(1.25rem,3vh,1.75rem)] max-w-[14ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
-				Your bots. Your computer.
+			<Mark id="hero-mark" size="clamp(5.5rem, 14vmin, 7rem)" variant="tile" />
+			<h1 class="mt-[clamp(1.25rem,3vh,1.75rem)] max-w-[16ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
+				A handful of bots that stay.
 			</h1>
 			<p class="mt-5 max-w-[44ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
-				YarGPT is an open-source app that runs personal AI agents on your Mac or Linux machine, through Claude Code and your own Claude account.
+				Handful is an open-source app that runs personal AI agents on your Mac or Linux machine. Each bot keeps its own chat, memory and routines, and runs Claude Code with your own Claude account.
 			</p>
 			<div class="mt-10 flex w-full justify-center">
 				<Install />
 			</div>
+			<p class="mt-8 max-w-[52ch] text-pretty text-sm text-ink-3">
+				Moving from YarGPT? Handful is the same app under a new name. Your bots, chats and teams move to ~/.handful, and ~/.yargpt becomes a link to it, so leave it in place.
+			</p>
 		</section>
 
 		<section class={`bg-band ${chapter}`}>
@@ -94,7 +98,7 @@ const localFeatures = [
 					A bot is a chat, a memory and a folder. <span class="text-ink-2">It keeps all three from one conversation to the next.</span>
 				</h2>
 				<figure class={figure}>
-					<Picture src={botScreenshot} alt="A bot's chat in YarGPT: the tools it used, its reply, and its memory in the side panel" {...screenshot} />
+					<Picture src={botScreenshot} alt="A bot's chat in Handful: the tools it used, its reply, and its memory in the side panel" {...screenshot} />
 				</figure>
 				<ul class={featureGrid}>
 					{
@@ -150,7 +154,7 @@ const localFeatures = [
 		<section class={chapter}>
 			<div class={wrap}>
 				<h2 class={heading}>
-					It all runs on your computer. <span class="text-ink-2">There is no YarGPT cloud service.</span>
+					It all runs on your computer. <span class="text-ink-2">There is no Handful cloud service.</span>
 				</h2>
 				<ul class={featureGrid}>
 					{
@@ -167,7 +171,7 @@ const localFeatures = [
 
 		<section class={`bg-band ${chapter}`}>
 			<div class={`${wrap} flex flex-col items-center gap-6 text-center`}>
-				<GlassMark id="closing-mark" size="4.5rem" />
+				<Mark id="closing-mark" size="4.5rem" variant="tile" />
 				<h2 class={heading}>Start your first bot.</h2>
 				<div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
 					<a
@@ -180,14 +184,14 @@ const localFeatures = [
 						Download for macOS
 					</a>
 					<a
-						href="https://github.com/yarlson/yargpt#install-and-start"
+						href="https://github.com/yarlson/handful#install-and-start"
 						class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line-strong px-5 text-[0.9375rem] font-[550] transition-colors hover:bg-hover active:bg-pressed"
 					>
 						Build from source
 					</a>
 				</div>
 				<p class="text-sm text-ink-3">
-					<a href="https://github.com/yarlson/yargpt/releases/latest" class="underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink">Latest release</a> · MIT License
+					<a href="https://github.com/yarlson/handful/releases/latest" class="underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink">Latest release</a> · MIT License
 				</p>
 			</div>
 		</section>
@@ -195,10 +199,10 @@ const localFeatures = [
 
 	<div class={wrap}>
 		<footer class="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-line pb-12 pt-8 text-sm text-ink-3">
-			<span>© 2026 Yar Kravtsov</span>
+			<span>© 2026 Yar Kravtsov · Formerly YarGPT</span>
 			<nav aria-label="Footer" class="flex flex-wrap gap-x-6 gap-y-2">
-				<a href="https://github.com/yarlson/yargpt" class="text-ink-2 transition-colors hover:text-ink">GitHub</a>
-				<a href="https://github.com/yarlson/yargpt/releases" class="text-ink-2 transition-colors hover:text-ink">Releases</a>
+				<a href="https://github.com/yarlson/handful" class="text-ink-2 transition-colors hover:text-ink">GitHub</a>
+				<a href="https://github.com/yarlson/handful/releases" class="text-ink-2 transition-colors hover:text-ink">Releases</a>
 				<a href="/llms.txt" class="text-ink-2 transition-colors hover:text-ink">llms.txt</a>
 			</nav>
 		</footer>

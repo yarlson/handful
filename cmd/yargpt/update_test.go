@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -98,7 +100,8 @@ func newReleaseFeed(t *testing.T, location string) (*releaseFeed, *httptest.Serv
 		if r.Method != http.MethodHead {
 			t.Errorf("method = %s; want HEAD", r.Method)
 		}
-		if loc := f.location.Load().(string); loc != "" {
+		// The page a redirect names exists, as on GitHub.
+		if loc := f.location.Load().(string); loc != "" && r.URL.Path != loc {
 			http.Redirect(w, r, loc, http.StatusFound)
 			return
 		}
@@ -202,6 +205,7 @@ func TestUpdateNoticeLogsFailuresAtDebugOnlyAndTriesAgain(t *testing.T) {
 			}
 			n, logs, _ := newTestNotice(t, url)
 			n.check(context.Background())
+			first := feed.requests.Load()
 			n.check(context.Background())
 			if n.Latest() != "" || strings.Contains(logs.String(), "level=INFO") || !strings.Contains(logs.String(), "level=DEBUG") {
 				t.Fatalf("latest %q, log %q; want nothing found and only debug lines", n.Latest(), logs)
@@ -209,8 +213,8 @@ func TestUpdateNoticeLogsFailuresAtDebugOnlyAndTriesAgain(t *testing.T) {
 			if _, err := os.Stat(n.cachePath); !os.IsNotExist(err) {
 				t.Fatalf("cache after a failed check: %v; want none, so the next check asks again", err)
 			}
-			if location != "offline" && feed.requests.Load() != 2 {
-				t.Fatalf("requests = %d; want a retry after the failure", feed.requests.Load())
+			if location != "offline" && (first == 0 || feed.requests.Load() != 2*first) {
+				t.Fatalf("requests = %d after the first check, %d after the second; want a retry after the failure", first, feed.requests.Load())
 			}
 		})
 	}
@@ -285,5 +289,56 @@ func TestStartUpdateNoticeChecksOnlyForASourceBuildThatMay(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(o.dataDir, updateCheckFile)); err != nil {
 		t.Fatalf("cache in the data directory: %v", err)
+	}
+}
+
+// After the repo's rename, its old latest page redirects to the new repo's,
+// which redirects to the tag; the check follows both on the same host.
+func TestUpdateNoticeFollowsTheRenamedReposRedirect(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/yarlson/yargpt/releases/latest":
+			http.Redirect(w, r, "/yarlson/handful/releases/latest", http.StatusMovedPermanently)
+		case "/yarlson/handful/releases/latest":
+			http.Redirect(w, r, "/yarlson/handful/releases/tag/v1.4.0", http.StatusFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	n, logs, _ := newTestNotice(t, srv.URL+"/yarlson/yargpt/releases/latest")
+	n.check(context.Background())
+	want := []string{"/yarlson/yargpt/releases/latest", "/yarlson/handful/releases/latest"}
+	if n.Latest() != "1.4.0" || !slices.Equal(paths, want) {
+		t.Fatalf("latest %q, requests %q, log %q; want 1.4.0 from %q", n.Latest(), paths, logs, want)
+	}
+}
+
+// A redirect to another host, or one redirect too many, finds no release.
+func TestUpdateNoticeRefusesARedirectToAnotherHostAndEndlessRedirects(t *testing.T) {
+	other, otherSrv := newReleaseFeed(t, "/yarlson/handful/releases/tag/v1.4.0")
+	away := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, otherSrv.URL+"/yarlson/handful/releases/latest", http.StatusMovedPermanently)
+	}))
+	t.Cleanup(away.Close)
+	var loops atomic.Int64
+	loop := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, fmt.Sprintf("/page/%d", loops.Add(1)), http.StatusFound)
+	}))
+	t.Cleanup(loop.Close)
+	for name, url := range map[string]string{"another host": away.URL, "endless": loop.URL} {
+		n, logs, _ := newTestNotice(t, url)
+		n.check(context.Background())
+		if n.Latest() != "" || !strings.Contains(logs.String(), "level=DEBUG") {
+			t.Errorf("%s: latest %q, log %q; want no release and a debug line", name, n.Latest(), logs)
+		}
+	}
+	if other.requests.Load() != 0 {
+		t.Errorf("the other host got %d requests; want none", other.requests.Load())
+	}
+	if got := loops.Load(); got != maxReleaseRedirects+1 {
+		t.Errorf("endless redirects: %d requests; want %d", got, maxReleaseRedirects+1)
 	}
 }

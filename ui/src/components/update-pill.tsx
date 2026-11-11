@@ -332,7 +332,9 @@ export function Body({
         <p className="text-sm font-medium">
           Updating after {running.length} {running.length === 1 ? "bot finishes" : "bots finish"}
         </p>
-        <p className="text-muted-foreground -mt-2 text-[13px]">New turns wait. Team goals are paused for the update.</p>
+        <p className="text-muted-foreground -mt-2 text-[13px]">
+          New turns wait. Teams pause their tasks for the update.
+        </p>
         <BotRows running={running} bots={bots} now={now} />
         <progress
           aria-label="Time left before YarGPT asks you"

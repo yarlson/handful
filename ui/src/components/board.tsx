@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ArrowDown, ArrowUp, Pin, PinOff } from "lucide-react"
-import { api, type Board, type Bot, type Goal, type Item, type Request } from "@/lib/api"
+import { api, type Board, type Bot, type Goal, type Item } from "@/lib/api"
 import { PausedForUpdate } from "@/components/update-pill"
 import {
   clock,
@@ -21,7 +21,7 @@ import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { fromUser, leadName, memberName, nextUp, taskBar, type Names } from "@/lib/tasks"
-import { canWithdraw, grouped, intakeLabel, moved, placeNote, reasonLine, showsPosition, slotHeader } from "@/lib/queue"
+import { moved, placeNote } from "@/lib/queue"
 import { cn } from "@/lib/utils"
 
 export type { Act }
@@ -82,7 +82,8 @@ export function TaskBar({
   pause = "Paused for update",
 }: {
   team: Bot
-  // version changes when the team's transcript, turns or daily budget change; it reloads the bar.
+  // version changes when the team's transcript or daily budget changes; it reloads the bar. It
+  // leaves out who is running: a key that changes faster than the board loads never shows one.
   version: string
   onShowWork?: () => void
   onOpenInbox?: () => void
@@ -235,21 +236,10 @@ export function TaskBar({
   )
 }
 
-function ItemCard({
-  team,
-  item,
-  teams,
-  children,
-}: {
-  team: Bot
-  item: Item
-  teams: Record<string, string>
-  children?: ReactNode
-}) {
-  const who =
-    item.teamId !== team.id
-      ? `Asked of team ${teams[item.teamId] ?? "a deleted team"}`
-      : `${item.ownerId ? memberName(team, item.ownerId) : "No owner yet"}${item.reviewerId ? ` · reviewed by ${memberName(team, item.reviewerId)}` : ""}`
+// StepCard is one step of the Now task: its owner and reviewer, its change requests and its
+// history.
+function StepCard({ team, item }: { team: Bot; item: Item }) {
+  const who = `${item.ownerId ? memberName(team, item.ownerId) : "No owner yet"}${item.reviewerId ? ` · reviewed by ${memberName(team, item.reviewerId)}` : ""}`
   const [history, setHistory] = useState(false)
   const historyId = `history-${item.id}`
   const count = item.eventCount ?? 0
@@ -284,7 +274,6 @@ function ItemCard({
         </div>
       )}
       {history && <ItemHistory id={historyId} item={item} />}
-      {children}
       {item.note && (item.state === "blocked" || item.state === "dropped") && <p className="text-xs">{item.note}</p>}
       <details className="text-xs">
         <summary className="text-muted-foreground cursor-pointer">Details</summary>
@@ -348,74 +337,6 @@ export function HistoryList({ id, item, events }: { id: string; item: Item; even
           )
         })}
       </ol>
-    </div>
-  )
-}
-
-// RequestCard shows a request to the team: who asked, where it waits and why.
-function RequestCard({ team, r, teams, act }: { team: Bot; r: Request; teams: Record<string, string>; act: Act }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
-        From {teams[r.fromTeamId] ?? "another team"}
-        {showsPosition(r) && (
-          <Badge variant="outline" title={`Position ${r.position} of ${r.total}`}>
-            #{r.position}
-          </Badge>
-        )}
-      </span>
-      <ItemCard team={team} item={r} teams={teams}>
-        {reasonLine(r.reason) && <p className="text-xs">{reasonLine(r.reason)}</p>}
-      </ItemCard>
-      {r.intake === "deferred" && (
-        <Button
-          size="xs"
-          variant="outline"
-          className="self-start"
-          onClick={() => void act(() => api.undeferItem(r.id))}
-        >
-          Bring back
-        </Button>
-      )}
-    </div>
-  )
-}
-
-// AskedCard shows a request this team made of another team, as the asking team sees it.
-function AskedCard({ r, teams, act }: { r: Request; teams: Record<string, string>; act: Act }) {
-  const [confirm, setConfirm] = useState(false)
-  const label = intakeLabel(r)
-  const declined = r.intake === "declined"
-  return (
-    <div className={cn("flex flex-col gap-1 rounded-md border p-2 text-sm", declined && "border-destructive/50")}>
-      <div className="flex items-start gap-2">
-        <span className="flex-1 font-medium">{r.title}</span>
-        <Badge variant={declined ? "destructive" : "outline"}>{label[0].toUpperCase() + label.slice(1)}</Badge>
-        {showsPosition(r) && <Badge variant="outline">#{r.position}</Badge>}
-      </div>
-      <p className="text-muted-foreground text-xs">Asked of team {teams[r.teamId] ?? "a deleted team"}</p>
-      {reasonLine(r.reason) && <p className="text-xs">{reasonLine(r.reason)}</p>}
-      {declined && <p className="text-destructive text-xs">Items waiting on it are blocked.</p>}
-      {canWithdraw(r) &&
-        (confirm ? (
-          <div className="flex items-center gap-2 text-xs">
-            <span>Withdraw it? Team {teams[r.teamId] ?? "the other team"} stops working on it.</span>
-            <Button
-              size="xs"
-              variant="destructive"
-              onClick={() => void act(() => api.withdrawItem(r.id)).then(() => setConfirm(false))}
-            >
-              Withdraw
-            </Button>
-            <Button size="xs" variant="ghost" onClick={() => setConfirm(false)}>
-              Keep it
-            </Button>
-          </div>
-        ) : (
-          <Button size="xs" variant="ghost" className="self-start" onClick={() => setConfirm(true)}>
-            Withdraw…
-          </Button>
-        ))}
     </div>
   )
 }
@@ -603,8 +524,8 @@ function StoppedList({ stopped, act, names, rev }: { stopped: Goal[]; act: Act; 
   )
 }
 
-// BoardTab is a team's Work tab: its Now task and steps, the plan, the inbox, the requests of
-// other teams to it, and what it sent other teams.
+// BoardTab is a team's Work tab: its Now task and steps, the tasks done and stopped, the plan,
+// turns on no task, today's budget, the inbox, and what it sent other teams.
 export function BoardTab({
   team,
   version,
@@ -661,13 +582,10 @@ export function BoardView({
   teams?: Bot[]
   onOpenInbox?: () => void
 }) {
-  const { goal, items, requests, teams } = data
+  const { goal, items } = data
   const names = boardNames(data, allTeams, team)
   const plan = data.plan ?? []
   const inbox = data.inbox ?? []
-  const asked = data.asked ?? []
-  const groups = grouped(requests)
-  const own = items.filter((i) => i.teamId === team.id || !asked.some((a) => a.id === i.id))
   const now = goal?.state === "active" || goal?.state === "paused"
   return (
     <div className="flex flex-col gap-3">
@@ -694,10 +612,10 @@ export function BoardView({
             Nothing now. The lead splits a task into steps when it starts.
           </p>
         )}
-        {goal && own.length === 0 && <p className="text-muted-foreground text-sm">No steps yet.</p>}
+        {goal && items.length === 0 && <p className="text-muted-foreground text-sm">No steps yet.</p>}
       </section>
       {stateOrder.map((state) => {
-        const group = own.filter((i) => i.state === state)
+        const group = items.filter((i) => i.state === state)
         if (group.length === 0) return null
         return (
           <section key={state} className="flex flex-col gap-1.5">
@@ -705,7 +623,7 @@ export function BoardView({
               {stateLabel[state]} ({group.length})
             </h4>
             {group.map((item) => (
-              <ItemCard key={item.id} team={team} item={item} teams={teams} />
+              <StepCard key={item.id} team={team} item={item} />
             ))}
           </section>
         )
@@ -734,47 +652,6 @@ export function BoardView({
           )}
         </div>
       </section>
-      {requests.length > 0 && data.slots && (
-        <section className="flex flex-col gap-2" aria-labelledby="requests-heading">
-          <h3 id="requests-heading" className="text-muted-foreground text-xs font-medium uppercase">
-            {slotHeader(data.slots, requests)}
-          </h3>
-          <p className="text-muted-foreground text-xs">Parts that another team's running task waits on.</p>
-          {groups.map((g) =>
-            g.group === "closed" ? (
-              <details key={g.group} className="text-xs">
-                <summary className="text-muted-foreground cursor-pointer font-medium uppercase">
-                  {g.label} ({g.items.length})
-                </summary>
-                <div className="mt-1.5 flex flex-col gap-1.5">
-                  {g.items.map((r) => (
-                    <RequestCard key={r.id} team={team} r={r} teams={teams} act={act} />
-                  ))}
-                </div>
-              </details>
-            ) : (
-              <div key={g.group} className="flex flex-col gap-1.5">
-                <h4 className="text-xs font-medium">
-                  {g.label} ({g.items.length})
-                </h4>
-                {g.items.map((r) => (
-                  <RequestCard key={r.id} team={team} r={r} teams={teams} act={act} />
-                ))}
-              </div>
-            ),
-          )}
-        </section>
-      )}
-      {asked.length > 0 && (
-        <section className="flex flex-col gap-1.5" aria-labelledby="asked-heading">
-          <h3 id="asked-heading" className="text-muted-foreground text-xs font-medium uppercase">
-            Asked of other teams ({asked.length})
-          </h3>
-          {asked.map((r) => (
-            <AskedCard key={r.id} r={r} teams={teams} act={act} />
-          ))}
-        </section>
-      )}
       <SentSection goals={data.handedOver ?? []} names={names} act={act} version={rev} />
     </div>
   )

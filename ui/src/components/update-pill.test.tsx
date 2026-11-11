@@ -118,7 +118,7 @@ test("waiting lists the bots, the time left and how to back out", () => {
   assert.include(html, "Updating after 2 bots finish")
   assert.match(html, /<progress[^>]*aria-label="Time left before YarGPT asks you"[^>]*value="21"[^>]*max="30"/)
   assert.include(html, "21 of 30 min left.")
-  assert.include(html, "New turns wait. Team goals are paused for the update.")
+  assert.include(html, "New turns wait. Teams pause their tasks for the update.")
   assert.include(html, "A background task can keep going until it ends")
   assert.include(html, "Cancel update")
   assert.notInclude(body({ state: "waiting", running: [run[0]] }), "background task can keep")

@@ -20,7 +20,6 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { slotsError } from "@/lib/queue"
 import { budgetError, decisionError, inboxError } from "@/lib/tasks"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { cn } from "@/lib/utils"
@@ -506,18 +505,16 @@ const deleteNote = {
   team: "This deletes the team, its conversation, its team memory and its shared folder. The member bots stay.",
 }
 
-// TeamSettingsForm edits what a team adds to its room: the lead, the working
-// agreement, the turns per task, the decision time and the inbox limits. Its key changes with the saved settings,
-// which resets it.
+// TeamSettingsForm edits what a team adds to its room: the lead, the working agreement, the
+// turns per day, the decision time and the inbox limits. Its key changes with the saved
+// settings, which resets it.
 function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSettings }) {
   const [lead, setLead] = useState(settings.leadId)
   const [agreement, setAgreement] = useState(settings.agreement)
   const [budget, setBudget] = useState(String(settings.dailyBudget ?? 0))
-  const [slots, setSlots] = useState(String(settings.requestSlots ?? 1))
   const [decision, setDecision] = useState(String(settings.decisionMinutes ?? 30))
   const [inboxMax, setInboxMax] = useState(String(settings.inboxMax ?? 10))
   const [perSender, setPerSender] = useState(String(settings.inboxPerSender ?? 3))
-  const [slotsInvalid, setSlotsInvalid] = useState<string | null>(null)
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
   const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
   const [result, setResult] = useState<SaveResult>(null)
@@ -530,18 +527,11 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
         setResult(failed(badTask))
         return
       }
-      const bad = slotsError(slots, members.length)
-      setSlotsInvalid(bad)
-      if (bad) {
-        setResult(failed(bad))
-        return
-      }
       // The lead goes only when it changed, so that a fallback lead does not replace the chosen one.
       await api.updateTeam(team.id, {
         ...(lead !== settings.leadId && { leadId: lead }),
         agreement,
         dailyBudget: Number(budget),
-        requestSlots: Number(slots),
         decisionMinutes: Number(decision),
         inboxMax: Number(inboxMax),
         inboxPerSender: Number(perSender),
@@ -599,30 +589,6 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           pauses until midnight. 0 is no limit: the Work tab then shows the day's count and, after a week, a suggested
           limit.
         </p>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="team-settings-slots">Requests in progress at once</Label>
-        <Input
-          id="team-settings-slots"
-          type="number"
-          min={1}
-          max={Math.max(1, members.length)}
-          value={slots}
-          aria-invalid={slotsInvalid ? true : undefined}
-          aria-describedby={
-            slotsInvalid ? "team-settings-slots-help team-settings-slots-error" : "team-settings-slots-help"
-          }
-          onChange={(e) => setSlots(e.target.value)}
-        />
-        <p id="team-settings-slots-help" className="text-muted-foreground text-xs">
-          While your team works on a task, it works on at most this many requests from other teams. Without a task, it
-          takes them all.
-        </p>
-        {slotsInvalid && (
-          <p id="team-settings-slots-error" className="text-destructive text-xs">
-            {slotsInvalid}
-          </p>
-        )}
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="team-settings-decision">Decision time, in minutes</Label>
@@ -800,7 +766,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
       </div>
       {bot.team && (
         <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.dailyBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.requestSlots}:${bot.team.decisionMinutes}:${bot.team.inboxMax}:${bot.team.inboxPerSender}`}
+          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.dailyBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.decisionMinutes}:${bot.team.inboxMax}:${bot.team.inboxPerSender}`}
           team={bot}
           settings={bot.team}
         />

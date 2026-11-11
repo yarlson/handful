@@ -51,18 +51,10 @@ test("team and goal calls go to the server's routes with their bodies", async ()
   ])
 })
 
-test("plan and request calls go to the server's routes with their bodies", async () => {
+test("starting the plan posts to its route", async () => {
   const calls = stubFetch(200)
   await api.startNextGoal("t1")
-  await api.withdrawItem("i1")
-  await api.undeferItem("i2")
-  await api.updateTeam("t1", { requestSlots: 2 })
-  assert.deepEqual(calls, [
-    { method: "POST", url: "/api/teams/t1/goal-queue/start", body: {} },
-    { method: "POST", url: "/api/items/i1/withdraw", body: {} },
-    { method: "POST", url: "/api/items/i2/undefer", body: {} },
-    { method: "PATCH", url: "/api/teams/t1", body: { requestSlots: 2 } },
-  ])
+  assert.deepEqual(calls, [{ method: "POST", url: "/api/teams/t1/goal-queue/start", body: {} }])
 })
 
 test("task calls go to the server's routes with their bodies", async () => {

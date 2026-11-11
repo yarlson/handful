@@ -2,7 +2,6 @@ import { artifactsPath, type ArtifactFilter, type ArtifactKind } from "./artifac
 import { errorMessage } from "./errors"
 import type { ServerVersion } from "./updates"
 import type { Key, Plain, SettingsView } from "./settings"
-import type { Intake, Slots } from "./queue"
 import type { ItemEvent, OpenQuestion, QuestionState, Waiting } from "./questions"
 import type { Budget } from "./tasks"
 import type { Defaults, Effective } from "./model"
@@ -16,7 +15,6 @@ export type TeamSettings = {
   goalBudget: number
   defaultModel?: string
   defaultEffort?: string
-  requestSlots?: number
   // The team's inbox holds at most inboxMax tasks, and inboxPerSender from one sending team.
   inboxMax?: number
   inboxPerSender?: number
@@ -36,7 +34,7 @@ export type Bot = {
   effort?: string // "" inherits
   effective?: Effective // its values in its direct chat; absent on rooms
   openQuestions?: number
-  incomingHandoffs?: number // on a team: handoffs that wait for it // its chat's open questions
+  incomingHandoffs?: number // on a team: the tasks in its inbox that wait for its lead
   createdAt: number
   updatedAt: number
   running: boolean
@@ -193,38 +191,17 @@ export type Item = {
   reviewRounds: number
   createdAt?: number
   updatedAt: number
-  // A request to another team carries its intake: how the serving team took it.
-  intake?: Intake
-  intakeNote?: string
-  deferRevisit?: "goal_end" | "date" | "manual"
-  deferUntil?: number
-  slotAt?: number // >0 while it holds one of the serving team's slots
-  jumpedAt?: number
   // The change request the owner works on: the latest, while no submission came after it.
   latestChange?: { round: number; by: string; at: number; text: string }
   eventCount?: number
   historyFrom?: number // set when the item is older than its history
 }
 
-// Request is an item that another team's goal asked a team to do, with its place and the
-// line that says why it waits.
-export type Request = Item & {
-  fromTeamId: string
-  position?: number
-  total?: number
-  reason?: { code: string; text: string; waitsOn?: string }
-}
-
-// Board is a team's open goal, or its latest one, with the goal's items, and
-// the requests of other teams to it. An item of the goal with another teamId
-// is a request that the team asked of another team. teams names those teams.
+// Board is a team's Now task, or its latest one, with the task's steps, the team's other
+// tasks by state, and the names of the teams they came from or went to.
 export type Board = {
   goal: Goal | null
   items: Item[]
-  requests: Request[]
-  queue: Goal[] // queued goals, in order
-  slots: Slots
-  asked: Request[] // what this team asked of other teams
   handedOver?: Goal[] // the tasks this team sent in the last 30 days, newest first
   inbox?: Goal[] // tasks that wait for the lead's decision, oldest first
   plan?: Goal[] // taken tasks, in order
@@ -337,8 +314,6 @@ export const api = {
     request<Goal>("POST", `/api/teams/${teamId}/tasks/from-turns`, t),
   // waitForBudget hides a team's budget_reached item until midnight.
   waitForBudget: (teamId: string) => request<Budget>("POST", `/api/teams/${teamId}/budget/wait`, {}),
-  withdrawItem: (id: string) => request<Item>("POST", `/api/items/${id}/withdraw`, {}),
-  undeferItem: (id: string) => request<Item>("POST", `/api/items/${id}/undefer`, {}),
   updateBot: (id: string, patch: { name?: string; instructions?: string; model?: string; effort?: string }) =>
     request<Bot>("PATCH", `/api/bots/${id}`, patch),
   deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),

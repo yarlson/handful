@@ -71,7 +71,7 @@ On the first start, YarGPT has one bot, **Builder**. It sets up bots, teams and 
 3. When you agree, Builder shows the setup on a card: each new bot with its instructions, and each team or room with its members. **Create** creates all of it at once. **Cancel** creates nothing. The card has no **Always allow**, so Builder asks you for every setup.
 
 - A setup adds at most 8 bots, 3 teams and 3 rooms. A new name must differ from the names of your bots, teams and rooms.
-- The new bots do not introduce themselves. Builder tells you where to start, for example to open a team and give it a goal.
+- The new bots do not introduce themselves. Builder tells you where to start, for example to open a team and send it a task.
 - The card shows everything that the setup creates. A setup whose texts hold an invisible character, or two blank lines in a row, is refused.
 - Builder cannot change or delete your other bots, teams or rooms, and it joins no team or room. Do that in the app.
 - YarGPT creates Builder only when it starts with no bots, teams or rooms. After you delete Builder, it does not come back while you have other bots.
@@ -161,7 +161,7 @@ To create one, click **+** next to **Teams**. Give the team a name and a purpose
 - The working agreement holds your rules for how the team works and when work is done, for example "Tests pass, and another member checks each change." In the team, it overrides each member's own instructions on how work is done and checked.
 - The members work in the team's shared folder, `~/.yargpt/teams/<team id>/workspace`.
 - The members save what the whole team needs in team memory. Open the team panel, then **Memory**, to see it or add to it. Team memory reaches the members only in the team's turns.
-- In a team turn, a member talks only to its team, in the team's channel. It does not message other bots. It can also post to a room it is a member of, when the post @mentions no one, so no bot wakes and the team's goal pays for no turn (for example, a lead's report). A post that would wake someone is refused, with the names of who it would wake.
+- In a team turn, a member talks only to its team, in the team's channel. It does not message other bots. It can also post to a room it is a member of, when the post @mentions no one, so no bot wakes and the team's budget pays for no turn (for example, a lead's report). A post that would wake someone is refused, with the names of who it would wake.
 - To change the lead or the working agreement, open the team panel, then **Settings**. When the lead leaves the team, the first member leads.
 - A bot can be a member of several teams. It keeps a separate Claude Code session for each team.
 
@@ -186,38 +186,19 @@ For work with several steps, send the team a task: type `/task` and what the tea
 - A team has one budget of turns per day. Every turn of its members counts, chat and @mentions included; the lead's decisions on the inbox don't. The team that does a task pays for it. Set **Turns per day** in the team's **Settings**; 0 is no limit. A team starts with no limit, and its **Work** tab shows **Today** with the day's count; after a week it suggests a limit, which **Use** sets. At 80%, **Needs you** warns. At the limit, the team pauses until midnight or a higher limit: running turns finish, no new turn starts, and the lead's decisions still run. Each task shows its turns so far.
 - The **Work** tab's **Not on a task** box lists the team's turns of the last hour that were on no task: who, when and the first line. **Make a task…** turns them into a task the team takes at once. The lead sees the same count and can do the same.
 - **Stop…** in the bar stops the Now task: running turns finish, its steps stay, and the next task in the plan starts. When nothing else is Now, the bar offers **Reopen**, which puts the task back in the inbox.
-- **Stop** in the team's chat pauses the task and blocks the requests of other teams that the team works on. **Resume** goes on with the task; the team's lead unblocks the requests when you ask it to.
+- **Stop** in the team's chat pauses the task. **Resume** goes on with it.
 - With `-max-parallel` above 1, the board's turns leave one slot free, so your other bots still answer while a team works.
 - In a team's turns, a member does not see the direct messages that other bots sent it. They wait for its next turn outside the team.
 
 #### Teams that work together
 
-Teams pass work to each other in two ways:
-
-- **Sending a task** gives another team a whole piece of work, for example a bug for a Dev team or an approved spec to build. The receiving team works on it from its own budget, and the sending team needs no task of its own.
-- A **request** asks another team for a part that steps of the sending team's Now task wait on, for example a Release team that asks a Docs team for a guide. It counts against that task.
-
-##### Sending tasks
+Teams pass work to each other as tasks: a whole piece of work, for example a bug for a Dev team or an approved spec to build, or a part that a step of the sending team's Now task waits on, for example a guide a Release team needs from a Docs team. The receiving team works on it from its own budget, and the sending team needs no task of its own.
 
 - A lead sends a task with a brief and any artifacts. You can too: **Send to a team…** in a team's bar, or **Send to a team…** on an artifact in the **Artifacts** tab.
 - The task lands in the receiving team's inbox, and the sidebar shows a blue count on the team. Its lead decides on it, as on any task.
 - The sending team's **Work** tab lists the tasks it sent in the last 30 days under **Sent to other teams**, with each one's state: in the other team's inbox, asked, later, its place in the other team's plan, being done with its turns ("paid by" the receiving team), done, pushed back with the reason, or withdrawn. **Answer…** replies to the receiver's question, and **Withdraw…** takes back a task that hasn't started.
+- When a step of the sender's task waits on the task, the receiving lead sees "<team>'s task waits on this". If the task is pushed back, that step is blocked with the reason, and the sending lead re-plans.
 - A team's inbox holds at most 10 tasks, and 3 from one team. Change both, and the decision time, in the team's **Settings**. Your own tasks always land. Work that came through 3 teams needs you to send it on.
-
-##### Requests
-
-The other team's lead accepts a request by assigning it to a member, declines it with a reason, or defers it with a reason and a time to look at it again.
-
-- A lead names the items of its goal that wait on the request. The request is an item of the asking team's goal: its turns count against that goal, and the goal waits for it before the lead can deliver.
-- Those items start when the request is done, and the result shows on the asking team's board.
-- While a team works on its own goal, it works on at most one request of other teams at a time; accepted requests wait their turn in arrival order. Change the number under **Requests in progress at once** in the team's **Settings**, from 1 to the number of members. Without a goal of its own, a team works on every accepted request. Looking at a new request never waits for a slot.
-- The lead accepts requests oldest first. To take one out of order, it gives a reason, which the asking team sees.
-- A declined, deferred or withdrawn request doesn't count as done: items that depend on it don't start, and the asking lead is told to re-plan.
-- The serving team's **Work** tab shows them under **Requests for other teams' goals**, in groups (in progress, waiting for a slot, awaiting triage, deferred, closed), with each one's place and why it waits. **Bring back** returns a deferred request.
-- The asking team's **Work** tab lists what it asked of other teams under **Asked of other teams**, with each request's state, place and reason. **Withdraw…** takes one back, as can the asking lead. Ending the asking goal withdraws its open requests.
-- Both teams' chats show each change of a request.
-- Only leads send requests, and a member talks only to its own team.
-- Deleting a team also deletes the requests that other teams sent to it.
 
 ### Bots that message each other
 

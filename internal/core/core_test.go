@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -897,5 +898,57 @@ func TestARoutineCreatedBetweenTheLimitCheckAndTheInsertDoesNotPassTheLimit(t *t
 	got, err := svc.ListRoutines(ctx, bot.ID)
 	if err != nil || len(got) != maxRoutinesPerBot {
 		t.Fatalf("routines = %d, %v; want %d: the create passed the limit with the concurrent one", len(got), err, maxRoutinesPerBot)
+	}
+}
+
+// A chat opens on its newest entries and loads older ones page by page, in
+// chat order, until a short page reaches its first entry.
+func TestEntryWindowPagesFromTheNewestToTheFirstEntry(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	other := newTestBot(t, svc)
+	for i := range 5 {
+		if _, err := svc.AppendEntry(ctx, bot.ID, KindEvent, "", map[string]string{"text": fmt.Sprint(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.AppendEntry(ctx, other.ID, KindEvent, "", map[string]string{"text": "other"}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := svc.Entries(ctx, bot.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seqs := func(es []Entry) []int64 {
+		out := []int64{}
+		for _, e := range es {
+			out = append(out, e.Seq)
+		}
+		return out
+	}
+	n := len(all)
+	newest, err := svc.EntryWindow(ctx, bot.ID, 0, 2)
+	if err != nil || !slices.Equal(seqs(newest), seqs(all[n-2:])) {
+		t.Fatalf("newest 2 = %v, %v; want %v", seqs(newest), err, seqs(all[n-2:]))
+	}
+	older, err := svc.EntryWindow(ctx, bot.ID, newest[0].Seq, 2)
+	if err != nil || !slices.Equal(seqs(older), seqs(all[n-4:n-2])) {
+		t.Fatalf("the 2 before %d = %v, %v; want %v", newest[0].Seq, seqs(older), err, seqs(all[n-4:n-2]))
+	}
+	first, err := svc.EntryWindow(ctx, bot.ID, all[1].Seq, 2)
+	if err != nil || !slices.Equal(seqs(first), seqs(all[:1])) {
+		t.Fatalf("the page before the second entry = %v, %v; want only the first", seqs(first), err)
+	}
+	for _, limit := range []int{0, -1, MaxEntryWindow + 1} {
+		if _, err := svc.EntryWindow(ctx, bot.ID, 0, limit); !errors.Is(err, ErrInvalid) {
+			t.Errorf("limit %d: err = %v; want ErrInvalid", limit, err)
+		}
+	}
+	if got, err := svc.EntryWindow(ctx, bot.ID, 0, 1); err != nil || len(got) != 1 || got[0].ID != all[n-1].ID {
+		t.Fatalf("limit 1 = %v, %v; want the newest entry", seqs(got), err)
+	}
+	if got, err := svc.EntryWindow(ctx, bot.ID, 0, MaxEntryWindow); err != nil || len(got) != n {
+		t.Fatalf("limit %d = %d entries, %v; want all %d", MaxEntryWindow, len(got), err, n)
 	}
 }

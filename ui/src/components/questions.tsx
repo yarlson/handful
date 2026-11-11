@@ -78,17 +78,20 @@ export function UndoNote({ undo, onUndo, error }: { undo: Asked | null; onUndo: 
 }
 
 // QuestionStrip lists a chat's open questions above its composer, with Go to, Answer and
-// Dismiss on each. It's hidden when nothing is open.
+// Dismiss on each. It's hidden when nothing is open. onGoTo shows a question's message; the
+// chat passes one that loads the message first when it isn't loaded.
 export function QuestionStrip({
   questions,
   room,
   onAnswer,
   onChange,
+  onGoTo = goTo,
 }: {
   questions: OpenQuestion[]
   room: boolean
   onAnswer: (q: Asked) => void
   onChange: () => void
+  onGoTo?: (entryId: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const { dismiss, reopen, undo, error } = useDismiss(onChange)
@@ -118,7 +121,7 @@ export function QuestionStrip({
               {time(q.createdAt)}
             </span>
             <span className="flex shrink-0 gap-1">
-              <Button size="xs" variant="ghost" aria-label={`Go to: ${q.question}`} onClick={() => goTo(q.entryId)}>
+              <Button size="xs" variant="ghost" aria-label={`Go to: ${q.question}`} onClick={() => onGoTo(q.entryId)}>
                 Go to
               </Button>
               <Button

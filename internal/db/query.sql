@@ -43,6 +43,13 @@ RETURNING *;
 -- name: GetEntry :one
 SELECT * FROM entries WHERE id = ?;
 
+-- name: ListEntriesBeforeSeq :many
+-- A chat's newest entries below a seq, newest first.
+SELECT * FROM entries
+WHERE bot_id = ? AND seq < ?
+ORDER BY seq DESC
+LIMIT ?;
+
 -- name: ListEntriesAfterRev :many
 SELECT * FROM entries
 WHERE bot_id = ? AND rev > ?

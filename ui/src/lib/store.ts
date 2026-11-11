@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { api, type Bot, type Entry, type ServerEvent } from "./api"
+import { api, type Bot, type ServerEvent } from "./api"
 import {
   drainAnswered,
   drainAsked,
@@ -10,17 +10,15 @@ import {
   type Link,
   type LinkEvent,
 } from "./connection"
-import { loadEntriesAfter } from "./entries"
+import { ChatWindows } from "./chat-windows"
 import { transcriptStep, type TranscriptEvent, type TranscriptStatus } from "./transcript"
+import type { EntryWindow } from "./window"
 
-type Transcript = { byId: Map<string, Entry>; rev: number }
-
-// useHandful keeps the bot list and the loaded transcripts in sync with the
-// server's event stream. On every (re)connect it refetches what changed after
-// the highest rev it has, so missed events cannot leave gaps.
+// useHandful keeps the bot list and the open chats' windows (chat-windows.ts) in sync with
+// the server's event stream.
 export function useHandful() {
   const [bots, setBots] = useState<Bot[]>([])
-  const [transcripts, setTranscripts] = useState<Map<string, Transcript>>(new Map())
+  const [transcripts, setTranscripts] = useState<Map<string, EntryWindow>>(new Map())
   const [unread, setUnread] = useState<Set<string>>(new Set())
   // link is the event stream's state; connection.ts holds its transitions.
   const [link, setLink] = useState<Link>("connecting")
@@ -43,15 +41,14 @@ export function useHandful() {
     linkRef.current = step.state
     setLink(step.state)
   }, [])
-  const loaded = useRef<Map<string, number>>(new Map()) // bot id -> highest rev fetched
   // status is each chat's load state; transcript.ts holds its transitions.
   const [status, setStatus] = useState<Map<string, TranscriptStatus>>(new Map())
-  const statusRef = useRef<Map<string, TranscriptStatus>>(new Map())
   const onTranscript = useCallback((botId: string, event: TranscriptEvent) => {
-    const step = transcriptStep(statusRef.current.get(botId) ?? "unloaded", event)
-    if (!step.ok) console.warn(step.error)
-    statusRef.current = new Map(statusRef.current).set(botId, step.status)
-    setStatus(statusRef.current)
+    setStatus((prev) => {
+      const step = transcriptStep(prev.get(botId) ?? "unloaded", event)
+      if (!step.ok) console.warn(step.error)
+      return new Map(prev).set(botId, step.status)
+    })
   }, [])
   const selectedRef = useRef<string | null>(null)
 
@@ -63,43 +60,26 @@ export function useHandful() {
     }
   }, [])
 
-  const merge = useCallback((botId: string, entries: Entry[]) => {
-    if (entries.length === 0) return
-    setTranscripts((prev) => {
+  const forget = useCallback((botId: string) => {
+    setStatus((prev) => {
       const next = new Map(prev)
-      const cur = next.get(botId) ?? { byId: new Map(), rev: 0 }
-      const byId = new Map(cur.byId)
-      let rev = cur.rev
-      for (const e of entries) {
-        const old = byId.get(e.id)
-        if (!old || old.rev < e.rev) byId.set(e.id, e)
-        rev = Math.max(rev, e.rev)
-      }
-      loaded.current.set(botId, Math.max(loaded.current.get(botId) ?? 0, rev))
-      next.set(botId, { byId, rev })
+      next.delete(botId)
       return next
     })
   }, [])
-
-  const loadTranscript = useCallback(
-    async (botId: string) => {
-      onTranscript(botId, "fetch")
-      try {
-        const after = loaded.current.get(botId) ?? 0
-        loaded.current.set(botId, after)
-        await loadEntriesAfter(
-          (rev) => api.entries(botId, rev),
-          after,
-          (entries) => merge(botId, entries),
-        )
-        onTranscript(botId, "loaded")
-      } catch (e) {
-        onTranscript(botId, "failed")
-        setError((e as Error).message)
-      }
-    },
-    [merge, onTranscript],
+  const [chats] = useState(
+    () =>
+      new ChatWindows({
+        page: api.entryWindow,
+        changes: api.entries,
+        onWindows: setTranscripts,
+        onStatus: onTranscript,
+        onUnload: forget,
+        onError: setError,
+      }),
   )
+  const loadOlder = useCallback((botId: string) => chats.loadOlder(botId), [chats])
+  const reveal = useCallback((botId: string, entryId: string) => chats.reveal(botId, entryId), [chats])
 
   const select = useCallback(
     (botId: string | null) => {
@@ -110,9 +90,9 @@ export function useHandful() {
         next.delete(botId)
         return next
       })
-      void loadTranscript(botId)
+      void chats.select(botId)
     },
-    [loadTranscript],
+    [chats],
   )
 
   // Many entries can arrive at once; refresh the list once after they settle.
@@ -135,7 +115,7 @@ export function useHandful() {
         () => setDrain(drainAnswered(drain.current, asked.rev, false)),
       )
       void refreshBots()
-      for (const botId of loaded.current.keys()) void loadTranscript(botId)
+      chats.reconnected()
     })
     source.onmessage = (msg) => {
       const ev = JSON.parse(msg.data as string) as ServerEvent
@@ -152,7 +132,7 @@ export function useHandful() {
       } else if (ev.type === "tasks") {
         setBots((prev) => prev.map((b) => (b.id === ev.botId ? { ...b, tasks: ev.tasks } : b)))
       } else if (ev.type === "entry") {
-        if (loaded.current.has(ev.botId)) merge(ev.botId, [ev.entry])
+        chats.update(ev.botId, [ev.entry])
         // These entries can change whether a bot waits on the user (attention).
         if (ev.entry.kind === "approval" || ev.entry.kind === "bot" || ev.entry.kind === "user") scheduleBotsRefresh()
         if (ev.botId !== selectedRef.current && (ev.entry.kind === "bot" || ev.entry.kind === "approval")) {
@@ -162,7 +142,7 @@ export function useHandful() {
     }
     source.onerror = () => onLink("error")
     return () => source.close()
-  }, [loadTranscript, merge, refreshBots, scheduleBotsRefresh, onLink, setDrain])
+  }, [chats, refreshBots, scheduleBotsRefresh, onLink, setDrain])
 
   // reorder sets the order of one sidebar section (all bots, teams or rooms). The
   // list changes at once; a failed save reloads the order from the server.
@@ -196,12 +176,9 @@ export function useHandful() {
     draining,
     restartRev,
     select,
+    loadOlder,
+    reveal,
     refreshBots,
     reorder,
   }
-}
-
-export function orderedEntries(t: Transcript | undefined): Entry[] {
-  if (!t) return []
-  return [...t.byId.values()].sort((a, b) => a.seq - b.seq)
 }

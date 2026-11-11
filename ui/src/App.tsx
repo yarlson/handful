@@ -15,9 +15,9 @@ import {
   Users,
 } from "lucide-react"
 import { botColor } from "@/lib/bot-color"
-import { api, type Bot } from "@/lib/api"
+import { api, type Bot, type Entry } from "@/lib/api"
 import { type Link, linkLabel } from "@/lib/connection"
-import { orderedEntries, useHandful } from "@/lib/store"
+import { useHandful } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
 import { MoveNotice } from "@/components/move-notice"
@@ -554,6 +554,10 @@ export function SidebarFooter({
   )
 }
 
+// NO_ENTRIES is the entries of a chat that isn't loaded: one array, so that its renders
+// don't see a change.
+const NO_ENTRIES: Entry[] = []
+
 export function App() {
   const {
     bots,
@@ -567,6 +571,8 @@ export function App() {
     draining,
     restartRev,
     select,
+    loadOlder,
+    reveal,
     refreshBots,
     reorder,
   } = useHandful()
@@ -642,7 +648,7 @@ export function App() {
   const rooms = bots.filter((b) => b.kind === "room" && !b.team)
   const teams = bots.filter((b) => b.team)
   const transcript = selected ? transcripts.get(selected) : undefined
-  const entries = orderedEntries(transcript)
+  const entries = transcript?.entries ?? NO_ENTRIES
   const waiting = useLoad(() => api.waiting(), waitingKey(bots))
   const waitingN = waiting.data ? waitingCount(waiting.data) : 0
   const taskKey = tasksKey(bots)
@@ -897,6 +903,10 @@ export function App() {
               <Chat
                 bot={bot}
                 entries={entries}
+                rev={transcript?.rev ?? 0}
+                older={!(transcript?.complete ?? true)}
+                onLoadOlder={() => void loadOlder(bot.id)}
+                onReveal={(entryId) => reveal(bot.id, entryId)}
                 status={transcriptStatus.get(bot.id) ?? "unloaded"}
                 answering={answering.get(bot.id) ?? null}
                 draining={draining}

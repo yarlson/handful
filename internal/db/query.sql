@@ -545,10 +545,10 @@ SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running
 ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
 -- name: FailedLeadTurnsSinceDone :one
--- The goal's failed board turns since the last turn that ended well, of
--- the goal or of its lead in the team, and when the last of them ended.
+-- The lead's failed board turns on the goal since the last turn that ended
+-- well, of the goal or of the lead in the team, and when the last ended.
 SELECT COUNT(*) AS failed, CAST(COALESCE(MAX(COALESCE(f.finished_at, f.created_at)), 0) AS INTEGER) AS last_failed_at FROM turns f
-WHERE f.goal_id = sqlc.arg(goal_id) AND f.board_role <> '' AND f.status = 'failed'
+WHERE f.goal_id = sqlc.arg(goal_id) AND f.bot_id = sqlc.arg(lead_id) AND f.board_role <> '' AND f.status = 'failed'
   AND f.created_at > COALESCE((SELECT MAX(d.created_at) FROM turns d WHERE d.status = 'done'
     AND (d.goal_id = sqlc.arg(goal_id) OR (d.bot_id = sqlc.arg(lead_id) AND d.room_id = sqlc.arg(team_id)))), 0);
 

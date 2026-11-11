@@ -1500,9 +1500,10 @@ func (s *Service) wakeStalledLead(ctx context.Context, g Goal, items []Item) err
 // lead turn that fails at once would otherwise be woken at every settle.
 const maxFailedLeadTurns = 3
 
-// leadGaveUp reports whether the board stops waking lead on g: its turns on
-// g failed maxFailedLeadTurns times since a turn of g, or of lead in the
-// team, ended well. It tells the team's channel once.
+// leadGaveUp reports whether the board stops waking lead on g: the lead's
+// own board turns on g failed maxFailedLeadTurns times since a turn of g, or
+// of lead in the team, ended well; members' failed turns don't count. It
+// tells the team's channel once.
 func (s *Service) leadGaveUp(ctx context.Context, team Bot, lead Member, g Goal) (bool, error) {
 	row, err := s.q.FailedLeadTurnsSinceDone(ctx, db.FailedLeadTurnsSinceDoneParams{GoalID: g.ID, LeadID: lead.ID, TeamID: team.ID})
 	if err != nil {

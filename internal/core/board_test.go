@@ -1452,3 +1452,23 @@ func TestATurnThatEndsWellLetsTheBoardWakeTheLeadAgain(t *testing.T) {
 		t.Fatalf("notes %q = %d; want one for each run of failures", gaveUpNote, n)
 	}
 }
+
+// Members' failed turns on the goal don't use up the lead's 3: the lead
+// still gets its wakes, for example to give the work to someone else.
+func TestMembersFailedTurnsDontStopTheBoardWakingTheLead(t *testing.T) {
+	ctx := context.Background()
+	f := newBoardFixture(t, 30)
+	for range 3 {
+		id, err := f.svc.queueTurn(ctx, f.svc.q, Turn{BotID: f.ana.ID, Source: SourceRoom, RoomID: f.team.ID, GoalID: f.goal.ID, BoardRole: RoleWork})
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.endTurn(t, id, "failed")
+	}
+	if woken := f.failLeadTurns(t, 10); woken != 3 {
+		t.Fatalf("lead wakes after 3 failed member turns = %d; want the lead's own 3", woken)
+	}
+	if n := f.countNotes(t, gaveUpNote); n != 1 {
+		t.Fatalf("notes %q = %d; want 1", gaveUpNote, n)
+	}
+}

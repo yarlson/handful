@@ -859,7 +859,7 @@ func (q *Queries) DeleteToolGrant(ctx context.Context, arg DeleteToolGrantParams
 
 const failedLeadTurnsSinceDone = `-- name: FailedLeadTurnsSinceDone :one
 SELECT COUNT(*) AS failed, CAST(COALESCE(MAX(COALESCE(f.finished_at, f.created_at)), 0) AS INTEGER) AS last_failed_at FROM turns f
-WHERE f.goal_id = ?1 AND f.board_role <> '' AND f.status = 'failed'
+WHERE f.goal_id = ?1 AND f.bot_id = ?2 AND f.board_role <> '' AND f.status = 'failed'
   AND f.created_at > COALESCE((SELECT MAX(d.created_at) FROM turns d WHERE d.status = 'done'
     AND (d.goal_id = ?1 OR (d.bot_id = ?2 AND d.room_id = ?3))), 0)
 `
@@ -875,8 +875,8 @@ type FailedLeadTurnsSinceDoneRow struct {
 	LastFailedAt int64 `json:"last_failed_at"`
 }
 
-// The goal's failed board turns since the last turn that ended well, of
-// the goal or of its lead in the team, and when the last of them ended.
+// The lead's failed board turns on the goal since the last turn that ended
+// well, of the goal or of the lead in the team, and when the last ended.
 func (q *Queries) FailedLeadTurnsSinceDone(ctx context.Context, arg FailedLeadTurnsSinceDoneParams) (FailedLeadTurnsSinceDoneRow, error) {
 	row := q.db.QueryRowContext(ctx, failedLeadTurnsSinceDone, arg.GoalID, arg.LeadID, arg.TeamID)
 	var i FailedLeadTurnsSinceDoneRow

@@ -68,6 +68,22 @@ function FromChip({ goal, names }: { goal: Goal; names: Names }) {
   return fromUser(goal) ? null : <SourceChip goal={goal} names={names} />
 }
 
+// NowTask starts the task bar: the Now task's state, where it came from and its title. The
+// title keeps at least 40% of the bar, so a long chip or the controls after it wrap instead of
+// squeezing it. paused names a drain that holds the task, or is null.
+export function NowTask({ goal, names, paused }: { goal: Goal; names: Names; paused: string | null }) {
+  return (
+    <>
+      <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{taskWord[goal.state]}</Badge>
+      <FromChip goal={goal} names={names} />
+      {paused && <PausedForUpdate label={paused} />}
+      <span className="min-w-[40%] flex-1 truncate" title={goal.text}>
+        {goal.text}
+      </span>
+    </>
+  )
+}
+
 // TaskBar shows a team's Now task above its channel, with the controls of its budget, the
 // way into the team's inbox, and the next task in the plan. "/task <text>" in the team's
 // chat sends the lead a task, which adds a board event to the transcript: its new rev reloads
@@ -122,12 +138,7 @@ export function TaskBar({
     <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-task-bar={bar.mode}>
       {goal && bar.mode === "now" ? (
         <>
-          <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{taskWord[goal.state]}</Badge>
-          <FromChip goal={goal} names={names} />
-          {draining && goal.state === "active" && <PausedForUpdate label={pause} />}
-          <span className="min-w-0 flex-1 truncate" title={goal.text}>
-            {goal.text}
-          </span>
+          <NowTask goal={goal} names={names} paused={draining && goal.state === "active" ? pause : null} />
           {upNext && (
             <button
               type="button"
@@ -390,9 +401,9 @@ function PlanList({
       <ol className="flex flex-col gap-1.5">
         {plan.map((g, i) => (
           <li key={g.id} className="flex flex-col gap-1 rounded-md border p-2 text-sm">
-            <div className="flex items-start gap-2">
+            <div className="flex flex-wrap items-start gap-2">
               <span className="text-muted-foreground w-4 shrink-0 text-xs">{i + 1}</span>
-              <span className="line-clamp-2 flex-1" title={g.text}>
+              <span className="line-clamp-2 min-w-[60%] flex-1" title={g.text}>
                 {g.text}
               </span>
               <FromChip goal={g} names={names} />
@@ -464,8 +475,8 @@ function DoneList({ done, act, names, rev }: { done: Goal[]; act: Act; names: Na
       <ul className="flex flex-col gap-1.5">
         {done.map((g) => (
           <li key={g.id} className="flex flex-col gap-1.5 rounded-md border p-2 text-sm">
-            <div className="flex items-start gap-2">
-              <span className="flex-1 font-medium">{g.text}</span>
+            <div className="flex flex-wrap items-start gap-2">
+              <span className="min-w-[60%] flex-1 font-medium">{g.text}</span>
               <FromChip goal={g} names={names} />
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -500,8 +511,8 @@ function StoppedList({ stopped, act, names, rev }: { stopped: Goal[]; act: Act; 
       <ul className="flex flex-col gap-1.5">
         {stopped.map((g) => (
           <li key={g.id} className="flex flex-col gap-1.5 rounded-md border p-2 text-sm">
-            <div className="flex items-start gap-2">
-              <span className="flex-1 font-medium">{g.text}</span>
+            <div className="flex flex-wrap items-start gap-2">
+              <span className="min-w-[60%] flex-1 font-medium">{g.text}</span>
               <FromChip goal={g} names={names} />
             </div>
             <p className="text-muted-foreground text-xs">
@@ -597,7 +608,7 @@ export function BoardView({
         {goal ? (
           <div className="flex flex-col gap-1 text-sm">
             <div className="flex flex-wrap items-start gap-2">
-              <span className="flex-1 font-medium">{goal.text}</span>
+              <span className="min-w-[60%] flex-1 font-medium">{goal.text}</span>
               <FromChip goal={goal} names={names} />
               {!now && <Badge variant="outline">{taskWord[goal.state]}</Badge>}
               {goal.state === "paused" && <Badge variant="destructive">Paused</Badge>}

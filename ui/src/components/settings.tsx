@@ -700,7 +700,7 @@ export function SettingsPage({
   const disk = diskNotice(view, diskChanges(view, saved))
   const title = SECTIONS.find((s) => s.id === section)?.label ?? "General"
   return (
-    <div className="bg-background text-foreground flex h-screen min-w-0 flex-1">
+    <div className="bg-background text-foreground relative flex h-dvh min-w-0 flex-1 overflow-clip">
       <aside className="flex w-52 shrink-0 flex-col gap-3 border-r px-2 py-4">
         <button
           type="button"
@@ -733,7 +733,7 @@ export function SettingsPage({
           ))}
         </nav>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto px-8 py-5">
+      <main className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5">
         <div className="max-w-[680px]">
           {restart.state === "now" && (
             <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">

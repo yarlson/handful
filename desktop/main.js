@@ -7,11 +7,11 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { setTimeout: sleep } = require("node:timers/promises")
-const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
+const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFileIn, settingsFile } = require("./app")
 const { contextMenuTemplate } = require("./context-menu")
 const { appMenuTemplate } = require("./menu")
 const { createOldServerGate, launchctlRunner } = require("./manual-move")
-const { lastStartupErrorIn, serverErrorDialog } = require("./server-log")
+const { lastStartupErrorIn, runServerErrorAction, serverErrorDialog } = require("./server-log")
 const { createSettingsBridge, registerSettingsIPC, settingsAPI } = require("./settings-bridge")
 const { createUpdater } = require("./updater")
 const { bundleChangeAction, finishingTurnsText, serverVersionAction } = require("./updater-state")
@@ -21,8 +21,11 @@ const agentLabel = "dev.yarlson.handful.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
 const agentTarget = `gui/${process.getuid()}/${agentLabel}`
 const serverBinary = path.join(process.resourcesPath, "handful")
-const dataDir = path.join(os.homedir(), ".handful")
-const configFile = path.join(dataDir, "config.json")
+// The data folder is ~/.handful, or ~/.yargpt until the server moves it
+// (app.js, settingsDir). The server can move it while the app runs, so it is
+// found each time it is used.
+const home = os.homedir()
+const configFile = () => settingsFile(home)
 const logFile = path.join(os.homedir(), "Library", "Logs", "Handful", "server.log")
 // The page copies messages to the clipboard and plays videos full screen.
 // Electron grants every other permission too, unless a handler refuses it.
@@ -41,7 +44,7 @@ const isTrusted = (event) => isTrustedFrame(event.senderFrame?.url, !!event.send
 
 const updater = createUpdater({
   serverURL,
-  dataDir,
+  configFile,
   isAppURL,
   isTrusted,
   onStateChange: () => {
@@ -84,9 +87,11 @@ const settingsBridge = createSettingsBridge({
     showErrorBox: (title, text) => dialog.showErrorBox(title, text),
   },
   shell,
-  ensureSettingsFile: () => ensureSettingsFile(dataDir),
+  ensureSettingsFile: () => ensureSettingsFileIn(home),
   configFile,
   logFile,
+  appBundle: appBundle(),
+  exists: (file) => fs.existsSync(file),
 })
 
 if (!app.requestSingleInstanceLock()) {
@@ -372,11 +377,15 @@ function showServerError() {
     return
   }
   // The detail shows the server's last startup error, such as an invalid
-  // config.json.
+  // config.json. When it is that both data folders exist, the box is S6.
   const { options, actions } = serverErrorDialog(lastStartupErrorIn(logFile), logFile)
-  const action = actions[dialog.showMessageBoxSync(options)]
-  if (action === "openSettingsFile") void openSettings()
-  else if (action === "openLog") void openFile(logFile, "the server log")
+  runServerErrorAction(actions[dialog.showMessageBoxSync(options)], {
+    home,
+    openSettingsFile: () => void openSettings(),
+    openLog: () => void openFile(logFile, "the server log"),
+    showItemInFolder: (file) => shell.showItemInFolder(file),
+    quit: () => app.quit(),
+  })
 }
 
 function openInBrowser(url) {
@@ -435,7 +444,7 @@ async function openFile(file, name) {
 async function openSettings() {
   let file
   try {
-    file = ensureSettingsFile(dataDir)
+    file = ensureSettingsFileIn(home)
   } catch (err) {
     dialog.showErrorBox("Handful could not create the settings file", err.message)
     return
@@ -451,6 +460,11 @@ async function openSettingsPage() {
   } catch (err) {
     console.error("open the Settings page:", err)
   }
+}
+
+// appBundle is the path of the running Handful.app.
+function appBundle() {
+  return path.resolve(process.execPath, "..", "..", "..")
 }
 
 function buildMenu() {

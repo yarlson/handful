@@ -36,10 +36,12 @@ contextBridge.exposeInMainWorld("handfulUpdater", updater)
 //   chooseClaude() -> the chosen program's path, or null
 //   openFile() opens config.json in the default editor
 //   revealFile() shows config.json in the Finder, revealLog() the server log
+//   showYarGPTApp() shows the old app in the Finder -> whether it found one
 contextBridge.exposeInMainWorld("handfulSettings", {
   restartServer: (when) => ipcRenderer.invoke("settings:restartServer", when),
   chooseClaude: () => ipcRenderer.invoke("settings:chooseClaude"),
   openFile: () => ipcRenderer.invoke("settings:openFile"),
   revealFile: () => ipcRenderer.invoke("settings:revealFile"),
   revealLog: () => ipcRenderer.invoke("settings:revealLog"),
+  showYarGPTApp: () => ipcRenderer.invoke("settings:showYarGPTApp"),
 })

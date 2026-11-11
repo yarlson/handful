@@ -2,6 +2,7 @@
 // cmd/handful/main.go ends a server that fails with the line "handful: <error>",
 // for example `handful: config file /Users/me/.handful/config.json: ...`.
 const fs = require("node:fs")
+const path = require("node:path")
 
 const tailBytes = 64 * 1024
 const maxLineLength = 1000
@@ -10,6 +11,14 @@ const errorPrefix = "handful: "
 const restartLine = "handful: restarting: launchd starts the server again"
 // slog's line when a server has started.
 const runningMessage = 'msg="Handful is running"'
+// The server's line when both data folders exist, so that it moved nothing
+// and stopped (spec §5, S6).
+const bothFoldersLine = "handful: both ~/.yargpt and ~/.handful exist; keep one as ~/.handful and rename the other, then start again"
+
+// isBothFoldersError reports whether a startup error is the S6 line.
+function isBothFoldersError(errorLine) {
+  return errorLine === bothFoldersLine
+}
 
 // lastStartupError returns the last line of text that reports a fatal
 // error, or null. A start after that line means the error is old, so it
@@ -58,8 +67,23 @@ function lastStartupErrorIn(file, max = tailBytes, fsys = fs) {
 }
 
 // serverErrorDialog returns the options of the message box that says the
-// server did not start, and the action of each button.
+// server did not start, and the action of each button. The S6 line gets S6,
+// which says what to do with the two data folders, instead.
 function serverErrorDialog(errorLine, logFile) {
+  if (isBothFoldersError(errorLine)) {
+    return {
+      options: {
+        type: "warning",
+        message: "Two data folders found",
+        detail:
+          "Both ~/.yargpt and ~/.handful exist, so Handful didn't move anything. Keep the folder you want as ~/.handful, and rename or remove the other one. Then open Handful again.",
+        buttons: ["Show both in Finder", "Quit"],
+        defaultId: 0,
+        cancelId: 1,
+      },
+      actions: ["showBothFolders", "quit"],
+    }
+  }
   const where = `Its log is ${logFile}.`
   return {
     options: {
@@ -74,4 +98,28 @@ function serverErrorDialog(errorLine, logFile) {
   }
 }
 
-module.exports = { tailBytes, lastStartupError, readTail, lastStartupErrorIn, serverErrorDialog }
+// runServerErrorAction does what the chosen button of serverErrorDialog says.
+//   home: the home folder, which holds ~/.yargpt and ~/.handful
+//   openSettingsFile(), openLog(): open config.json and the server log
+//   showItemInFolder(file): shows file in the Finder
+//   quit(): quits the app
+// Show both in Finder only shows the folders; it removes nothing.
+function runServerErrorAction(action, { home, openSettingsFile, openLog, showItemInFolder, quit }) {
+  if (action === "openSettingsFile") openSettingsFile()
+  else if (action === "openLog") openLog()
+  else if (action === "showBothFolders") {
+    showItemInFolder(path.join(home, ".yargpt"))
+    showItemInFolder(path.join(home, ".handful"))
+  } else if (action === "quit") quit()
+}
+
+module.exports = {
+  tailBytes,
+  bothFoldersLine,
+  isBothFoldersError,
+  lastStartupError,
+  readTail,
+  lastStartupErrorIn,
+  serverErrorDialog,
+  runServerErrorAction,
+}

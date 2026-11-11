@@ -1,13 +1,14 @@
 const assert = require("node:assert/strict")
 const http = require("node:http")
 const { test } = require("node:test")
-const { settingsMethods, settingsAPI, createSettingsBridge, registerSettingsIPC } = require("./settings-bridge")
+const { settingsMethods, oldAppPlaces, settingsAPI, createSettingsBridge, registerSettingsIPC } = require("./settings-bridge")
 
 const configFile = "/Users/me/.handful/config.json"
 const logFile = "/Users/me/Library/Logs/Handful/server.log"
+const appBundle = "/Users/me/Apps/Handful.app"
 
 // fakes builds a bridge whose dependencies log their calls.
-function fakes({ settings = { status: 200, body: { values: {} } }, restart = { status: 202, body: {} }, started = true, open = "", chosen } = {}) {
+function fakes({ settings = { status: 200, body: { values: {} } }, restart = { status: 202, body: {} }, started = true, open = "", chosen, files = [] } = {}) {
   const calls = []
   const deps = {
     api: {
@@ -43,8 +44,13 @@ function fakes({ settings = { status: 200, body: { values: {} } }, restart = { s
       calls.push("ensureSettingsFile")
       return configFile
     },
-    configFile,
+    configFile: () => configFile,
     logFile,
+    appBundle,
+    exists: (file) => {
+      calls.push(["exists", file])
+      return files.includes(file)
+    },
   }
   return { calls, bridge: createSettingsBridge(deps), deps }
 }
@@ -144,6 +150,43 @@ test("revealFile and revealLog show config.json and the server log", () => {
   ])
 })
 
+test("revealFile shows config.json where the data folder is now", () => {
+  const { calls, deps } = fakes()
+  let file = "/Users/me/.yargpt/config.json"
+  deps.configFile = () => file
+  const bridge = createSettingsBridge(deps)
+  bridge.revealFile()
+  file = "/Users/me/.handful/config.json"
+  bridge.revealFile()
+  assert.deepEqual(calls, [
+    ["showItemInFolder", "/Users/me/.yargpt/config.json"],
+    ["showItemInFolder", "/Users/me/.handful/config.json"],
+  ])
+})
+
+test("showYarGPTApp looks in /Applications, then next to Handful.app", () => {
+  assert.deepEqual(oldAppPlaces(appBundle), ["/Applications/YarGPT.app", "/Users/me/Apps/YarGPT.app"])
+  assert.deepEqual(oldAppPlaces("/Applications/Handful.app"), ["/Applications/YarGPT.app"])
+})
+
+test("showYarGPTApp shows the first YarGPT.app that exists, and returns whether it found one", async () => {
+  const both = fakes({ files: ["/Applications/YarGPT.app", "/Users/me/Apps/YarGPT.app"] })
+  assert.equal(await both.bridge.showYarGPTApp(), true)
+  assert.deepEqual(both.calls, [
+    ["exists", "/Applications/YarGPT.app"],
+    ["showItemInFolder", "/Applications/YarGPT.app"],
+  ])
+  const nextTo = fakes({ files: ["/Users/me/Apps/YarGPT.app"] })
+  assert.equal(await nextTo.bridge.showYarGPTApp(), true)
+  assert.deepEqual(nextTo.calls.at(-1), ["showItemInFolder", "/Users/me/Apps/YarGPT.app"])
+  const none = fakes({ files: ["/Users/me/YarGPT.app"] })
+  assert.equal(await none.bridge.showYarGPTApp(), false)
+  assert.deepEqual(none.calls, [
+    ["exists", "/Applications/YarGPT.app"],
+    ["exists", "/Users/me/Apps/YarGPT.app"],
+  ])
+})
+
 test("the settings channels answer only the trusted page", async () => {
   const handlers = new Map()
   const ipcMain = { handle: (channel, fn) => handlers.set(channel, fn) }
@@ -158,6 +201,13 @@ test("the settings channels answer only the trusted page", async () => {
   // A path that the page sends does not reach the bridge.
   await handlers.get("settings:revealLog")({ trusted: true }, "/etc/passwd")
   assert.deepEqual(calls.at(-1), ["showItemInFolder", logFile])
+  // showYarGPTApp takes no argument: a path from the page is not shown.
+  calls.length = 0
+  assert.equal(await handlers.get("settings:showYarGPTApp")({ trusted: true }, "/etc/passwd"), false)
+  assert.deepEqual(calls, [
+    ["exists", "/Applications/YarGPT.app"],
+    ["exists", "/Users/me/Apps/YarGPT.app"],
+  ])
 })
 
 test("settingsAPI reads the settings and asks for a restart with a JSON body", async (t) => {

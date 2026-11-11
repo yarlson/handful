@@ -33,4 +33,7 @@ YARGPT_NO_UPDATE_CHECK
 # The manual path: Handful stops the old app's server, its launch agent
 # dev.yarlson.yargpt.server, with S5's copy and the Login Items step (spec §4.2, §5).
 ^desktop/manual-move(\.test)?\.js:
+# The move notice's button (S4) shows the old app, YarGPT.app, in the Finder
+# through window.handfulSettings.showYarGPTApp, the name the page calls.
+^desktop/(preload|settings-bridge(\.test)?)\.js:[0-9]+:.*(showYarGPTApp|YarGPT\.app)
 

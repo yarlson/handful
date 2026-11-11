@@ -48,14 +48,14 @@ function signatureMode() {
 
 // createUpdater makes the updater. isTrusted(event) reports whether an IPC
 // call comes from the main frame of the app's page; onStateChange runs after
-// each change, for example to rebuild the menu.
-function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange, getWindow }) {
-  const configFile = path.join(dataDir, "config.json")
+// each change, for example to rebuild the menu. configFile() returns the
+// path of config.json, which can change while the app runs.
+function createUpdater({ serverURL, configFile, isTrusted, isAppURL, onStateChange, getWindow }) {
   const api = serverAPI(serverURL)
   const model = new UpdaterModel({
     current: app.getVersion(),
     store: fileStore(path.join(app.getPath("userData"), "update-state.json")),
-    settings: loadSettings(configFile),
+    settings: loadSettings(configFile()),
   })
   let mode = "off" // off, auto or source; set by start
   let autoUpdater = null
@@ -196,7 +196,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
   }
 
   async function updateWhenIdle() {
-    model.setSettings(loadSettings(configFile))
+    model.setSettings(loadSettings(configFile()))
     const response = await api.drain()
     if (model.startWaiting(runningOf(response)) === "install") install()
   }
@@ -294,7 +294,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
         mode = await signatureMode()
         model.mode = mode
         if (mode === "auto") loadUpdater()
-        scheduler = createScheduler({ model, settings: () => loadSettings(configFile), check })
+        scheduler = createScheduler({ model, settings: () => loadSettings(configFile()), check })
         scheduler.start()
       })()
       return started

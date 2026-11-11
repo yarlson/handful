@@ -3,7 +3,7 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
-const { tailBytes, lastStartupError, readTail, lastStartupErrorIn, serverErrorDialog } = require("./server-log")
+const { tailBytes, bothFoldersLine, isBothFoldersError, lastStartupError, readTail, lastStartupErrorIn, serverErrorDialog, runServerErrorAction } = require("./server-log")
 
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "handful-log-"))
@@ -79,4 +79,59 @@ test("the error screen offers config.json and the log, with the error line", () 
   assert.equal(options.message, "The Handful server did not start")
   assert.equal(options.detail, `${configError}\n\nIts log is /Users/me/Library/Logs/Handful/server.log.`)
   assert.equal(serverErrorDialog(null, "/l/server.log").options.detail, "Its log is /l/server.log.")
+})
+
+// The server's S6 line, word for word as cmd/handful prints it.
+const bothFolders = "handful: both ~/.yargpt and ~/.handful exist; keep one as ~/.handful and rename the other, then start again"
+
+test("the S6 line, last in the log, picks S6 instead of the generic error", (t) => {
+  assert.equal(bothFoldersLine, bothFolders)
+  const file = path.join(tempDir(t), "server.log")
+  fs.writeFileSync(file, [running, 'time=x level=INFO msg="shutting down"', bothFolders, bothFolders, ""].join("\n"))
+  const line = lastStartupErrorIn(file)
+  assert.equal(isBothFoldersError(line), true)
+  const { options, actions } = serverErrorDialog(line, file)
+  assert.equal(options.message, "Two data folders found")
+  assert.equal(
+    options.detail,
+    "Both ~/.yargpt and ~/.handful exist, so Handful didn't move anything. Keep the folder you want as ~/.handful, and rename or remove the other one. Then open Handful again.",
+  )
+  assert.deepEqual(options.buttons, ["Show both in Finder", "Quit"])
+  assert.equal(options.defaultId, 0)
+  assert.equal(options.cancelId, 1)
+  assert.deepEqual(actions, ["showBothFolders", "quit"])
+})
+
+test("other errors, and an S6 line followed by a start or another error, keep the generic screen", () => {
+  for (const line of [configError, claudeError, null, `${bothFolders} again`, "both ~/.yargpt and ~/.handful exist; keep one as ~/.handful and rename the other, then start again"]) {
+    assert.equal(isBothFoldersError(line), false, String(line))
+    const { options, actions } = serverErrorDialog(line, "/l/server.log")
+    assert.equal(options.message, "The Handful server did not start")
+    assert.deepEqual(actions, ["openSettingsFile", "openLog", null])
+  }
+  assert.equal(lastStartupError([bothFolders, running].join("\n")), null)
+  assert.equal(isBothFoldersError(lastStartupError([bothFolders, configError].join("\n"))), false)
+})
+
+test("the dialog's buttons do what they say", () => {
+  const calls = []
+  const deps = {
+    home: "/Users/me",
+    openSettingsFile: () => calls.push("openSettingsFile"),
+    openLog: () => calls.push("openLog"),
+    showItemInFolder: (file) => calls.push(["showItemInFolder", file]),
+    quit: () => calls.push("quit"),
+  }
+  const s6 = serverErrorDialog(bothFolders, "/l/server.log").actions
+  runServerErrorAction(s6[0], deps)
+  assert.deepEqual(calls, [
+    ["showItemInFolder", "/Users/me/.yargpt"],
+    ["showItemInFolder", "/Users/me/.handful"],
+  ])
+  calls.length = 0
+  runServerErrorAction(s6[1], deps)
+  assert.deepEqual(calls, ["quit"])
+  calls.length = 0
+  for (const action of serverErrorDialog(configError, "/l/server.log").actions) runServerErrorAction(action, deps)
+  assert.deepEqual(calls, ["openSettingsFile", "openLog"], "Close does nothing")
 })

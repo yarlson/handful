@@ -17,7 +17,7 @@ const { lastStartupErrorIn, serverErrorDialog } = require("./server-log")
 const { createSettingsBridge, registerSettingsIPC, settingsAPI } = require("./settings-bridge")
 const { createUpdater } = require("./updater")
 const { bundleChangeAction, finishingTurnsText, serverVersionAction } = require("./updater-state")
-const { loadSettings, runningOf, serverAPI } = require("./updater-io")
+const { loadSettings, runningOf, serverAPI, sharedDrain } = require("./updater-io")
 
 const agentLabel = "dev.yarlson.yargpt.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
@@ -54,6 +54,7 @@ const updater = createUpdater({
     if (app.isReady()) Menu.setApplicationMenu(buildMenu())
   },
   getWindow: () => window,
+  othersHoldDrain: () => bridge?.holdsDrain() ?? false,
 })
 
 // The Settings page's window.yargptSettings. Restart now registers the agent
@@ -474,7 +475,7 @@ async function startBridge() {
   }
   let bridgeWindow = null
   bridge = createBridge({
-    api,
+    api: sharedDrain(api, () => updater.holdsDrain()),
     exec: (file, args) => execFileAsync(file, args, { timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024 }),
     agent: {
       unregister: unregisterAgent,

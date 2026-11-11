@@ -11,7 +11,7 @@ const { execFile } = require("node:child_process")
 const fs = require("node:fs")
 const path = require("node:path")
 const { feedURL, UpdaterModel, botsWorkingText, isDeveloperIDSigned, menuItemFor } = require("./updater-state")
-const { createScheduler, fetchFeedVersion, fileStore, loadSettings, runningOf, serverAPI } = require("./updater-io")
+const { createScheduler, fetchFeedVersion, fileStore, loadSettings, runningOf, serverAPI, sharedDrain } = require("./updater-io")
 
 const readyPollInterval = 30_000
 const waitPollInterval = 5_000
@@ -48,10 +48,11 @@ function signatureMode() {
 
 // createUpdater makes the updater. isTrusted(event) reports whether an IPC
 // call comes from the main frame of the app's page; onStateChange runs after
-// each change, for example to rebuild the menu.
-function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange, getWindow }) {
+// each change, for example to rebuild the menu. othersHoldDrain() reports
+// whether another part of the app still needs the server's drain.
+function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange, getWindow, othersHoldDrain = () => false }) {
   const configFile = path.join(dataDir, "config.json")
-  const api = serverAPI(serverURL)
+  const api = sharedDrain(serverAPI(serverURL), othersHoldDrain)
   const model = new UpdaterModel({
     current: app.getVersion(),
     store: fileStore(path.join(app.getPath("userData"), "update-state.json")),
@@ -287,6 +288,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
   }
 
   return {
+    holdsDrain: () => model.phase === "waiting" || model.phase === "limit",
     start() {
       registerIPC()
       started = (async () => {

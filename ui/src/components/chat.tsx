@@ -55,7 +55,8 @@ import { AnswerChip, goTo, QuestionStrip } from "@/components/questions"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 import { emptyText, type TranscriptStatus } from "@/lib/transcript"
-import { covers, rangeOf, rowOffsets, rowsFor, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
+import { fits, rangeOf, RowHeights, rowOffsets, rowsFor, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
+import { KEPT_CHATS } from "@/lib/chat-windows"
 
 function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -1103,8 +1104,9 @@ export function Chat({
   const items = () => itemsOf(rowsBox.current)
   // The transcript renders only the rows near its view, whatever the number of entries loaded.
   // heights holds, by entry id, each row's height as measured when the rows rendered last
-  // changed while it was on the page.
-  const [heights] = useState(() => new Map<string, number>())
+  // changed while it was on the page, for the chats that keep their loaded entries.
+  const [rowHeights] = useState(() => new RowHeights(KEPT_CHATS))
+  const heights = rowHeights.of(bot.id)
   // span is the rows rendered in chat botId; another chat opens with its own.
   const [span, setSpan] = useState<{ botId: string; span: RowSpan } | null>(null)
   const offsets = rowOffsets(entries, heights)
@@ -1130,7 +1132,7 @@ export function Chat({
       const box = list.getBoundingClientRect()
       const top = el.getBoundingClientRect().top - box.top
       const view = { top, bottom: top + el.clientHeight }
-      if (covers(range, entries.length, { top: before, bottom: box.height - after }, view)) return
+      if (fits(range, entries.length, { top: before, bottom: box.height - after }, view)) return
       for (const row of list.children)
         heights.set((row as HTMLElement).dataset.entry ?? "", row.getBoundingClientRect().height)
       next = rowsFor(rowOffsets(entries, heights), view.top, view.bottom)

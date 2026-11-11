@@ -1,5 +1,5 @@
 import type { Entry } from "./api"
-import { seqIndex } from "./window"
+import { keptChats, seqIndex } from "./window"
 
 // ROW_GAP is the space between two rows of the transcript, in pixels: its column's gap-3.
 export const ROW_GAP = 12
@@ -54,10 +54,12 @@ function rowAt(offsets: number[], y: number): number {
   return lo
 }
 
-// covers tells whether the rendered rows, which reach from top to bottom in the rows' pixels,
-// still cover the view with half of ROW_MARGIN to spare, or reach the chat's edge. While they
-// do, a scroll renders no new rows.
-export function covers(
+// fits tells whether the rendered rows, which reach from top to bottom in the rows' pixels,
+// still suit the view: they cover it with half of ROW_MARGIN to spare, or reach the chat's
+// edge, and they reach no more than twice ROW_MARGIN past it. While they fit, a scroll or a new
+// entry renders no other rows; rows that reach too far, as when a chat that follows the bottom
+// gets new entries, are trimmed.
+export function fits(
   range: RowRange,
   count: number,
   rendered: { top: number; bottom: number },
@@ -65,7 +67,26 @@ export function covers(
 ): boolean {
   const above = range.start === 0 || rendered.top <= view.top - ROW_MARGIN / 2
   const below = range.end === count || rendered.bottom >= view.bottom + ROW_MARGIN / 2
-  return above && below
+  const near = rendered.top >= view.top - 2 * ROW_MARGIN && rendered.bottom <= view.bottom + 2 * ROW_MARGIN
+  return above && below && near
+}
+
+// RowHeights keeps the measured heights of rows, by entry id, for the chats opened most
+// recently: a chat's map lasts while it is one of the last max chats opened.
+export class RowHeights {
+  private chats = new Map<string, Map<string, number>>()
+  private recent: string[] = []
+
+  constructor(private max: number) {}
+
+  // of returns chat id's heights, and drops those of the chats opened before the last max.
+  of(id: string): Map<string, number> {
+    this.recent = keptChats(this.recent, id, this.max)
+    for (const old of this.chats.keys()) if (!this.recent.includes(old)) this.chats.delete(old)
+    let heights = this.chats.get(id)
+    if (!heights) this.chats.set(id, (heights = new Map()))
+    return heights
+  }
 }
 
 // RowSpan is a range of rows by their entries' seqs, so that it stays on the same entries when

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
 import {
   Inbox,
   LayoutDashboard,
@@ -587,7 +587,17 @@ export function App() {
   const [creatingRoom, setCreatingRoom] = useState(false)
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [connectors, setConnectors] = useState(false)
-  const [panel, setPanel] = useState(true)
+  // Below 64rem the panel covers the chat, so a narrow window starts with it closed.
+  const [panel, setPanel] = useState(() => window.matchMedia("(min-width: 64rem)").matches)
+  // closesOnEscape makes Escape inside the panel close it where it covers the chat.
+  const closesOnEscape = useCallback((el: HTMLElement | null) => {
+    if (!el) return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape" && !window.matchMedia("(min-width: 64rem)").matches) setPanel(false)
+    }
+    el.addEventListener("keydown", onKey)
+    return () => el.removeEventListener("keydown", onKey)
+  }, [])
   // screen is what the main area shows: the selected chat, its team's inbox, Waiting for you or Across teams.
   const [screen, setScreen] = useState<"chat" | "inbox" | "waiting" | "across">("chat")
   const [show, setShow] = useState<{ tab: string; n: number } | undefined>()
@@ -657,6 +667,17 @@ export function App() {
   const needsN = needs.data?.length ?? 0
   const chatName = (id: string) => bots.find((b) => b.id === id)?.name ?? "a deleted chat"
 
+  // view is what the main area shows; only a chat has the side panel.
+  const view =
+    screen === "across"
+      ? "across"
+      : screen === "inbox" && bot?.team
+        ? "inbox"
+        : screen === "waiting" && waiting.data
+          ? "waiting"
+          : bot
+            ? "chat"
+            : "empty"
   // A drain that the updater didn't start is a settings restart.
   const pause = pauseLabel(update.state?.state === "waiting" || update.state?.state === "limit")
 
@@ -803,146 +824,155 @@ export function App() {
         onDoubleClick={() => setWidth(sidebarWidth.initial)}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        {error && (
-          <div className="bg-destructive/10 text-destructive flex items-center justify-between px-4 py-2 text-sm">
-            {error}
-            <Button size="xs" variant="ghost" onClick={() => setError(null)}>
-              Dismiss
-            </Button>
-          </div>
-        )}
-        {pausedUntil && (
-          <div className="bg-amber-500/10 px-4 py-2 text-sm">
-            Claude usage limit reached. New turns wait until{" "}
-            {new Date(pausedUntil).toLocaleString([], {
-              weekday: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-            .
-          </div>
-        )}
-        {screen === "across" ? (
-          <AcrossScreen
-            needs={needs.data ?? []}
-            teams={teams}
-            version={taskKey}
-            chatName={chatName}
-            onOpen={openChat}
-            onChange={needs.reload}
-          />
-        ) : screen === "inbox" && bot?.team ? (
-          <InboxScreen
-            key={bot.id}
-            team={bot}
-            version={`${transcript?.rev ?? 0}:${taskKey}`}
-            teams={teams}
-            botName={(id) => bots.find((b) => b.id === id)?.name ?? "a deleted bot"}
-            usageLimit={Boolean(pausedUntil)}
-            draining={draining}
-            onBack={() => setScreen("chat")}
-          />
-        ) : screen === "waiting" && waiting.data ? (
-          <WaitingView
-            waiting={waiting.data}
-            bots={bots}
-            onOpen={openChat}
-            onAnswer={(chatId, q) => {
-              setAnswer(chatId, q)
-              openChat(chatId)
-              requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
-            }}
-            onChange={waiting.reload}
-          />
-        ) : bot ? (
-          <>
-            <header className="flex h-12 items-center gap-2 border-b px-4">
-              <span className="max-w-[60%] shrink-0 truncate font-medium" title={bot.name}>
-                {bot.name}
-              </span>
-              <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm" title={subtitle}>
-                {subtitle}
-              </span>
-              {bot.effective && (
-                <ModelChip effective={bot.effective} aliases={aliases} onClick={() => showTab("settings")} />
-              )}
-              {bot.team && defaults && (
-                <ModelChip
-                  effective={teamEffective(bot.team, defaults)}
-                  aliases={aliases}
-                  prefix="Team: "
-                  suffix={overrides(bot.members ?? []) > 0 ? "· mixed" : ""}
-                  action="Open members."
-                  onClick={() => showTab("members")}
+      <main className="flex min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {error && (
+            <div className="bg-destructive/10 text-destructive flex items-center justify-between px-4 py-2 text-sm">
+              {error}
+              <Button size="xs" variant="ghost" onClick={() => setError(null)}>
+                Dismiss
+              </Button>
+            </div>
+          )}
+          {pausedUntil && (
+            <div className="bg-amber-500/10 px-4 py-2 text-sm">
+              Claude usage limit reached. New turns wait until{" "}
+              {new Date(pausedUntil).toLocaleString([], {
+                weekday: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              .
+            </div>
+          )}
+          {view === "across" ? (
+            <AcrossScreen
+              needs={needs.data ?? []}
+              teams={teams}
+              version={taskKey}
+              chatName={chatName}
+              onOpen={openChat}
+              onChange={needs.reload}
+            />
+          ) : view === "inbox" && bot?.team ? (
+            <InboxScreen
+              key={bot.id}
+              team={bot}
+              version={`${transcript?.rev ?? 0}:${taskKey}`}
+              teams={teams}
+              botName={(id) => bots.find((b) => b.id === id)?.name ?? "a deleted bot"}
+              usageLimit={Boolean(pausedUntil)}
+              draining={draining}
+              onBack={() => setScreen("chat")}
+            />
+          ) : view === "waiting" && waiting.data ? (
+            <WaitingView
+              waiting={waiting.data}
+              bots={bots}
+              onOpen={openChat}
+              onAnswer={(chatId, q) => {
+                setAnswer(chatId, q)
+                openChat(chatId)
+                requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
+              }}
+              onChange={waiting.reload}
+            />
+          ) : bot ? (
+            <>
+              <header className="flex h-12 items-center gap-2 border-b px-4">
+                <span className="max-w-[60%] shrink-0 truncate font-medium" title={bot.name}>
+                  {bot.name}
+                </span>
+                <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm" title={subtitle}>
+                  {subtitle}
+                </span>
+                {bot.effective && (
+                  <ModelChip effective={bot.effective} aliases={aliases} onClick={() => showTab("settings")} />
+                )}
+                {bot.team && defaults && (
+                  <ModelChip
+                    effective={teamEffective(bot.team, defaults)}
+                    aliases={aliases}
+                    prefix="Team: "
+                    suffix={overrides(bot.members ?? []) > 0 ? "· mixed" : ""}
+                    action="Open members."
+                    onClick={() => showTab("members")}
+                  />
+                )}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="shrink-0"
+                  aria-label="Toggle panel"
+                  onClick={() => setPanel((v) => !v)}
+                >
+                  <PanelRight />
+                </Button>
+              </header>
+              {bot.team && (
+                <TaskBar
+                  key={bot.id}
+                  team={bot}
+                  version={`${transcript?.rev ?? 0}:${bot.team.dailyBudget ?? ""}`}
+                  onShowWork={() => showTab("board")}
+                  onOpenInbox={() => setScreen("inbox")}
+                  teams={teams}
+                  draining={draining}
+                  pause={pause}
                 />
               )}
-              <Button
-                size="icon"
-                variant="ghost"
-                className="shrink-0"
-                aria-label="Toggle panel"
-                onClick={() => setPanel((v) => !v)}
-              >
-                <PanelRight />
-              </Button>
-            </header>
-            {bot.team && (
-              <TaskBar
-                key={bot.id}
-                team={bot}
-                version={`${transcript?.rev ?? 0}:${bot.team.dailyBudget ?? ""}`}
-                onShowWork={() => showTab("board")}
-                onOpenInbox={() => setScreen("inbox")}
-                teams={teams}
-                draining={draining}
-                pause={pause}
-              />
-            )}
-            <div className="flex min-h-0 flex-1">
-              <Chat
-                bot={bot}
-                entries={entries}
-                rev={transcript?.rev ?? 0}
-                older={!(transcript?.complete ?? true)}
-                onLoadOlder={() => void loadOlder(bot.id)}
-                onReveal={(entryId) => reveal(bot.id, entryId)}
-                status={transcriptStatus.get(bot.id) ?? "unloaded"}
-                answering={answering.get(bot.id) ?? null}
-                draining={draining}
-                pause={pause}
-                pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
-                onAnswer={(q) => setAnswer(bot.id, q)}
-                mentionables={
-                  bot.kind === "room"
-                    ? (bot.members ?? [])
-                    : agents.filter((a) => a.id !== bot.id).map((a) => ({ id: a.id, name: a.name }))
-                }
-              />
-              {panel && (
-                <aside className="w-80 shrink-0 border-l">
-                  <BotPanel
-                    bot={bot}
-                    agents={agents}
-                    version={transcript?.rev ?? 0}
-                    onDeleted={() => setSelected(null)}
-                    show={show}
-                    teams={teams}
-                    onOpenInbox={() => setScreen("inbox")}
-                  />
-                </aside>
-              )}
+              <div className="flex min-h-0 flex-1">
+                <Chat
+                  bot={bot}
+                  entries={entries}
+                  rev={transcript?.rev ?? 0}
+                  older={!(transcript?.complete ?? true)}
+                  onLoadOlder={() => void loadOlder(bot.id)}
+                  onReveal={(entryId) => reveal(bot.id, entryId)}
+                  status={transcriptStatus.get(bot.id) ?? "unloaded"}
+                  answering={answering.get(bot.id) ?? null}
+                  draining={draining}
+                  pause={pause}
+                  pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
+                  onAnswer={(q) => setAnswer(bot.id, q)}
+                  mentionables={
+                    bot.kind === "room"
+                      ? (bot.members ?? [])
+                      : agents.filter((a) => a.id !== bot.id).map((a) => ({ id: a.id, name: a.name }))
+                  }
+                />
+              </div>
+            </>
+          ) : (
+            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+              Create a bot to start.
             </div>
-          </>
-        ) : (
-          <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-            Create a bot to start.
-          </div>
-        )}
-        {(screen !== "chat" || !bot) && update.state && shown(update.state) && (
-          <div className="@container">
-            <UpdatePill update={update} bots={bots} floating />
-          </div>
+          )}
+          {view !== "chat" && update.state && shown(update.state) && (
+            <div className="@container">
+              <UpdatePill update={update} bots={bots} floating />
+            </div>
+          )}
+        </div>
+        {view === "chat" && bot && panel && (
+          // The panel has the sidebar's colors. On them the destructive red, which is under AA in
+          // light mode, takes a darker shade.
+          <aside
+            aria-label="Chat panel"
+            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl [&_[data-variant=destructive]]:text-red-700 dark:[&_[data-variant=destructive]]:text-destructive"
+            ref={closesOnEscape}
+          >
+            <BotPanel
+              bot={bot}
+              agents={agents}
+              version={transcript?.rev ?? 0}
+              onDeleted={() => setSelected(null)}
+              show={show}
+              teams={teams}
+              onOpenInbox={() => setScreen("inbox")}
+              onClose={() => setPanel(false)}
+            />
+          </aside>
         )}
       </main>
       <ConnectorsDialog open={connectors} onOpenChange={setConnectors} bots={agents} />

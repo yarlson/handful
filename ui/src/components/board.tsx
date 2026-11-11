@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { ArrowDown, ArrowUp, Pin, PinOff } from "lucide-react"
+import { ArrowDown, ArrowUp, Pin, PinOff, Send } from "lucide-react"
 import { api, type Board, type Bot, type Goal, type Item } from "@/lib/api"
 import { PausedForUpdate } from "@/components/update-pill"
 import {
@@ -135,14 +135,14 @@ export function TaskBar({
   const bar = taskBar(goal, plan.length)
   const upNext = nextUp(plan)
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-task-bar={bar.mode}>
+    <div className="@container flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-task-bar={bar.mode}>
       {goal && bar.mode === "now" ? (
         <>
           <NowTask goal={goal} names={names} paused={draining && goal.state === "active" ? pause : null} />
           {upNext && (
             <button
               type="button"
-              className="text-muted-foreground hover:text-foreground max-w-[30%] truncate text-xs underline-offset-2 hover:underline"
+              className="text-muted-foreground hover:text-foreground hidden max-w-[20%] truncate text-xs underline-offset-2 hover:underline @min-[96rem]:block"
               title={upNext}
               onClick={onShowWork}
             >
@@ -150,7 +150,7 @@ export function TaskBar({
             </button>
           )}
           {board.data.budget?.paused && <ToneChip tone="attention">Today's turns used</ToneChip>}
-          <span className="text-muted-foreground text-xs">
+          <span className="text-muted-foreground hidden shrink-0 text-xs @4xl:inline">
             {goal.used} {goal.used === 1 ? "turn" : "turns"} so far
           </span>
           {bar.actions.includes("approve") && (
@@ -237,8 +237,16 @@ export function TaskBar({
         Inbox <strong>{inbox}</strong>
       </Button>
       {teams.length > 1 && (
-        <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
-          Send to a team…
+        <Button
+          size="xs"
+          variant="ghost"
+          aria-haspopup="dialog"
+          aria-label="Send to a team…"
+          title="Send to a team…"
+          onClick={() => setSending(true)}
+        >
+          <Send />
+          <span className="hidden @2xl:inline">Send to a team…</span>
         </Button>
       )}
       <SendTaskDialog open={sending} onOpenChange={setSending} from={team} teams={teams} onDone={board.reload} />

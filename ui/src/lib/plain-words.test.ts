@@ -22,9 +22,9 @@ const CODE_CALLS = new Set([
   "replace",
   "includes",
 ])
-// CODE_VALUES are the strings that stay as code on purpose: the old command and attention
-// names the server still sends or accepts.
-const CODE_VALUES = new Set(["goal", "/goal"])
+// CODE_VALUES are the strings that stay as code on purpose, by file under ui/src: the old
+// command names the server still accepts.
+const CODE_VALUES: Record<string, string[]> = { "lib/skills.ts": ["goal"], "lib/task-command.ts": ["/goal"] }
 
 type Node = { type: string; [key: string]: unknown }
 
@@ -39,13 +39,13 @@ function classList(text: string): boolean {
 // shownStrings lists the strings of a TSX or TS source that the user may read: JSX text and
 // every string and template, except code. Code is a class list, an import, a type, a key, an
 // operand of a comparison or a case, the argument of a code call or the value of a code
-// attribute, and the values in CODE_VALUES.
+// attribute.
 export function shownStrings(path: string, source: string): string[] {
   const { program, errors } = parseSync(path, source, { lang: path.endsWith(".tsx") ? "tsx" : "ts" })
   if (errors.length > 0) throw new Error(`${path}: ${errors[0].message}`)
   const out: string[] = []
   const add = (text: string) => {
-    if (!classList(text) && !CODE_VALUES.has(text)) out.push(text)
+    if (!classList(text)) out.push(text)
   }
   const visit = (node: unknown, code: boolean) => {
     if (Array.isArray(node)) return node.forEach((n) => visit(n, code))
@@ -105,6 +105,7 @@ test("the scanner finds a banned word in any string the user may read, not in co
      const b2 = "grid size-10 place-items-center rounded-full"
      const c = request("POST", "/api/goals/1")
      const commands = ["clear", "goal"]
+     const k = <span>{done ? "goal" : "task"}</span>
      const m = map["slots"]
      const d = \`Next goal: \${x}\`
      const e = <div className="items-start" id="goal" title="Your goal">End goal {"the item"}</div>
@@ -120,6 +121,8 @@ test("the scanner finds a banned word in any string the user may read, not in co
   assert.deepEqual(
     found.filter((s) => BANNED.test(s)),
     [
+      "goal",
+      "goal",
       "Next goal: ",
       "Your goal",
       "End goal ",
@@ -143,7 +146,7 @@ test("no string the user reads names a goal, an item, a slot, triage or a handof
   const root = join(import.meta.dirname, "..")
   const hits = sources(root).flatMap((path) =>
     shownStrings(path, readFileSync(path, "utf8"))
-      .filter((s) => BANNED.test(s))
+      .filter((s) => BANNED.test(s) && !CODE_VALUES[relative(root, path)]?.includes(s))
       .map((s) => `${relative(root, path)}: ${JSON.stringify(s.trim())}`),
   )
   assert.deepEqual(hits, [])

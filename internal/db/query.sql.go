@@ -334,24 +334,6 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 	return err
 }
 
-const countBoardNotesSince = `-- name: CountBoardNotesSince :one
-SELECT COUNT(*) FROM entries
-WHERE bot_id = ?1 AND kind = 'event' AND json_extract(body, '$.text') = ?2 AND created_at >= ?3
-`
-
-type CountBoardNotesSinceParams struct {
-	TeamID string `json:"team_id"`
-	Text   string `json:"text"`
-	Since  int64  `json:"since"`
-}
-
-func (q *Queries) CountBoardNotesSince(ctx context.Context, arg CountBoardNotesSinceParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countBoardNotesSince, arg.TeamID, arg.Text, arg.Since)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countChatMessagesSince = `-- name: CountChatMessagesSince :one
 SELECT count(*) FROM entries WHERE kind IN ('user', 'bot', 'agent') AND created_at > ?
 `
@@ -585,6 +567,25 @@ type CountTeamTurnsBetweenParams struct {
 // decisions and its other board wakes on no task, which are free.
 func (q *Queries) CountTeamTurnsBetween(ctx context.Context, arg CountTeamTurnsBetweenParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countTeamTurnsBetween, arg.FromMs, arg.ToMs, arg.TeamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countTurnNotes = `-- name: CountTurnNotes :one
+SELECT COUNT(*) FROM entries
+WHERE bot_id = ?1 AND turn_id = ?2 AND kind = 'event' AND json_extract(body, '$.text') = ?3
+`
+
+type CountTurnNotesParams struct {
+	TeamID string `json:"team_id"`
+	TurnID string `json:"turn_id"`
+	Text   string `json:"text"`
+}
+
+// Board notes in a team's channel with text about one turn.
+func (q *Queries) CountTurnNotes(ctx context.Context, arg CountTurnNotesParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTurnNotes, arg.TeamID, arg.TurnID, arg.Text)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -858,9 +859,12 @@ func (q *Queries) DeleteToolGrant(ctx context.Context, arg DeleteToolGrantParams
 }
 
 const failedLeadTurnsSinceDone = `-- name: FailedLeadTurnsSinceDone :one
-SELECT COUNT(*) AS failed, CAST(COALESCE(MAX(COALESCE(f.finished_at, f.created_at)), 0) AS INTEGER) AS last_failed_at FROM turns f
+SELECT COUNT(*) AS failed,
+  CAST(COALESCE((SELECT l.id FROM turns l WHERE l.goal_id = ?1 AND l.bot_id = ?2 AND l.board_role <> '' AND l.status = 'failed'
+    ORDER BY l.rowid DESC LIMIT 1), '') AS TEXT) AS last_failed_id
+FROM turns f
 WHERE f.goal_id = ?1 AND f.bot_id = ?2 AND f.board_role <> '' AND f.status = 'failed'
-  AND f.created_at > COALESCE((SELECT MAX(d.created_at) FROM turns d WHERE d.status = 'done'
+  AND f.rowid > COALESCE((SELECT MAX(d.rowid) FROM turns d WHERE d.status = 'done'
     AND (d.goal_id = ?1 OR (d.bot_id = ?2 AND d.room_id = ?3))), 0)
 `
 
@@ -871,16 +875,18 @@ type FailedLeadTurnsSinceDoneParams struct {
 }
 
 type FailedLeadTurnsSinceDoneRow struct {
-	Failed       int64 `json:"failed"`
-	LastFailedAt int64 `json:"last_failed_at"`
+	Failed       int64  `json:"failed"`
+	LastFailedID string `json:"last_failed_id"`
 }
 
 // The lead's failed board turns on the goal since the last turn that ended
-// well, of the goal or of the lead in the team, and when the last ended.
+// well, of the goal or of the lead in the team, and the id of the last
+// failed one. Insertion order (rowid) orders them: turns queued in the same
+// millisecond have the same created_at.
 func (q *Queries) FailedLeadTurnsSinceDone(ctx context.Context, arg FailedLeadTurnsSinceDoneParams) (FailedLeadTurnsSinceDoneRow, error) {
 	row := q.db.QueryRowContext(ctx, failedLeadTurnsSinceDone, arg.GoalID, arg.LeadID, arg.TeamID)
 	var i FailedLeadTurnsSinceDoneRow
-	err := row.Scan(&i.Failed, &i.LastFailedAt)
+	err := row.Scan(&i.Failed, &i.LastFailedID)
 	return i, err
 }
 

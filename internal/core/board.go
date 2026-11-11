@@ -1513,11 +1513,13 @@ func (s *Service) leadGaveUp(ctx context.Context, team Bot, lead Member, g Goal)
 		return false, nil
 	}
 	text := fmt.Sprintf("%s failed %d turns in a row on %q; the board stops waking %s. Write to %s in the channel to try again.", lead.Name, maxFailedLeadTurns, g.Text, lead.Name, lead.Name)
-	n, err := s.q.CountBoardNotesSince(ctx, db.CountBoardNotesSinceParams{TeamID: team.ID, Text: text, Since: row.LastFailedAt})
+	// The note names the turn that ended the run, so later ticks find it.
+	n, err := s.q.CountTurnNotes(ctx, db.CountTurnNotesParams{TeamID: team.ID, TurnID: row.LastFailedID, Text: text})
 	if err != nil || n > 0 {
 		return true, err
 	}
-	return true, s.boardNote(ctx, team.ID, text)
+	_, err = s.AppendEntry(ctx, team.ID, KindEvent, row.LastFailedID, map[string]string{"type": "board", "text": text})
+	return true, err
 }
 
 // ReviewsItem reports whether the bot reviews an item in review in the team,

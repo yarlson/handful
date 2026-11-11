@@ -66,6 +66,18 @@ test("a bot's tool rows have the color of its posts", () => {
   assert.equal(colorOf(tool(solo, { bot: "Solo" }), solo), colorOf(post(solo), solo))
 })
 
+// A row leaves the page when it scrolls far from the view, so its chat keeps whether a tool
+// run is expanded.
+test("a tool run shows its output only while its chat has it expanded", () => {
+  const run = tool(solo, { output: "file.txt" })
+  const render = (expanded?: boolean) =>
+    renderToStaticMarkup(<EntryView entry={run} chat={solo} skill={null} expanded={expanded} />)
+  assert.notInclude(render(), "file.txt", "a tool run starts collapsed")
+  assert.notInclude(render(false), "file.txt")
+  assert.include(render(true), "<pre")
+  assert.include(render(true), "file.txt")
+})
+
 test("a model error names the problem as an alert with a way to the settings", () => {
   const entry: Entry = {
     ...base,

@@ -1,0 +1,57 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+const h2 = "mt-14 text-[1.5rem] font-[560] tracking-[-0.025em]";
+const list = "mt-4 space-y-3 text-pretty text-base text-ink-2";
+const term = "font-[550] text-ink";
+const code = "rounded bg-fill px-1 py-0.5 font-mono text-[0.875em]";
+---
+
+<Layout title="Security · Handful" description="What Handful sends, what a bot asks first, and what Handful does not protect.">
+	<Header />
+	<main class="mx-auto w-full max-w-3xl px-6 pb-24 pt-[clamp(1.5rem,6vh,4rem)] sm:px-10">
+		<h1 class="text-balance text-[clamp(2rem,4.4vw,3.25rem)] font-[560] leading-[1.08] tracking-[-0.04em]">What Handful sends, asks and does not protect</h1>
+		<p class="mt-5 text-pretty text-lg text-ink-2">
+			Handful is a server and a folder on your computer. This page says what leaves the computer, what a bot must ask you first, and where Handful gives no protection.
+		</p>
+
+		<h2 class={h2}>What leaves your computer</h2>
+		<ul class={list}>
+			<li>
+				<span class={term}>Claude Code's own traffic.</span> Each turn runs the Claude Code CLI, which talks to Anthropic with the account you signed in with. Handful does not read or store that login.
+			</li>
+			<li>
+				<span class={term}>One update check a day.</span> The Mac app looks for a new release on GitHub once a day and installs it only when you say so. A copy built from source only tells you that a release is out. To turn the check off, put <code class={code}>"updates": &#123;"autoCheck": false&#125;</code> in <code class={code}>~/.handful/config.json</code>, or set <code class={code}>HANDFUL_NO_UPDATE_CHECK=1</code> for a copy built from source.
+			</li>
+			<li>
+				<span class={term}>What you connect.</span> A connector that you add in <code class={code}>~/.handful/connectors.json</code> gives bots the tools of that server.
+			</li>
+			<li><span class={term}>What bots do.</span> A bot searches the web without asking. A command that you approve can go anywhere you can.</li>
+			<li>
+				<span class={term}>Nothing else.</span> Handful has no account, no analytics and no server of its own. A picture from the web in a chat shows as a link; Handful does not load it.
+			</li>
+		</ul>
+
+		<h2 class={h2}>What a bot asks first</h2>
+		<p class="mt-4 text-pretty text-base text-ink-2">
+			A bot reads files and searches the web without asking. Before it runs a command, changes a file or uses a connector's tool, it shows you a card: Allow once, Always allow, or Deny. A card you do not answer expires after 10 minutes.
+		</p>
+
+		<h2 class={h2}>What Handful does not protect</h2>
+		<p class="mt-4 text-pretty text-base text-ink">Handful has no login. It is safe only on a computer that one person uses.</p>
+		<ul class={`${list} list-disc pl-5`}>
+			<li>It listens on loopback only, and it rejects requests from other hosts and other web origins.</li>
+			<li>Bots run as your user. A command that you approve can do anything that you can do, so read each card.</li>
+			<li>Bots are not isolated from each other. Any bot can read any file, including another bot's folder and the tokens of your connectors.</li>
+			<li>A team keeps its members' work in one place. It is not a security boundary.</li>
+		</ul>
+
+		<h2 class={h2}>Found a problem?</h2>
+		<p class="mt-4 text-pretty text-base text-ink-2">
+			<a href="https://github.com/yarlson/handful/issues" class="underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink">Open an issue on GitHub.</a>
+		</p>
+	</main>
+	<Footer />
+</Layout>

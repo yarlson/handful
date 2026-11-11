@@ -1,0 +1,36 @@
+---
+import type { ImageMetadata, ImageOutputFormat } from "astro";
+import { Picture } from "astro:assets";
+
+interface Props {
+	light: ImageMetadata;
+	dark: ImageMetadata;
+	/** Tighter crops for screens under 640 px; without them the desktop shots show there too. */
+	mobileLight?: ImageMetadata;
+	mobileDark?: ImageMetadata;
+	alt: string;
+	sizes?: string;
+	class?: string;
+}
+
+const { light, dark, mobileLight, mobileDark, alt, sizes = "(min-width: 72rem) 64rem, calc(100vw - 3rem)", class: className = "" } = Astro.props;
+const formats: ImageOutputFormat[] = ["avif", "webp"];
+const widthsOf = (img: ImageMetadata) => {
+	const w = [720, 1440, 2160].filter((n) => n <= img.width);
+	return w.length ? w : [img.width];
+};
+const mobileSizes = "calc(100vw - 3rem)";
+const desktop = mobileLight && mobileDark ? "hidden sm:block" : "block";
+---
+
+<figure class={`overflow-hidden rounded-xl border border-line bg-band ${className}`}>
+	{/* The site's dark mode follows prefers-color-scheme (Tailwind's media strategy), so each mode shows only its own shots. */}
+	<div class="dark:hidden">
+		<Picture src={light} formats={formats} widths={widthsOf(light)} sizes={sizes} alt={alt} class={`${desktop} h-auto w-full`} />
+		{mobileLight && <Picture src={mobileLight} formats={formats} widths={widthsOf(mobileLight)} sizes={mobileSizes} alt={alt} class="block h-auto w-full sm:hidden" />}
+	</div>
+	<div class="hidden dark:block">
+		<Picture src={dark} formats={formats} widths={widthsOf(dark)} sizes={sizes} alt={alt} class={`${desktop} h-auto w-full`} />
+		{mobileDark && <Picture src={mobileDark} formats={formats} widths={widthsOf(mobileDark)} sizes={mobileSizes} alt={alt} class="block h-auto w-full sm:hidden" />}
+	</div>
+</figure>

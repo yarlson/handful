@@ -12,7 +12,7 @@ Handful was called YarGPT until its rename. It is the same app.
 
 ## What Handful is
 
-- A Go server with a web UI. Each time a bot works, the server runs the Claude Code CLI (`claude`) on your machine with your Claude account. Handful adds the chats, memory, schedules, approvals, rooms and bot-to-bot messages around it.
+- A Go server with a web UI. Each time a bot works, the server runs the Claude Code CLI (`claude`) on your machine, signed in with your own Claude subscription or an API key. Handful sells no tokens and adds no fees. Handful adds the chats, memory, schedules, approvals, rooms and bot-to-bot messages around it.
 - It runs on macOS and Linux. It needs Claude Code CLI 2.1.319 or later, signed in, with `claude` on `PATH`.
 - The web UI is at <http://127.0.0.1:7777>. All data is in `~/.handful`.
 - On a Mac, an app can run the server in the background from login on, with one menu-bar item, **Exit server**. The server log is then `~/Library/Logs/Handful/server.log`.
@@ -27,7 +27,7 @@ Handful was called YarGPT until its rename. It is the same app.
 - A bot's turns share one Claude Code session, which each turn resumes. In each room, a member has a separate session.
 - The model's plain text is private. You see only what the bot sends with the `send_to_user` tool. When a turn ends without a message, the chat shows the model's final text, marked as a fallback.
 - A bot can start a long command in the background and keep talking. The chat lists the running tasks, and **Stop** ends them.
-- When a turn reaches your Claude account's usage limit, Handful starts no new turns until the limit resets. Turns that already run continue.
+- When a turn reaches your Claude subscription's usage limit, Handful starts no new turns until the limit resets. Turns that already run continue.
 - After a restart of the server, turns that were running are marked interrupted, open approval cards expire, and background tasks are gone.
 
 ### Messages and files

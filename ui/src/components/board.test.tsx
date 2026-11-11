@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
 import type { Board, Bot, Goal, Item } from "@/lib/api"
-import { BoardView, HistoryList } from "./board.tsx"
+import { BoardView, HistoryList, NowTask } from "./board.tsx"
 
 const team: Bot = {
   id: "t1",
@@ -327,4 +327,15 @@ test("a long team name in a task's chip is cut short and leaves the title room",
     html,
     /<div class="flex flex-wrap items-start gap-2">.*?<span class="line-clamp-2 min-w-\[60%\] flex-1" title="Build the spec">/,
   )
+})
+
+test("in the task bar a long team chip is cut short, and the Now task's title keeps 40% of the bar", () => {
+  const names = { team: () => "YarGPT Customer Support and Success Operations", member: () => "Dee", at: () => "" }
+  const now = { ...goal("g1", "Fix the scroll", "active"), origin: "handoff" as const, fromTeamId: "p1" }
+  const html = renderToStaticMarkup(<NowTask goal={now} names={names} paused={null} />)
+  assert.match(
+    html,
+    /class="[^"]*\bmax-w-1\/2\b[^"]*\bshrink\b[^"]*"><span class="min-w-0 truncate" title="from YarGPT Customer Support and Success Operations">/,
+  )
+  assert.include(html, '<span class="min-w-[40%] flex-1 truncate" title="Fix the scroll">Fix the scroll</span>')
 })

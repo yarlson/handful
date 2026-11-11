@@ -68,6 +68,22 @@ function FromChip({ goal, names }: { goal: Goal; names: Names }) {
   return fromUser(goal) ? null : <SourceChip goal={goal} names={names} />
 }
 
+// NowTask starts the task bar: the Now task's state, where it came from and its title. The
+// title keeps at least 40% of the bar, so a long chip or the controls after it wrap instead of
+// squeezing it. paused names a drain that holds the task, or is null.
+export function NowTask({ goal, names, paused }: { goal: Goal; names: Names; paused: string | null }) {
+  return (
+    <>
+      <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{taskWord[goal.state]}</Badge>
+      <FromChip goal={goal} names={names} />
+      {paused && <PausedForUpdate label={paused} />}
+      <span className="min-w-[40%] flex-1 truncate" title={goal.text}>
+        {goal.text}
+      </span>
+    </>
+  )
+}
+
 // TaskBar shows a team's Now task above its channel, with the controls of its budget, the
 // way into the team's inbox, and the next task in the plan. "/task <text>" in the team's
 // chat sends the lead a task, which adds a board event to the transcript: its new rev reloads
@@ -122,12 +138,7 @@ export function TaskBar({
     <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-task-bar={bar.mode}>
       {goal && bar.mode === "now" ? (
         <>
-          <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{taskWord[goal.state]}</Badge>
-          <FromChip goal={goal} names={names} />
-          {draining && goal.state === "active" && <PausedForUpdate label={pause} />}
-          <span className="min-w-0 flex-1 truncate" title={goal.text}>
-            {goal.text}
-          </span>
+          <NowTask goal={goal} names={names} paused={draining && goal.state === "active" ? pause : null} />
           {upNext && (
             <button
               type="button"

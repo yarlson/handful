@@ -1,0 +1,19 @@
+---
+interface Props {
+	items: { title: string; text: string }[];
+}
+
+const { items } = Astro.props;
+const columns = items.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4";
+---
+
+<ul class={`mt-[clamp(2.5rem,5vw,3.5rem)] grid gap-x-10 gap-y-6 sm:grid-cols-2 ${columns}`}>
+	{
+		items.map((item) => (
+			<li>
+				<h3 class="text-[1.0625rem] font-[550] tracking-[-0.01em]">{item.title}</h3>
+				<p class="mt-1.5 text-pretty text-base text-ink-2">{item.text}</p>
+			</li>
+		))
+	}
+</ul>

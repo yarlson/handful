@@ -1,22 +1,38 @@
 ---
-import type { ImageOutputFormat } from "astro";
-import { Picture } from "astro:assets";
 import Layout from "../layouts/Layout.astro";
 import Mark from "../components/Mark.astro";
 import Install from "../components/Install.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import Proofs from "../components/Proofs.astro";
+import Shot from "../components/Shot.astro";
 import { macDownloadUrl } from "../release";
-import botScreenshot from "../../../assets/screenshot.png";
-import roomScreenshot from "../../../assets/screenshot-dev-dark.png";
-import teamScreenshot from "../../../assets/screenshot-team.png";
+import approvalLight from "../assets/approval-light.png";
+import approvalDark from "../assets/approval-dark.png";
+import roomLight from "../assets/room-light.png";
+import roomDark from "../assets/room-dark.png";
+import approvalMLight from "../assets/approval-m-light.png";
+import approvalMDark from "../assets/approval-m-dark.png";
+import roomMLight from "../assets/room-m-light.png";
+import roomMDark from "../assets/room-m-dark.png";
+import inboxMLight from "../assets/inbox-m-light.png";
+import inboxMDark from "../assets/inbox-m-dark.png";
+import needsMLight from "../assets/needs-you-m-light.png";
+import needsMDark from "../assets/needs-you-m-dark.png";
+import inboxLight from "../assets/inbox-light.png";
+import inboxDark from "../assets/inbox-dark.png";
+import pushedLight from "../assets/pushed-back-light.png";
+import pushedDark from "../assets/pushed-back-dark.png";
+import needsLight from "../assets/needs-you-light.png";
+import needsDark from "../assets/needs-you-dark.png";
 
 const title = "Handful: open-source AI agents on your own computer. Runs Claude Code.";
 const description =
-	"Handful runs personal AI agents on your Mac or Linux computer. Each bot keeps its own chat, memory and routines, and works on your own computer. Handful runs Claude Code.";
+	"Handful runs personal AI agents on your Mac or Linux computer. Each bot keeps its own chat, memory and routines, and a lead decides what a team does next. Handful runs Claude Code on your own subscription.";
 const softwareApplication = {
 	"@context": "https://schema.org",
 	"@type": "SoftwareApplication",
 	name: "Handful",
-	alternateName: "YarGPT",
 	description,
 	url: Astro.site?.href,
 	applicationCategory: "DeveloperApplication",
@@ -31,148 +47,238 @@ const softwareApplication = {
 const wrap = "mx-auto w-full max-w-6xl px-6 sm:px-10 lg:px-16";
 const chapter = "py-[clamp(5rem,11vw,8.5rem)]";
 const heading = "max-w-[24ch] text-balance text-[clamp(1.875rem,3.6vw,2.875rem)] font-[560] leading-[1.1] tracking-[-0.035em]";
-const figure = "mt-[clamp(2.5rem,5vw,4rem)] overflow-hidden rounded-xl border border-line bg-band";
-const featureGrid = "mt-[clamp(2.5rem,5vw,3.5rem)] grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4";
-const formats: ImageOutputFormat[] = ["avif", "webp"];
-const screenshot = {
-	formats,
-	widths: [720, 1440, 2160],
-	sizes: "(min-width: 72rem) 64rem, calc(100vw - 3rem)",
-	class: "block h-auto w-full",
-};
+const lead = "mt-5 max-w-[58ch] text-pretty text-lg text-ink-2";
+const visual = "mt-[clamp(2.5rem,5vw,4rem)]";
+const secondaryButton =
+	"inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line-strong px-5 text-[0.9375rem] font-[550] transition-colors hover:bg-hover active:bg-pressed";
+const block = "rounded-xl border border-line bg-fill";
 
-const botFeatures = [
+const botProofs = [
 	{ title: "Memory", text: "Facts from you or the bot, kept across conversations." },
 	{ title: "Routines", text: "A prompt on a schedule, in your local time." },
 	{ title: "Skills", text: "Saved procedures that every bot can run." },
 	{ title: "Approvals", text: "A bot asks before it runs a command or changes a file." },
 ];
 
-const teamFeatures = [
-	{ title: "A lead", text: "A message without an @mention goes to the lead. The lead plans the goal and unblocks the work." },
-	{ title: "A board", text: "Each item has an owner and acceptance criteria. Items that do not depend on each other run at the same time." },
-	{ title: "Review", text: "When the working agreement asks for a check, another member reviews each item before it is done." },
-	{ title: "A turn budget", text: "A goal can use 30 turns by default. Then it pauses until you add more." },
+const roomProofs = [
+	{ title: "Mention to wake", text: "@Name wakes one member. @here wakes them all." },
+	{ title: "One at a time", text: "Members answer in order, so nobody talks over anybody." },
+	{ title: "No chatter", text: "A bot's message wakes only the bots it mentions." },
+	{ title: "Busy bots catch up", text: "A member that works elsewhere answers when it is free." },
 ];
 
-const localFeatures = [
-	{ title: "Your Claude account", text: "Each turn runs the Claude Code CLI on your machine." },
+const teamProofs = [
+	{ title: "A lead", text: "Every task goes through the inbox. The lead has 30 minutes to decide. After that, the task comes to you." },
+	{ title: "Steps", text: "Each step has an owner and acceptance criteria. Steps that do not depend on each other run at the same time." },
+	{ title: "Review", text: "When the working agreement asks for a check, another member reviews each step before it is done." },
+	{ title: "A daily budget", text: "Set how many turns a team can use per day. At the limit, it pauses until midnight or until you raise it." },
+];
+
+const ownProofs = [
+	{ title: "Your subscription", text: "Each turn runs the Claude Code CLI on your machine, signed in by you." },
 	{ title: "Your files", text: "The SQLite database and every bot's folder are in ~/.handful." },
+	{ title: "One call home", text: "By itself, Handful goes online once a day, to look for a new release on GitHub. You can turn that off." },
 	{ title: "One person", text: "Handful has no login. Use it on a computer that one person uses." },
-	{ title: "Open source", text: "The code is on GitHub under the MIT License." },
+];
+
+const changeProofs = [
+	{ title: "Change the UI", text: "React and Tailwind, in ui/. Start the server, then run npm run dev there and edit." },
+	{ title: "Change how bots run", text: "One Go package, internal/agent, starts Claude Code and gives the bots their tools." },
+	{ title: "Ship your own build", text: "make app builds the Mac app. The license lets you share it." },
+];
+
+const folder = [
+	{ name: "bots/", dir: true },
+	{ name: "teams/", dir: true },
+	{ name: "AGENTS.md", dir: false },
+	{ name: "connectors.json", dir: false },
+	{ name: "config.json", dir: false },
+];
+
+const forkCommands = ["gh repo fork yarlson/handful --clone", "cd handful && mise install && make build", "./bin/handful"];
+
+const numbers = [
+	{ value: "100", label: "pull requests merged" },
+	{ value: "18", label: "releases" },
+	{ value: "5", label: "days, 7 to 11 November 2026" },
 ];
 ---
 
 <Layout title={title} description={description}>
 	<script slot="head" type="application/ld+json" is:inline set:html={JSON.stringify(softwareApplication)} />
-	<div class={wrap}>
-		<header class="flex items-center justify-between py-5 lg:py-8">
-			<a href="/" class="inline-flex items-center gap-2.5 text-[0.9375rem] font-semibold tracking-[-0.01em]">
-				<Mark id="header-mark" size="1.375rem" />
-				<span class="text-[1.9375rem] font-semibold leading-none tracking-[-0.04em]">handful</span>
-			</a>
-			<a href="https://github.com/yarlson/handful" class="text-[0.9375rem] text-ink-2 transition-colors hover:text-ink">GitHub</a>
-		</header>
-	</div>
+	<Header />
 
 	<main>
+		<!-- 1. Hero -->
 		<section class={`${wrap} flex flex-col items-center pb-[clamp(3.5rem,11vh,7rem)] pt-[clamp(1.5rem,6vh,4.5rem)] text-center`}>
 			<Mark id="hero-mark" size="clamp(6rem, 14vmin, 7rem)" variant="tile" />
 			<h1 class="mt-[clamp(1.25rem,3vh,1.75rem)] max-w-[16ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
 				A handful of bots that stay.
 			</h1>
-			<p class="mt-5 max-w-[44ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
-				Handful is an open-source app that runs personal AI agents on your Mac or Linux machine. Each bot keeps its own chat, memory and routines, and runs Claude Code with your own Claude account.
+			<p class="mt-5 max-w-[48ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
+				Handful is an open-source app for your Mac or Linux machine. Each bot keeps its own chat, memory and routines. Put a few in a team, and a lead decides what they do next. Handful runs Claude Code on your own subscription.
 			</p>
 			<div class="mt-10 flex w-full justify-center">
 				<Install />
 			</div>
-			<p class="mt-8 max-w-[52ch] text-pretty text-sm text-ink-3">
-				Moving from YarGPT? Handful is the same app under a new name. Your bots, chats and teams move to ~/.handful, and ~/.yargpt becomes a link to it, so leave it in place.
-			</p>
+			<p class="mt-6 text-sm font-[550] text-ink-2">Built by its own bots. 100 pull requests merged, as of 11 November 2026.</p>
 		</section>
 
+		<!-- 2. Bot -->
 		<section class={`bg-band ${chapter}`}>
 			<div class={wrap}>
 				<h2 class={heading}>
 					A bot is a chat, a memory and a folder. <span class="text-ink-2">It keeps all three from one conversation to the next.</span>
 				</h2>
-				<figure class={figure}>
-					<Picture src={botScreenshot} alt="A bot's chat in Handful: the tools it used, its reply, and its memory in the side panel" {...screenshot} />
-				</figure>
-				<ul class={featureGrid}>
-					{
-						botFeatures.map((feature) => (
-							<li>
-								<h3 class="text-[1.0625rem] font-[550] tracking-[-0.01em]">{feature.title}</h3>
-								<p class="mt-1.5 text-pretty text-base text-ink-2">{feature.text}</p>
-							</li>
-						))
-					}
-				</ul>
+				<p class={lead}>
+					Close the chat and come back next week. The bot still knows what you told it, still has its files, and ran its routines on schedule. Before it runs a command or changes a file, it asks.
+				</p>
+				<Shot
+					class={visual}
+					light={approvalLight}
+					dark={approvalDark}
+					mobileLight={approvalMLight}
+					mobileDark={approvalMDark}
+					alt="Builder asks before it edits a file: Allow Builder to use Edit? with the change to todo.md, and the buttons Allow once, Always allow Edit and Deny"
+				/>
+				<Proofs items={botProofs} />
 			</div>
 		</section>
 
+		<!-- 3. Rooms -->
 		<section class={chapter}>
 			<div class={wrap}>
 				<h2 class={heading}>
 					Rooms put several bots in one chat. <span class="text-ink-2">An @mention hands the work to the next bot.</span>
 				</h2>
-				<p class="mt-5 max-w-[58ch] text-pretty text-lg text-ink-2">
+				<p class={lead}>
 					Members answer one at a time, so each one sees the earlier replies. Here, four bots ship a change: one writes it, one reviews it, one fixes it and one merges it.
 				</p>
-				<figure class={figure}>
-					<Picture src={roomScreenshot} alt="A room in dark mode: Implementer, Reviewer, Fixer and Merger ship a change by mentioning each other" {...screenshot} />
-				</figure>
+				<Shot class={visual} light={roomLight} dark={roomDark} mobileLight={roomMLight} mobileDark={roomMDark} alt="A room: Implementer, Reviewer, Fixer and Merger ship a change by mentioning each other" />
+				<Proofs items={roomProofs} />
 			</div>
 		</section>
 
+		<!-- 4. Teams -->
 		<section class={`bg-band ${chapter}`}>
 			<div class={wrap}>
 				<h2 class={heading}>
-					Teams work toward a goal. <span class="text-ink-2">A lead splits it into items, and a board hands them out.</span>
+					Bots can be a handful. <span class="text-ink-2">So every team has a lead who decides.</span>
 				</h2>
-				<p class="mt-5 max-w-[58ch] text-pretty text-lg text-ink-2">
-					Give a team a goal. Its members work on the items, and the lead delivers the result for you to accept. Here, the Web app team adds a CSV export and asks the Docs team for a guide.
+				<p class={lead}>
+					Every task lands in the team's inbox, whether it comes from you, from another team or from a member. The lead takes it, asks the sender a question, puts it off, passes it to another team or pushes it back with a reason. Then the lead splits the task into steps, and the members do them.
 				</p>
-				<figure class={figure}>
-					<Picture src={teamScreenshot} alt="A team at work: the Now task above the chat, the lead's plan and the board's updates in the chat, and the Work tab with the task's steps by state" {...screenshot} />
-				</figure>
-				<ul class={featureGrid}>
-					{
-						teamFeatures.map((feature) => (
-							<li>
-								<h3 class="text-[1.0625rem] font-[550] tracking-[-0.01em]">{feature.title}</h3>
-								<p class="mt-1.5 text-pretty text-base text-ink-2">{feature.text}</p>
-							</li>
-						))
-					}
-				</ul>
+				<Shot
+					class={visual}
+					light={inboxLight}
+					dark={inboxDark}
+					mobileLight={inboxMLight}
+					mobileDark={inboxMDark}
+					alt="The Web app team's inbox: a task from you to decide by 14:30, and a task from Mobile whose clock is paused while Web Lead waits for an answer"
+				/>
+				<div class="mt-4 grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,5fr)] md:items-start">
+					<Shot
+						light={pushedLight}
+						dark={pushedDark}
+						sizes="(min-width: 48rem) 18rem, calc(100vw - 3rem)"
+						alt="The Support team's Work tab: its task Write a guide for the CSV export is pushed back, with Web app's reason, this belongs to the Docs team"
+					/>
+					<div>
+						<Shot
+							light={needsLight}
+							dark={needsDark}
+							mobileLight={needsMLight}
+							mobileDark={needsMDark}
+							sizes="(min-width: 48rem) 45rem, calc(100vw - 3rem)"
+							alt="Across teams: Needs you asks to approve that Add a CSV export to reports is done, and the Web app team works on Save report filters per user"
+						/>
+						<p class="mt-4 max-w-[52ch] text-pretty text-base text-ink-2">
+							You see one list, Needs you: results to approve, decisions a lead missed, and budgets that ran out.
+						</p>
+					</div>
+				</div>
+				<Proofs items={teamProofs} />
 			</div>
 		</section>
 
+		<!-- 5. Your own subscription -->
 		<section class={chapter}>
 			<div class={wrap}>
 				<h2 class={heading}>
-					It all runs on your computer. <span class="text-ink-2">There is no Handful cloud service.</span>
+					Runs Claude Code on your own subscription. <span class="text-ink-2">Nothing to sell you.</span>
 				</h2>
-				<ul class={featureGrid}>
-					{
-						localFeatures.map((feature) => (
-							<li>
-								<h3 class="text-[1.0625rem] font-[550] tracking-[-0.01em]">{feature.title}</h3>
-								<p class="mt-1.5 text-pretty text-base text-ink-2">{feature.text}</p>
-							</li>
-						))
-					}
-				</ul>
+				<p class={lead}>
+					You install Claude Code and sign in to it yourself, with your Claude subscription or an API key. Handful starts it on your machine for each turn and never touches your login. Handful sells no tokens and adds no fees, and there is no Handful account and no Handful cloud. The rest is a server and a folder on your disk.
+				</p>
+				<p class="mt-3 text-sm text-ink-3">What your plan includes is between you and Anthropic.</p>
+				<div class={`${visual} ${block} max-w-xl p-5 font-mono text-[0.875rem] leading-relaxed`} role="img" aria-label="The ~/.handful folder: bots, teams, AGENTS.md, connectors.json and config.json">
+					<p class="font-[550]">~/.handful</p>
+					<ul class="mt-2 space-y-1 pl-5">
+						{
+							folder.map((entry) => (
+								<li class={entry.dir ? "" : "text-ink-2"}>
+									<span class="text-ink-3" aria-hidden="true">├─ </span>
+									{entry.name}
+								</li>
+							))
+						}
+					</ul>
+				</div>
+				<Proofs items={ownProofs} />
 			</div>
 		</section>
 
+		<!-- 6. Change it -->
+		<section class={`bg-band ${chapter}`}>
+			<div class={wrap}>
+				<h2 class={heading}>
+					Don't like something? Change it. <span class="text-ink-2">The code is MIT.</span>
+				</h2>
+				<div class={`${visual} max-w-2xl`}>
+					<pre class={`${block} whitespace-pre-wrap px-5 py-4 font-mono text-[0.875rem] leading-relaxed [overflow-wrap:anywhere]`}><code>{forkCommands.map((c) => <span class="block"><span class="select-none text-ink-3">$ </span>{c}</span>)}</code></pre>
+					<p class="mt-3 text-sm text-ink-3">Building needs mise. Then open 127.0.0.1:7777.</p>
+				</div>
+				<Proofs items={changeProofs} />
+				<div class="mt-10 flex flex-col gap-3 sm:flex-row">
+					<a
+						href="https://github.com/yarlson/handful/fork"
+						class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-button bg-button px-5 text-[0.9375rem] font-[550] text-button-ink transition-colors hover:border-button-hover hover:bg-button-hover"
+					>
+						Fork it
+					</a>
+					<a href="https://github.com/yarlson/handful" class={secondaryButton}>Read the source</a>
+				</div>
+			</div>
+		</section>
+
+		<!-- 7. Handful builds Handful -->
+		<section class={chapter}>
+			<div class={wrap}>
+				<h2 class={heading}>Handful builds Handful.</h2>
+				<p class={lead}>Teams of bots in its maker's own Handful write this app, review it and release it. One person approves what they do.</p>
+				<dl class={`${visual} grid gap-8 border-y border-line py-10 sm:grid-cols-3`}>
+					{
+						numbers.map((n) => (
+							<div>
+								<dt class="sr-only">{n.label}</dt>
+								<dd class="text-[clamp(3rem,7vw,4.5rem)] font-[560] leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{n.value}</dd>
+								<dd class="mt-2 text-base text-ink-2">{n.label}</dd>
+							</div>
+						))
+					}
+				</dl>
+				<p class="mt-4 text-sm text-ink-3">Reviewed by bots. Approved by a person. Counted on 11 November 2026.</p>
+			</div>
+		</section>
+
+		<!-- 8. Closing -->
 		<section class={`bg-band ${chapter}`}>
 			<div class={`${wrap} flex flex-col items-center gap-6 text-center`}>
 				<Mark id="closing-mark" size="4.5rem" variant="tile-small" />
-				<h2 class={heading}>Start your first bot.</h2>
+				<h2 class={heading}>Give your bots somewhere to stay.</h2>
+				<p class="max-w-[52ch] text-pretty text-lg text-ink-2">
+					Handful is free and open source. Install it, sign in to Claude Code, and tell Builder, the first bot, what you want help with.
+				</p>
 				<div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
 					<a
 						href={macDownloadUrl}
@@ -183,12 +289,7 @@ const localFeatures = [
 						</svg>
 						Download for macOS
 					</a>
-					<a
-						href="https://github.com/yarlson/handful#install-and-start"
-						class="inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line-strong px-5 text-[0.9375rem] font-[550] transition-colors hover:bg-hover active:bg-pressed"
-					>
-						Build from source
-					</a>
+					<a href="https://github.com/yarlson/handful#install-and-start" class={secondaryButton}>Linux, or build from source</a>
 				</div>
 				<p class="text-sm text-ink-3">
 					<a href="https://github.com/yarlson/handful/releases/latest" class="underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink">Latest release</a> · MIT License
@@ -197,14 +298,5 @@ const localFeatures = [
 		</section>
 	</main>
 
-	<div class={wrap}>
-		<footer class="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-line pb-12 pt-8 text-sm text-ink-3">
-			<span>© 2026 Yar Kravtsov · Formerly YarGPT · Not affiliated with or endorsed by Anthropic.</span>
-			<nav aria-label="Footer" class="flex flex-wrap gap-x-6 gap-y-2">
-				<a href="https://github.com/yarlson/handful" class="text-ink-2 transition-colors hover:text-ink">GitHub</a>
-				<a href="https://github.com/yarlson/handful/releases" class="text-ink-2 transition-colors hover:text-ink">Releases</a>
-				<a href="/llms.txt" class="text-ink-2 transition-colors hover:text-ink">llms.txt</a>
-			</nav>
-		</footer>
-	</div>
+	<Footer />
 </Layout>

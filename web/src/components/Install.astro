@@ -6,15 +6,23 @@ const sourceCommands = ["git clone https://github.com/yarlson/handful.git", "cd 
 
 <div class="flex w-full max-w-[36rem] flex-col items-center gap-4">
 	<div class="flex flex-col items-center gap-3">
-		<a
-			href={macDownloadUrl}
-			class="inline-flex min-h-[3.25rem] items-center gap-2.5 rounded-xl bg-button px-6 text-base font-[550] text-button-ink transition-colors hover:bg-button-hover"
-		>
-			<svg viewBox="0 0 24 24" aria-hidden="true" class="size-[1.125rem] fill-none stroke-current stroke-[1.75] [stroke-linecap:round] [stroke-linejoin:round]">
-				<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"></path>
-			</svg>
-			Download for macOS
-		</a>
+		<div class="flex flex-col items-center gap-3 sm:flex-row">
+			<a
+				href={macDownloadUrl}
+				class="inline-flex min-h-[3.25rem] items-center gap-2.5 rounded-xl bg-button px-6 text-base font-[550] text-button-ink transition-colors hover:bg-button-hover"
+			>
+				<svg viewBox="0 0 24 24" aria-hidden="true" class="size-[1.125rem] fill-none stroke-current stroke-[1.75] [stroke-linecap:round] [stroke-linejoin:round]">
+					<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"></path>
+				</svg>
+				Download for macOS
+			</a>
+			<a
+				href="https://github.com/yarlson/handful"
+				class="inline-flex min-h-[3.25rem] items-center rounded-xl border border-line-strong px-6 text-base font-[550] transition-colors hover:bg-hover active:bg-pressed"
+			>
+				Read the code first
+			</a>
+		</div>
 		<p class="text-pretty text-sm text-ink-3">
 			For Apple silicon and Intel. Needs <a
 				href="https://code.claude.com"

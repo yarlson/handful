@@ -1,4 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -45,6 +55,8 @@ import { AnswerChip, goTo, QuestionStrip } from "@/components/questions"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 import { emptyText, type TranscriptStatus } from "@/lib/transcript"
+import { fits, rangeOf, RowHeights, rowOffsets, rowsFor, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
+import { KEPT_CHATS } from "@/lib/chat-windows"
 
 function time(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -87,15 +99,29 @@ export function MarkdownText({ text }: { text: string }) {
   )
 }
 
-function ActivityRow({ entry, chat }: { entry: Extract<Entry, { kind: "activity" }>; chat: Bot }) {
-  const [open, setOpen] = useState(false)
+// ChatInfo is what a row shows of its chat.
+type ChatInfo = Pick<Bot, "id" | "name" | "members">
+
+// A tool run's row keeps whether it is expanded in its chat, since a row leaves the page when
+// it scrolls far from the view.
+function ActivityRow({
+  entry,
+  chat,
+  open,
+  onToggle,
+}: {
+  entry: Extract<Entry, { kind: "activity" }>
+  chat: ChatInfo
+  open: boolean
+  onToggle: (entryId: string) => void
+}) {
   const b = entry.body
   return (
     <div className={cn("text-muted-foreground text-xs", b.subagent && "ml-5")}>
       <button
         type="button"
         className="hover:text-foreground flex w-full items-center gap-1.5 text-left"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => onToggle(entry.id)}
         disabled={!b.output}
       >
         <ChevronRight
@@ -462,11 +488,16 @@ export function EntryView({
   chat,
   skill,
   onAnswer,
+  expanded = false,
+  onExpand = () => {},
 }: {
   entry: Entry
-  chat: Bot
+  chat: ChatInfo
   skill: string | null
   onAnswer?: (q: Asked) => void
+  // expanded says a tool run's output is shown; onExpand shows or hides it.
+  expanded?: boolean
+  onExpand?: (entryId: string) => void
 }) {
   switch (entry.kind) {
     case "user":
@@ -561,7 +592,7 @@ export function EntryView({
       )
     }
     case "activity":
-      return <ActivityRow entry={entry} chat={chat} />
+      return <ActivityRow entry={entry} chat={chat} open={expanded} onToggle={onExpand} />
     case "approval":
       return <ApprovalCard entry={entry} />
     case "event":
@@ -570,6 +601,16 @@ export function EntryView({
       return <AgentMessage entry={entry} />
   }
 }
+
+// Row is one entry of the transcript. It re-renders only when its own props change, not on each
+// render of the page.
+const Row = memo(function Row(props: Parameters<typeof EntryView>[0]) {
+  return (
+    <div data-entry={props.entry.id}>
+      <EntryView {...props} />
+    </div>
+  )
+})
 
 type Suggestion = {
   token: string
@@ -988,10 +1029,9 @@ function Composer({
 // LOAD_OLDER_PX is how close to the top of the transcript a scroll loads the next older page.
 const LOAD_OLDER_PX = 800
 
-// itemsOf pairs the entries with their elements, which come first in the transcript's column.
-function itemsOf(column: HTMLElement | null, entries: Entry[]): Item[] {
-  const kids = column?.children
-  return kids ? entries.flatMap((e, i) => (kids[i] ? [{ key: e.id, box: kids[i] }] : [])) : []
+// itemsOf returns the transcript's rendered rows, keyed by their entries' ids.
+function itemsOf(rows: HTMLElement | null): Item[] {
+  return rows ? [...rows.children].map((box) => ({ key: (box as HTMLElement).dataset.entry ?? "", box })) : []
 }
 
 // mentionables are the bots that @ can complete: room members, or the other bots.
@@ -1050,6 +1090,7 @@ export function Chat({
   // chat keeps its own position across a switch to another chat.
   const scroller = useRef<HTMLDivElement>(null)
   const column = useRef<HTMLDivElement>(null)
+  const rowsBox = useRef<HTMLDivElement>(null)
   const [follower] = useState(() => new ScrollFollower(new ScrollMemory()))
   const memory = follower.memory
   // following re-renders the "Jump to latest" button when the view pins or unpins.
@@ -1060,8 +1101,57 @@ export function Chat({
     const el = scroller.current
     if (el) follower.scrollTo(el, el.scrollHeight)
   }
-  const items = () => itemsOf(column.current, entries)
-  useLayoutEffect(() => {
+  const items = () => itemsOf(rowsBox.current)
+  // The transcript renders only the rows near its view, whatever the number of entries loaded.
+  // heights holds, by entry id, each row's height as measured when the rows rendered last
+  // changed while it was on the page, for the chats that keep their loaded entries.
+  const [rowHeights] = useState(() => new RowHeights(KEPT_CHATS))
+  const heights = rowHeights.of(bot.id)
+  // span is the rows rendered in chat botId; another chat opens with its own.
+  const [span, setSpan] = useState<{ botId: string; span: RowSpan } | null>(null)
+  const offsets = rowOffsets(entries, heights)
+  // openingRows are the rows of a chat just opened: around the entry it was left at, or else
+  // at its bottom.
+  const openingRows = (): RowRange => {
+    const left = memory.pinned(bot.id) ? -1 : entries.findIndex((e) => e.id === follower.leftAt(bot.id))
+    const height = window.innerHeight
+    const top = left >= 0 ? offsets[left] : offsets[entries.length] - height
+    return rowsFor(offsets, top, top + height)
+  }
+  const kept = span?.botId === bot.id ? rangeOf(entries, span.span) : null
+  const range = kept && kept.end > kept.start ? kept : openingRows()
+  const before = offsets[range.start]
+  const after = offsets[entries.length] - offsets[range.end]
+  // showRows renders the rows near the view once the rendered ones no longer cover it. It
+  // first notes the height of each rendered row, so a row that leaves the page keeps its space.
+  const showRows = (next?: RowRange) => {
+    const el = scroller.current
+    const list = rowsBox.current
+    if (!el || !list || shown.current !== bot.id) return
+    if (!next) {
+      const box = list.getBoundingClientRect()
+      const top = el.getBoundingClientRect().top - box.top
+      const view = { top, bottom: top + el.clientHeight }
+      if (fits(range, entries.length, { top: before, bottom: box.height - after }, view)) return
+      for (const row of list.children)
+        heights.set((row as HTMLElement).dataset.entry ?? "", row.getBoundingClientRect().height)
+      next = rowsFor(rowOffsets(entries, heights), view.top, view.bottom)
+    }
+    if (next.start === range.start && next.end === range.end) return
+    // A focused row that leaves the page would take the keyboard focus with it: the
+    // transcript keeps it, so the keys go on scrolling it.
+    const focused = list.contains(document.activeElement)
+      ? document.activeElement?.closest<HTMLElement>("[data-entry]")?.dataset.entry
+      : undefined
+    const at = entries.findIndex((e) => e.id === focused)
+    if (at >= 0 && (at < next.start || at >= next.end)) el.focus({ preventScroll: true })
+    setSpan({ botId: bot.id, span: spanOf(entries, next) })
+  }
+  // jumping is the entry that Go to waits to show while older pages load or its rows render.
+  const jumping = useRef<string | null>(null)
+  // place puts the view where it belongs after a render: see the effect below. Effects and
+  // observers call the latest one.
+  const place = () => {
     const el = scroller.current
     if (!el) return
     // A chat whose newest page is still loading, or that has no entries, has nothing to place:
@@ -1074,21 +1164,49 @@ export function Chat({
     const opened = shown.current !== bot.id
     const top = memory.target(bot.id, opened, el.scrollHeight)
     shown.current = bot.id
+    // The rows a chat opened with stay rendered until the view leaves them, also when the chat
+    // unpins and would now open elsewhere.
+    if (range !== kept) setSpan({ botId: bot.id, span: spanOf(entries, range) })
     // An unpinned chat keeps the entry the user reads in place, also when an older page
-    // arrives above it.
-    if (top === null) return follower.settle(bot.id, el)
+    // arrives above it or rows render above it. That entry may have left the page, when the
+    // view had scrolled past the rows rendered: the entry now at the top takes its place.
+    if (top === null) {
+      follower.settle(bot.id, el)
+      follower.capture(bot.id, el, items())
+    }
     // A chat the user left scrolled up reopens on the entry they left it at; its saved
     // scrollTop is only the fallback, since images above may not have loaded again yet.
-    if (opened && !memory.pinned(bot.id) && follower.restore(bot.id, el, itemsOf(column.current, entries))) return
-    follower.scrollTo(el, top)
-    if (opened && !memory.pinned(bot.id)) follower.capture(bot.id, el, itemsOf(column.current, entries))
-  }, [entries, bot.id, memory, follower])
+    else if (!opened || memory.pinned(bot.id) || !follower.restore(bot.id, el, items())) {
+      follower.scrollTo(el, top)
+      if (opened && !memory.pinned(bot.id)) follower.capture(bot.id, el, items())
+    }
+    const id = jumping.current
+    if (id && document.getElementById(`entry-${id}`)) {
+      jumping.current = null
+      goTo(id)
+      return
+    }
+    // An entry loaded for Go to may be far from the rows rendered.
+    const at = id ? entries.findIndex((e) => e.id === id) : -1
+    if (at >= range.start && at < range.end) jumping.current = null
+    else if (at >= 0) return showRows(rowsFor(offsets, offsets[at], offsets[at + 1]))
+    showRows()
+  }
+  const placeNow = useRef(place)
+  useLayoutEffect(() => {
+    placeNow.current = place
+  })
+  useLayoutEffect(() => placeNow.current(), [entries, bot.id, range.start, range.end])
   // An entry that grows (an update, a loaded image, a reflow to another width) or a view that
-  // shrinks (the goal bar, a taller draft, a shorter window) would move what the user reads.
+  // shrinks (the goal bar, a taller draft, a shorter window) would move what the user reads,
+  // and a taller view may need more rows.
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el || !column.current) return
-    const observer = new ResizeObserver(() => shown.current && follower.settle(shown.current, el))
+    const observer = new ResizeObserver(() => {
+      if (shown.current) follower.settle(shown.current, el)
+      placeNow.current()
+    })
     observer.observe(el)
     observer.observe(column.current)
     return () => observer.disconnect()
@@ -1098,30 +1216,24 @@ export function Chat({
     // position, isn't the user's.
     if (shown.current !== bot.id) return
     setFollowing(follower.scrolled(bot.id, el, items()))
+    showRows()
     if (older && el.scrollTop < LOAD_OLDER_PX) onLoadOlder()
   }
-  // jumping is the entry that Go to waits to show while older pages load; it shows once its
-  // page is rendered.
-  const jumping = useRef<string | null>(null)
   const jumpTo = (entryId: string) => {
-    if (entries.some((e) => e.id === entryId)) return goTo(entryId)
+    if (document.getElementById(`entry-${entryId}`)) return goTo(entryId)
     jumping.current = entryId
+    const at = entries.findIndex((e) => e.id === entryId)
+    if (at >= 0) return showRows(rowsFor(offsets, offsets[at], offsets[at + 1]))
     void onReveal(entryId).then((found) => {
       if (!found && jumping.current === entryId) jumping.current = null
     })
   }
-  useLayoutEffect(() => {
-    const id = jumping.current
-    if (!id || !document.getElementById(`entry-${id}`)) return
-    jumping.current = null
-    goTo(id)
-  }, [entries])
   // A wheel, key or touch input that scrolls up unpins the chat before its scroll arrives,
   // even a trackpad step too small to leave the bottom.
   useEffect(() => {
     const el = scroller.current
     if (!el) return
-    const intent = (input: Intent) => setFollowing(follower.intent(bot.id, el, itemsOf(column.current, entries), input))
+    const intent = (input: Intent) => setFollowing(follower.intent(bot.id, el, itemsOf(rowsBox.current), input))
     let touchY: number | null = null
     const onWheel = (e: WheelEvent) => intent({ kind: "wheel", deltaY: e.deltaY })
     const onKey = (e: globalThis.KeyboardEvent) => intent({ kind: "key", key: e.key })
@@ -1143,22 +1255,44 @@ export function Chat({
       el.removeEventListener("touchstart", onTouchStart)
       el.removeEventListener("touchmove", onTouchMove)
     }
-  }, [follower, bot.id, entries])
+  }, [follower, bot.id])
   // pin makes a chat follow the bottom again: on "Jump to latest" or the user's own send.
   // A send that finishes after a switch to another chat holds the old render's bot id, so
   // compare with the chat on screen now, which shown holds.
   const pin = (id: string) => {
     memory.pin(id)
     if (id !== shown.current) return
+    setSpan(null)
     setFollowing(true)
     toBottom()
   }
 
-  // answer sets the Answer chip and moves the keyboard to the message box.
-  const answer = (q: Asked) => {
-    onAnswer(q)
+  // answer sets the Answer chip and moves the keyboard to the message box. It stays the same
+  // function across renders, so the rows don't re-render for it.
+  const answerTo = useRef(onAnswer)
+  useLayoutEffect(() => {
+    answerTo.current = onAnswer
+  })
+  const answer = useCallback((q: Asked) => {
+    answerTo.current(q)
     requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
-  }
+  }, [])
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const expand = useCallback(
+    (entryId: string) =>
+      setExpanded((open) => {
+        const next = new Set(open)
+        if (!next.delete(entryId)) next.add(entryId)
+        return next
+      }),
+    [],
+  )
+  // chat changes only when what the rows show of it changes, not with each bots event.
+  const membersKey = JSON.stringify(bot.members ?? null)
+  const chat = useMemo<ChatInfo>(
+    () => ({ id: bot.id, name: bot.name, members: JSON.parse(membersKey) ?? undefined }),
+    [bot.id, bot.name, membersKey],
+  )
 
   // Files waiting to be sent, per chat, so they survive a switch to another chat.
   const [pending, setPending] = useState(() => new Map<string, PendingMedia[]>())
@@ -1217,14 +1351,29 @@ export function Chat({
       <div
         ref={scroller}
         data-transcript={status}
-        className={cn("min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]", pill && "pb-11")}
+        // The transcript takes the keyboard focus when a focused row leaves the page.
+        tabIndex={-1}
+        className={cn("min-h-0 flex-1 overflow-y-auto outline-none [overflow-anchor:none]", pill && "pb-11")}
         onScroll={(e) => onScroll(e.currentTarget)}
       >
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
           {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">{emptyText(status)}</p>}
-          {entries.map((e) => (
-            <EntryView key={e.id} entry={e} chat={bot} skill={skillOf(e)} onAnswer={answer} />
-          ))}
+          {entries.length > 0 && (
+            // The padding holds the space of the rows above and below the ones rendered.
+            <div ref={rowsBox} className="flex flex-col gap-3" style={{ paddingTop: before, paddingBottom: after }}>
+              {entries.slice(range.start, range.end).map((e) => (
+                <Row
+                  key={e.id}
+                  entry={e}
+                  chat={chat}
+                  skill={skillOf(e)}
+                  onAnswer={answer}
+                  expanded={expanded.has(e.id)}
+                  onExpand={expand}
+                />
+              ))}
+            </div>
+          )}
           {bot.running && (
             <div className="text-muted-foreground flex items-center gap-2 text-xs">
               <Loader2 className="size-3 animate-spin" />{" "}

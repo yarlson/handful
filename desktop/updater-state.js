@@ -76,7 +76,7 @@ function clampDrainMinutes(value) {
   return Math.min(240, Math.max(5, Math.round(value)))
 }
 
-// readSettings reads the updates part of ~/.yargpt/config.json:
+// readSettings reads the updates part of ~/.handful/config.json:
 // {"updates": {"autoCheck": false, "drainMinutes": 60}}. A missing or
 // invalid file gives the defaults.
 function readSettings(text) {

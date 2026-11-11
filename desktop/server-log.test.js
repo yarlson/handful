@@ -11,9 +11,9 @@ function tempDir(t) {
   return dir
 }
 
-const configError = "handful: config file /Users/me/.yargpt/config.json: invalid character '}' looking for beginning of object key string"
+const configError = "handful: config file /Users/me/.handful/config.json: invalid character '}' looking for beginning of object key string"
 const claudeError = 'handful: find Claude Code CLI "/nope": exec: "/nope": stat /nope: no such file or directory'
-const running = 'time=2026-11-10T10:00:00.000+01:00 level=INFO msg="Handful is running" url=http://127.0.0.1:7777 data=/Users/me/.yargpt claude=/Users/me/.local/bin/claude'
+const running = 'time=2026-11-10T10:00:00.000+01:00 level=INFO msg="Handful is running" url=http://127.0.0.1:7777 data=/Users/me/.handful claude=/Users/me/.local/bin/claude'
 
 test("an empty or missing log has no startup error", (t) => {
   assert.equal(lastStartupError(""), null)

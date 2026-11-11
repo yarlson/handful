@@ -2,6 +2,7 @@ const assert = require("node:assert/strict")
 const { test } = require("node:test")
 const {
   oldAgentLabel,
+  lastOldVersion,
   loginItemsURL,
   drainPollInterval,
   portWaitLimit,
@@ -10,6 +11,7 @@ const {
   loginItemsDialog,
   stopFailedTitle,
   launchctlRunner,
+  isOldServer,
   findOldServer,
   handleOldServer,
   createOldServerGate,
@@ -24,7 +26,7 @@ const s5Message = "YarGPT is still running"
 const waitingMessage = "Waiting for 2 bots to finish…"
 const loginItemsMessage = "Last step: remove YarGPT from Login Items, or macOS starts it again at your next login."
 
-// world fakes YarGPT's server, launchd, the dialogs and the clock. Each
+// world fakes the server on the port (YarGPT 0.8.0 by default), launchd, the dialogs and the clock. Each
 // dependency logs its calls in calls. The server stops answering when the
 // agent is booted out, after stopsAfter ms of the fake clock; its bots
 // finish after botsFinishAfter ms. choose maps a dialog's message to the
@@ -32,6 +34,7 @@ const loginItemsMessage = "Last step: remove YarGPT from Login Items, or macOS s
 function world({
   answering = true,
   status = 200,
+  version = "0.8.0",
   running = twoBots,
   loaded = [oldAgentLabel],
   drainStatus = 200,
@@ -55,11 +58,15 @@ function world({
       version: async (timeout) => {
         calls.push(["version", timeout])
         if (!serverUp()) return null
-        return { status, body: status === 200 ? { version: "0.8.0", running: clock.t >= botsFinishAfter ? [] : running } : null }
+        return { status, body: status === 200 ? { version, running: clock.t >= botsFinishAfter ? [] : running } : null }
       },
       drain: async () => {
         calls.push(["drain"])
         return serverUp() ? { status: drainStatus, body: null } : null
+      },
+      undrain: async () => {
+        calls.push(["undrain"])
+        return serverUp() ? { status: 200, body: null } : null
       },
     },
     launchctl: {
@@ -137,8 +144,8 @@ test("nothing on the port: no dialog and no launchctl", async () => {
   assert.deepEqual(w.calls, [["version", 1000]])
 })
 
-test("a server answers but YarGPT's agent is not loaded: it is not YarGPT", async () => {
-  // Handful's own server, or one run from a terminal.
+test("YarGPT's answer without YarGPT's agent loaded: a server from a terminal, not stopped", async () => {
+  // Only bootout of YarGPT's agent could stop it.
   const w = world({ loaded: ["dev.yarlson.handful.server"] })
   assert.equal(await handleOldServer(w.deps), "continue")
   assert.deepEqual(w.names(), ["version", "loaded"])
@@ -149,6 +156,42 @@ test("YarGPT before v0.9.0 answers 404 and still counts, with no bots", async ()
   const w = world({ status: 404 })
   assert.deepEqual(await findOldServer(w.deps), { running: [] })
   assert.deepEqual(await findOldServer(world().deps), { running: twoBots })
+  // It gets S5, and Quit Handful stops nothing.
+  const quit = world({ status: 404, choose: { [s5Message]: "Quit Handful" } })
+  assert.equal(await handleOldServer(quit.deps), "quit")
+  assert.deepEqual(quit.dialogs(), [s5Message])
+})
+
+test("Handful's own server on the port while YarGPT's agent is still loaded: no S5, no drain", async () => {
+  // The user skipped the Login Items step: YarGPT's agent stays loaded, but
+  // Handful's server holds the port. Any dialog would throw: choose is empty.
+  for (const version of ["0.14.0", "0.14.0-rc.1", "v1.2.3", "dev-1a2b3c4", "dev"]) {
+    const w = world({ version, loaded: [oldAgentLabel, "dev.yarlson.handful.server"] })
+    assert.equal(await handleOldServer(w.deps), "continue", version)
+    assert.deepEqual(w.names(), ["version"], version)
+  }
+  assert.equal(await findOldServer(world({ version: "0.14.0" }).deps), null)
+})
+
+test("YarGPT 0.13.0, the last YarGPT, and older versions get S5", async () => {
+  assert.equal(lastOldVersion, "0.13.0")
+  for (const version of ["0.13.0", "v0.13.0", "0.13.0-rc.2", "0.12.4", "0.9.0"]) {
+    assert.deepEqual(await findOldServer(world({ version }).deps), { running: twoBots }, version)
+  }
+  const w = world({ version: "0.13.0", choose: { [s5Message]: "Quit Handful" } })
+  assert.equal(await handleOldServer(w.deps), "quit")
+  assert.deepEqual(w.dialogs(), [s5Message])
+  assert.ok(!w.names().includes("drain"))
+})
+
+test("isOldServer: 404 and versions up to 0.13.0 are YarGPT, anything else is not", () => {
+  assert.equal(isOldServer({ status: 404, body: null }), true)
+  assert.equal(isOldServer({ status: 200, body: { version: "0.13.0" } }), true)
+  assert.equal(isOldServer({ status: 200, body: { version: "0.13.1" } }), false)
+  assert.equal(isOldServer({ status: 200, body: { version: "0.14.0" } }), false)
+  assert.equal(isOldServer({ status: 200, body: { version: "dev-abc" } }), false)
+  assert.equal(isOldServer({ status: 200, body: null }), false)
+  assert.equal(isOldServer({ status: 500, body: null }), false)
 })
 
 test("Stop YarGPT now boots its agent out, waits for the port, then shows the Login Items step", async () => {
@@ -238,6 +281,50 @@ test("a port that still answers 30 s after the bootout shows an error and quits"
   ])
   assert.ok(w.clock.t >= portWaitLimit && w.clock.t < portWaitLimit + 1000)
   assert.deepEqual(w.dialogs(), [s5Message])
+})
+
+test("a drained YarGPT whose bootout fails gets DELETE /api/drain before the error box", async () => {
+  const w = world({
+    bootout: { ok: false, error: "Boot-out failed: 5: Input/output error" },
+    choose: { [s5Message]: "Stop YarGPT when they finish", [waitingMessage]: "Stop YarGPT now" },
+  })
+  assert.equal(await handleOldServer(w.deps), "quit")
+  const names = w.names()
+  assert.deepEqual(
+    names.filter((n) => ["drain", "bootout", "undrain", "showErrorBox"].includes(n)),
+    ["drain", "bootout", "undrain", "showErrorBox"],
+  )
+})
+
+test("a drained server that still answers after the bootout gets DELETE /api/drain", async () => {
+  const w = world({ stopsAfter: Infinity, choose: { [s5Message]: "Stop YarGPT when they finish", [waitingMessage]: null } })
+  assert.equal(await handleOldServer(w.deps), "quit")
+  const names = w.names()
+  assert.equal(names.filter((n) => n === "undrain").length, 1)
+  assert.ok(names.indexOf("undrain") < names.indexOf("showErrorBox"))
+})
+
+test("an error after the drain sends DELETE /api/drain and passes the error on", async () => {
+  // The waiting box fails: choose has no answer for it.
+  const w = world({ choose: { [s5Message]: "Stop YarGPT when they finish" } })
+  await assert.rejects(handleOldServer(w.deps), /no choice/)
+  assert.deepEqual(
+    w.names().filter((n) => ["drain", "undrain", "bootout"].includes(n)),
+    ["drain", "undrain"],
+  )
+})
+
+test("no DELETE /api/drain without a drain, or after YarGPT stopped", async () => {
+  const cases = [
+    world({ choose: { [s5Message]: "Quit Handful" } }),
+    world({ bootout: { ok: false, error: "x" }, choose: { [s5Message]: "Stop YarGPT now" } }),
+    world({ drainStatus: 404, bootout: { ok: false, error: "x" }, choose: { [s5Message]: "Stop YarGPT when they finish" } }),
+    world({ choose: { [s5Message]: "Stop YarGPT when they finish", [waitingMessage]: null, [loginItemsMessage]: "Done" } }),
+  ]
+  for (const w of cases) {
+    await handleOldServer(w.deps)
+    assert.ok(!w.names().includes("undrain"))
+  }
 })
 
 test("the gate never lets ensureServer register after a quit, and runs once per launch", async () => {

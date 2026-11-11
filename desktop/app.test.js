@@ -32,7 +32,7 @@ test("only http and https links go to the browser", () => {
 })
 
 test("the settings file is created with an empty object in a private folder", (t) => {
-  const dataDir = path.join(tempDir(t), ".yargpt")
+  const dataDir = path.join(tempDir(t), ".handful")
   const file = ensureSettingsFile(dataDir)
   assert.equal(file, path.join(dataDir, "config.json"))
   assert.equal(fs.readFileSync(file, "utf8"), "{}\n")

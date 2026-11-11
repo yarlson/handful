@@ -3,7 +3,7 @@ const http = require("node:http")
 const { test } = require("node:test")
 const { settingsMethods, settingsAPI, createSettingsBridge, registerSettingsIPC } = require("./settings-bridge")
 
-const configFile = "/Users/me/.yargpt/config.json"
+const configFile = "/Users/me/.handful/config.json"
 const logFile = "/Users/me/Library/Logs/Handful/server.log"
 
 // fakes builds a bridge whose dependencies log their calls.

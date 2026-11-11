@@ -1,6 +1,6 @@
 // The server's last startup error, read from its log for the error screen.
 // cmd/handful/main.go ends a server that fails with the line "handful: <error>",
-// for example `handful: config file /Users/me/.yargpt/config.json: ...`.
+// for example `handful: config file /Users/me/.handful/config.json: ...`.
 const fs = require("node:fs")
 
 const tailBytes = 64 * 1024

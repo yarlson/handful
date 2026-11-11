@@ -24,7 +24,7 @@ const agentLabel = "dev.yarlson.handful.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
 const agentTarget = `gui/${process.getuid()}/${agentLabel}`
 const serverBinary = path.join(process.resourcesPath, "handful")
-const dataDir = path.join(os.homedir(), ".yargpt")
+const dataDir = path.join(os.homedir(), ".handful")
 const configFile = path.join(dataDir, "config.json")
 const logFile = path.join(os.homedir(), "Library", "Logs", "Handful", "server.log")
 // The page copies messages to the clipboard and plays videos full screen.

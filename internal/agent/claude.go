@@ -20,7 +20,10 @@ var (
 
 const (
 	mcpServerName = "handful"
-	approveTool   = "mcp__handful__approve"
+	// oldMCPServerName was the server's name before the rename; it stays
+	// reserved, so old notes' tool names never reach a connector.
+	oldMCPServerName = "yargpt"
+	approveTool      = "mcp__handful__approve"
 )
 
 func handfulTool(name string) string { return "mcp__" + mcpServerName + "__" + name }

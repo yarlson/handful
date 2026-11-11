@@ -49,11 +49,26 @@ func migrate(ctx context.Context, conn *sql.DB) error {
 
 // migrateTo is migrate up to migration last.
 func migrateTo(ctx context.Context, conn *sql.DB, last int) error {
+	names, err := migrationNames()
+	if err != nil {
+		return err
+	}
+	return migrateNames(ctx, conn, names, last)
+}
+
+// migrationNames lists the embedded migrations in order.
+func migrationNames() ([]string, error) {
 	names, err := fs.Glob(migrations, "migrations/*.sql")
 	if err != nil {
-		return fmt.Errorf("list migrations: %w", err)
+		return nil, fmt.Errorf("list migrations: %w", err)
 	}
 	sort.Strings(names)
+	return names, nil
+}
+
+// migrateNames applies the migrations names, up to migration last, to a
+// database that knows at most len(names) of them.
+func migrateNames(ctx context.Context, conn *sql.DB, names []string, last int) error {
 	var version int
 	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)

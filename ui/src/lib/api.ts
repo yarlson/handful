@@ -273,6 +273,9 @@ export const api = {
   listBots: () => request<Bot[]>("GET", "/api/bots"),
   version: () => request<ServerVersion>("GET", "/api/version"),
   settings: () => request<SettingsView>("GET", "/api/settings"),
+  // The welcome notice after the data moved to ~/.handful shows until the user closes it.
+  moveNotice: () => request<{ show: boolean }>("GET", "/api/move-notice"),
+  closeMoveNotice: () => request<void>("POST", "/api/move-notice/close", {}),
   // A null value removes the key from config.json, so its default applies.
   patchSettings: (patch: Partial<Record<Key, Plain | null>>) => request<SettingsView>("PATCH", "/api/settings", patch),
   resetSettingsFile: () => request<SettingsView>("PUT", "/api/settings/file", {}),

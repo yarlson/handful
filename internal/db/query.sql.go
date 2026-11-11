@@ -334,6 +334,17 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 	return err
 }
 
+const countChatMessagesSince = `-- name: CountChatMessagesSince :one
+SELECT count(*) FROM entries WHERE kind IN ('user', 'bot', 'agent') AND created_at > ?
+`
+
+func (q *Queries) CountChatMessagesSince(ctx context.Context, createdAt int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChatMessagesSince, createdAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countGoalTurns = `-- name: CountGoalTurns :one
 SELECT COUNT(*) FROM turns
 WHERE goal_id = ?1 AND started_at IS NOT NULL AND board_role NOT IN ('', 'retro') AND decision = 0
@@ -379,6 +390,17 @@ func (q *Queries) CountIncomingGoals(ctx context.Context) ([]CountIncomingGoalsR
 		return nil, err
 	}
 	return items, nil
+}
+
+const countMemoriesSince = `-- name: CountMemoriesSince :one
+SELECT count(*) FROM memories WHERE created_at > ?
+`
+
+func (q *Queries) CountMemoriesSince(ctx context.Context, createdAt int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMemoriesSince, createdAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const countOpenGoalTurns = `-- name: CountOpenGoalTurns :one
@@ -509,6 +531,17 @@ type CountReviewsByParams struct {
 
 func (q *Queries) CountReviewsBy(ctx context.Context, arg CountReviewsByParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countReviewsBy, arg.TeamID, arg.ReviewerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countRoutinesChangedSince = `-- name: CountRoutinesChangedSince :one
+SELECT count(*) FROM routines WHERE updated_at > ?
+`
+
+func (q *Queries) CountRoutinesChangedSince(ctx context.Context, updatedAt int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRoutinesChangedSince, updatedAt)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

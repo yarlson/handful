@@ -611,6 +611,10 @@ func TestMissingSessionIsReplacedWithANewOne(t *testing.T) {
 	if got.ClaudeSessionID == "gone" || got.ClaudeSessionID == "" {
 		t.Fatalf("session = %q; want a new session id", got.ClaudeSessionID)
 	}
+	note := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == "fresh-session" })
+	if bodyField(note, "text") != "Started a fresh session after the move." {
+		t.Fatalf("note = %s; want the fresh-session note", note.Body)
+	}
 }
 
 func TestInterruptKillsTheProcessAndRecordsTheStop(t *testing.T) {
@@ -2952,6 +2956,7 @@ func TestInvalidConnectorsFileFailsTheTurn(t *testing.T) {
 	}{
 		{"bad name", `"Tracker": {"url": "https://tracker.example/mcp"}`, `"Tracker"`},
 		{"reserved name", `"handful": {"url": "https://tracker.example/mcp"}`, `"handful"`},
+		{"old reserved name", `"yargpt": {"url": "https://tracker.example/mcp"}`, `server name "yargpt"`},
 		{"not http", `"tracker": {"url": "ftp://tracker.example/mcp"}`, "http or https"},
 		{"no host", `"tracker": {"url": "https:///mcp"}`, "host"},
 		{"http to a remote host", `"tracker": {"url": "http://tracker.example/mcp"}`, "loopback"},

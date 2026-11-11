@@ -15,7 +15,24 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"handful/internal/move"
 )
+
+// TestMain gives the tests a home folder of their own: a start without -data
+// moves ~/.yargpt, which must never be the user's.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "handful-home-")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("HOME", home); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
 
 // fakeClaude writes an executable named claude and returns its path.
 func fakeClaude(t *testing.T) string {
@@ -42,7 +59,7 @@ func TestParseFlagsKeepsDefaultsAndRecordsGivenFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.Effort != "max" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, ".yargpt") {
+	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.Effort != "max" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, "/.handful") {
 		t.Fatalf("options = %+v; want the default address, data folder and claude, model sonnet and 5 parallel turns", o)
 	}
 	if o.Updates != (updateSettings{AutoCheck: true, DrainMinutes: 30, UpdateCheck: true}) {
@@ -50,6 +67,54 @@ func TestParseFlagsKeepsDefaultsAndRecordsGivenFlags(t *testing.T) {
 	}
 	if !o.set["model"] || !o.set["effort"] || !o.set["max-parallel"] || o.set["addr"] {
 		t.Fatalf("set = %v; want model and max-parallel only", o.set)
+	}
+	if o.mover == nil || o.mover.New != o.dataDir || o.mover.Addr != o.addr {
+		t.Fatalf("mover = %+v; want one that moves ~/.yargpt to %s", o.mover, o.dataDir)
+	}
+	if o, err := parseFlags([]string{"-data", t.TempDir()}); err != nil || o.mover != nil {
+		t.Fatalf("with -data: mover %+v, %v; want none, so the folder is used as it is", o.mover, err)
+	}
+}
+
+// A start without -data moves ~/.yargpt before it reads the config
+// file there, and says so; -move-back needs the default folder.
+func TestAStartWithoutDataMovesTheOldFolderFirst(t *testing.T) {
+	home := t.TempDir()
+	old := filepath.Join(home, ".yargpt")
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "config.json"), []byte(`{"maxParallel": 6}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths := move.HomePaths(home)
+	o := options{
+		addr: "127.0.0.1:7777", dataDir: paths.New, Claude: fakeClaude(t), MaxParallel: 3, set: map[string]bool{},
+		mover: &move.Mover{Paths: paths, Addr: "127.0.0.1:7777", Running: func() bool { return false }, Now: time.Now},
+	}
+	if err := prepare(&o); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.Readlink(old); err != nil || target != paths.New || o.MaxParallel != 6 {
+		t.Fatalf("~/.yargpt -> %q, %v, maxParallel %d; want the link and the moved config file", target, err, o.MaxParallel)
+	}
+	if err := moveBack(t.Context(), options{}); err == nil || !strings.Contains(err.Error(), "leave out -data") {
+		t.Fatalf("-move-back with -data: %v; want a refusal", err)
+	}
+}
+
+func TestServerAnswersTellsAListenerFromNone(t *testing.T) {
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !serverAnswers(ln.Addr().String()) {
+		t.Error("a listener: want it found")
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	if serverAnswers(addr) {
+		t.Error("a closed port: want nothing found")
 	}
 }
 

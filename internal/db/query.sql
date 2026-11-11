@@ -627,3 +627,12 @@ WHERE t.started_at >= sqlc.arg(from_ms) AND t.started_at < sqlc.arg(to_ms) AND t
     ''))
 GROUP BY tm.team_id
 ORDER BY tm.team_id;
+
+-- name: CountChatMessagesSince :one
+SELECT count(*) FROM entries WHERE kind IN ('user', 'bot', 'agent') AND created_at > ?;
+
+-- name: CountMemoriesSince :one
+SELECT count(*) FROM memories WHERE created_at > ?;
+
+-- name: CountRoutinesChangedSince :one
+SELECT count(*) FROM routines WHERE updated_at > ?;

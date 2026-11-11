@@ -609,7 +609,8 @@ func (r *Runner) recordInterrupt(ctx context.Context, t core.Turn, transcript st
 }
 
 // runTurnOnce runs the turn, and once more on a new Claude session when the
-// stored one is gone (for example, deleted on disk).
+// stored one is gone: deleted on disk, or not found under the data folder's
+// new name after the move to Handful. The chat says so.
 func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
 	out, err := r.runTurn(ctx, bot, t, run)
 	if err != nil || !out.failed() || !run.Resume || !out.sessionMissing() || ctx.Err() != nil {
@@ -617,6 +618,9 @@ func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run
 	}
 	run.Resume, run.SessionID = false, uuid.NewString()
 	if err := r.saveSession(ctx, bot.ID, t.RoomID, run.SessionID); err != nil {
+		return out, err
+	}
+	if _, err := r.svc.AppendEntry(ctx, turnTranscript(t), core.KindEvent, t.ID, map[string]string{"type": "fresh-session", "text": "Started a fresh session after the move."}); err != nil {
 		return out, err
 	}
 	return r.runTurn(ctx, bot, t, run)

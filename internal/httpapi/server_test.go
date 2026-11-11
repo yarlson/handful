@@ -212,6 +212,9 @@ func TestEntriesWindowPagesBackAndRejectsABadOne(t *testing.T) {
 	if len(older) != n-2 || older[len(older)-1].ID != all[n-3].ID {
 		t.Fatalf("the 2 before seq %d = %+v; want the rest, up to the first entry", newest[0].Seq, older)
 	}
+	if first := get("limit=1&before=1"); len(first) != 0 {
+		t.Fatalf("before the first seq = %+v; want none", first)
+	}
 	if changed := get("after=" + itoa(all[n-2].Rev)); len(changed) != 1 || changed[0].ID != all[n-1].ID {
 		t.Fatalf("after the second newest rev = %+v; want the newest only", changed)
 	}

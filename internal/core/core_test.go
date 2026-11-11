@@ -945,6 +945,9 @@ func TestEntryWindowPagesFromTheNewestToTheFirstEntry(t *testing.T) {
 			t.Errorf("limit %d: err = %v; want ErrInvalid", limit, err)
 		}
 	}
+	if got, err := svc.EntryWindow(ctx, bot.ID, 0, 1); err != nil || len(got) != 1 || got[0].ID != all[n-1].ID {
+		t.Fatalf("limit 1 = %v, %v; want the newest entry", seqs(got), err)
+	}
 	if got, err := svc.EntryWindow(ctx, bot.ID, 0, MaxEntryWindow); err != nil || len(got) != n {
 		t.Fatalf("limit %d = %d entries, %v; want all %d", MaxEntryWindow, len(got), err, n)
 	}

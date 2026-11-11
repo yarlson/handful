@@ -146,3 +146,22 @@ test("settings and restart calls go to the server's routes with their bodies", a
     { method: "DELETE", url: "/api/restart", body: undefined },
   ])
 })
+
+test("a chat's entries come as a window of its newest, an older page, or the changes since a rev", async () => {
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    calls.push({ method: init.method ?? "", url, body: undefined })
+    return new Response(JSON.stringify({ entries: [{ id: "e1" }] }), { status: 200 })
+  })
+  const calls: Call[] = []
+  assert.deepEqual(await api.entryWindow("b1", 200), [{ id: "e1" }] as never)
+  await api.entryWindow("b1", 200, 31)
+  await api.entries("b1", 7)
+  assert.deepEqual(
+    calls.map((c) => `${c.method} ${c.url}`),
+    [
+      "GET /api/bots/b1/entries?limit=200",
+      "GET /api/bots/b1/entries?limit=200&before=31",
+      "GET /api/bots/b1/entries?after=7",
+    ],
+  )
+})

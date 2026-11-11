@@ -1,0 +1,66 @@
+---
+interface Props {
+	/** Prefix for the SVG ids, unique on the page. */
+	id: string;
+	/** CSS length for the side of the tile, or for the height of the plain mark. */
+	size: string;
+	/** "tile" is the dark tile with eyes, for 96 px and up. "tile-small" is the same tile without eyes, for below 96 px. "plain" is the five dots in the text colour. */
+	variant?: "tile" | "tile-small" | "plain";
+}
+
+const { id, size, variant = "plain" } = Astro.props;
+const eyes = [
+	[22.6, 25.3],
+	[27.2, 25.3],
+	[36.7, 24.9],
+	[41.3, 24.9],
+	[14.6, 37.8],
+	[19.2, 37.8],
+	[29.4, 37.6],
+	[34, 37.6],
+	[44.7, 37.8],
+	[49.3, 37.8],
+];
+---
+
+{
+	variant === "tile-small" ? (
+		<svg viewBox="0 0 64 64" aria-hidden="true" style={`width:${size};height:${size}`} class="rounded-[22%] ring-1 ring-line">
+			<rect width="64" height="64" rx="14" fill="#111111" />
+			<circle cx="23.5" cy="24.5" r="6" fill="#e60076" />
+			<circle cx="40.5" cy="24.5" r="6" fill="#ffffff" />
+			<circle cx="15" cy="39.5" r="6" fill="#ffffff" />
+			<circle cx="32" cy="39.5" r="6" fill="#ffffff" />
+			<circle cx="49" cy="39.5" r="6" fill="#ffffff" />
+		</svg>
+	) : variant === "tile" ? (
+		<svg viewBox="0 0 64 64" aria-hidden="true" style={`width:${size};height:${size}`} class="rounded-[22%] ring-1 ring-line">
+			<defs>
+				<mask id={`${id}-eyes`} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+					<rect width="64" height="64" fill="#fff" />
+					<g fill="#000">
+						{eyes.map(([cx, cy]) => (
+							<ellipse cx={cx} cy={cy} rx="1.15" ry="1.9" />
+						))}
+					</g>
+				</mask>
+			</defs>
+			<rect width="64" height="64" rx="14" fill="#111111" />
+			<g mask={`url(#${id}-eyes)`}>
+				<circle cx="24" cy="25" r="6.5" fill="#e60076" />
+				<circle cx="40" cy="25" r="6.5" fill="#ffffff" />
+				<circle cx="16" cy="39" r="6.5" fill="#ffffff" />
+				<circle cx="32" cy="39" r="6.5" fill="#ffffff" />
+				<circle cx="48" cy="39" r="6.5" fill="#ffffff" />
+			</g>
+		</svg>
+	) : (
+		<svg viewBox="8.5 17.5 47 29" aria-hidden="true" style={`height:${size}`} class="w-auto" fill="currentColor">
+			<circle cx="23.5" cy="24.5" r="6" fill="#e60076" />
+			<circle cx="40.5" cy="24.5" r="6" />
+			<circle cx="15" cy="39.5" r="6" />
+			<circle cx="32" cy="39.5" r="6" />
+			<circle cx="49" cy="39.5" r="6" />
+		</svg>
+	)
+}

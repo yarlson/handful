@@ -73,17 +73,25 @@ const toneClass: Record<Tone, string> = {
 }
 
 // ToneChip is a state chip: its text names the state, and its colour only repeats it.
-export function ToneChip({ tone, children }: { tone: Tone; children: ReactNode }) {
+export function ToneChip({ tone, className, children }: { tone: Tone; className?: string; children: ReactNode }) {
   return (
-    <Badge variant="outline" className={cn("shrink-0", toneClass[tone])}>
+    <Badge variant="outline" className={cn("shrink-0", toneClass[tone], className)}>
       {children}
     </Badge>
   )
 }
 
-// SourceChip names who a task came from.
+// SourceChip names who a task came from. A long team name is cut short, so the chip takes at
+// most half of its row and leaves the task's title room; the whole name is in its title.
 export function SourceChip({ goal, names }: { goal: Goal; names: Names }) {
-  return <ToneChip tone="waiting">{sourceLabel(goal, names)}</ToneChip>
+  const label = sourceLabel(goal, names)
+  return (
+    <ToneChip tone="waiting" className="max-w-1/2 shrink">
+      <span className="min-w-0 truncate" title={label}>
+        {label}
+      </span>
+    </ToneChip>
+  )
 }
 
 // TextAction asks for a text, such as a reason or an answer, before it acts. open is the

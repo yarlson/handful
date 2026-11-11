@@ -16,7 +16,7 @@ import {
 } from "lucide-react"
 import { botColor } from "@/lib/bot-color"
 import { api, type Bot } from "@/lib/api"
-import { linkLabel } from "@/lib/connection"
+import { type Link, linkLabel } from "@/lib/connection"
 import { orderedEntries, useYarGPT } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
@@ -528,6 +528,31 @@ function chatSubtitle(bot: Bot) {
   return `led by ${lead.name}, with ${others.join(", ") || "no other members"}`
 }
 
+// SidebarFooter is the connection state and the ways to Connectors and Settings. The buttons
+// are icons, so the row fits the narrowest sidebar; their names stay for screen readers.
+export function SidebarFooter({
+  link,
+  onConnectors,
+  onSettings,
+}: {
+  link: Link
+  onConnectors: () => void
+  onSettings: () => void
+}) {
+  return (
+    <div className="text-muted-foreground flex items-center gap-1.5 px-3 py-2 text-xs" data-connection={link}>
+      <span className={cn("size-1.5 shrink-0 rounded-full", link === "live" ? "bg-emerald-500" : "bg-amber-500")} />
+      <span className="min-w-0 flex-1 truncate">{linkLabel(link)}</span>
+      <Button size="icon-xs" variant="ghost" aria-label="Connectors" title="Connectors" onClick={onConnectors}>
+        <Plug />
+      </Button>
+      <Button size="icon-xs" variant="ghost" aria-label="Settings" title="Settings" onClick={onSettings}>
+        <SettingsIcon />
+      </Button>
+    </div>
+  )
+}
+
 export function App() {
   const {
     bots,
@@ -649,7 +674,7 @@ export function App() {
   }
 
   return (
-    <div className="bg-background text-foreground flex h-screen">
+    <div className="bg-background text-foreground relative flex h-dvh overflow-clip">
       <aside className="bg-sidebar text-sidebar-foreground flex shrink-0 flex-col" style={{ width }}>
         <div className="flex items-center px-3 py-3">
           <img src="/logo.svg" alt="YarGPT" className="size-7" />
@@ -725,16 +750,11 @@ export function App() {
             </Button>
           )}
         </nav>
-        <div className="text-muted-foreground flex items-center gap-1.5 px-3 py-2 text-xs" data-connection={link}>
-          <span className={cn("size-1.5 rounded-full", link === "live" ? "bg-emerald-500" : "bg-amber-500")} />
-          <span className="flex-1">{linkLabel(link)}</span>
-          <Button size="xs" variant="ghost" onClick={() => setConnectors(true)}>
-            <Plug /> Connectors
-          </Button>
-          <Button size="xs" variant="ghost" onClick={() => openSettingsPage("general")}>
-            <SettingsIcon /> Settings
-          </Button>
-        </div>
+        <SidebarFooter
+          link={link}
+          onConnectors={() => setConnectors(true)}
+          onSettings={() => openSettingsPage("general")}
+        />
       </aside>
       <div
         role="separator"

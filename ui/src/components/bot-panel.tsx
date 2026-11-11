@@ -852,7 +852,7 @@ export function BotPanel({
           {bot.team && <TabsTrigger value="memory">Memory</TabsTrigger>}
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
-        <div className="min-h-0 flex-1 overflow-y-auto pt-2">
+        <div className="relative min-h-0 flex-1 overflow-y-auto pt-2">
           <TabsContent value="members">
             <MembersTab room={bot} agents={agents} />
           </TabsContent>
@@ -893,7 +893,7 @@ export function BotPanel({
           Settings
         </TabsTrigger>
       </TabsList>
-      <div className="min-h-0 flex-1 overflow-y-auto pt-2">
+      <div className="relative min-h-0 flex-1 overflow-y-auto pt-2">
         <TabsContent value="memory">
           <MemoryTab bot={bot} version={version} />
         </TabsContent>

@@ -306,3 +306,25 @@ test("a watched day shows its count with no limit, then the suggested limit to a
   assert.include(suggested, ">Use 350</button>")
   assert.notInclude(render(board({ budget: { ...budget, suggested: 350 } })), "Suggested limit")
 })
+
+test("a long team name in a task's chip is cut short and leaves the title room", () => {
+  const html = renderToStaticMarkup(
+    <BoardView
+      team={team}
+      data={board({ plan: [{ ...goal("q1", "Build the spec", "queued", 1), origin: "handoff", fromTeamId: "p1" }] })}
+      error={null}
+      act={async () => true}
+      teams={[{ ...team, id: "p1", name: "YarGPT Customer Support and Success Operations" }]}
+    />,
+  )
+  const label = "from YarGPT Customer Support and Success Operations"
+  assert.match(
+    html,
+    /<span[^>]*class="[^"]*\bmax-w-1\/2\b[^"]*\bshrink\b[^"]*"[^>]*><span class="min-w-0 truncate" title="from YarGPT Customer Support and Success Operations">/,
+  )
+  assert.include(html, `>${label}</span>`)
+  assert.match(
+    html,
+    /<div class="flex flex-wrap items-start gap-2">.*?<span class="line-clamp-2 min-w-\[60%\] flex-1" title="Build the spec">/,
+  )
+})

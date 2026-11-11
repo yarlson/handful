@@ -46,7 +46,7 @@ Handful was called YarGPT until its rename. It is the same app.
 
 - A bot reads files and searches the web without asking. Before it runs a command, changes a file or calls a connector tool, it shows an approval card.
 - **Allow once** lets this one call run. **Always allow <tool>** lets this bot use that tool without asking from now on. **Deny** stops the call.
-- A card expires after 10 minutes without an answer, or when the bot stops working.
+- A card expires after 4½ minutes without an answer, or when the bot stops working.
 - To remove an "always allow" permission, open the bot panel, then **Settings**, then **Always allowed tools**.
 - In the sidebar, a shield marks a bot that waits for an approval. A question bubble marks a bot that asked you something.
 

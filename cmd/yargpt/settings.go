@@ -96,7 +96,7 @@ func runtimeValues(o options, launchd bool) []httpapi.RuntimeValue {
 
 // buildKind tells the server at exe apart: a source build, or the server in
 // YarGPT.app, signed with a Developer ID (which updates itself) or built
-// locally. sign returns what codesign -dv prints about the bundle.
+// locally. sign returns what codesign prints about the bundle's signature.
 func buildKind(exe string, sign func(bundle string) string) string {
 	i := strings.Index(exe, ".app/Contents/Resources/")
 	if i < 0 {
@@ -108,16 +108,23 @@ func buildKind(exe string, sign func(bundle string) string) string {
 	return httpapi.BuildAdhoc
 }
 
-// codesignInfo returns what codesign -dv prints about bundle, or "" when it
-// fails or takes longer than a few seconds.
+// codesignInfo returns what codesign prints about bundle's signature, or ""
+// when it fails or takes longer than a few seconds.
 func codesignInfo(bundle string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "codesign", "-dv", bundle).CombinedOutput()
+	out, err := codesignCommand(ctx, bundle).CombinedOutput()
 	if err != nil {
 		return ""
 	}
 	return string(out)
+}
+
+// codesignCommand describes bundle's signature. Only --verbose=2 prints the
+// Authority lines that buildKind reads; the absolute path does not depend on
+// the PATH that launchd gives the server.
+func codesignCommand(ctx context.Context, bundle string) *exec.Cmd {
+	return exec.CommandContext(ctx, "/usr/bin/codesign", "-dv", "--verbose=2", bundle)
 }
 
 // settingsOf returns what the Settings page needs of the server, and the

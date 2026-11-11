@@ -1063,7 +1063,9 @@ export function Chat({
   const items = () => itemsOf(column.current, entries)
   useLayoutEffect(() => {
     const el = scroller.current
-    if (!el) return
+    // A chat whose newest page is still loading has nothing to place yet: it opens, and is
+    // restored to where the user left it, when its entries arrive.
+    if (!el || entries.length === 0) return
     const opened = shown.current !== bot.id
     const top = memory.target(bot.id, opened, el.scrollHeight)
     shown.current = bot.id
@@ -1087,6 +1089,9 @@ export function Chat({
     return () => observer.disconnect()
   }, [follower])
   const onScroll = (el: HTMLDivElement) => {
+    // A scroll before the chat is placed, such as the browser clamping the previous chat's
+    // position, isn't the user's.
+    if (shown.current !== bot.id) return
     setFollowing(follower.scrolled(bot.id, el, items()))
     if (older && el.scrollTop < LOAD_OLDER_PX) onLoadOlder()
   }

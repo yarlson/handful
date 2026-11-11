@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { api, type Bot, type Entry, type ServerEvent } from "./api"
+import { api, type Bot, type ServerEvent } from "./api"
 import {
   drainAnswered,
   drainAsked,
@@ -10,26 +10,12 @@ import {
   type Link,
   type LinkEvent,
 } from "./connection"
-import { loadEntriesAfter } from "./entries"
+import { ChatWindows } from "./chat-windows"
 import { transcriptStep, type TranscriptEvent, type TranscriptStatus } from "./transcript"
-import { EMPTY_WINDOW, keptChats, WINDOW_PAGE, withPage, withUpdates, type EntryWindow } from "./window"
+import type { EntryWindow } from "./window"
 
-// KEPT_CHATS is how many chats keep their loaded window: the open one and the ones opened
-// just before it. The others unload, and load their newest page again when reopened.
-export const KEPT_CHATS = 4
-
-// Load is what the store knows about one loaded chat besides its window.
-type Load = {
-  ready: boolean // its newest page arrived
-  buffer: Entry[] // events that arrived before it, applied after it
-  refresh: boolean // a reconnect came before it: fetch the changes after it
-  older: boolean // an older page is on its way
-}
-
-// useHandful keeps the bot list and the open chats' windows in sync with the server's event
-// stream. A chat loads its newest page once when it opens, and older pages on demand; on
-// every reconnect it fetches only what changed after the highest rev it has, so missed events
-// cannot leave gaps.
+// useHandful keeps the bot list and the open chats' windows (chat-windows.ts) in sync with
+// the server's event stream.
 export function useHandful() {
   const [bots, setBots] = useState<Bot[]>([])
   const [transcripts, setTranscripts] = useState<Map<string, EntryWindow>>(new Map())
@@ -55,18 +41,14 @@ export function useHandful() {
     linkRef.current = step.state
     setLink(step.state)
   }, [])
-  // windows mirrors transcripts, so that loads read the window they add to.
-  const windows = useRef<Map<string, EntryWindow>>(new Map())
-  const loads = useRef<Map<string, Load>>(new Map())
-  const recent = useRef<string[]>([])
   // status is each chat's load state; transcript.ts holds its transitions.
   const [status, setStatus] = useState<Map<string, TranscriptStatus>>(new Map())
-  const statusRef = useRef<Map<string, TranscriptStatus>>(new Map())
   const onTranscript = useCallback((botId: string, event: TranscriptEvent) => {
-    const step = transcriptStep(statusRef.current.get(botId) ?? "unloaded", event)
-    if (!step.ok) console.warn(step.error)
-    statusRef.current = new Map(statusRef.current).set(botId, step.status)
-    setStatus(statusRef.current)
+    setStatus((prev) => {
+      const step = transcriptStep(prev.get(botId) ?? "unloaded", event)
+      if (!step.ok) console.warn(step.error)
+      return new Map(prev).set(botId, step.status)
+    })
   }, [])
   const selectedRef = useRef<string | null>(null)
 
@@ -78,118 +60,26 @@ export function useHandful() {
     }
   }, [])
 
-  // put stores chat botId's window, or drops it when w is undefined.
-  const put = useCallback((botId: string, w: EntryWindow | undefined) => {
-    const next = new Map(windows.current)
-    if (w) next.set(botId, w)
-    else next.delete(botId)
-    windows.current = next
-    setTranscripts(next)
-  }, [])
-
-  // update applies new and changed entries to a loaded chat; before its newest page arrives,
-  // they wait for it.
-  const update = useCallback(
-    (botId: string, entries: Entry[]) => {
-      const load = loads.current.get(botId)
-      if (!load) return
-      if (!load.ready) {
-        load.buffer.push(...entries)
-        return
-      }
-      put(botId, withUpdates(windows.current.get(botId) ?? EMPTY_WINDOW, entries))
-    },
-    [put],
-  )
-
-  // refresh fetches the changes of a loaded chat after the highest rev it has.
-  const refresh = useCallback(
-    async (botId: string) => {
-      const after = windows.current.get(botId)?.rev ?? 0
-      try {
-        await loadEntriesAfter(
-          (rev) => api.entries(botId, rev),
-          after,
-          (entries) => update(botId, entries),
-        )
-      } catch (e) {
-        setError((e as Error).message)
-      }
-    },
-    [update],
-  )
-
-  // open loads a chat's newest page, once: a loaded chat stays current through the stream.
-  const open = useCallback(
-    async (botId: string) => {
-      if (loads.current.has(botId)) return
-      const load: Load = { ready: false, buffer: [], refresh: false, older: false }
-      loads.current.set(botId, load)
-      onTranscript(botId, "fetch")
-      try {
-        const page = await api.entryWindow(botId, WINDOW_PAGE)
-        if (loads.current.get(botId) !== load) return
-        load.ready = true
-        put(botId, withUpdates(withPage(EMPTY_WINDOW, page, WINDOW_PAGE), load.buffer))
-        load.buffer = []
-        onTranscript(botId, "loaded")
-        if (load.refresh) void refresh(botId)
-      } catch (e) {
-        if (loads.current.get(botId) !== load) return
-        loads.current.delete(botId)
-        onTranscript(botId, "failed")
-        setError((e as Error).message)
-      }
-    },
-    [onTranscript, put, refresh],
-  )
-
-  // loadOlder loads the page before a chat's oldest loaded entry, unless one is on its way or
-  // the window reaches the chat's first entry.
-  const loadOlder = useCallback(
-    async (botId: string) => {
-      const load = loads.current.get(botId)
-      const w = windows.current.get(botId)
-      if (!load?.ready || load.older || !w || w.complete) return
-      load.older = true
-      try {
-        const page = await api.entryWindow(botId, WINDOW_PAGE, w.entries[0].seq)
-        if (loads.current.get(botId) === load) put(botId, withPage(windows.current.get(botId) ?? w, page, WINDOW_PAGE))
-      } catch (e) {
-        setError((e as Error).message)
-      } finally {
-        load.older = false
-      }
-    },
-    [put],
-  )
-
-  // reveal loads older pages of a chat until entryId is loaded, and returns whether it is.
-  const reveal = useCallback(
-    async (botId: string, entryId: string) => {
-      const has = () => windows.current.get(botId)?.entries.some((e) => e.id === entryId) ?? false
-      for (;;) {
-        if (has()) return true
-        const before = windows.current.get(botId)
-        await loadOlder(botId)
-        if (windows.current.get(botId) === before) return false
-      }
-    },
-    [loadOlder],
-  )
-
-  // unload drops a chat's window, so that it loads its newest page again when reopened.
-  const unload = useCallback(
-    (botId: string) => {
-      loads.current.delete(botId)
-      put(botId, undefined)
-      const next = new Map(statusRef.current)
+  const forget = useCallback((botId: string) => {
+    setStatus((prev) => {
+      const next = new Map(prev)
       next.delete(botId)
-      statusRef.current = next
-      setStatus(next)
-    },
-    [put],
+      return next
+    })
+  }, [])
+  const [chats] = useState(
+    () =>
+      new ChatWindows({
+        page: api.entryWindow,
+        changes: api.entries,
+        onWindows: setTranscripts,
+        onStatus: onTranscript,
+        onUnload: forget,
+        onError: setError,
+      }),
   )
+  const loadOlder = useCallback((botId: string) => chats.loadOlder(botId), [chats])
+  const reveal = useCallback((botId: string, entryId: string) => chats.reveal(botId, entryId), [chats])
 
   const select = useCallback(
     (botId: string | null) => {
@@ -200,12 +90,9 @@ export function useHandful() {
         next.delete(botId)
         return next
       })
-      const kept = keptChats(recent.current, botId, KEPT_CHATS)
-      for (const id of recent.current) if (!kept.includes(id)) unload(id)
-      recent.current = kept
-      void open(botId)
+      void chats.select(botId)
     },
-    [open, unload],
+    [chats],
   )
 
   // Many entries can arrive at once; refresh the list once after they settle.
@@ -228,10 +115,7 @@ export function useHandful() {
         () => setDrain(drainAnswered(drain.current, asked.rev, false)),
       )
       void refreshBots()
-      for (const [botId, load] of loads.current) {
-        if (load.ready) void refresh(botId)
-        else load.refresh = true
-      }
+      chats.reconnected()
     })
     source.onmessage = (msg) => {
       const ev = JSON.parse(msg.data as string) as ServerEvent
@@ -248,7 +132,7 @@ export function useHandful() {
       } else if (ev.type === "tasks") {
         setBots((prev) => prev.map((b) => (b.id === ev.botId ? { ...b, tasks: ev.tasks } : b)))
       } else if (ev.type === "entry") {
-        update(ev.botId, [ev.entry])
+        chats.update(ev.botId, [ev.entry])
         // These entries can change whether a bot waits on the user (attention).
         if (ev.entry.kind === "approval" || ev.entry.kind === "bot" || ev.entry.kind === "user") scheduleBotsRefresh()
         if (ev.botId !== selectedRef.current && (ev.entry.kind === "bot" || ev.entry.kind === "approval")) {
@@ -258,7 +142,7 @@ export function useHandful() {
     }
     source.onerror = () => onLink("error")
     return () => source.close()
-  }, [refresh, update, refreshBots, scheduleBotsRefresh, onLink, setDrain])
+  }, [chats, refreshBots, scheduleBotsRefresh, onLink, setDrain])
 
   // reorder sets the order of one sidebar section (all bots, teams or rooms). The
   // list changes at once; a failed save reloads the order from the server.

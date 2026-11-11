@@ -17,18 +17,18 @@ export type EntryWindow = {
 
 export const EMPTY_WINDOW: EntryWindow = { entries: [], rev: 0, complete: false }
 
-// withPage adds a page of entries read from the server, the newest page or an older one,
-// in chat order. A page shorter than asked reaches the chat's first entry.
-export function withPage(w: EntryWindow, page: Entry[], asked: number): EntryWindow {
-  const bySeq = new Map(w.entries.map((e) => [e.seq, e]))
-  let rev = w.rev
-  for (const e of page) {
-    const old = bySeq.get(e.seq)
-    if (!old || old.rev < e.rev) bySeq.set(e.seq, e)
-    rev = Math.max(rev, e.rev)
-  }
-  const entries = [...bySeq.values()].sort((a, b) => a.seq - b.seq)
-  return { entries, rev, complete: w.complete || page.length < asked }
+// openWindow starts a chat's window with its newest page, in chat order. Its rev is the
+// catch-up mark: a reconnect fetches the changes after it. A page shorter than asked holds
+// the whole chat.
+export function openWindow(page: Entry[], asked: number): EntryWindow {
+  return { entries: page, rev: Math.max(0, ...page.map((e) => e.rev)), complete: page.length < asked }
+}
+
+// withOlderPage adds the page just above the window, in chat order. It keeps the window's
+// rev: an old entry may carry a recent rev, and the catch-up mark must not pass changes to
+// the newer entries that the window hasn't seen.
+export function withOlderPage(w: EntryWindow, page: Entry[], asked: number): EntryWindow {
+  return { entries: [...page, ...w.entries], rev: w.rev, complete: page.length < asked }
 }
 
 // withUpdates applies new and changed entries, from the event stream or a reconnect. Its
@@ -40,7 +40,7 @@ export function withUpdates(w: EntryWindow, updates: Entry[]): EntryWindow {
   let rev = w.rev
   for (const e of updates) {
     rev = Math.max(rev, e.rev)
-    if (!w.complete && (entries.length === 0 || e.seq < entries[0].seq)) continue
+    if (!w.complete && (w.entries.length === 0 || e.seq < w.entries[0].seq)) continue
     const i = seqIndex(entries, e.seq)
     const old = entries[i]
     if (old?.seq !== e.seq) entries = entries.toSpliced(i, 0, e)

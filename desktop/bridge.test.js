@@ -6,7 +6,8 @@ const path = require("node:path")
 const { test } = require("node:test")
 const {
   feedURL,
-  releaseBase,
+  downloadURL,
+  handfulRequirement,
   siteURL,
   maxFeedBytes,
   recheckInterval,
@@ -26,6 +27,7 @@ const {
 } = require("./bridge")
 
 const team = "ABCDE12345"
+const downloadBase = "https://github.com/yarlson/handful/releases/download/"
 const sha512 = (bytes) => crypto.createHash("sha512").update(bytes).digest("base64")
 
 function tempDir(t) {
@@ -82,7 +84,8 @@ function harness(t, opts = {}) {
   fs.mkdirSync(tmpRoot)
   const zip = opts.zip ?? Buffer.from("PK fake Handful zip ".repeat(500))
   const feed = { version: "1.0.0", zip: "Handful-universal-mac.zip", sha: sha512(zip), size: zip.length, ...opts.feed }
-  const yml = opts.yml ?? feedYml(feed)
+  // published is the release that GitHub serves now; publish replaces it.
+  const published = { feed, zip, yml: opts.yml ?? feedYml(feed) }
   const calls = []
   const asked = []
   const running = opts.running ?? []
@@ -90,16 +93,17 @@ function harness(t, opts = {}) {
   const answers = opts.answers ?? []
   const timers = fakeTimers()
   const changes = []
+  const verifyArgs = []
 
   async function fetchImpl(url) {
     if (url === feedURL) {
       calls.push("fetch feed")
-      if (opts.feedResponse) return opts.feedResponse()
-      return new Response(yml)
+      const answer = opts.feedResponse?.()
+      return answer ?? new Response(published.yml)
     }
     calls.push(`fetch ${url}`)
     if (opts.downloadResponse) return opts.downloadResponse()
-    if (url === `${releaseBase}${feed.zip}`) return new Response(zip)
+    if (url === downloadURL({ version: published.feed.version, path: published.feed.zip })) return new Response(published.zip)
     return new Response("", { status: 404 })
   }
 
@@ -110,7 +114,7 @@ function harness(t, opts = {}) {
       if (opts.unzipFails) throw new Error("ditto: not a zip")
       const layout = opts.layout ?? ["Handful.app"]
       for (const entry of layout) {
-        writeBundle(path.join(args[3], entry), { CFBundleIdentifier: opts.bundleID ?? "dev.yarlson.handful", CFBundleShortVersionString: feed.version })
+        writeBundle(path.join(args[3], entry), { CFBundleIdentifier: opts.bundleID ?? "dev.yarlson.handful", CFBundleShortVersionString: published.feed.version })
       }
       return { stdout: "", stderr: "" }
     }
@@ -122,12 +126,15 @@ function harness(t, opts = {}) {
     }
     if (name === "codesign" && args[0] === "--verify") {
       calls.push("codesign verify")
+      verifyArgs.push(args)
       if (opts.verifyFails) throw Object.assign(new Error("Command failed"), { stderr: "a sealed resource is missing or invalid" })
+      // Like codesign: the app satisfies only the requirement of the team
+      // whose Developer ID signed it.
+      const signer = opts.team ?? team
+      if (!args.includes(`-R=${handfulRequirement(signer)}`)) {
+        throw Object.assign(new Error("Command failed"), { stderr: "test-requirement: code failed to satisfy specified code requirement(s)" })
+      }
       return { stdout: "", stderr: "" }
-    }
-    if (name === "codesign") {
-      calls.push("codesign team")
-      return { stdout: "", stderr: `Executable=/x\nIdentifier=dev.yarlson.handful\nTeamIdentifier=${opts.team ?? team}\n` }
     }
     if (name === "plutil") {
       const key = args[1]
@@ -196,7 +203,12 @@ function harness(t, opts = {}) {
     log: () => {},
   })
   bridge.onChange((s) => changes.push(s))
-  return { bridge, calls, asked, changes, timers, appsDir, tmpRoot, feed, zip, now: () => clock }
+  const publish = (next) => {
+    published.feed = next.feed
+    published.zip = next.zip
+    published.yml = feedYml(next.feed)
+  }
+  return { bridge, calls, asked, changes, timers, appsDir, tmpRoot, feed, zip, verifyArgs, publish, now: () => clock }
 }
 
 const visibleSteps = (calls) => calls.filter((c) => !c.startsWith("version") && !c.startsWith("plutil"))
@@ -423,11 +435,11 @@ test("Move to Handful drains, downloads, verifies, installs, unregisters and ope
   const target = path.join(h.appsDir, "Handful.app")
   assert.deepEqual(visibleSteps(h.calls), [
     "fetch feed",
+    "fetch feed",
     "drain",
-    `fetch ${releaseBase}Handful-universal-mac.zip`,
+    "fetch https://github.com/yarlson/handful/releases/download/v1.0.0/Handful-universal-mac.zip",
     "unzip",
     "codesign verify",
-    "codesign team",
     "copy .Handful.app.partial",
     "unregister",
     `open ${target}`,
@@ -437,6 +449,9 @@ test("Move to Handful drains, downloads, verifies, installs, unregisters and ope
   assert.equal(fs.readFileSync(path.join(target, "Contents", "marker"), "utf8"), "new")
   assertTempClean(h)
   assert.ok(!h.calls.includes("undrain"))
+  const requirement =
+    'anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "ABCDE12345"'
+  assert.deepEqual(h.verifyArgs, [["--verify", "--deep", "--strict", `-R=${requirement}`, path.join(path.dirname(h.verifyArgs[0][4]), "Handful.app")]])
   const statuses = h.changes.map((c) => c.view.status).filter(Boolean)
   assert.deepEqual([...new Set(statuses.filter((s) => !s.startsWith("Downloading")))], [
     "Checking Handful's signature…",
@@ -445,6 +460,32 @@ test("Move to Handful drains, downloads, verifies, installs, unregisters and ope
   ])
   assert.ok(statuses.includes("Downloading Handful… 0%"))
   assert.ok(statuses.includes("Downloading Handful… 100%"))
+})
+
+test("Move reads the feed again, so a newer Handful released since the start installs", async (t) => {
+  const h = harness(t)
+  await found(h)
+  const zip = Buffer.from("PK newer Handful zip ".repeat(300))
+  h.publish({ feed: { version: "1.1.0", zip: "Handful-universal-mac.zip", sha: sha512(zip), size: zip.length }, zip })
+  await h.bridge.move()
+  assert.ok(h.calls.includes("fetch https://github.com/yarlson/handful/releases/download/v1.1.0/Handful-universal-mac.zip"))
+  assert.ok(h.calls.includes("exit"))
+  const info = JSON.parse(fs.readFileSync(path.join(h.appsDir, "Handful.app", "Contents", "Info.json"), "utf8"))
+  assert.equal(info.CFBundleShortVersionString, "1.1.0")
+})
+
+test("a feed gone at Move shows Couldn't reach GitHub. and drains nothing", async (t) => {
+  let gone = false
+  const h = harness(t, { feedResponse: () => (gone ? new Response("", { status: 404 }) : undefined) })
+  // feedResponse returns undefined until the feed goes, so the start finds it.
+  await found(h)
+  gone = true
+  await h.bridge.move()
+  const s = h.bridge.snapshot()
+  assert.equal(s.screen, "failed")
+  assert.equal(s.view.lines[0], "Couldn't reach GitHub.")
+  assert.ok(!h.calls.includes("drain"))
+  assertNothingInstalled(h)
 })
 
 test("the download reports its progress", async (t) => {
@@ -478,7 +519,7 @@ test("with bots working, S2 waits for them and the move starts when they finish"
   await h.bridge.move()
   assert.ok(h.changes.some((c) => c.screen === "moving" && c.view.status === "Waiting for 2 bots to finish…"))
   assert.equal(h.asked.length, 0)
-  assert.ok(h.calls.indexOf("drain") < h.calls.findIndex((c) => c.startsWith(`fetch ${releaseBase}`)))
+  assert.ok(h.calls.indexOf("drain") < h.calls.findIndex((c) => c.startsWith(`fetch ${downloadBase}`)))
   assert.ok(h.calls.includes("exit"))
   assert.equal(h.now(), start + 15_000, "polls every 5 s")
 })
@@ -496,7 +537,7 @@ test("at the drain limit the bridge asks and never moves on its own", async (t) 
   for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
   assert.deepEqual(h.asked[0].message, "Still working after 30 min: Dev Lead. Moving now stops them.")
   assert.deepEqual(h.asked[0].buttons, ["Move now", "Wait 30 more min", "Cancel"])
-  assert.ok(!h.calls.some((c) => c.startsWith(`fetch ${releaseBase}`)), "no download while it asks")
+  assert.ok(!h.calls.some((c) => c.startsWith(`fetch ${downloadBase}`)), "no download while it asks")
   answer(0) // Move now
   await moving
   assert.ok(h.calls.includes("unregister"))
@@ -512,7 +553,7 @@ test("Wait more asks again later; Cancel releases the drain and goes back to S1"
   assert.equal(h.asked[1].message, "Still working after 20 min: Dev Lead, Core Dev. Moving now stops them.")
   assert.deepEqual(h.asked[1].buttons, ["Move now", "Wait 10 more min", "Cancel"])
   assert.deepEqual(visibleSteps(h.calls).slice(-4), ["drain", "ask", "ask", "undrain"])
-  assert.ok(!h.calls.some((c) => c.startsWith(`fetch ${releaseBase}`)))
+  assert.ok(!h.calls.some((c) => c.startsWith(`fetch ${downloadBase}`)))
   const s = h.bridge.snapshot()
   assert.equal(s.screen, "offer")
   assert.equal(s.view.buttons[0].label, "Move when they finish")

@@ -14,6 +14,23 @@ const { runningOf } = require("./updater-io")
 
 const releaseBase = "https://github.com/yarlson/handful/releases/latest/download/"
 const feedURL = `${releaseBase}handful-mac.yml`
+
+// downloadURL is the zip of the release that the feed names. A release
+// published after the feed was read cannot change it.
+function downloadURL(feed) {
+  return `https://github.com/yarlson/handful/releases/download/v${feed.version}/${feed.path}`
+}
+
+// handfulRequirement is the code requirement that Handful.app must satisfy:
+// Apple's anchor, a Developer ID Application certificate, and YarGPT's own
+// team. A team identifier alone is not enough, because any signature can
+// claim one.
+function handfulRequirement(teamID) {
+  return (
+    "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and " +
+    `certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "${teamID}"`
+  )
+}
 const siteURL = "https://handful.dev"
 const handfulBundleID = "dev.yarlson.handful"
 const handfulApp = "Handful.app"
@@ -418,7 +435,7 @@ function createBridge(deps) {
     try {
       let res
       try {
-        res = await fetchImpl(`${releaseBase}${feed.path}`, { signal: timeoutSignal(downloadTimeout), redirect: "follow" })
+        res = await fetchImpl(downloadURL(feed), { signal: timeoutSignal(downloadTimeout), redirect: "follow" })
       } catch (err) {
         throw new BridgeError("network", `download ${feed.path}: ${err.message}`, { cause: err })
       }
@@ -458,7 +475,8 @@ function createBridge(deps) {
   }
 
   // verify unpacks the zip and checks that it holds only Handful.app, signed
-  // by the same team as YarGPT, with Handful's bundle ID. It returns the app.
+  // with a Developer ID of YarGPT's team, with Handful's bundle ID. It
+  // returns the app.
   async function verify(zip, temps) {
     setStep("verify")
     const dir = await makeTemp(temps)
@@ -473,20 +491,16 @@ function createBridge(deps) {
       throw new BridgeError("mismatch", `the download holds ${entries.join(", ") || "nothing"}, not only ${handfulApp}`)
     }
     try {
-      await exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", app])
+      await exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", `-R=${handfulRequirement(teamID)}`, app])
     } catch (err) {
       throw new BridgeError("signature", `codesign --verify: ${err.stderr || err.message}`, { cause: err })
     }
-    let team = null
     let bundleID = null
     try {
-      const { stdout, stderr } = await exec("/usr/bin/codesign", ["-dv", "--verbose=2", app])
-      team = teamIdentifierOf(`${stdout}\n${stderr}`)
       bundleID = await plistValue(app, "CFBundleIdentifier")
     } catch (err) {
-      throw new BridgeError("signature", `read the signature: ${err.message}`, { cause: err })
+      throw new BridgeError("signature", `read the bundle ID: ${err.message}`, { cause: err })
     }
-    if (team !== teamID) throw new BridgeError("signature", `Handful is signed by team ${team ?? "none"}, not ${teamID}`)
     if (bundleID !== handfulBundleID) throw new BridgeError("signature", `Handful's bundle ID is ${bundleID}`)
     return app
   }
@@ -561,10 +575,14 @@ function createBridge(deps) {
     const temps = []
     let unregistered = false
     try {
+      // The feed read at start can be stale: a newer Handful can be out.
+      const feed = await fetchHandfulFeed({ fetchImpl, timeoutSignal, log })
+      if (!feed) throw new BridgeError("network", "read handful-mac.yml")
+      state.feed = feed
       if (!(await drain())) return
-      const zip = await download(state.feed, temps)
+      const zip = await download(feed, temps)
       const source = await verify(zip, temps)
-      const app = await install(state.feed, source)
+      const app = await install(feed, source)
       // A failed unregister can have booted the server out already.
       unregistered = true
       await agent.unregister()
@@ -662,6 +680,8 @@ function registerBridgeIPC(ipcMain, bridge, contents) {
 
 module.exports = {
   feedURL,
+  downloadURL,
+  handfulRequirement,
   releaseBase,
   siteURL,
   handfulBundleID,

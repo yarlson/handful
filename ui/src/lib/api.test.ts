@@ -155,7 +155,7 @@ test("a chat's entries come as a window of its newest, an older page, or the cha
   const calls: Call[] = []
   assert.deepEqual(await api.entryWindow("b1", 200), [{ id: "e1" }] as never)
   await api.entryWindow("b1", 200, 31)
-  await api.entries("b1", 7)
+  assert.deepEqual(await api.entries("b1", 7), [{ id: "e1" }] as never)
   assert.deepEqual(
     calls.map((c) => `${c.method} ${c.url}`),
     [

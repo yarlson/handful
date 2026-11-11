@@ -1341,3 +1341,114 @@ func TestADroppedStepThatAskedAnotherTeamStillHoldsUpItsDependents(t *testing.T)
 		}
 	}
 }
+
+// failLeadTurns plays the runner for n settle ticks: each lead turn of f's
+// goal that a tick queues starts and fails at once. It returns how many
+// lead turns the ticks queued.
+func (f *boardFixture) failLeadTurns(t *testing.T, n int) int {
+	t.Helper()
+	ctx := context.Background()
+	woken := 0
+	for range n {
+		if err := f.svc.SettleItems(ctx, func(string, string) bool { return false }, LeadState{}); err != nil {
+			t.Fatal(err)
+		}
+		turns, err := f.svc.QueuedTurns(ctx, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tr := range turns {
+			if tr.GoalID != f.goal.ID || tr.BoardRole != RoleLead {
+				continue
+			}
+			woken++
+			f.endTurn(t, tr.ID, "failed")
+		}
+	}
+	return woken
+}
+
+func (f *boardFixture) endTurn(t *testing.T, id, status string) {
+	t.Helper()
+	if _, err := f.svc.StartTurn(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.FinishTurn(context.Background(), id, status, status); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// leadTurn queues a lead turn of f's goal and ends it with status.
+func (f *boardFixture) leadTurn(t *testing.T, status string) {
+	t.Helper()
+	id, err := f.svc.queueTurn(context.Background(), f.svc.q, Turn{BotID: f.bo.ID, Source: SourceRoom, RoomID: f.team.ID, GoalID: f.goal.ID, BoardRole: RoleLead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.endTurn(t, id, status)
+}
+
+// countNotes counts the events in the team's channel with text.
+func (f *boardFixture) countNotes(t *testing.T, text string) int {
+	t.Helper()
+	entries, err := f.svc.Entries(context.Background(), f.team.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range entries {
+		var body struct {
+			Text string `json:"text"`
+		}
+		if e.Kind == KindEvent && json.Unmarshal(e.Body, &body) == nil && body.Text == text {
+			n++
+		}
+	}
+	return n
+}
+
+const gaveUpNote = `Bo failed 3 turns in a row on "Ship CSV export."; the board stops waking Bo. Write to Bo in the channel to try again.`
+
+// A lead turn that fails at once is woken 3 times, then no more, and the
+// channel says so once.
+func TestTheBoardStopsWakingALeadWhoseTurnsKeepFailing(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	f.leadTurn(t, "interrupted")
+	if woken := f.failLeadTurns(t, 10); woken != 3 {
+		t.Fatalf("lead wakes over 10 ticks of failing turns = %d; want 3", woken)
+	}
+	if n := f.countNotes(t, gaveUpNote); n != 1 {
+		t.Fatalf("notes %q = %d; want 1", gaveUpNote, n)
+	}
+}
+
+// A turn that ends well, of the goal or of the lead in the team, such as
+// the lead's answer to the user, wakes the lead again on a later failure.
+func TestATurnThatEndsWellLetsTheBoardWakeTheLeadAgain(t *testing.T) {
+	ctx := context.Background()
+	f := newBoardFixture(t, 30)
+	f.leadTurn(t, "interrupted")
+	f.failLeadTurns(t, 5)
+
+	f.leadTurn(t, "done")
+	f.leadTurn(t, "failed")
+	if woken := f.failLeadTurns(t, 1); woken != 1 {
+		t.Fatalf("after a goal turn ended well, then failed: wakes = %d; want 1", woken)
+	}
+	f.failLeadTurns(t, 5)
+
+	if _, _, err := f.svc.SubmitUserMessage(ctx, f.team.ID, "Try again.", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := f.svc.QueuedTurns(ctx, 100)
+	if err != nil || len(turns) != 1 || turns[0].BotID != f.bo.ID {
+		t.Fatalf("queued after the user's post = %+v, %v; want the lead's chat turn", turns, err)
+	}
+	f.endTurn(t, turns[0].ID, "done")
+	if woken := f.failLeadTurns(t, 1); woken != 1 {
+		t.Fatalf("after the lead's chat turn ended well: wakes = %d; want 1", woken)
+	}
+	if n := f.countNotes(t, gaveUpNote); n != 2 {
+		t.Fatalf("notes %q = %d; want one for each run of failures", gaveUpNote, n)
+	}
+}

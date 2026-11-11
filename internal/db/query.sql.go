@@ -334,6 +334,24 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 	return err
 }
 
+const countBoardNotesSince = `-- name: CountBoardNotesSince :one
+SELECT COUNT(*) FROM entries
+WHERE bot_id = ?1 AND kind = 'event' AND json_extract(body, '$.text') = ?2 AND created_at >= ?3
+`
+
+type CountBoardNotesSinceParams struct {
+	TeamID string `json:"team_id"`
+	Text   string `json:"text"`
+	Since  int64  `json:"since"`
+}
+
+func (q *Queries) CountBoardNotesSince(ctx context.Context, arg CountBoardNotesSinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countBoardNotesSince, arg.TeamID, arg.Text, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countChatMessagesSince = `-- name: CountChatMessagesSince :one
 SELECT count(*) FROM entries WHERE kind IN ('user', 'bot', 'agent') AND created_at > ?
 `
@@ -837,6 +855,33 @@ func (q *Queries) DeleteToolGrant(ctx context.Context, arg DeleteToolGrantParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const failedLeadTurnsSinceDone = `-- name: FailedLeadTurnsSinceDone :one
+SELECT COUNT(*) AS failed, CAST(COALESCE(MAX(COALESCE(f.finished_at, f.created_at)), 0) AS INTEGER) AS last_failed_at FROM turns f
+WHERE f.goal_id = ?1 AND f.board_role <> '' AND f.status = 'failed'
+  AND f.created_at > COALESCE((SELECT MAX(d.created_at) FROM turns d WHERE d.status = 'done'
+    AND (d.goal_id = ?1 OR (d.bot_id = ?2 AND d.room_id = ?3))), 0)
+`
+
+type FailedLeadTurnsSinceDoneParams struct {
+	GoalID string `json:"goal_id"`
+	LeadID string `json:"lead_id"`
+	TeamID string `json:"team_id"`
+}
+
+type FailedLeadTurnsSinceDoneRow struct {
+	Failed       int64 `json:"failed"`
+	LastFailedAt int64 `json:"last_failed_at"`
+}
+
+// The goal's failed board turns since the last turn that ended well, of
+// the goal or of its lead in the team, and when the last of them ended.
+func (q *Queries) FailedLeadTurnsSinceDone(ctx context.Context, arg FailedLeadTurnsSinceDoneParams) (FailedLeadTurnsSinceDoneRow, error) {
+	row := q.db.QueryRowContext(ctx, failedLeadTurnsSinceDone, arg.GoalID, arg.LeadID, arg.TeamID)
+	var i FailedLeadTurnsSinceDoneRow
+	err := row.Scan(&i.Failed, &i.LastFailedAt)
+	return i, err
 }
 
 const finishTurn = `-- name: FinishTurn :exec

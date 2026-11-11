@@ -1480,6 +1480,9 @@ func (s *Service) wakeStalledLead(ctx context.Context, g Goal, items []Item) err
 	if !ok {
 		return nil
 	}
+	if gaveUp, err := s.leadGaveUp(ctx, team, lead, g); err != nil || gaveUp {
+		return err
+	}
 	busy, err := s.q.CountOpenTurnsOfBotInRoom(ctx, db.CountOpenTurnsOfBotInRoomParams{BotID: lead.ID, RoomID: team.ID})
 	if err != nil || busy > 0 {
 		return err
@@ -1490,6 +1493,33 @@ func (s *Service) wakeStalledLead(ctx context.Context, g Goal, items []Item) err
 	}
 	s.signalTurns()
 	return nil
+}
+
+// maxFailedLeadTurns is how many board turns of a goal may fail with no turn
+// that ended well between them before the board stops waking its lead: a
+// lead turn that fails at once would otherwise be woken at every settle.
+const maxFailedLeadTurns = 3
+
+// leadGaveUp reports whether the board stops waking lead on g: the lead's
+// own board turns on g failed maxFailedLeadTurns times since a turn of g, or
+// of lead in the team, ended well; members' failed turns don't count. It
+// tells the team's channel once.
+func (s *Service) leadGaveUp(ctx context.Context, team Bot, lead Member, g Goal) (bool, error) {
+	row, err := s.q.FailedLeadTurnsSinceDone(ctx, db.FailedLeadTurnsSinceDoneParams{GoalID: g.ID, LeadID: lead.ID, TeamID: team.ID})
+	if err != nil {
+		return false, fmt.Errorf("count the failed turns of goal %s: %w", g.ID, err)
+	}
+	if row.Failed < maxFailedLeadTurns {
+		return false, nil
+	}
+	text := fmt.Sprintf("%s failed %d turns in a row on %q; the board stops waking %s. Write to %s in the channel to try again.", lead.Name, maxFailedLeadTurns, g.Text, lead.Name, lead.Name)
+	// The note names the turn that ended the run, so later ticks find it.
+	n, err := s.q.CountTurnNotes(ctx, db.CountTurnNotesParams{TeamID: team.ID, TurnID: row.LastFailedID, Text: text})
+	if err != nil || n > 0 {
+		return true, err
+	}
+	_, err = s.AppendEntry(ctx, team.ID, KindEvent, row.LastFailedID, map[string]string{"type": "board", "text": text})
+	return true, err
 }
 
 // ReviewsItem reports whether the bot reviews an item in review in the team,

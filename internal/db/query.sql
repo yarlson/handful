@@ -544,6 +544,24 @@ SELECT COUNT(*) FROM turns WHERE goal_id = ? AND status IN ('queued', 'running')
 SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running') AND board_role <> ''
 ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
+-- name: FailedLeadTurnsSinceDone :one
+-- The lead's failed board turns on the goal since the last turn that ended
+-- well, of the goal or of the lead in the team, and the id of the last
+-- failed one. Insertion order (rowid) orders them: turns queued in the same
+-- millisecond have the same created_at.
+SELECT COUNT(*) AS failed,
+  CAST(COALESCE((SELECT l.id FROM turns l WHERE l.goal_id = sqlc.arg(goal_id) AND l.bot_id = sqlc.arg(lead_id) AND l.board_role <> '' AND l.status = 'failed'
+    ORDER BY l.rowid DESC LIMIT 1), '') AS TEXT) AS last_failed_id
+FROM turns f
+WHERE f.goal_id = sqlc.arg(goal_id) AND f.bot_id = sqlc.arg(lead_id) AND f.board_role <> '' AND f.status = 'failed'
+  AND f.rowid > COALESCE((SELECT MAX(d.rowid) FROM turns d WHERE d.status = 'done'
+    AND (d.goal_id = sqlc.arg(goal_id) OR (d.bot_id = sqlc.arg(lead_id) AND d.room_id = sqlc.arg(team_id)))), 0);
+
+-- name: CountTurnNotes :one
+-- Board notes in a team's channel with text about one turn.
+SELECT COUNT(*) FROM entries
+WHERE bot_id = sqlc.arg(team_id) AND turn_id = sqlc.arg(turn_id) AND kind = 'event' AND json_extract(body, '$.text') = sqlc.arg(text);
+
 -- name: CountOpenTurnsOfBotInRoom :one
 SELECT COUNT(*) FROM turns WHERE bot_id = ? AND room_id = ? AND status IN ('queued', 'running');
 

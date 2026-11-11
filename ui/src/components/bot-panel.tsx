@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Play, Trash2 } from "lucide-react"
+import { Play, Trash2, X } from "lucide-react"
 import { api, type Artifact, type Bot, type Memory, type Routine, type Skill, type TeamSettings } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
 import { latestOnly } from "@/lib/latest"
@@ -193,7 +193,7 @@ function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
           </div>
           <p className="text-muted-foreground mt-1 text-xs">{r.prompt}</p>
           <div className="mt-2 flex items-center gap-2 text-xs">
-            <code className="bg-muted shrink-0 rounded px-1 whitespace-nowrap">{r.schedule}</code>
+            <code className="bg-sidebar-foreground/5 shrink-0 rounded px-1 whitespace-nowrap">{r.schedule}</code>
             <span className="text-muted-foreground min-w-0">next {r.enabled ? when(r.nextRunAt) : "paused"}</span>
           </div>
           <div className="mt-1 flex items-center justify-end gap-1">
@@ -246,7 +246,7 @@ function SkillsTab({ version }: { version: number }) {
         <button
           key={s.id}
           type="button"
-          className="hover:bg-muted rounded-md border p-2 text-left text-sm"
+          className="hover:bg-sidebar-foreground/5 rounded-md border p-2 text-left text-sm"
           onClick={() => void show(s.id)}
         >
           <span className="font-medium">{s.name}</span>
@@ -336,7 +336,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
         <button
           key={a.id}
           type="button"
-          className="hover:bg-muted rounded-md border p-2 text-left text-sm"
+          className="hover:bg-sidebar-foreground/5 rounded-md border p-2 text-left text-sm"
           onClick={() => void show(a.id)}
         >
           <span className="font-medium">{a.title}</span>
@@ -828,9 +828,12 @@ export function BotPanel({
   show,
   teams = [],
   onOpenInbox,
+  onClose,
 }: {
   bot: Bot
   agents: Bot[]
+  // onClose closes the panel; its button shows only where the panel covers the chat (below 64rem).
+  onClose?: () => void
   // teams are the app's teams, to send tasks to.
   teams?: Bot[]
   // onOpenInbox opens the team's inbox.
@@ -845,14 +848,27 @@ export function BotPanel({
   const key = `${bot.id}:${show?.n ?? 0}`
   if (bot.kind === "room") {
     return (
-      <Tabs key={key} defaultValue={first} className="flex h-full flex-col p-3">
-        <TabsList className="w-full">
-          {bot.team && <TabsTrigger value="board">Work</TabsTrigger>}
-          <TabsTrigger value="members">Members</TabsTrigger>
-          {bot.team && <TabsTrigger value="memory">Memory</TabsTrigger>}
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-        </TabsList>
-        <div className="relative min-h-0 flex-1 overflow-y-auto pt-2">
+      <Tabs key={key} defaultValue={first} className="flex h-full flex-col gap-0">
+        <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
+          <TabsList className="bg-sidebar-foreground/5 w-full">
+            {bot.team && <TabsTrigger value="board">Work</TabsTrigger>}
+            <TabsTrigger value="members">Members</TabsTrigger>
+            {bot.team && <TabsTrigger value="memory">Memory</TabsTrigger>}
+            <TabsTrigger value="settings">Settings</TabsTrigger>
+          </TabsList>
+          {onClose && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="shrink-0 lg:hidden"
+              aria-label="Close panel"
+              onClick={onClose}
+            >
+              <X />
+            </Button>
+          )}
+        </div>
+        <div className="relative min-h-0 flex-1 overflow-y-auto p-3">
           <TabsContent value="members">
             <MembersTab room={bot} agents={agents} />
           </TabsContent>
@@ -874,26 +890,40 @@ export function BotPanel({
     )
   }
   return (
-    <Tabs key={key} defaultValue={first} className="flex h-full flex-col p-3">
-      <TabsList className="w-full">
-        {/* text-xs fits five tabs into the panel's width. */}
-        <TabsTrigger value="memory" className="text-xs">
-          Memory
-        </TabsTrigger>
-        <TabsTrigger value="routines" className="text-xs">
-          Routines
-        </TabsTrigger>
-        <TabsTrigger value="skills" className="text-xs">
-          Skills
-        </TabsTrigger>
-        <TabsTrigger value="artifacts" className="text-xs">
-          Artifacts
-        </TabsTrigger>
-        <TabsTrigger value="settings" className="text-xs">
-          Settings
-        </TabsTrigger>
-      </TabsList>
-      <div className="relative min-h-0 flex-1 overflow-y-auto pt-2">
+    <Tabs key={key} defaultValue={first} className="flex h-full flex-col gap-0">
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
+        <TabsList className="bg-sidebar-foreground/5 w-full">
+          {/* text-xs fits five tabs into the panel's width; below 64rem, less padding also
+              fits the Close panel button beside them. */}
+          <TabsTrigger value="memory" className="text-xs max-lg:px-0.5">
+            Memory
+          </TabsTrigger>
+          <TabsTrigger value="routines" className="text-xs max-lg:px-0.5">
+            Routines
+          </TabsTrigger>
+          <TabsTrigger value="skills" className="text-xs max-lg:px-0.5">
+            Skills
+          </TabsTrigger>
+          <TabsTrigger value="artifacts" className="text-xs max-lg:px-0.5">
+            Artifacts
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="text-xs max-lg:px-0.5">
+            Settings
+          </TabsTrigger>
+        </TabsList>
+        {onClose && (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="shrink-0 lg:hidden"
+            aria-label="Close panel"
+            onClick={onClose}
+          >
+            <X />
+          </Button>
+        )}
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-3">
         <TabsContent value="memory">
           <MemoryTab bot={bot} version={version} />
         </TabsContent>

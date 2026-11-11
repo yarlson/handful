@@ -7,9 +7,6 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { setTimeout: sleep } = require("node:timers/promises")
-const { promisify } = require("node:util")
-const { createBridge, teamIdentifierOf } = require("./bridge")
-const { createBridgeWindow } = require("./bridge-window")
 const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
 const { contextMenuTemplate } = require("./context-menu")
 const { appMenuTemplate } = require("./menu")
@@ -18,7 +15,7 @@ const { lastStartupErrorIn, serverErrorDialog } = require("./server-log")
 const { createSettingsBridge, registerSettingsIPC, settingsAPI } = require("./settings-bridge")
 const { createUpdater } = require("./updater")
 const { bundleChangeAction, finishingTurnsText, serverVersionAction } = require("./updater-state")
-const { loadSettings, runningOf, serverAPI, sharedDrain } = require("./updater-io")
+const { runningOf, serverAPI } = require("./updater-io")
 
 const agentLabel = "dev.yarlson.handful.server"
 const agent = { type: "agentService", serviceName: `${agentLabel}.plist` }
@@ -36,11 +33,6 @@ const api = serverAPI(serverURL)
 let window = null
 let opening = null
 let serverVersionChecked = false
-// The bridge to Handful; null until it starts, and in a copy without a
-// Developer ID team ID.
-let bridge = null
-let bridgeFound = false
-let bridgeQuitting = false
 let quitRequested = false
 
 // isTrusted reports whether an IPC call comes from the main frame of the
@@ -56,7 +48,6 @@ const updater = createUpdater({
     if (app.isReady()) Menu.setApplicationMenu(buildMenu())
   },
   getWindow: () => window,
-  othersHoldDrain: () => bridge?.holdsDrain() ?? false,
 })
 
 // The manual path of the move: before Handful registers its agent, the old
@@ -114,18 +105,8 @@ if (!app.requestSingleInstanceLock()) {
   })
   // Keep running without windows, as macOS apps do; activate opens a new one.
   app.on("window-all-closed", () => {})
-  // ⌘Q releases a move's hold on the server's drain mode, and asks about a
-  // downloaded update first. A move that succeeds quits with app.exit, which
-  // skips this.
-  app.on("before-quit", (event) => {
-    if (!bridgeQuitting && bridge?.holdsDrain()) {
-      event.preventDefault()
-      bridgeQuitting = true
-      void bridge.releaseDrain().finally(() => app.quit())
-      return
-    }
-    updater.handleBeforeQuit(event)
-  })
+  // ⌘Q asks about a downloaded update first.
+  app.on("before-quit", (event) => updater.handleBeforeQuit(event))
   app.whenReady().then(() => {
     Menu.setApplicationMenu(buildMenu())
     registerSettingsIPC(ipcMain, settingsBridge, isTrusted)
@@ -136,8 +117,7 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler(
       (_contents, permission, origin) => pagePermissions.has(permission) && isAppURL(origin),
     )
-    // The bridge looks for Handful once the window has opened.
-    return showWindow().finally(() => void startBridge().catch((err) => console.error("start the Handful bridge:", err)))
+    return showWindow()
   })
 }
 
@@ -473,63 +453,8 @@ async function openSettingsPage() {
   }
 }
 
-// appBundle is the path of YarGPT.app.
-function appBundle() {
-  return path.resolve(process.execPath, "..", "..", "..")
-}
-
-// ownTeamID reads the team ID of the app's own signature. A dev copy, or one
-// signed ad-hoc, has none, and the bridge stays off.
-function ownTeamID() {
-  if (!app.isPackaged) return Promise.resolve(null)
-  return new Promise((resolve) => {
-    execFile("/usr/bin/codesign", ["-dv", "--verbose=2", appBundle()], { timeout: 10_000 }, (_err, stdout, stderr) =>
-      resolve(teamIdentifierOf(`${stdout}\n${stderr}`)),
-    )
-  })
-}
-
-const execFileAsync = promisify(execFile)
-
-// startBridge starts the bridge to Handful: it looks for Handful's release
-// now and every 6 hours, and shows its window when it finds one.
-async function startBridge() {
-  if (bridge) return
-  const teamID = await ownTeamID()
-  if (!teamID) {
-    console.debug("handful bridge: off, the app has no Developer ID team ID")
-    return
-  }
-  let bridgeWindow = null
-  bridge = createBridge({
-    api: sharedDrain(api, () => updater.holdsDrain()),
-    exec: (file, args) => execFileAsync(file, args, { timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024 }),
-    agent: {
-      unregister: unregisterAgent,
-      register: registerAgent,
-      startServer: async () => agentStatus() === "enabled" && startServer(serverDigest(), true),
-    },
-    shell,
-    // app.exit skips before-quit, so the updater does not ask about an update.
-    exit: () => app.exit(0),
-    askLimit: (question) => bridgeWindow.askLimit(question),
-    settings: () => loadSettings(configFile),
-    teamID,
-    yargptApp: appBundle(),
-    sleep: (ms) => sleep(ms),
-  })
-  bridgeWindow = createBridgeWindow(bridge)
-  bridge.onChange((s) => {
-    if (s.found === bridgeFound) return
-    bridgeFound = s.found
-    Menu.setApplicationMenu(buildMenu())
-  })
-  await bridge.start()
-}
-
 function buildMenu() {
-  const moveItem = bridge?.menuItem(() => void bridge.show()) ?? null
   return Menu.buildFromTemplate(
-    appMenuTemplate({ appName: app.name, updateItem: updater.menuItem(), moveItem, openSettingsPage, openSettingsFile: openSettings }),
+    appMenuTemplate({ appName: app.name, updateItem: updater.menuItem(), openSettingsPage, openSettingsFile: openSettings }),
   )
 }

@@ -24,12 +24,6 @@
     "files": [
       "main.js",
       "app.js",
-      "bridge.js",
-      "bridge-window.js",
-      "bridge-preload.js",
-      "bridge.html",
-      "bridge-page.js",
-      "bridge.css",
       "context-menu.js",
       "menu.js",
       "manual-move.js",

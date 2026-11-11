@@ -108,17 +108,10 @@ function serverAPI(base, fetchImpl = fetch) {
   }
 }
 
-// sharedDrain gives api with an undrain that leaves the server draining
-// while another part of the app still waits on the drain: the updater and
-// the bridge to Handful share the server's one drain hold.
-function sharedDrain(api, othersHold) {
-  return { ...api, undrain: () => (othersHold() ? Promise.resolve(null) : api.undrain()) }
-}
-
 // runningOf gives the running turns of an answer of /api/version. A server
 // that does not answer, or does not have the endpoint, counts as idle.
 function runningOf(response) {
   return response?.status === 200 && Array.isArray(response.body?.running) ? response.body.running : []
 }
 
-module.exports = { firstCheckDelay, fileStore, loadSettings, createScheduler, fetchFeedVersion, serverAPI, sharedDrain, runningOf }
+module.exports = { firstCheckDelay, fileStore, loadSettings, createScheduler, fetchFeedVersion, serverAPI, runningOf }

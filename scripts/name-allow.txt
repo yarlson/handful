@@ -18,11 +18,14 @@ YARGPT_NO_UPDATE_CHECK
 ^internal/db/(open|schema_test)\.go:
 # The old repo's path, which the update check follows to the renamed repo.
 ^cmd/handful/update_test\.go:.*/yarlson/yargpt/releases/
+# The site's lines about the old name and the move (spec §6): the old name
+# for search engines, the move note and the footer.
+^web/public/llms\.txt:[0-9]+:.*(called YarGPT until|Moving from YarGPT|YarGPT 0\.9\.0 or later)
+^web/src/pages/index\.astro:[0-9]+:.*(alternateName: "YarGPT"|Moving from YarGPT\?|Formerly YarGPT)
 # The README's lines about moving from YarGPT and going back to it (spec §4.4, §6).
 ^README\.md:[0-9]+:.*(Moving from YarGPT|Go back to YarGPT|called YarGPT before|YarGPT is now Handful|Mac app, YarGPT [0-9]|YarGPT-universal-mac\.zip)
 
-# Renamed by the desktop, release and site rename PRs; each removes its line.
+# Renamed by the desktop and release rename PR, which removes these lines.
 ^desktop/
-^web/
 ^\.github/workflows/release\.yml:
 ^docs/releasing\.md:

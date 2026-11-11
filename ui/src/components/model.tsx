@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils"
 export const FALLBACK_ALIASES = ["fable", "opus", "sonnet", "haiku"]
 
 // OPEN_SETTINGS is the event that asks the app to open a bot's settings at its model.
-export const OPEN_SETTINGS = "yargpt:open-settings"
+export const OPEN_SETTINGS = "handful:open-settings"
 export function openSettings(botId: string) {
   window.dispatchEvent(new CustomEvent(OPEN_SETTINGS, { detail: botId }))
 }

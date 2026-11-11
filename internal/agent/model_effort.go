@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // envSubagentPrefix starts the variables that would give the executor
@@ -23,7 +23,7 @@ const (
 )
 
 // runFlags are the model and effort of a claude process: the values that
-// YarGPT passes as --model and --effort ("" passes no flag), where the model
+// Handful passes as --model and --effort ("" passes no flag), where the model
 // comes from, and what its posts record.
 type runFlags struct {
 	model       string
@@ -34,7 +34,7 @@ type runFlags struct {
 
 // settings resolves the model and effort of bot's turns in room (the zero
 // Bot outside a room; only a team has defaults) and checks the values that
-// YarGPT passes again, since a stored value may break a newer rule.
+// Handful passes again, since a stored value may break a newer rule.
 func (r *Runner) settings(bot, room core.Bot) (runFlags, error) {
 	e := core.Resolve(bot, room.Team, r.svc.Defaults())
 	f := runFlags{model: passedValue(e.Model, e.ModelSource), effort: passedValue(e.Effort, e.EffortSource), modelSource: e.ModelSource, post: core.PostMeta{Model: e.Model, Effort: e.Effort}}
@@ -52,8 +52,8 @@ func reasonOf(err error) string {
 	return strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
 }
 
-// passedValue is the value that YarGPT passes as --model or --effort for a
-// resolved value and its source: only a value that YarGPT itself sets. A
+// passedValue is the value that Handful passes as --model or --effort for a
+// resolved value and its source: only a value that Handful itself sets. A
 // value from the environment or Claude Code's default passes no flag.
 func passedValue(value, source string) string {
 	switch source {
@@ -65,7 +65,7 @@ func passedValue(value, source string) string {
 
 // childEnv is the environment of a claude process: base without the
 // subagent model and effort variables, and without the effort variable when
-// YarGPT passes --effort, which that variable would outrank. ANTHROPIC_MODEL
+// Handful passes --effort, which that variable would outrank. ANTHROPIC_MODEL
 // stays, since --model outranks it.
 func childEnv(base []string, effortFlag bool) []string {
 	out := make([]string, 0, len(base))
@@ -128,7 +128,7 @@ type modelReport struct {
 }
 
 // ModelReport returns the model ID that Claude Code last reported running
-// for the bot's chat (roomID "") or its seat in a room since yargpt started,
+// for the bot's chat (roomID "") or its seat in a room since handful started,
 // and whether it differs from the requested model. id is "" before a run.
 func (r *Runner) ModelReport(botID, roomID string) (id string, mismatch bool) {
 	r.mu.Lock()
@@ -148,7 +148,7 @@ func (r *Runner) postMeta(rc runContext) core.PostMeta {
 // noteInitModel records the model that a process's init event reports and
 // marks or clears the bot's model attention. On a mismatch it writes a
 // notice to the chat, once until the requested or the reported model
-// changes. Claude Code goes on with the other model; YarGPT never picks one
+// changes. Claude Code goes on with the other model; Handful never picks one
 // itself.
 func (r *Runner) noteInitModel(ctx context.Context, s *session, turnID, reported string) {
 	if reported == "" {

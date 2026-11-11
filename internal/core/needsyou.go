@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // The kinds of what needs the user.

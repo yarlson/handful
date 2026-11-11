@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 func TestGoalQueueEndpointsQueueReorderStartAndCancelGoals(t *testing.T) {

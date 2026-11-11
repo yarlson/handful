@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // Kinds of task events: every decision on a task leaves one, with who, when

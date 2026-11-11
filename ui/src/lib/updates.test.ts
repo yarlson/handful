@@ -78,29 +78,29 @@ test("minutes left round up and never go below 0", () => {
 
 test("the pill's label holds the whole state", () => {
   assert.equal(ariaLabel(s({ state: "available" }), now), "Update available: 1.4.0. Open update options.")
-  assert.equal(ariaLabel(s({ state: "restarting" }), now), "Restarting YarGPT to finish the update.")
+  assert.equal(ariaLabel(s({ state: "restarting" }), now), "Restarting Handful to finish the update.")
 })
 
 test("each state is announced once in words", () => {
   const cases: [UpdaterState["state"], string][] = [
-    ["available", "YarGPT 1.4.0 is available."],
-    ["downloading", "Downloading YarGPT 1.4.0."],
+    ["available", "Handful 1.4.0 is available."],
+    ["downloading", "Downloading Handful 1.4.0."],
     ["ready", "Update 1.4.0 is ready to install."],
-    ["waiting", "YarGPT updates to 1.4.0 when the running bots finish."],
+    ["waiting", "Handful updates to 1.4.0 when the running bots finish."],
     ["limit", "Bots are still working after 30 minutes. Choose whether to restart."],
-    ["restarting", "Restarting YarGPT."],
+    ["restarting", "Restarting Handful."],
     ["error", "The update failed."],
-    ["source", "YarGPT 1.4.0 is out."],
+    ["source", "Handful 1.4.0 is out."],
     ["hidden", ""],
   ]
   for (const [state, text] of cases) assert.equal(announcement(s({ state })), text, state)
-  assert.equal(announcement(s({ state: "source", version: undefined })), "YarGPT  is out.")
+  assert.equal(announcement(s({ state: "source", version: undefined })), "Handful  is out.")
 })
 
 test("an error says why in plain words, preferring the app's own text", () => {
   assert.equal(
-    errorReason({ errorText: "The server is still on 1.3.2. Quit and reopen YarGPT." }),
-    "The server is still on 1.3.2. Quit and reopen YarGPT.",
+    errorReason({ errorText: "The server is still on 1.3.2. Quit and reopen Handful." }),
+    "The server is still on 1.3.2. Quit and reopen Handful.",
   )
   assert.equal(errorReason({ error: "offline" }), "No network. Check your connection.")
   assert.equal(errorReason({ error: "checksum" }), "Couldn't verify the update: the download didn't match the release.")
@@ -152,7 +152,7 @@ test("a source build shows a newer release unless the user skipped it", () => {
   assert.equal(sourceState({ ...v, sourceBuild: false }, null).state, "hidden")
   assert.equal(
     sourceState({ ...v, releaseUrl: undefined }, null).releaseUrl,
-    "https://github.com/yarlson/yargpt/releases/latest",
+    "https://github.com/yarlson/handful/releases/latest",
   )
 })
 

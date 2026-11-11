@@ -17,7 +17,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // runContext identifies the bot and turn that a worker's MCP calls belong to.
@@ -132,7 +132,7 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, ok && token != ""
 }
 
-// MCPHandler serves YarGPT's tools to running workers. Every request must carry
+// MCPHandler serves Handful's tools to running workers. Every request must carry
 // the bearer token of a live run; the tools act on that run's bot.
 func (r *Runner) MCPHandler() http.Handler {
 	h := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
@@ -218,7 +218,7 @@ type artifactInput struct {
 	Kind    string   `json:"kind,omitempty" jsonschema:"plan, task, issue, review, report or note; required on create"`
 	Title   string   `json:"title,omitempty" jsonschema:"short title; required on create"`
 	Content string   `json:"content,omitempty" jsonschema:"the document, in markdown, at most 256 KiB; required on create"`
-	Tags    []string `json:"tags,omitempty" jsonschema:"up to 10 tags of a-z, 0-9 and . _ : / # -, such as dev-3 or repo:yargpt; on update they replace the old tags"`
+	Tags    []string `json:"tags,omitempty" jsonschema:"up to 10 tags of a-z, 0-9 and . _ : / # -, such as dev-3 or repo:handful; on update they replace the old tags"`
 	Links   []string `json:"links,omitempty" jsonschema:"up to 10 http or https URLs, such as a pull request; on update they replace the old links"`
 }
 

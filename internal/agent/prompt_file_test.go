@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // The system prompt holds the bot's memory. In argv, ps would show it and
@@ -112,17 +112,17 @@ func TestATurnStoppedFromOutsideNamesTheSignal(t *testing.T) {
 		pid, _ = strconv.Atoi(strings.TrimSpace(string(raw)))
 		return err == nil && pid > 0
 	})
-	// As a pattern kill would: SIGTERM to the process group, from outside YarGPT.
+	// As a pattern kill would: SIGTERM to the process group, from outside Handful.
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
 	e := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return bodyField(e, "type") == "turn-failed" })
-	if text, _ := bodyField(e, "text").(string); text != "stopped by SIGTERM from outside YarGPT" {
+	if text, _ := bodyField(e, "text").(string); text != "stopped by SIGTERM from outside Handful" {
 		t.Fatalf("failure = %q; want the signal in plain words", text)
 	}
 }
 
-func TestExitReasonKeepsYarGPTsOwnStopsAndPlainExits(t *testing.T) {
+func TestExitReasonKeepsHandfulsOwnStopsAndPlainExits(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
 	s := &session{key: sessionKey{"b", ""}}
@@ -132,7 +132,7 @@ func TestExitReasonKeepsYarGPTsOwnStopsAndPlainExits(t *testing.T) {
 		stopped, quiet bool
 		want, stderr   string
 	}{
-		{term, false, false, "stopped by SIGTERM from outside YarGPT", ""},
+		{term, false, false, "stopped by SIGTERM from outside Handful", ""},
 		{term, true, false, term.Error(), "err"},
 		{term, false, true, "no output from Claude for 30 minutes", ""},
 		{errors.New("exit status 1"), false, false, "exit status 1", "err"},

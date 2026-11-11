@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // RoleBuilder marks Builder, the bot that sets up the user's bots, teams and
@@ -19,7 +19,7 @@ const RoleBuilder = "builder"
 
 const (
 	builderName         = "Builder"
-	builderInstructions = "You help the user set up bots, teams and rooms in YarGPT, and explain how to use them."
+	builderInstructions = "You help the user set up bots, teams and rooms in Handful, and explain how to use them."
 	// BuilderWelcome is Builder's first message. Builder's prompt quotes it,
 	// because the message is not in Builder's Claude session.
 	BuilderWelcome = `Hi! I set up bots, teams and rooms for you. Tell me what you want help with, or pick a starting point:

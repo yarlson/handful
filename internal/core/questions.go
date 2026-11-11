@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // States of a question: a bot message with needsReply. A question stays open

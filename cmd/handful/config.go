@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"yargpt/internal/config"
-	"yargpt/internal/core"
+	"handful/internal/config"
+	"handful/internal/core"
 )
 
 // settings are the server settings that <data>/config.json can set.

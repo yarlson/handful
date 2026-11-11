@@ -7,18 +7,18 @@ import (
 	"fmt"
 	"time"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // A team's daily budget (spec 9cf81412 section 6).
 const (
 	maxDailyBudget = 10000
-	// budgetWatchDays is how long a team's use is watched before YarGPT
+	// budgetWatchDays is how long a team's use is watched before Handful
 	// suggests a budget for it.
 	budgetWatchDays = 7
 	// budgetWarnPercent is the share of the budget that warns the user.
 	budgetWarnPercent = 80
-	// minSuggestedBudget is the smallest budget YarGPT suggests.
+	// minSuggestedBudget is the smallest budget Handful suggests.
 	minSuggestedBudget = 100
 )
 

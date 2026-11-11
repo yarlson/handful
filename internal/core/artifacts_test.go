@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 func newArtifact(kind, title, content string, tags ...string) ArtifactInput {
@@ -27,15 +27,15 @@ func TestCreateAndGetArtifact(t *testing.T) {
 	bot := newTestBot(t, svc)
 	svc.now = func() time.Time { return time.UnixMilli(1000) }
 
-	in := newArtifact("plan", "  DEV-3   plan ", "# Plan\n\nSteps.", "DEV-3", " dev-3 ", "repo:yargpt")
-	in.Links = &[]string{"https://github.com/yarlson/yargpt/pull/4"}
+	in := newArtifact("plan", "  DEV-3   plan ", "# Plan\n\nSteps.", "DEV-3", " dev-3 ", "repo:handful")
+	in.Links = &[]string{"https://github.com/yarlson/handful/pull/4"}
 	created, err := svc.CreateArtifact(ctx, bot.ID, in)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	want := Artifact{
 		ID: created.ID, Kind: "plan", Title: "DEV-3 plan", Content: "# Plan\n\nSteps.", AuthorID: bot.ID,
-		Tags: []string{"dev-3", "repo:yargpt"}, Links: []string{"https://github.com/yarlson/yargpt/pull/4"},
+		Tags: []string{"dev-3", "repo:handful"}, Links: []string{"https://github.com/yarlson/handful/pull/4"},
 		CreatedAt: 1000, UpdatedAt: 1000,
 	}
 	if created.ID == "" || !reflect.DeepEqual(created, want) {
@@ -187,7 +187,7 @@ func TestSearchArtifactsFilters(t *testing.T) {
 		return art.ID
 	}
 	plan := create(1, a.ID, newArtifact("plan", "Artifact plan", "Store in the DB.", "dev-3"))
-	review := create(2, b.ID, newArtifact("review", "Plan review", "Looks fine.", "dev-3", "repo:yargpt"))
+	review := create(2, b.ID, newArtifact("review", "Plan review", "Looks fine.", "dev-3", "repo:handful"))
 	report := create(3, ArtifactAuthorUser, newArtifact("report", "Weekly", "Mentions the PLAN in passing.", "weekly"))
 	note := create(4, a.ID, newArtifact("note", "Other", "Nothing here."))
 
@@ -228,7 +228,7 @@ func TestSearchArtifactsFilters(t *testing.T) {
 		"limit over 50":     {ArtifactFilter{Limit: 51}, []string{note, report, review, plan}},
 		"limit far over 50": {ArtifactFilter{Limit: 1000}, []string{note, report, review, plan}},
 		"negative limit":    {ArtifactFilter{Limit: -1}, []string{note, report, review, plan}},
-		"tags of list rows": {ArtifactFilter{Tag: "repo:yargpt"}, []string{review}},
+		"tags of list rows": {ArtifactFilter{Tag: "repo:handful"}, []string{review}},
 	} {
 		if got := ids(c.f); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: ids = %v; want %v", name, got, c.want)
@@ -236,7 +236,7 @@ func TestSearchArtifactsFilters(t *testing.T) {
 	}
 
 	found, err := svc.SearchArtifacts(ctx, ArtifactFilter{Tag: "dev-3"})
-	if err != nil || len(found) != 2 || !reflect.DeepEqual(found[0].Tags, []string{"dev-3", "repo:yargpt"}) || !reflect.DeepEqual(found[1].Tags, []string{"dev-3"}) ||
+	if err != nil || len(found) != 2 || !reflect.DeepEqual(found[0].Tags, []string{"dev-3", "repo:handful"}) || !reflect.DeepEqual(found[1].Tags, []string{"dev-3"}) ||
 		found[0].Title != "Plan review" || found[0].Kind != "review" || found[0].AuthorID != b.ID || found[0].UpdatedAt != 2 || found[0].CreatedAt != 2 || found[0].Links == nil {
 		t.Fatalf("list rows = %+v, %v; want metadata and tags", found, err)
 	}

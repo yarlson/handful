@@ -1,7 +1,7 @@
 MISE := mise exec --
 export BASE ?= origin/main
 
-.PHONY: build ui generate test run app app-universal app-universal-deps app-universal-package icons fmt check fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check crap mutation mutation-diff ui-mutation
+.PHONY: build ui generate test run app app-universal app-universal-deps app-universal-package icons fmt check fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check name-check crap mutation mutation-diff ui-mutation
 
 # SERVER_VERSION is the version the server reports, without the tag's "v":
 # VERSION when given (the release workflow passes the tag), else the tag of
@@ -10,12 +10,12 @@ export BASE ?= origin/main
 SERVER_VERSION ?= $(or $(VERSION),$(patsubst v%,%,$(shell git describe --tags --exact-match 2>/dev/null)),dev-$(shell git rev-parse --short HEAD 2>/dev/null))
 GO_LDFLAGS = -ldflags "-X main.version=$(SERVER_VERSION)"
 
-# app-universal leaves a universal binary in bin/yargpt, which go build does
+# app-universal leaves a universal binary in bin/handful, which go build does
 # not overwrite. The server needs no cgo on macOS. On other systems cgo keeps
 # the system DNS resolver, for example for .local names.
 build: ui
-	rm -f bin/yargpt
-	$(if $(filter Darwin,$(shell uname -s)),CGO_ENABLED=0) $(MISE) go build $(GO_LDFLAGS) -o bin/yargpt ./cmd/yargpt
+	rm -f bin/handful
+	$(if $(filter Darwin,$(shell uname -s)),CGO_ENABLED=0) $(MISE) go build $(GO_LDFLAGS) -o bin/handful ./cmd/handful
 
 ui:
 	cd ui && $(MISE) npm ci && $(MISE) npm run build
@@ -28,7 +28,7 @@ test:
 	cd ui && $(MISE) npm run typecheck && $(MISE) npm test
 
 run: build
-	./bin/yargpt
+	./bin/handful
 
 # desktop/package.json signs the app ad-hoc. When CSC_LINK holds a Developer ID
 # certificate, as in the release workflow, electron-builder signs with it and
@@ -37,11 +37,11 @@ run: build
 MAC_SIGNING = $(if $(CSC_LINK),-c.mac.identity="Developer ID Application" -c.mac.hardenedRuntime=true)
 
 # Builds the app for this Mac, with the server inside it:
-# desktop/dist/mac-arm64/YarGPT.app, or desktop/dist/mac/YarGPT.app on an Intel Mac.
+# desktop/dist/mac-arm64/Handful.app, or desktop/dist/mac/Handful.app on an Intel Mac.
 app: build
 	cd desktop && $(MISE) npm ci && $(MISE) npm run build -- $(MAC_SIGNING)
 
-# Builds desktop/dist/YarGPT-<version>-universal-mac.zip, the app for Apple
+# Builds desktop/dist/Handful-<version>-universal-mac.zip, the app for Apple
 # silicon and Intel Macs. VERSION, if set, replaces the version in
 # desktop/package.json.
 app-universal: app-universal-deps app-universal-package
@@ -51,9 +51,9 @@ app-universal: app-universal-deps app-universal-package
 # app-universal-package, so that no package install script sees them.
 app-universal-deps: ui
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MISE) go build $(GO_LDFLAGS) -o bin/yargpt-arm64 ./cmd/yargpt
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MISE) go build $(GO_LDFLAGS) -o bin/yargpt-amd64 ./cmd/yargpt
-	lipo -create -output bin/yargpt bin/yargpt-arm64 bin/yargpt-amd64
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MISE) go build $(GO_LDFLAGS) -o bin/handful-arm64 ./cmd/handful
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MISE) go build $(GO_LDFLAGS) -o bin/handful-amd64 ./cmd/handful
+	lipo -create -output bin/handful bin/handful-arm64 bin/handful-amd64
 	cd desktop && $(MISE) npm ci
 
 app-universal-package:
@@ -62,8 +62,8 @@ app-universal-package:
 # Regenerates the committed icons from their SVG sources. It needs
 # rsvg-convert (Homebrew librsvg), which mise does not have, and iconutil.
 icons:
-	rsvg-convert -w 32 -h 32 cmd/yargpt/tray.svg -o cmd/yargpt/tray.png
-	sips -s dpiWidth 144 -s dpiHeight 144 cmd/yargpt/tray.png >/dev/null
+	rsvg-convert -w 32 -h 32 cmd/handful/tray.svg -o cmd/handful/tray.png
+	sips -s dpiWidth 144 -s dpiHeight 144 cmd/handful/tray.png >/dev/null
 	rm -rf target/icon.iconset && mkdir -p target/icon.iconset
 	rsvg-convert -w 824 -h 824 --page-width 1024 --page-height 1024 --left 100 --top 100 ui/public/logo.svg -o target/icon-1024.png
 	for s in 16 32 128 256 512; do \
@@ -77,7 +77,7 @@ fmt:
 	$(MISE) golangci-lint fmt
 	cd ui && $(MISE) npm run format
 
-check: fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check
+check: fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check name-check
 
 fmt-check:
 	$(MISE) golangci-lint fmt --diff
@@ -112,6 +112,10 @@ desktop-check:
 
 workflow-check:
 	$(MISE) actionlint
+
+# name-check fails when the old name is left outside scripts/name-allow.txt.
+name-check:
+	scripts/check-name.sh
 
 # crap4go scores every .go file it finds; pass only hand-written production files.
 CRAP_SOURCES = $(shell git ls-files '*.go' ':!:*_test.go' ':!:internal/oauthtest/*' | xargs grep -L '^// Code generated .* DO NOT EDIT\.$$')

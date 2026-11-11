@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// A database created by YarGPT before migrations existed has the 001 schema and
+// A database created by Handful before migrations existed has the 001 schema and
 // user_version 0. Opening it must keep its data and add the 002 changes.
 func TestOpenMigratesAnUnversionedV1Database(t *testing.T) {
 	ctx := context.Background()

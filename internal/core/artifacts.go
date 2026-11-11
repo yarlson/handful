@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // Artifacts are documents, such as plans, reviews and reports, that bots or

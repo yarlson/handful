@@ -1,4 +1,4 @@
-// The update pill: what it says in each state. The desktop app (window.yargptUpdater)
+// The update pill: what it says in each state. The desktop app (window.handfulUpdater)
 // owns the update state machine; a source build learns of new releases from
 // GET /api/version. This file only words the state.
 
@@ -96,7 +96,7 @@ export function label(s: UpdaterState, now: number): { full: string; short: stri
 
 // ariaLabel is the pill's whole state for screen readers.
 export function ariaLabel(s: UpdaterState, now: number): string {
-  if (s.state === "restarting") return "Restarting YarGPT to finish the update."
+  if (s.state === "restarting") return "Restarting Handful to finish the update."
   return `${label(s, now).full}. Open update options.`
 }
 
@@ -106,21 +106,21 @@ export function announcement(s: UpdaterState): string {
   const v = s.version ?? ""
   switch (s.state) {
     case "available":
-      return `YarGPT ${v} is available.`
+      return `Handful ${v} is available.`
     case "downloading":
-      return `Downloading YarGPT ${v}.`
+      return `Downloading Handful ${v}.`
     case "ready":
       return `Update ${v} is ready to install.`
     case "waiting":
-      return `YarGPT updates to ${v} when the running bots finish.`
+      return `Handful updates to ${v} when the running bots finish.`
     case "limit":
       return `Bots are still working after ${s.drainMinutes} minutes. Choose whether to restart.`
     case "restarting":
-      return "Restarting YarGPT."
+      return "Restarting Handful."
     case "error":
       return "The update failed."
     case "source":
-      return `YarGPT ${v} is out.`
+      return `Handful ${v} is out.`
     default:
       return ""
   }
@@ -164,7 +164,7 @@ export function sourceState(v: ServerVersion, skipped: string | null): UpdaterSt
     state: "hidden",
     current: v.version,
     drainMinutes: 30,
-    releaseUrl: v.releaseUrl ?? "https://github.com/yarlson/yargpt/releases/latest",
+    releaseUrl: v.releaseUrl ?? "https://github.com/yarlson/handful/releases/latest",
     hiddenByLater: false,
   }
   if (!v.sourceBuild || !v.latest || v.latest === skipped) return base

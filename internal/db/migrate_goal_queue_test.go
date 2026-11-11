@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// openAt creates a database with the first n migrations, as a YarGPT of
+// openAt creates a database with the first n migrations, as a Handful of
 // that version left it.
 func openAt(t *testing.T, path string, n int) *sql.DB {
 	t.Helper()

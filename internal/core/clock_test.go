@@ -91,7 +91,7 @@ func TestATaskLeftUndecidedForTheDecisionTimeGoesToTheUser(t *testing.T) {
 	if e.Kind != KindBot || !strings.Contains(string(e.Body), `Dee didn't decide on \"Guide.\" within 30 min. Take it or push it back?`) || !strings.Contains(string(e.Body), `"needsReply":true`) {
 		t.Fatalf("Docs channel = %s; want Dee's question to the user", e.Body)
 	}
-	if events := c.events(t, g.ID); events[len(events)-1] != `missed by YarGPT: Dee didn't decide on "Guide." within 30 min. Take it or push it back?` {
+	if events := c.events(t, g.ID); events[len(events)-1] != `missed by Handful: Dee didn't decide on "Guide." within 30 min. Take it or push it back?` {
 		t.Fatalf("events = %q; want the missed decision last", events)
 	}
 	c.wantWakes(t, "a missed decision")

@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/core"
-	"yargpt/internal/db"
-	"yargpt/internal/httpapi"
+	"handful/internal/core"
+	"handful/internal/db"
+	"handful/internal/httpapi"
 )
 
 func TestUnderLaunchdNeedsTheAgentsServiceNameAndLaunchdAsParent(t *testing.T) {
@@ -24,9 +24,9 @@ func TestUnderLaunchdNeedsTheAgentsServiceNameAndLaunchdAsParent(t *testing.T) {
 		ppid int
 		want bool
 	}{
-		{"dev.yarlson.yargpt.server", 1, true},
+		{"dev.yarlson.handful.server", 1, true},
 		// A child of the server, such as a bot's command, inherits the name.
-		{"dev.yarlson.yargpt.server", 4242, false},
+		{"dev.yarlson.handful.server", 4242, false},
 		{"0", 1, false},
 		{"", 1, false},
 		{"com.apple.Terminal", 1, false},
@@ -133,20 +133,20 @@ func TestSettingsOfAServerFromATerminalOfferNoRestart(t *testing.T) {
 
 func TestBuildKindTellsTheSignedAppFromALocalOneAndASourceBuild(t *testing.T) {
 	signed := func(bundle string) string {
-		if bundle != "/Applications/YarGPT.app" {
+		if bundle != "/Applications/Handful.app" {
 			t.Fatalf("codesign of %q; want the bundle", bundle)
 		}
 		return "Authority=Developer ID Application: Someone (TEAM)\nAuthority=Apple Root CA\n"
 	}
 	adhoc := func(string) string { return "Signature=adhoc\n" }
-	exe := "/Applications/YarGPT.app/Contents/Resources/yargpt"
+	exe := "/Applications/Handful.app/Contents/Resources/handful"
 	if got := buildKind(exe, signed); got != httpapi.BuildApp {
 		t.Errorf("signed app = %q; want app", got)
 	}
 	if got := buildKind(exe, adhoc); got != httpapi.BuildAdhoc {
 		t.Errorf("ad-hoc app = %q; want adhoc", got)
 	}
-	if got := buildKind("/src/yargpt/bin/yargpt", func(string) string { t.Fatal("codesign ran for a source build"); return "" }); got != httpapi.BuildSource {
+	if got := buildKind("/src/handful/bin/handful", func(string) string { t.Fatal("codesign ran for a source build"); return "" }); got != httpapi.BuildSource {
 		t.Errorf("source build = %q; want source", got)
 	}
 	if got := codesignInfo("/no/such/bundle.app"); got != "" {
@@ -157,8 +157,8 @@ func TestBuildKindTellsTheSignedAppFromALocalOneAndASourceBuild(t *testing.T) {
 // Plain codesign -dv prints no Authority lines, so a Developer ID app looked
 // built locally.
 func TestCodesignAsksForTheAuthorityLines(t *testing.T) {
-	cmd := codesignCommand(context.Background(), "/Applications/YarGPT.app")
-	want := []string{"/usr/bin/codesign", "-dv", "--verbose=2", "/Applications/YarGPT.app"}
+	cmd := codesignCommand(context.Background(), "/Applications/Handful.app")
+	want := []string{"/usr/bin/codesign", "-dv", "--verbose=2", "/Applications/Handful.app"}
 	if cmd.Path != want[0] || !slices.Equal(cmd.Args, want) {
 		t.Fatalf("codesign command = %s %q; want %q", cmd.Path, cmd.Args, want)
 	}

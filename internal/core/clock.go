@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // A team's decision time, in minutes: how long a task may wait in its inbox

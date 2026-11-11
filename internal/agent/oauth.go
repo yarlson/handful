@@ -24,7 +24,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 const (
@@ -264,7 +264,7 @@ func (r *Runner) Connect(ctx context.Context, name string) (string, error) {
 			TokenEndpointAuthMethod: "none",
 			GrantTypes:              []string{"authorization_code", "refresh_token"},
 			ResponseTypes:           []string{"code"},
-			ClientName:              "YarGPT",
+			ClientName:              "Handful",
 		}, o.client)
 		if err != nil {
 			return "", fmt.Errorf("connector %q: register with %s: %w", name, asm.Issuer, err)
@@ -526,7 +526,7 @@ func (o *signIns) discover(ctx context.Context, serverURL string) (string, []str
 // challenge sends an unauthenticated MCP initialize request and returns the
 // WWW-Authenticate challenges of a 401 answer.
 func (o *signIns) challenge(ctx context.Context, serverURL string) ([]oauthex.Challenge, error) {
-	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"yargpt","version":"1"}}}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"handful","version":"1"}}}`
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL, strings.NewReader(body))
 	if err != nil {
 		return nil, err

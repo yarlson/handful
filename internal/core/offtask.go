@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // OffTaskWindow is how far back a team's board shows the turns that were on

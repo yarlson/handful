@@ -117,7 +117,7 @@ func TestAMemberLeavingMidReviewLeavesABlockedEvent(t *testing.T) {
 	f.wantHistory(t, parse,
 		"created 0 Bo("+f.bo.ID+"):",
 		"submitted 0 Ana("+f.ana.ID+"): Done: Parse",
-		"blocked 0 YarGPT(): Cy left the team before reviewing it.",
+		"blocked 0 Handful(): Cy left the team before reviewing it.",
 	)
 	f.wantHistory(t, owned, "created 0 Bo("+f.bo.ID+"):")
 }

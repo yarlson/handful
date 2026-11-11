@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // Limits for the media files of one message. Claude Code shrinks a large

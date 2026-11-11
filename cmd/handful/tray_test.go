@@ -14,7 +14,7 @@ func TestTrayMenuChecksForUpdatesAboveExitServer(t *testing.T) {
 	if !slices.Equal(trayItems, want) {
 		t.Fatalf("trayItems = %v, want %v", trayItems, want)
 	}
-	if checkForUpdatesURL != "yargpt://check-for-updates" {
-		t.Fatalf("checkForUpdatesURL = %q; desktop/app.js handles yargpt://check-for-updates", checkForUpdatesURL)
+	if checkForUpdatesURL != "handful://check-for-updates" {
+		t.Fatalf("checkForUpdatesURL = %q; desktop/app.js handles handful://check-for-updates", checkForUpdatesURL)
 	}
 }

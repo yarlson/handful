@@ -16,19 +16,19 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/httpapi"
+	"handful/internal/httpapi"
 )
 
 func TestOnlyASourceBuildOfAReleaseChecksForUpdates(t *testing.T) {
 	none := func(string) string { return "" }
 	optOut := func(name string) string {
-		if name == "YARGPT_NO_UPDATE_CHECK" {
+		if name == "HANDFUL_NO_UPDATE_CHECK" {
 			return "1"
 		}
 		return ""
 	}
-	source := "/Users/me/git/yargpt/bin/yargpt"
-	bundled := "/Applications/YarGPT.app/Contents/Resources/yargpt"
+	source := "/Users/me/git/handful/bin/handful"
+	bundled := "/Applications/Handful.app/Contents/Resources/handful"
 	cases := []struct {
 		name    string
 		version string
@@ -46,13 +46,43 @@ func TestOnlyASourceBuildOfAReleaseChecksForUpdates(t *testing.T) {
 		{"plain go build", "dev", source, true, none, false},
 	}
 	for _, c := range cases {
-		if got := checksForUpdates(c.version, c.exe, c.on, c.getenv); got != c.want {
+		if got := checksForUpdates(c.version, c.exe, c.on, c.getenv, slog.New(slog.DiscardHandler)); got != c.want {
 			t.Errorf("%s: checksForUpdates = %v; want %v", c.name, got, c.want)
 		}
 	}
 	if !inAppBundle(bundled) || inAppBundle(source) || inAppBundle("") {
 		t.Fatal("inAppBundle misjudges the app, a source build or an unknown path")
 	}
+}
+
+// Until 2027-11 the variable's name before the rename still turns the check
+// off, and says once that it was renamed.
+func TestTheOldNameOfTheUpdateCheckVariableStillWorksAndSaysItWasRenamed(t *testing.T) {
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{ReplaceAttr: dropTime}))
+	old := func(name string) string {
+		if name == "YARGPT_NO_UPDATE_CHECK" {
+			return "1"
+		}
+		return ""
+	}
+	if checksForUpdates("1.3.2", "/src/handful/bin/handful", true, old, log) {
+		t.Fatal("YARGPT_NO_UPDATE_CHECK=1: the source build checks for updates; want no check")
+	}
+	if want := "level=INFO msg=\"YARGPT_NO_UPDATE_CHECK is now HANDFUL_NO_UPDATE_CHECK\"\n"; logs.String() != want {
+		t.Fatalf("log = %q; want %q", logs.String(), want)
+	}
+	logs.Reset()
+	if updateCheckOff(func(string) string { return "" }, log) || logs.Len() != 0 {
+		t.Fatalf("no variable set: the check is off or the log says %q; want it on and no log", logs.String())
+	}
+}
+
+func dropTime(_ []string, a slog.Attr) slog.Attr {
+	if a.Key == slog.TimeKey {
+		return slog.Attr{}
+	}
+	return a
 }
 
 func TestNewerComparesReleaseVersions(t *testing.T) {
@@ -142,8 +172,8 @@ func newTestNotice(t *testing.T, url string) (*updateNotice, *syncLog, *time.Tim
 }
 
 func TestUpdateNoticeLogsANewerReleaseOnceAndAsksOncePerDay(t *testing.T) {
-	feed, srv := newReleaseFeed(t, "/yarlson/yargpt/releases/tag/v1.4.0")
-	n, logs, now := newTestNotice(t, srv.URL+"/yarlson/yargpt/releases/latest")
+	feed, srv := newReleaseFeed(t, "/yarlson/handful/releases/tag/v1.4.0")
+	n, logs, now := newTestNotice(t, srv.URL+"/yarlson/handful/releases/latest")
 	ctx := context.Background()
 
 	n.check(ctx)
@@ -167,7 +197,7 @@ func TestUpdateNoticeLogsANewerReleaseOnceAndAsksOncePerDay(t *testing.T) {
 		t.Fatalf("log after a second check = %q; want the line once", logs)
 	}
 
-	feed.location.Store("/yarlson/yargpt/releases/tag/v1.5.0")
+	feed.location.Store("/yarlson/handful/releases/tag/v1.5.0")
 	*now = now.Add(time.Minute)
 	n.check(ctx)
 	if got := feed.requests.Load(); got != 2 || n.Latest() != "1.5.0" || !strings.Contains(logs.String(), "Update available: v1.5.0") {
@@ -176,7 +206,7 @@ func TestUpdateNoticeLogsANewerReleaseOnceAndAsksOncePerDay(t *testing.T) {
 }
 
 func TestUpdateNoticeStaysQuietWhenUpToDate(t *testing.T) {
-	_, srv := newReleaseFeed(t, "/yarlson/yargpt/releases/tag/v1.3.2")
+	_, srv := newReleaseFeed(t, "/yarlson/handful/releases/tag/v1.3.2")
 	n, logs, _ := newTestNotice(t, srv.URL)
 	n.check(context.Background())
 	if n.Latest() != "" || strings.Contains(logs.String(), "Update available") {
@@ -192,8 +222,8 @@ func TestUpdateNoticeStaysQuietWhenUpToDate(t *testing.T) {
 func TestUpdateNoticeLogsFailuresAtDebugOnlyAndTriesAgain(t *testing.T) {
 	cases := map[string]string{
 		"no redirect":     "",
-		"not a release":   "/yarlson/yargpt/releases",
-		"not a version":   "/yarlson/yargpt/releases/tag/nightly",
+		"not a release":   "/yarlson/handful/releases",
+		"not a version":   "/yarlson/handful/releases/tag/nightly",
 		"no such address": "offline",
 	}
 	for name, location := range cases {
@@ -226,7 +256,7 @@ func TestUpdateNoticeLogsFailuresAtDebugOnlyAndTriesAgain(t *testing.T) {
 }
 
 func TestUpdateNoticeKeepsWorkingWhenItCannotSaveTheCache(t *testing.T) {
-	_, srv := newReleaseFeed(t, "/yarlson/yargpt/releases/tag/v1.4.0")
+	_, srv := newReleaseFeed(t, "/yarlson/handful/releases/tag/v1.4.0")
 	n, logs, _ := newTestNotice(t, srv.URL)
 	n.cachePath = filepath.Join(t.TempDir(), "missing", updateCheckFile)
 	n.check(context.Background())
@@ -236,7 +266,7 @@ func TestUpdateNoticeKeepsWorkingWhenItCannotSaveTheCache(t *testing.T) {
 }
 
 func TestUpdateNoticeRunChecksAtOnceAndStopsWithTheContext(t *testing.T) {
-	feed, srv := newReleaseFeed(t, "/yarlson/yargpt/releases/tag/v1.4.0")
+	feed, srv := newReleaseFeed(t, "/yarlson/handful/releases/tag/v1.4.0")
 	n, _, _ := newTestNotice(t, srv.URL)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -257,7 +287,7 @@ func TestUpdateNoticeRunChecksAtOnceAndStopsWithTheContext(t *testing.T) {
 }
 
 func TestStartUpdateNoticeChecksOnlyForASourceBuildThatMay(t *testing.T) {
-	feed, srv := newReleaseFeed(t, "/yarlson/yargpt/releases/tag/v1.4.0")
+	feed, srv := newReleaseFeed(t, "/yarlson/handful/releases/tag/v1.4.0")
 	oldURL, oldVersion := latestReleaseURL, version
 	t.Cleanup(func() { latestReleaseURL, version = oldURL, oldVersion })
 	latestReleaseURL = srv.URL

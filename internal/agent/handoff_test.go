@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // The board actions of goals, requests and handoffs are gone: each call

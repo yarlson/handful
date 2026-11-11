@@ -20,7 +20,7 @@ func TestNormalizeModelChecksAndLowercasesAliases(t *testing.T) {
 		"fable":                  "fable",
 		"Sonnet":                 "sonnet",
 		"opusplan":               "opusplan",
-		"OpusPlan":               "OpusPlan", // an alias YarGPT doesn't know stays as given
+		"OpusPlan":               "OpusPlan", // an alias Handful doesn't know stays as given
 		"claude-opus-5-5":        "claude-opus-5-5",
 		"claude-sonnet-5-5[1m]":  "claude-sonnet-5-5[1m]",
 		"us.anthropic.claude:v1": "us.anthropic.claude:v1",

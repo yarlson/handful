@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 func TestASlashSkillInATeamChatPutsTheSkillIntoTheTurnsOfTheMembersItWakes(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // section names the sidebar section of b: "agent", "room" or "team".

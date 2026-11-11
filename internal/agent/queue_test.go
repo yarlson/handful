@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // boardSession opens an MCP session for a run of bot in team.

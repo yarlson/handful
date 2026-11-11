@@ -74,7 +74,7 @@ test("a value the server wouldn't start with shows its error on the field", () =
         default: "claude",
         running: "claude",
         source: "file",
-        error: "YarGPT won't start with this program. Fix it before restarting.",
+        error: "Handful won't start with this program. Fix it before restarting.",
       })}
       save={save}
       locked={false}
@@ -82,7 +82,7 @@ test("a value the server wouldn't start with shows its error on the field", () =
   )
   assert.include(html, 'aria-invalid="true"')
   assert.include(html, 'aria-describedby="setting-claude-help setting-claude-error"')
-  assert.include(html, "YarGPT won&#x27;t start with this program.")
+  assert.include(html, "Handful won&#x27;t start with this program.")
 })
 
 test("a custom model shows its own field", () => {
@@ -128,13 +128,13 @@ test("the banner lists what waits, and is refused while the server wouldn't star
   const manual = renderToStaticMarkup(
     <RestartBanner view={view({ values: pendingValues, restart: "manual" })} onRestart={() => {}} />,
   )
-  assert.include(manual, "./bin/yargpt")
+  assert.include(manual, "./bin/handful")
   assert.notInclude(manual, "Restart server…")
   assert.equal(renderToStaticMarkup(<RestartBanner view={view({})} onRestart={() => {}} />), "")
 })
 
 test("in the desktop app a source build's banner still offers the restart, through the app", () => {
-  vi.stubGlobal("window", { yargptSettings: {} })
+  vi.stubGlobal("window", { handfulSettings: {} })
   const html = renderToStaticMarkup(
     <RestartBanner
       view={view({ restart: "manual", values: { model: v({ value: "opus", running: "", source: "file" }) } })}
@@ -142,5 +142,5 @@ test("in the desktop app a source build's banner still offers the restart, throu
     />,
   )
   assert.include(html, "Restart server…")
-  assert.notInclude(html, "./bin/yargpt")
+  assert.notInclude(html, "./bin/handful")
 })

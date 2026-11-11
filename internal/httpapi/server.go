@@ -1,4 +1,4 @@
-// Package httpapi serves YarGPT's JSON API, its event stream, the workers' MCP
+// Package httpapi serves Handful's JSON API, its event stream, the workers' MCP
 // endpoint and the web UI on a loopback address.
 package httpapi
 
@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"yargpt/internal/agent"
-	"yargpt/internal/core"
+	"handful/internal/agent"
+	"handful/internal/core"
 )
 
 const maxBodyBytes = 1 << 20
@@ -156,7 +156,7 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 func guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isLoopbackHost(r.Host) {
-			http.Error(w, "YarGPT only answers on a loopback host", http.StatusForbidden)
+			http.Error(w, "Handful only answers on a loopback host", http.StatusForbidden)
 			return
 		}
 		if origin := r.Header.Get("Origin"); origin != "" {
@@ -168,7 +168,7 @@ func guard(next http.Handler) http.Handler {
 		}
 		// POST is the only write a page on another origin can send without a CORS
 		// preflight, and then only with a form or text body. Other write methods
-		// always need a preflight, which YarGPT never grants.
+		// always need a preflight, which Handful never grants.
 		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 			http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
 			return

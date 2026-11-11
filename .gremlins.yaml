@@ -5,8 +5,8 @@ unleash:
   exclude-files:
     - '^internal/db/(db|models|query\.sql)\.go$'
     - '^internal/oauthtest/'
-    # gremlins 0.6.0 removes every "yargpt/" from coverage paths, so it never
-    # finds the coverage of cmd/yargpt and cannot test its mutants.
-    - '^cmd/yargpt/'
+    # gremlins 0.6.0 removes every "handful/" from coverage paths, so it never
+    # finds the coverage of cmd/handful and cannot test its mutants.
+    - '^cmd/handful/'
   output: target/mutation-results.json
   output-statuses: lct

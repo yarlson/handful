@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // settingsHandler serves the settings of a fresh config.json (body; "" for
@@ -106,7 +106,7 @@ func TestSettingsShowEachValueWithItsDefaultSourceAndRunningValue(t *testing.T) 
 	want := map[string]valueReply{
 		// A key the file changed after the server started: pending, as value != running.
 		"maxParallel":          {Value: 4.0, Default: 3.0, Source: "file", Running: 3.0, Restart: true},
-		"claude":               {Value: "/missing/claude", Default: "claude", Source: "file", Running: "claude", Restart: true, Error: "YarGPT won't start with this program. Fix it before restarting."},
+		"claude":               {Value: "/missing/claude", Default: "claude", Source: "file", Running: "claude", Restart: true, Error: "Handful won't start with this program. Fix it before restarting."},
 		"updates.autoCheck":    {Value: false, Default: true, Source: "file", Running: true},
 		"updates.drainMinutes": {Value: 30.0, Default: 30.0, Source: "default", Running: 30.0},
 		"model":                {Value: "", Default: "", Source: "default", Running: "", Restart: true},
@@ -336,7 +336,7 @@ func TestARestartIsRefusedWhenTheServerWouldNotStart(t *testing.T) {
 	for _, when := range []string{"now", "idle"} {
 		rec := do(h, "POST", "/api/restart", `{"when": "`+when+`"}`, jsonHeader)
 		var p settingsProblem
-		want := `YarGPT wouldn't start after a restart: config.json: "effort" must be one of low, medium, high, xhigh, max. Fix it, then restart.`
+		want := `Handful wouldn't start after a restart: config.json: "effort" must be one of low, medium, high, xhigh, max. Fix it, then restart.`
 		if err := json.Unmarshal(rec.Body.Bytes(), &p); rec.Code != http.StatusConflict || err != nil || p.Key != "effort" || p.Message != want || p.Error != want {
 			t.Fatalf("restart %s with a bad file = %d %s; want 409 on effort: %q", when, rec.Code, rec.Body, want)
 		}

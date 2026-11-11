@@ -16,7 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 type Config struct {
@@ -1156,7 +1156,7 @@ func (a *activityRecorder) toolUses(ctx context.Context, ev streamEvent) {
 		return
 	}
 	for _, b := range ev.Message.Content {
-		// YarGPT's own tools create their own entries (messages, approval cards).
+		// Handful's own tools create their own entries (messages, approval cards).
 		if b.Type != "tool_use" || strings.HasPrefix(b.Name, "mcp__"+mcpServerName+"__") {
 			continue
 		}

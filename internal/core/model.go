@@ -21,7 +21,7 @@ const (
 	SourceBot        = "bot"         // the bot's own setting
 	SourceTeam       = "team"        // the default of the team of the turn
 	SourceGlobal     = "global"      // the -model / -effort flag or config.json
-	SourceEnv        = "env"         // the environment of yargpt, with nothing set in YarGPT
+	SourceEnv        = "env"         // the environment of handful, with nothing set in Handful
 	SourceClaudeCode = "claude-code" // nothing set: Claude Code's own default
 )
 
@@ -31,7 +31,7 @@ const (
 	DefaultFromConfig = "config"
 )
 
-// Environment variables of yargpt that change the model or the effort.
+// Environment variables of handful that change the model or the effort.
 const (
 	EnvModel  = "ANTHROPIC_MODEL"
 	EnvEffort = "CLAUDE_CODE_EFFORT_LEVEL"
@@ -87,13 +87,13 @@ func NormalizeEffort(s string) (string, error) {
 }
 
 // Defaults are the global model and effort of every bot, from the flags, the
-// config file and the environment of yargpt.
+// config file and the environment of handful.
 type Defaults struct {
 	Model        string   `json:"model"`
 	ModelSource  string   `json:"modelSource"` // flag | config | env | claude-code
 	Effort       string   `json:"effort"`
 	EffortSource string   `json:"effortSource"` // flag | config | env | claude-code
-	EnvOverrides []string `json:"envOverrides"` // variables of the environment that YarGPT removes or that outrank it
+	EnvOverrides []string `json:"envOverrides"` // variables of the environment that Handful removes or that outrank it
 }
 
 // NewDefaults builds the Defaults of a model and effort that are set (from
@@ -166,7 +166,7 @@ func pick(own, team, global, globalSource string) (string, string) {
 }
 
 // PostMeta is what a post records about the turn that wrote it: the model and
-// effort that YarGPT resolved for it, and the model ID that Claude Code
+// effort that Handful resolved for it, and the model ID that Claude Code
 // reported running. Empty fields are left out.
 type PostMeta struct {
 	Model   string

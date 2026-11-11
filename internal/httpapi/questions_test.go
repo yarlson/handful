@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 func TestItemEventsEndpointShowsEveryReviewRound(t *testing.T) {

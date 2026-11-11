@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 func TestHandoffEndpointsHandOverAnswerAcceptDeclineAndWithdraw(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // AC13, end to end: a step's owner starts a background task in its work

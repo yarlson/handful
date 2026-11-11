@@ -38,8 +38,8 @@ test("only the app's own images load in a post", () => {
   assert.isFalse(isLocalImage("javascript:alert(1)", origin))
   assert.isFalse(isLocalImage("ftp://localhost:4317/a.png", origin))
   // Behind https, the app's own images load too.
-  assert.isTrue(isLocalImage("/api/media/a.png", "https://yargpt.local"))
-  assert.isFalse(isLocalImage("http://yargpt.local/a.png", "https://yargpt.local"))
+  assert.isTrue(isLocalImage("/api/media/a.png", "https://handful.local"))
+  assert.isFalse(isLocalImage("http://handful.local/a.png", "https://handful.local"))
 })
 
 test("an image that doesn't load is named by its host", () => {

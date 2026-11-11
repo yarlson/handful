@@ -108,7 +108,7 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// writeMCPConfig writes the MCP config of one claude process for bot: YarGPT's
+// writeMCPConfig writes the MCP config of one claude process for bot: Handful's
 // server with token, and the connectors that list the bot. The file is 0600
 // because it holds tokens; the caller removes it when the process ends. It
 // leaves out the OAuth connectors that have no valid token and returns their

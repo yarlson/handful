@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/agent"
-	"yargpt/internal/core"
-	"yargpt/internal/db"
+	"handful/internal/agent"
+	"handful/internal/core"
+	"handful/internal/db"
 )
 
 type fakeModels map[string]string // "botID/roomID" -> model ID; a "!" prefix marks a mismatch

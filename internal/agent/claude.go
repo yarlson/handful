@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // builtinTools is the Claude Code tool set a bot can use. Anything outside
@@ -19,11 +19,11 @@ var (
 )
 
 const (
-	mcpServerName = "yargpt"
-	approveTool   = "mcp__yargpt__approve"
+	mcpServerName = "handful"
+	approveTool   = "mcp__handful__approve"
 )
 
-func yargptTool(name string) string { return "mcp__" + mcpServerName + "__" + name }
+func handfulTool(name string) string { return "mcp__" + mcpServerName + "__" + name }
 
 type claudeRun struct {
 	Prompt       string
@@ -58,7 +58,7 @@ func (r claudeRun) args() ([]string, error) {
 	}
 	allowed := append([]string{}, readOnlyTools...)
 	for _, t := range []string{"send_to_user", "send_to_agent", "read_room", "recall_memory", "update_memory", "update_routine", "update_skill", "find_artifacts", "read_artifact", "update_artifact", "update_profile", "update_board", core.ToolCreateSetup} {
-		allowed = append(allowed, yargptTool(t))
+		allowed = append(allowed, handfulTool(t))
 	}
 
 	args := []string{
@@ -138,7 +138,7 @@ type compactMetadata struct {
 	PostTokens int64 `json:"post_tokens"`
 }
 
-// streamEvent is the subset of Claude Code's stream-json output that YarGPT reads.
+// streamEvent is the subset of Claude Code's stream-json output that Handful reads.
 type streamEvent struct {
 	CompactMetadata *compactMetadata `json:"compact_metadata"`
 	Type            string           `json:"type"`

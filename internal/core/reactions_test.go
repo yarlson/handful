@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // userEntry sends "hello" to the bot and returns the entry of that message.

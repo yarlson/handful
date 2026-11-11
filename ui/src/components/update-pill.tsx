@@ -49,11 +49,11 @@ type Bridge = {
 }
 
 function bridge(): Bridge | undefined {
-  return (window as unknown as { yargptUpdater?: Bridge }).yargptUpdater
+  return (window as unknown as { handfulUpdater?: Bridge }).handfulUpdater
 }
 
-const SKIP_KEY = "yargpt.update.skip"
-const LATER_KEY = "yargpt.update.later"
+const SKIP_KEY = "handful.update.skip"
+const LATER_KEY = "handful.update.later"
 
 // useUpdate follows the update state: from the desktop app when it runs in one, else from
 // the server's /api/version, which knows of new releases for a source build.
@@ -207,7 +207,7 @@ export function Body({
   if (s.state === "available") {
     return (
       <>
-        <p className="text-sm font-medium">YarGPT {s.version} is out</p>
+        <p className="text-sm font-medium">Handful {s.version} is out</p>
         <SubLine s={s} />
         <Button size="sm" className="self-start" onClick={a.download} data-main>
           Download
@@ -287,9 +287,9 @@ export function Body({
     if (running.length === 0) {
       return (
         <>
-          <p className="text-sm font-medium">YarGPT {s.version} is ready</p>
+          <p className="text-sm font-medium">Handful {s.version} is ready</p>
           <SubLine s={s} />
-          <p className="text-muted-foreground text-[13px]">Restart YarGPT to finish updating.</p>
+          <p className="text-muted-foreground text-[13px]">Restart Handful to finish updating.</p>
           <Button size="sm" className="self-start" onClick={a.restartNow} data-main>
             Restart now
           </Button>
@@ -302,7 +302,7 @@ export function Body({
     }
     return (
       <>
-        <p className="text-sm font-medium">YarGPT {s.version} is ready</p>
+        <p className="text-sm font-medium">Handful {s.version} is ready</p>
         <SubLine s={s} />
         <p className="text-[13px]">{running.length === 1 ? "1 bot is" : `${running.length} bots are`} working:</p>
         <BotRows running={running} bots={bots} now={now} />
@@ -337,14 +337,14 @@ export function Body({
         </p>
         <BotRows running={running} bots={bots} now={now} />
         <progress
-          aria-label="Time left before YarGPT asks you"
+          aria-label="Time left before Handful asks you"
           value={Math.round(drainFraction(s.deadline, s.drainMinutes, now) * s.drainMinutes)}
           max={s.drainMinutes}
           className="h-1.5 w-full appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-blue-600 [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-blue-600 dark:[&::-moz-progress-bar]:bg-blue-400 dark:[&::-webkit-progress-value]:bg-blue-400 bg-muted"
         />
         <p className="text-muted-foreground text-[13px] tabular-nums">
-          {left} of {s.drainMinutes} min left. YarGPT restarts on its own when they finish; if the limit passes, it asks
-          you first.
+          {left} of {s.drainMinutes} min left. Handful restarts on its own when they finish; if the limit passes, it
+          asks you first.
         </p>
         {tasksNote}
         <div className="flex justify-between">
@@ -378,7 +378,7 @@ export function Body({
   if (s.state === "source") {
     return (
       <>
-        <p className="text-sm font-medium">YarGPT {s.version} is out</p>
+        <p className="text-sm font-medium">Handful {s.version} is out</p>
         <p className="text-muted-foreground text-[13px]">
           This copy was built locally, so it can't update itself. Download the release, or pull and rebuild:
         </p>
@@ -514,7 +514,7 @@ export function UpdatePill({
 // or for new settings.
 export function PausedForUpdate({ label = "Paused for update" }: { label?: string }) {
   return (
-    <Badge variant="secondary" title="New turns wait until YarGPT restarts. Running turns finish.">
+    <Badge variant="secondary" title="New turns wait until Handful restarts. Running turns finish.">
       <Pause className="size-3" aria-hidden />
       {label}
     </Badge>

@@ -1,5 +1,5 @@
 // The connection to the server's event stream (/api/events) and the drain flag that the
-// stream and GET /api/version both report. useYarGPT (store.ts) drives these machines; this
+// stream and GET /api/version both report. useHandful (store.ts) drives these machines; this
 // file holds their states and every transition, so the UI, tests and bots read one place.
 
 // Link is the state of the event stream:

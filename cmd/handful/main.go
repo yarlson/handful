@@ -1,4 +1,4 @@
-// Command yargpt runs the YarGPT server: the API, the web UI and the local
+// Command handful runs the Handful server: the API, the web UI and the local
 // Claude Code workers for every bot.
 package main
 
@@ -17,13 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"yargpt/internal/agent"
-	"yargpt/internal/config"
-	"yargpt/internal/core"
-	"yargpt/internal/db"
-	"yargpt/internal/httpapi"
-	"yargpt/internal/shellenv"
-	"yargpt/ui"
+	"handful/internal/agent"
+	"handful/internal/config"
+	"handful/internal/core"
+	"handful/internal/db"
+	"handful/internal/httpapi"
+	"handful/internal/shellenv"
+	"handful/ui"
 )
 
 func main() {
@@ -34,11 +34,11 @@ func main() {
 // restartExitCode for a restart, else with 1 after printing err.
 func exit(err error) {
 	if errors.Is(err, errRestart) {
-		fmt.Fprintln(os.Stderr, "yargpt:", err)
+		fmt.Fprintln(os.Stderr, "handful:", err)
 		os.Exit(restartExitCode)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "yargpt:", err)
+		fmt.Fprintln(os.Stderr, "handful:", err)
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -148,7 +148,7 @@ func prepare(o *options) error {
 		return fmt.Errorf("parse -addr %q: %w", o.addr, err)
 	}
 	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-		return fmt.Errorf("-addr %q is not a loopback address; YarGPT has no authentication and must not listen on the network", o.addr)
+		return fmt.Errorf("-addr %q is not a loopback address; Handful has no authentication and must not listen on the network", o.addr)
 	}
 	if err := os.MkdirAll(o.dataDir, 0o700); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
@@ -210,7 +210,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
-	log.Info("YarGPT is running", "url", base, "data", o.dataDir, "claude", o.claudePath)
+	log.Info("Handful is running", "url", base, "data", o.dataDir, "claude", o.claudePath)
 
 	select {
 	case <-ctx.Done():
@@ -241,7 +241,7 @@ func startUpdateNotice(ctx context.Context, o options, log *slog.Logger) httpapi
 		log.Debug("find the server's executable", "err", err)
 	}
 	u := httpapi.Updates{Version: version, SourceBuild: !inAppBundle(exe)}
-	if !checksForUpdates(version, exe, o.Updates.UpdateCheck, os.Getenv) {
+	if !checksForUpdates(version, exe, o.Updates.UpdateCheck, os.Getenv, log) {
 		return u
 	}
 	n := newUpdateNotice(o.dataDir, log)

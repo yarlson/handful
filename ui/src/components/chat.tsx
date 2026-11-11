@@ -1063,9 +1063,14 @@ export function Chat({
   const items = () => itemsOf(column.current, entries)
   useLayoutEffect(() => {
     const el = scroller.current
-    // A chat whose newest page is still loading has nothing to place yet: it opens, and is
-    // restored to where the user left it, when its entries arrive.
-    if (!el || entries.length === 0) return
+    if (!el) return
+    // A chat whose newest page is still loading, or that has no entries, has nothing to place:
+    // it opens, and is restored to where the user left it, when its entries arrive. Until then
+    // no chat is shown, so the chat shown before it also counts as opened when it comes back.
+    if (entries.length === 0) {
+      shown.current = null
+      return
+    }
     const opened = shown.current !== bot.id
     const top = memory.target(bot.id, opened, el.scrollHeight)
     shown.current = bot.id

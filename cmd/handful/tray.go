@@ -1,9 +1,9 @@
 package main
 
 // checkForUpdatesURL is the address that the menu-bar icon's Check for
-// updates… opens. The app registers the yargpt scheme, so macOS hands the
+// updates… opens. The app registers the handful scheme, so macOS hands the
 // address to the app, which shows its window and checks.
-const checkForUpdatesURL = "yargpt://check-for-updates"
+const checkForUpdatesURL = "handful://check-for-updates"
 
 // trayItem is an item of the menu-bar icon's menu. action names the
 // Objective-C selector of the menu target that the item calls.

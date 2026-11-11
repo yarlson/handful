@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // Kinds of item events: every change of a board item leaves one, so that an
@@ -95,7 +95,7 @@ func eventActorName(ctx context.Context, q *db.Queries, a Actor) (string, error)
 		return "the user", nil
 	}
 	if a.BotID == "" {
-		return "YarGPT", nil
+		return "Handful", nil
 	}
 	row, err := q.GetBot(ctx, a.BotID)
 	if err != nil {

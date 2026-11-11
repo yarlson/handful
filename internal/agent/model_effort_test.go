@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // recordedStream reads a stream-json file that Claude Code wrote (see
@@ -97,7 +97,7 @@ func walkJSON(v any, key string, visit func(key string, val any)) {
 }
 
 // Check 3 for Product: with ANTHROPIC_MODEL=sonnet in the environment,
-// --model haiku runs haiku, so YarGPT keeps the variable.
+// --model haiku runs haiku, so Handful keeps the variable.
 func TestModelFlagOutranksAnthropicModel(t *testing.T) {
 	t.Parallel()
 	if got := initModel(t, recordedStream(t, "anthropic-model-sonnet-flag-haiku.jsonl")); got != "claude-haiku-5-5" {
@@ -137,7 +137,7 @@ func TestArgsPassModelAndEffortOnlyWhenSet(t *testing.T) {
 	}
 }
 
-func TestPassedValueIsOnlyAValueThatYarGPTSets(t *testing.T) {
+func TestPassedValueIsOnlyAValueThatHandfulSets(t *testing.T) {
 	t.Parallel()
 	for source, want := range map[string]string{core.SourceBot: "opus", core.SourceTeam: "opus", core.SourceGlobal: "opus", core.SourceEnv: "", core.SourceClaudeCode: ""} {
 		if got := passedValue("opus", source); got != want {
@@ -214,7 +214,7 @@ func readEnvLog(t *testing.T, h *harness) string {
 	return string(env)
 }
 
-func TestAnEffortFromYarGPTRemovesTheEffortVariableAndSubagentVariablesAlwaysGo(t *testing.T) {
+func TestAnEffortFromHandfulRemovesTheEffortVariableAndSubagentVariablesAlwaysGo(t *testing.T) {
 	t.Parallel()
 	for _, effort := range []string{"max", ""} {
 		h := newHarnessWith(t, "reply", "", effort)

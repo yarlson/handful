@@ -17,7 +17,7 @@ import {
 import { botColor } from "@/lib/bot-color"
 import { api, type Bot } from "@/lib/api"
 import { type Link, linkLabel } from "@/lib/connection"
-import { orderedEntries, useYarGPT } from "@/lib/store"
+import { orderedEntries, useHandful } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
 import { TaskBar } from "@/components/board"
@@ -472,7 +472,7 @@ function BotList({
   )
 }
 
-const sidebarWidthKey = "yargpt.sidebarWidth"
+const sidebarWidthKey = "handful.sidebarWidth"
 const sidebarWidth = { min: 180, max: 480, initial: 240 }
 
 function clampWidth(w: number) {
@@ -568,7 +568,7 @@ export function App() {
     select,
     refreshBots,
     reorder,
-  } = useYarGPT()
+  } = useHandful()
   const update = useUpdate()
   const [width, setWidth] = useState(loadSidebarWidth)
   const resizing = useRef(false)
@@ -677,7 +677,7 @@ export function App() {
     <div className="bg-background text-foreground relative flex h-dvh overflow-clip">
       <aside className="bg-sidebar text-sidebar-foreground flex shrink-0 flex-col" style={{ width }}>
         <div className="flex items-center px-3 py-3">
-          <img src="/logo.svg" alt="YarGPT" className="size-7" />
+          <img src="/logo.svg" alt="Handful" className="size-7" />
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
           <button

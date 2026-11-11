@@ -257,7 +257,7 @@ func TestServeFailsOnATakenAddressBeforeItOpensTheDatabase(t *testing.T) {
 // given environment in the format that shellenv.Load reads.
 func fakeLoginShell(t *testing.T, env ...string) string {
 	t.Helper()
-	body := `printf 'motd\n__YARGPT_ENV__\0'`
+	body := `printf 'motd\n__HANDFUL_ENV__\0'`
 	for _, kv := range env {
 		body += `; printf '%s\0' '` + kv + `'`
 	}
@@ -270,9 +270,9 @@ func fakeLoginShell(t *testing.T, env ...string) string {
 
 func TestSetUpFindsClaudeOnTheLoginShellPATH(t *testing.T) {
 	claudeDir := filepath.Dir(fakeClaude(t))
-	t.Setenv("SHELL", fakeLoginShell(t, "PATH="+claudeDir+":/usr/bin:/bin", "YARGPT_LOGIN_ENV_TEST=yes"))
+	t.Setenv("SHELL", fakeLoginShell(t, "PATH="+claudeDir+":/usr/bin:/bin", "HANDFUL_LOGIN_ENV_TEST=yes"))
 	t.Setenv("PATH", "/usr/bin:/bin")
-	t.Setenv("YARGPT_LOGIN_ENV_TEST", "")
+	t.Setenv("HANDFUL_LOGIN_ENV_TEST", "")
 
 	o, _, err := setUp([]string{"-login-env", "-data", t.TempDir(), "-claude", "claude"})
 	if err != nil {
@@ -281,8 +281,8 @@ func TestSetUpFindsClaudeOnTheLoginShellPATH(t *testing.T) {
 	if want := filepath.Join(claudeDir, "claude"); o.claudePath != want {
 		t.Errorf("claudePath = %q; want %q from the login shell's PATH", o.claudePath, want)
 	}
-	if got := os.Getenv("YARGPT_LOGIN_ENV_TEST"); got != "yes" {
-		t.Errorf("YARGPT_LOGIN_ENV_TEST = %q; want the login shell's value yes", got)
+	if got := os.Getenv("HANDFUL_LOGIN_ENV_TEST"); got != "yes" {
+		t.Errorf("HANDFUL_LOGIN_ENV_TEST = %q; want the login shell's value yes", got)
 	}
 }
 

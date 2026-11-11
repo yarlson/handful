@@ -314,13 +314,13 @@ test("a long team name in a task's chip is cut short and leaves the title room",
       data={board({ plan: [{ ...goal("q1", "Build the spec", "queued", 1), origin: "handoff", fromTeamId: "p1" }] })}
       error={null}
       act={async () => true}
-      teams={[{ ...team, id: "p1", name: "YarGPT Customer Support and Success Operations" }]}
+      teams={[{ ...team, id: "p1", name: "Handful Customer Support and Success Operations" }]}
     />,
   )
-  const label = "from YarGPT Customer Support and Success Operations"
+  const label = "from Handful Customer Support and Success Operations"
   assert.match(
     html,
-    /<span[^>]*class="[^"]*\bmax-w-1\/2\b[^"]*\bshrink\b[^"]*"[^>]*><span class="min-w-0 truncate" title="from YarGPT Customer Support and Success Operations">/,
+    /<span[^>]*class="[^"]*\bmax-w-1\/2\b[^"]*\bshrink\b[^"]*"[^>]*><span class="min-w-0 truncate" title="from Handful Customer Support and Success Operations">/,
   )
   assert.include(html, `>${label}</span>`)
   assert.match(
@@ -330,12 +330,12 @@ test("a long team name in a task's chip is cut short and leaves the title room",
 })
 
 test("in the task bar a long team chip is cut short, and the Now task's title keeps 40% of the bar", () => {
-  const names = { team: () => "YarGPT Customer Support and Success Operations", member: () => "Dee", at: () => "" }
+  const names = { team: () => "Handful Customer Support and Success Operations", member: () => "Dee", at: () => "" }
   const now = { ...goal("g1", "Fix the scroll", "active"), origin: "handoff" as const, fromTeamId: "p1" }
   const html = renderToStaticMarkup(<NowTask goal={now} names={names} paused={null} />)
   assert.match(
     html,
-    /class="[^"]*\bmax-w-1\/2\b[^"]*\bshrink\b[^"]*"><span class="min-w-0 truncate" title="from YarGPT Customer Support and Success Operations">/,
+    /class="[^"]*\bmax-w-1\/2\b[^"]*\bshrink\b[^"]*"><span class="min-w-0 truncate" title="from Handful Customer Support and Success Operations">/,
   )
   assert.include(html, '<span class="min-w-[40%] flex-1 truncate" title="Fix the scroll">Fix the scroll</span>')
 })

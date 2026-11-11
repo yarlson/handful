@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"slices"
 
-	"yargpt/internal/config"
+	"handful/internal/config"
 )
 
 // The builds that the Settings page tells apart.
 const (
-	BuildApp    = "app"    // YarGPT.app with a Developer ID signature, which updates itself
-	BuildAdhoc  = "adhoc"  // YarGPT.app built locally, which cannot update itself
+	BuildApp    = "app"    // Handful.app with a Developer ID signature, which updates itself
+	BuildAdhoc  = "adhoc"  // Handful.app built locally, which cannot update itself
 	BuildSource = "source" // a server built from source, outside the app
 )
 
@@ -231,7 +231,7 @@ func (s *server) startupProblem(key string, value any) string {
 		return ""
 	}
 	if _, err := s.settings.LookPath(text); err != nil {
-		return "YarGPT won't start with this program. Fix it before restarting."
+		return "Handful won't start with this program. Fix it before restarting."
 	}
 	return ""
 }
@@ -326,11 +326,11 @@ func (s *server) restart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.settings.Restart == nil {
-		writeProblem(w, http.StatusNotImplemented, "", "This server doesn't run under launchd. Stop it and start ./bin/yargpt again.")
+		writeProblem(w, http.StatusNotImplemented, "", "This server doesn't run under launchd. Stop it and start ./bin/handful again.")
 		return
 	}
 	if key, err := s.wouldNotStart(); err != nil {
-		writeProblem(w, http.StatusConflict, key, "YarGPT wouldn't start after a restart: "+err.Error()+". Fix it, then restart.")
+		writeProblem(w, http.StatusConflict, key, "Handful wouldn't start after a restart: "+err.Error()+". Fix it, then restart.")
 		return
 	}
 	if in.When == "idle" {
@@ -348,7 +348,7 @@ func (s *server) restart(w http.ResponseWriter, r *http.Request) {
 // mode; a hold of the updater stays.
 func (s *server) cancelRestart(w http.ResponseWriter, r *http.Request) {
 	if s.settings.CancelRestart == nil {
-		writeProblem(w, http.StatusNotImplemented, "", "This server doesn't run under launchd. Stop it and start ./bin/yargpt again.")
+		writeProblem(w, http.StatusNotImplemented, "", "This server doesn't run under launchd. Stop it and start ./bin/handful again.")
 		return
 	}
 	s.settings.CancelRestart()

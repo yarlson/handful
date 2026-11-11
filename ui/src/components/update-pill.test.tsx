@@ -26,7 +26,7 @@ function s(x: Partial<UpdaterState>): UpdaterState {
     version: "1.4.0",
     current: "1.3.2",
     drainMinutes: 30,
-    releaseUrl: "https://github.com/yarlson/yargpt/releases/tag/v1.4.0",
+    releaseUrl: "https://github.com/yarlson/handful/releases/tag/v1.4.0",
     hiddenByLater: false,
     ...x,
   }
@@ -72,9 +72,9 @@ test("hidden, checking and Later show no pill", () => {
 
 test("available offers Download, Later and Skip, with the release link", () => {
   const html = body({ state: "available" })
-  assert.include(html, "YarGPT 1.4.0 is out")
+  assert.include(html, "Handful 1.4.0 is out")
   assert.include(html, "You have 1.3.2")
-  assert.include(html, 'href="https://github.com/yarlson/yargpt/releases/tag/v1.4.0"')
+  assert.include(html, 'href="https://github.com/yarlson/handful/releases/tag/v1.4.0"')
   for (const t of ["Download", "Later", "Skip this version"]) assert.include(html, `>${t}<`)
 })
 
@@ -89,8 +89,8 @@ test("downloading shows a progress bar and its size", () => {
 
 test("ready with no bots working restarts; with bots working it offers to wait", () => {
   const idle = body({ state: "ready" })
-  assert.include(idle, "YarGPT 1.4.0 is ready")
-  assert.include(idle, "Restart YarGPT to finish updating.")
+  assert.include(idle, "Handful 1.4.0 is ready")
+  assert.include(idle, "Restart Handful to finish updating.")
   assert.include(idle, ">Restart now<")
   assert.notInclude(idle, "Update when they finish")
   const busy = body({ state: "ready", running: run })
@@ -116,7 +116,7 @@ test("Restart now while bots work asks first, with waiting as the main action", 
 test("waiting lists the bots, the time left and how to back out", () => {
   const html = body({ state: "waiting", running: run, deadline: new Date(now + 21 * 60_000).toISOString() })
   assert.include(html, "Updating after 2 bots finish")
-  assert.match(html, /<progress[^>]*aria-label="Time left before YarGPT asks you"[^>]*value="21"[^>]*max="30"/)
+  assert.match(html, /<progress[^>]*aria-label="Time left before Handful asks you"[^>]*value="21"[^>]*max="30"/)
   assert.include(html, "21 of 30 min left.")
   assert.include(html, "New turns wait. Teams pause their tasks for the update.")
   assert.include(html, "A background task can keep going until it ends")
@@ -156,6 +156,6 @@ test("states with no popover render nothing", () => {
 test("the goal bar's badge says the team is paused for the update, in words", () => {
   const html = renderToStaticMarkup(<PausedForUpdate />)
   assert.include(html, "Paused for update")
-  assert.include(html, 'title="New turns wait until YarGPT restarts. Running turns finish."')
+  assert.include(html, 'title="New turns wait until Handful restarts. Running turns finish."')
   assert.notInclude(html, "amber")
 })

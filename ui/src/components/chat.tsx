@@ -649,7 +649,7 @@ function suggestionsFor(
 // example in a private window); a draft then lasts only while its chat is open.
 function loadDraft(botId: string) {
   try {
-    return localStorage.getItem(`yargpt.draft.${botId}`) ?? ""
+    return localStorage.getItem(`handful.draft.${botId}`) ?? ""
   } catch {
     return ""
   }
@@ -657,8 +657,8 @@ function loadDraft(botId: string) {
 
 function saveDraft(botId: string, text: string) {
   try {
-    if (text) localStorage.setItem(`yargpt.draft.${botId}`, text)
-    else localStorage.removeItem(`yargpt.draft.${botId}`)
+    if (text) localStorage.setItem(`handful.draft.${botId}`, text)
+    else localStorage.removeItem(`handful.draft.${botId}`)
   } catch {
     // Not saved: the draft is lost when its chat closes, which is acceptable.
   }

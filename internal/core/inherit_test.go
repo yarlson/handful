@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // queuedOf returns the one queued turn of bot, and finishes every other.

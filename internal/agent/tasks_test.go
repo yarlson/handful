@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 func TestTeamPromptsCarryTheGatekeeperAndMemberTexts(t *testing.T) {

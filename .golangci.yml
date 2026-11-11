@@ -46,10 +46,10 @@ formatters:
     - goimports
   settings:
     gofumpt:
-      module-path: yargpt
+      module-path: handful
     goimports:
       local-prefixes:
-        - yargpt
+        - handful
   exclusions:
     generated: strict
     warn-unused: true

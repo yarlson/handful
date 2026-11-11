@@ -387,7 +387,7 @@ func TestLaterDefersATaskWithinAWeekAndItComesBackWhenDue(t *testing.T) {
 	if text := lastEventText(t, h.svc, h.docs.ID); text != `The deferred task "Guide." is back in the inbox.` {
 		t.Fatalf("Docs channel = %q", text)
 	}
-	if got := h.events(t, g.ID); got[len(got)-1] != "due by YarGPT: After the release." {
+	if got := h.events(t, g.ID); got[len(got)-1] != "due by Handful: After the release." {
 		t.Fatalf("events = %q", got)
 	}
 }

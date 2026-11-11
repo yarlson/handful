@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // MaxAgentMessage is the longest message, in characters, that a bot may send

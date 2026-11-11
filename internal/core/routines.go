@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 const (

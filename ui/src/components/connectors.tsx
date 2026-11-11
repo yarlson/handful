@@ -40,7 +40,7 @@ export function ConnectorsDialog({
     const tab = window.open("", "_blank")
     try {
       const { url } = await api.connect(name)
-      if (!tab) throw new Error("The browser blocked the sign-in tab; allow pop-ups for YarGPT.")
+      if (!tab) throw new Error("The browser blocked the sign-in tab; allow pop-ups for Handful.")
       tab.opener = null
       tab.location.href = url
       dispatch({ type: "actionDone" })

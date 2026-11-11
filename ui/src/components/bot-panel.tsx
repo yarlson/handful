@@ -753,7 +753,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
           </p>
           {defaults && ignoredOverrides(defaults).length > 0 && (
             <p className="text-muted-foreground text-xs">
-              {ignoredOverrides(defaults).join(", ")} ignored: YarGPT bots' helper subagents use the bot's model.
+              {ignoredOverrides(defaults).join(", ")} ignored: Handful bots' helper subagents use the bot's model.
             </p>
           )}
         </fieldset>

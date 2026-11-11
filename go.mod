@@ -1,4 +1,4 @@
-module yargpt
+module handful
 
 go 1.27.4
 

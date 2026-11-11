@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"yargpt/internal/httpapi"
+	"handful/internal/httpapi"
 )
 
 // version is the server's version, without the "v" of its tag. The Makefile
@@ -30,14 +30,17 @@ const (
 	updateCheckEvery = 24 * time.Hour
 	updateCheckTick  = time.Hour
 	updateCheckFile  = "update-check.json"
-	noUpdateCheckEnv = "YARGPT_NO_UPDATE_CHECK"
+	noUpdateCheckEnv = "HANDFUL_NO_UPDATE_CHECK"
+	// oldNoUpdateCheckEnv is the variable's name before the rename to
+	// Handful; it still works until 2027-11.
+	oldNoUpdateCheckEnv = "YARGPT_NO_UPDATE_CHECK"
 	// maxReleaseRedirects bounds the redirects before the release tag: a
 	// renamed repo adds one to the latest page's own.
 	maxReleaseRedirects = 5
 )
 
 // inAppBundle reports whether the executable at path is the server inside
-// YarGPT.app, whose updates the app installs.
+// Handful.app, whose updates the app installs.
 func inAppBundle(path string) bool {
 	return strings.Contains(path, ".app/Contents/Resources/")
 }
@@ -45,12 +48,25 @@ func inAppBundle(path string) bool {
 // checksForUpdates reports whether a server of version v at path exe looks
 // for new releases: only a source build with a release version, when neither
 // the environment nor the config file (on) turns the check off.
-func checksForUpdates(v, exe string, on bool, getenv func(string) string) bool {
-	if !on || getenv(noUpdateCheckEnv) != "" || inAppBundle(exe) {
+func checksForUpdates(v, exe string, on bool, getenv func(string) string, log *slog.Logger) bool {
+	if !on || updateCheckOff(getenv, log) || inAppBundle(exe) {
 		return false
 	}
 	_, ok := parseVersion(v)
 	return ok
+}
+
+// updateCheckOff reports whether the environment turns the update check off,
+// by its name or by its name before the rename, which it logs.
+func updateCheckOff(getenv func(string) string, log *slog.Logger) bool {
+	if getenv(noUpdateCheckEnv) != "" {
+		return true
+	}
+	if getenv(oldNoUpdateCheckEnv) == "" {
+		return false
+	}
+	log.Info(oldNoUpdateCheckEnv + " is now " + noUpdateCheckEnv)
+	return true
 }
 
 // updateNotice looks for a release newer than the running version, at most

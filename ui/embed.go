@@ -1,4 +1,4 @@
-// Package ui embeds the built web UI (ui/dist) into the YarGPT binary.
+// Package ui embeds the built web UI (ui/dist) into the Handful binary.
 package ui
 
 import (

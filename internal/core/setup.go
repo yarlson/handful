@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // ToolCreateSetup is Builder's tool that creates a setup. The user confirms

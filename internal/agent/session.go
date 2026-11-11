@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // taskTurnPrompt is stored as the prompt of a task turn; Claude Code writes
@@ -38,7 +38,7 @@ func (k sessionKey) transcript() string {
 // stream-json messages on stdin, and Claude Code runs them one at a time. The
 // process stays alive while background tasks that the model started (Bash
 // with run_in_background, Monitor, background subagents) run, and Claude Code
-// wakes the model when one of them reports. YarGPT keeps stdin open while
+// wakes the model when one of them reports. Handful keeps stdin open while
 // tasks run, so later turns go to the same process, and closes it when no
 // task is left; the process then exits.
 type session struct {
@@ -186,14 +186,14 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	ctx, kill := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, r.cfg.ClaudePath, args...)
 	cmd.Dir = dir
-	// Bundled skills such as "schedule" create cloud routines, which compete with YarGPT's own routines.
+	// Bundled skills such as "schedule" create cloud routines, which compete with Handful's own routines.
 	// The silent-turn reminder tells the model that the user waits for news,
 	// which is wrong for hidden routine and agent turns.
 	// Claude Code finds CLAUDE.md files by walking up from the workspace, which
 	// lies under the user's home, so ~/.claude/CLAUDE.md would reach every bot
 	// even with --setting-sources project.
 	// The child also loses the variables that would override the model or
-	// effort that YarGPT picked (childEnv).
+	// effort that Handful picked (childEnv).
 	cmd.Env = append(childEnv(r.environ(), c.flags.effort != ""), "MCP_TOOL_TIMEOUT="+mcpToolTimeoutMs, "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
@@ -629,7 +629,7 @@ func (r *Runner) HasSession(id string) bool {
 }
 
 // exitReason is how a process's end reads in its turns: a stop for silence,
-// a signal from outside YarGPT, such as a pattern kill, or the exit error and
+// a signal from outside Handful, such as a pattern kill, or the exit error and
 // stderr as they are.
 func (r *Runner) exitReason(s *session, exitErr error, stderr string, stopped, silent bool) (string, error) {
 	if silent {
@@ -637,7 +637,7 @@ func (r *Runner) exitReason(s *session, exitErr error, stderr string, stopped, s
 	}
 	if sig, ok := killedBy(exitErr); ok && !stopped {
 		r.log.Warn("claude stopped by a signal", "bot", s.key.botID, "signal", sig, "stderr", truncate(stderr, 500))
-		return "", fmt.Errorf("stopped by %s from outside YarGPT", sig)
+		return "", fmt.Errorf("stopped by %s from outside Handful", sig)
 	}
 	return stderr, exitErr
 }

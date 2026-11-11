@@ -1,4 +1,4 @@
-// The load state of one chat's transcript. useYarGPT (store.ts) fetches a chat's entries when
+// The load state of one chat's transcript. useHandful (store.ts) fetches a chat's entries when
 // it opens and again after each reconnect; this file holds the states and transitions, so the
 // chat can tell "still loading" and "couldn't load" from a chat that has no messages.
 //   unloaded: the page never asked for this chat's entries (no entry in the map).

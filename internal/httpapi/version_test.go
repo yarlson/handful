@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 func TestVersionReportsTheBuildDrainModeAndAnEmptyRunningList(t *testing.T) {

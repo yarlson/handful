@@ -15,10 +15,10 @@ import { transcriptStep, type TranscriptEvent, type TranscriptStatus } from "./t
 
 type Transcript = { byId: Map<string, Entry>; rev: number }
 
-// useYarGPT keeps the bot list and the loaded transcripts in sync with the
+// useHandful keeps the bot list and the loaded transcripts in sync with the
 // server's event stream. On every (re)connect it refetches what changed after
 // the highest rev it has, so missed events cannot leave gaps.
-export function useYarGPT() {
+export function useHandful() {
   const [bots, setBots] = useState<Bot[]>([])
   const [transcripts, setTranscripts] = useState<Map<string, Transcript>>(new Map())
   const [unread, setUnread] = useState<Set<string>>(new Set())

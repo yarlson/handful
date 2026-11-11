@@ -42,7 +42,7 @@ func TestTheDecisionClockMigrationKeepsTasksAndTheirHistory(t *testing.T) {
 	if team, err := q.GetTeam(ctx, "ship"); err != nil || team.DecisionMinutes != 30 {
 		t.Fatalf("team = %+v, %v; want 30 minutes to decide", team, err)
 	}
-	if _, err := conn.ExecContext(ctx, `INSERT INTO goal_events (id, goal_id, kind, actor_id, actor_name, text, created_at) VALUES ('ge2', 'g-in', 'missed', '', 'YarGPT', 'Late.', 6)`); err != nil {
+	if _, err := conn.ExecContext(ctx, `INSERT INTO goal_events (id, goal_id, kind, actor_id, actor_name, text, created_at) VALUES ('ge2', 'g-in', 'missed', '', 'Handful', 'Late.', 6)`); err != nil {
 		t.Fatalf("a missed event: %v", err)
 	}
 	if _, err := conn.ExecContext(ctx, `INSERT INTO goal_events (id, goal_id, kind, actor_id, actor_name, created_at) VALUES ('ge3', 'g-in', 'sneezed', '', '', 7)`); err == nil {

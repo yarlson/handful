@@ -1,0 +1,24 @@
+# The places that keep the old name YarGPT on purpose (spec ad09e72c §6). Each
+# pattern is an extended regex matched against git grep's "path:line:text".
+
+# YarGPT's migrations stay byte-identical to the bridge release's (spec §4.3).
+^internal/db/migrations/
+# The database file keeps its name (spec §3).
+yargpt\.db
+# The data folder: until the move to ~/.handful ships, and after it as the
+# link the move leaves (spec §3, §4.3).
+[~/]\.yargpt|"\.yargpt"
+# The old tool names, in the prompt's note and the tool-name rewrite (spec §3).
+mcp__yargpt__
+# The update-check variable's old name still works until 2027-11 (spec §3).
+YARGPT_NO_UPDATE_CHECK
+# The browser keys stored before the rename, which the page moves (spec §3).
+^ui/src/lib/stored-keys(\.test)?\.ts:
+# The README's lines about moving from YarGPT and going back to it (spec §4.4, §6).
+^README\.md:[0-9]+:.*(Moving from YarGPT|Go back to YarGPT|called YarGPT before|YarGPT is now Handful|Mac app, YarGPT [0-9]|YarGPT-universal-mac\.zip)
+
+# Renamed by the desktop, release and site rename PRs; each removes its line.
+^desktop/
+^web/
+^\.github/workflows/release\.yml:
+^docs/releasing\.md:

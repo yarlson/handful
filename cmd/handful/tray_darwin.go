@@ -57,10 +57,10 @@ func addTrayIcon(onExit func()) (objc.ID, error) {
 	// macOS can give App Nap to an app without windows, which slows its timers
 	// and lowers its priority. The server must run bots at full speed.
 	class("NSProcessInfo").Send(sel("processInfo")).
-		Send(sel("beginActivityWithOptions:reason:"), userInitiatedActivity, nsString("YarGPT runs bots")).
+		Send(sel("beginActivityWithOptions:reason:"), userInitiatedActivity, nsString("Handful runs bots")).
 		Send(sel("retain"))
 
-	target, err := objc.RegisterClass("YarGPTTrayTarget", objc.GetClass("NSObject"), nil, nil, []objc.MethodDef{
+	target, err := objc.RegisterClass("HandfulTrayTarget", objc.GetClass("NSObject"), nil, nil, []objc.MethodDef{
 		{Cmd: sel("exitServer:"), Fn: func(objc.ID, objc.SEL, objc.ID) { onExit() }},
 		{Cmd: sel("checkForUpdates:"), Fn: func(objc.ID, objc.SEL, objc.ID) { openURL(checkForUpdatesURL) }},
 	})
@@ -78,7 +78,7 @@ func addTrayIcon(onExit func()) (objc.ID, error) {
 	status.Send(sel("retain")) // the status bar does not keep its items
 	button := status.Send(sel("button"))
 	button.Send(sel("setImage:"), image)
-	button.Send(sel("setToolTip:"), nsString("YarGPT"))
+	button.Send(sel("setToolTip:"), nsString("Handful"))
 	status.Send(sel("setMenu:"), menu)
 	return app, nil
 }

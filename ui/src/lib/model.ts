@@ -200,7 +200,7 @@ export function teamEffective(team: { defaultModel?: string; defaultEffort?: str
   }
 }
 
-// ignoredOverrides lists the environment variables that YarGPT removes from a bot's run.
+// ignoredOverrides lists the environment variables that Handful removes from a bot's run.
 export function ignoredOverrides(d: Defaults): string[] {
   return d.envOverrides.filter((v) => v.startsWith("CLAUDE_CODE_SUBAGENT_"))
 }

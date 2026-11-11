@@ -59,7 +59,7 @@ func migrateTo(ctx context.Context, conn *sql.DB, last int) error {
 		return fmt.Errorf("read schema version: %w", err)
 	}
 	if version > len(names) {
-		return fmt.Errorf("database schema version %d is newer than this YarGPT (%d); use a newer YarGPT", version, len(names))
+		return fmt.Errorf("database schema version %d is newer than this Handful (%d); use a newer Handful", version, len(names))
 	}
 	for i := version; i < min(last, len(names)); i++ {
 		if err := applyMigration(ctx, conn, names[i], i+1); err != nil {

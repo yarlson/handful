@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"yargpt/internal/core"
-	"yargpt/internal/oauthtest"
+	"handful/internal/core"
+	"handful/internal/oauthtest"
 )
 
 const callbackURL = "http://127.0.0.1:7777/oauth/callback"

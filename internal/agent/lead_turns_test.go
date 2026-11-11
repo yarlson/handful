@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // otherLead makes a second team, led by a new bot, and returns its lead.

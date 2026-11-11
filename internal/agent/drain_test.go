@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // turnStatus returns the status of a turn.

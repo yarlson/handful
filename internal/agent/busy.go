@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // Busy lists the bots whose work keeps the server from restarting for an

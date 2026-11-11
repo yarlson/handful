@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // Goal and item states, and the roles of board turns, as stored.

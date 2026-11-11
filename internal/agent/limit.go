@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"time"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 const (

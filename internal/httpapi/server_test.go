@@ -23,10 +23,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/agent"
-	"yargpt/internal/core"
-	"yargpt/internal/db"
-	"yargpt/internal/oauthtest"
+	"handful/internal/agent"
+	"handful/internal/core"
+	"handful/internal/db"
+	"handful/internal/oauthtest"
 )
 
 func newTestHandler(t *testing.T) (http.Handler, *core.Service) {

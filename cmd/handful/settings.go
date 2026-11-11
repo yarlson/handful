@@ -13,16 +13,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"yargpt/internal/agent"
-	"yargpt/internal/config"
-	"yargpt/internal/core"
-	"yargpt/internal/httpapi"
+	"handful/internal/agent"
+	"handful/internal/config"
+	"handful/internal/core"
+	"handful/internal/httpapi"
 )
 
 // launchdLabel is the label of the server's LaunchAgent. launchd sets
 // XPC_SERVICE_NAME to it in the job's environment; a server started from a
 // terminal has no such variable, or "0".
-const launchdLabel = "dev.yarlson.yargpt.server"
+const launchdLabel = "dev.yarlson.handful.server"
 
 // restartExitCode is the status of a server that ends to restart. It is not
 // 0, so launchd starts the job again (KeepAlive.SuccessfulExit is false).
@@ -95,7 +95,7 @@ func runtimeValues(o options, launchd bool) []httpapi.RuntimeValue {
 }
 
 // buildKind tells the server at exe apart: a source build, or the server in
-// YarGPT.app, signed with a Developer ID (which updates itself) or built
+// Handful.app, signed with a Developer ID (which updates itself) or built
 // locally. sign returns what codesign prints about the bundle's signature.
 func buildKind(exe string, sign func(bundle string) string) string {
 	i := strings.Index(exe, ".app/Contents/Resources/")

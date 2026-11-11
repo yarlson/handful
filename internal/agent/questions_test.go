@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 func TestTheQuestionRuleAsksForSelfContainedQuestionsInEveryPrompt(t *testing.T) {

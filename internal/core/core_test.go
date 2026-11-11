@@ -14,7 +14,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 func newTestService(t *testing.T) *Service {

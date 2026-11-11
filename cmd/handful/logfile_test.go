@@ -11,7 +11,7 @@ import (
 func TestRedirectToFileAppendsWritesToTheFileUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	path := filepath.Join(home, "Library", "Logs", "YarGPT", "server.log")
+	path := filepath.Join(home, "Library", "Logs", "Handful", "server.log")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestRedirectToFileAppendsWritesToTheFileUnderHome(t *testing.T) {
 	}
 	defer stand.Close()
 
-	if err := redirectToFile(int(stand.Fd()), "~/Library/Logs/YarGPT/server.log"); err != nil {
+	if err := redirectToFile(int(stand.Fd()), "~/Library/Logs/Handful/server.log"); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Fprint(stand, "panic: boom\n")

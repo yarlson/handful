@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // handOver gives a team a goal of its own from the user, for a team or for none.

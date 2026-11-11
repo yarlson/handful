@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // MaxQueuedGoals is how many goals a team keeps in its queue.

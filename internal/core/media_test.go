@@ -17,7 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // The first bytes of an MP4 file, a WebM file and a QuickTime movie: enough

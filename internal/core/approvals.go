@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // approvalTimeout ends an approval before Claude Code gives up on the tool

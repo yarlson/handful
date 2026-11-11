@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // teamCommands are the commands of a team's chat. A skill with one of these

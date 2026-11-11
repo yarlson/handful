@@ -13,7 +13,7 @@ import (
 )
 
 // marker separates what the shell's startup files print from the environment.
-const marker = "__YARGPT_ENV__"
+const marker = "__HANDFUL_ENV__"
 
 // Load runs shell as an interactive login shell and returns the environment
 // that it exports.

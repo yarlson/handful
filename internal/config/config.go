@@ -15,7 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 // The settings' defaults: the values that apply when the file lacks a key.

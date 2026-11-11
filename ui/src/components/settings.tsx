@@ -56,13 +56,13 @@ type SettingsBridge = {
 }
 
 export function settingsBridge(): SettingsBridge | undefined {
-  return (window as unknown as { yargptSettings?: SettingsBridge }).yargptSettings
+  return (window as unknown as { handfulSettings?: SettingsBridge }).handfulSettings
 }
 
 type UpdaterCheck = { check: () => void }
 
 function updaterBridge(): UpdaterCheck | undefined {
-  return (window as unknown as { yargptUpdater?: UpdaterCheck }).yargptUpdater
+  return (window as unknown as { handfulUpdater?: UpdaterCheck }).handfulUpdater
 }
 
 // openSettingsPage goes to a section of the Settings page.
@@ -410,11 +410,11 @@ const HELP: Record<Key, string> = {
   effort: "How hard bots think. The default is each model's own level.",
   maxParallel:
     "How many bot turns can run at the same time, across all bots. More turns use more of your Claude plan at once.",
-  claude: "The claude command YarGPT runs for every turn. Change it only if Claude Code isn't on your PATH.",
+  claude: "The claude command Handful runs for every turn. Change it only if Claude Code isn't on your PATH.",
   "updates.autoCheck":
     "Once a day. Each check sends one request to GitHub and nothing else. Applies at the next check, within an hour.",
   "updates.drainMinutes":
-    "Before an update restarts YarGPT, it lets running turns finish for this long. Then it asks you. Applies at the next update.",
+    "Before an update restarts Handful, it lets running turns finish for this long. Then it asks you. Applies at the next update.",
   updateCheck: "Once a day, the server checks GitHub and shows a notice. It never updates itself.",
 }
 
@@ -433,12 +433,12 @@ export function RestartBanner({ view, onRestart }: { view: SettingsView; onResta
         <strong className="font-semibold">{text.lead}</strong>: {text.labels}.
         {view.startError && (
           <span className="mt-1 block">
-            YarGPT wouldn't start with the file as it is: {view.startError}. Fix it before restarting.
+            Handful wouldn't start with the file as it is: {view.startError}. Fix it before restarting.
           </span>
         )}
         {manual && !view.startError && (
           <span className="mt-1 block">
-            Restart the server to apply: stop it and start <code className="font-mono">./bin/yargpt</code> again.
+            Restart the server to apply: stop it and start <code className="font-mono">./bin/handful</code> again.
           </span>
         )}
       </p>
@@ -500,7 +500,7 @@ function RestartDialog({
           ))}
         </ul>
         <p className="text-muted-foreground text-xs">
-          New turns wait while YarGPT waits for them, up to {limit} minutes. Then it asks you again.
+          New turns wait while Handful waits for them, up to {limit} minutes. Then it asks you again.
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -577,7 +577,7 @@ function useRestart(waiting: boolean, onChange: () => void) {
   return { state, error, restart, cancel }
 }
 
-const SAVED_KEY = "yargpt.settings.saved"
+const SAVED_KEY = "handful.settings.saved"
 
 // loadSaved reads the values this page saved in this browser session, which survive leaving
 // the page and reloading it.
@@ -737,13 +737,13 @@ export function SettingsPage({
         <div className="max-w-[680px]">
           {restart.state === "now" && (
             <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">
-              Restarting… YarGPT is back in a few seconds.
+              Restarting… Handful is back in a few seconds.
             </output>
           )}
           {restart.state === "draining" && view.restartWait && (
             <output className="bg-muted mb-6 flex items-center gap-3 rounded-lg px-4 py-3 text-sm">
               <span className="flex-1">
-                YarGPT restarts when the running bots finish. New turns wait. If they're still working in{" "}
+                Handful restarts when the running bots finish. New turns wait. If they're still working in{" "}
                 {minutesUntil(view.restartWait.deadline, now)} min, it asks you again.
               </span>
               <Button size="sm" variant="outline" onClick={() => void restart.cancel()}>
@@ -762,7 +762,7 @@ export function SettingsPage({
               className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300"
             >
               <span className="min-w-0 flex-1">
-                Bots were still working after {drainLimit(view)} min, so YarGPT didn't restart. Restart now stops their
+                Bots were still working after {drainLimit(view)} min, so Handful didn't restart. Restart now stops their
                 turns.
               </span>
               <Button size="sm" variant="outline" onClick={() => void restart.restart("now")}>
@@ -870,7 +870,7 @@ export function SettingsPage({
               <>
                 <p className="text-muted-foreground mt-1 mb-2 text-sm">
                   {view.build === "app" &&
-                    `YarGPT ${version ?? ""} · signed release. Changes here apply without a restart.`}
+                    `Handful ${version ?? ""} · signed release. Changes here apply without a restart.`}
                   {view.build === "adhoc" &&
                     "This copy was built locally, so it can't update itself. New releases show as a notice."}
                   {view.build === "source" && "This server was built from source. Update it by pulling and rebuilding."}
@@ -945,7 +945,7 @@ export function SettingsPage({
                         <span className="text-sm font-medium">{runtimeLabel(r.key)}</span>
                         {r.key === "addr" && (
                           <span className="text-muted-foreground mt-1 block text-xs">
-                            Only this computer can reach YarGPT.
+                            Only this computer can reach Handful.
                           </span>
                         )}
                       </dt>

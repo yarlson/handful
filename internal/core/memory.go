@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // MaxFactLen is the longest fact, in characters, that memory accepts.

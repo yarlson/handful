@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"slices"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 // Reactions are the emoji the user can put on a message, in display order.

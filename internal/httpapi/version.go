@@ -3,16 +3,16 @@ package httpapi
 import (
 	"net/http"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
-// LatestReleaseURL is the page of the newest YarGPT release.
-const LatestReleaseURL = "https://github.com/yarlson/yargpt/releases/latest"
+// LatestReleaseURL is the page of the newest Handful release.
+const LatestReleaseURL = "https://github.com/yarlson/handful/releases/latest"
 
 // Updates is what the server knows about its version and about updates.
 type Updates struct {
 	Version string // "1.4.0", or "dev-<sha>" for a build without a tag
-	// SourceBuild is true when the server does not run inside YarGPT.app,
+	// SourceBuild is true when the server does not run inside Handful.app,
 	// which cannot replace it.
 	SourceBuild bool
 	// Latest returns a release newer than Version, or "" when none is known.

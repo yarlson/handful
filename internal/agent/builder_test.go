@@ -11,7 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"yargpt/internal/core"
+	"handful/internal/core"
 )
 
 var webAppSetup = map[string]any{
@@ -178,7 +178,7 @@ func TestOnlyBuildersPromptExplainsHowToSetUpBots(t *testing.T) {
 	now := time.Date(2026, 11, 8, 9, 0, 0, 0, time.UTC)
 	groups := []core.Bot{{Name: "Web app", Kind: core.KindRoom}, {Name: "Lounge", Kind: core.KindRoom}}
 	builder := systemPrompt(promptContext{Bot: core.Bot{ID: "b", Name: "Builder", Role: core.RoleBuilder}, Groups: groups, Now: now})
-	for _, want := range []string{"## Setting up the user's bots", "<welcome>\n" + core.BuilderWelcome + "\n</welcome>", `Names that the user's rooms and teams use: "Web app", "Lounge".`, "Never add yourself to a team or room", "never with commands or the YarGPT API"} {
+	for _, want := range []string{"## Setting up the user's bots", "<welcome>\n" + core.BuilderWelcome + "\n</welcome>", `Names that the user's rooms and teams use: "Web app", "Lounge".`, "Never add yourself to a team or room", "never with commands or the Handful API"} {
 		if !strings.Contains(builder, want) {
 			t.Errorf("Builder's prompt lacks %q", want)
 		}

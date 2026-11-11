@@ -1,4 +1,4 @@
-// Package core holds the domain state of YarGPT: bots, transcripts, turns,
+// Package core holds the domain state of Handful: bots, transcripts, turns,
 // memory, routines, skills and approvals. It owns the database and publishes
 // every transcript change to the Hub.
 package core
@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"yargpt/internal/db"
+	"handful/internal/db"
 )
 
 var (

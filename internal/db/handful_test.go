@@ -104,6 +104,13 @@ func TestTheBackupCopiesYarGPTsDatabaseOnceBeforeHandfulMigratesIt(t *testing.T)
 		t.Fatalf("no database: made %v, %v; want no backup", made, err)
 	}
 	yargptDatabase(t, path)
+	// A start that a full disk cut short left part of a copy.
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup+".tmp", []byte("part of a copy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if made, err := BackupBeforeHandful(t.Context(), path, backup); !made || err != nil {
 		t.Fatalf("backup: made %v, %v; want one", made, err)
 	}

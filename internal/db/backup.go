@@ -39,23 +39,17 @@ func BackupBeforeHandful(ctx context.Context, path, backup string) (bool, error)
 		return false, err
 	}
 	// VACUUM INTO writes a consistent copy, the WAL included; the copy goes in
-	// under its name only when it is whole.
+	// under its name only when it is whole. A start that a crash or a full
+	// disk cut short left a part of one, which goes first.
 	tmp := backup + ".tmp"
 	if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
 	if _, err := conn.ExecContext(ctx, "VACUUM INTO ?", tmp); err != nil {
-		return false, fmt.Errorf("copy %s: %w", path, errors.Join(err, removeIfThere(tmp)))
+		return false, fmt.Errorf("copy %s: %w", path, err)
 	}
 	if err := os.Rename(tmp, backup); err != nil {
 		return false, err
 	}
 	return true, nil
-}
-
-func removeIfThere(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	return nil
 }

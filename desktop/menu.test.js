@@ -2,11 +2,12 @@ const assert = require("node:assert/strict")
 const { test } = require("node:test")
 const { appMenuTemplate } = require("./menu")
 
-function template() {
+function template(moveItem) {
   const calls = []
   const items = appMenuTemplate({
     appName: "YarGPT",
     updateItem: { id: "updates", label: "Check for Updates…" },
+    moveItem,
     openSettingsPage: () => calls.push("page"),
     openSettingsFile: () => calls.push("file"),
   })
@@ -38,4 +39,15 @@ test("Settings… opens the Settings page and Open Settings File opens the file"
   assert.deepEqual(calls, ["page"])
   appMenu.find((item) => item.id === "settings-file").click()
   assert.deepEqual(calls, ["page", "file"])
+})
+
+test("Move to Handful… goes right below the update item once Handful is found", () => {
+  const moveItem = { id: "handful", label: "Move to Handful…", click: () => {} }
+  const { appMenu } = template(moveItem)
+  assert.deepEqual(
+    appMenu.slice(0, 4).map((item) => item.id ?? item.role ?? item.type),
+    ["about", "updates", "handful", "separator"],
+  )
+  assert.equal(appMenu[2], moveItem)
+  assert.ok(!template(null).appMenu.some((item) => item.id === "handful"))
 })

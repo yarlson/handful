@@ -22,6 +22,7 @@ YARGPT_NO_UPDATE_CHECK
 # for search engines, the move note and the footer.
 ^web/public/llms\.txt:[0-9]+:.*(called YarGPT until|Moving from YarGPT|YarGPT 0\.9\.0 or later)
 ^web/src/pages/index\.astro:[0-9]+:.*(alternateName: "YarGPT"|Moving from YarGPT\?|Formerly YarGPT)
+^web/src/components/Footer\.astro:[0-9]+:.*Formerly YarGPT
 # The move and the way back, and their tests (spec §4.3, §4.4, §6): the move,
 # the backup and its boundary, the welcome notice that offers the new team
 # names, and the -move-back flag.

@@ -3,6 +3,7 @@ package move
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -77,7 +78,7 @@ func (m *Mover) copySession(from, to string) error {
 	if err := os.RemoveAll(tmp); err != nil {
 		return err
 	}
-	if err := os.CopyFS(tmp, os.DirFS(from)); err != nil {
+	if err := copyTree(from, tmp); err != nil {
 		return fmt.Errorf("copy the Claude Code sessions in %s: %w", from, errors.Join(err, os.RemoveAll(tmp)))
 	}
 	if err := m.step(); err != nil {
@@ -87,4 +88,35 @@ func (m *Mover) copySession(from, to string) error {
 		return err
 	}
 	return m.step()
+}
+
+// copyTree copies the folder from to the new folder to with the same modes:
+// sessions are private, so their copies stay so. A link is copied as a link.
+func copyTree(from, to string) error {
+	return filepath.WalkDir(from, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(from, path)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(to, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case d.IsDir():
+			return os.Mkdir(dst, info.Mode().Perm())
+		case d.Type()&fs.ModeSymlink != 0:
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(target, dst)
+		default:
+			return copyFile(path, dst, info.Mode().Perm())
+		}
+	})
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,30 +20,20 @@ import (
 // as ~/.yargpt/handful-after-move.db. Each step checks whether it is done,
 // so Back can run again after a crash.
 func (m *Mover) Back(ctx context.Context, yes bool, w io.Writer) error {
-	if m.Running() {
-		return fmt.Errorf("a server is running on %s; quit Handful, then run -move-back again", m.Addr)
+	if addr := m.Running(); addr != "" {
+		return fmt.Errorf("a server is running on %s; quit Handful, then run -move-back again", addr)
 	}
-	oldDir, _, err := folderState(m.Old)
+	done, err := m.checkBack()
 	if err != nil {
 		return err
 	}
-	newDir, _, err := folderState(m.New)
-	if err != nil {
-		return err
-	}
-	if oldDir && !newDir {
+	if done {
 		_, err := fmt.Fprintln(w, "Your data is already back in ~/.yargpt.")
 		return err
 	}
-	mv, ok, err := ReadMoved(m.New)
+	mv, _, err := ReadMoved(m.New)
 	if err != nil {
 		return err
-	}
-	if !ok {
-		return errors.New("~/.handful has no record of a move from YarGPT, so there is nothing to go back to")
-	}
-	if !exists(filepath.Join(m.New, BackupFile)) {
-		return errors.New("~/.handful/backup has no copy of YarGPT's data, so there is nothing to go back to")
 	}
 	if err := m.tellLoss(ctx, mv.MovedAt, yes, w); err != nil || !yes {
 		return err
@@ -50,8 +41,49 @@ func (m *Mover) Back(ctx context.Context, yes bool, w io.Writer) error {
 	if err := m.goBack(); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(w, "Done: your data is back in ~/.yargpt. Now open YarGPT v0.13.0.")
+	_, err = fmt.Fprintln(w, "Done: your data is back in ~/.yargpt. Remove Handful from Login Items, or its next start moves your data again. Then open YarGPT v0.13.0.")
 	return err
+}
+
+// checkBack checks, before going back changes anything, that it can finish:
+// ~/.handful holds a move's record and backup, and ~/.yargpt is missing or
+// the link to it. It reports whether the data is back already.
+func (m *Mover) checkBack() (bool, error) {
+	oldDir, oldLink, err := folderState(m.Old)
+	if err != nil {
+		return false, err
+	}
+	newDir, _, err := folderState(m.New)
+	if err != nil {
+		return false, err
+	}
+	if !newDir {
+		return oldDir, m.missing(oldDir)
+	}
+	if oldDir {
+		return false, errors.New("both ~/.yargpt and ~/.handful are folders, so going back would mix them; keep one as ~/.handful and rename the other, then run -move-back again")
+	}
+	if oldLink {
+		if target, err := os.Readlink(m.Old); err != nil || target != m.New {
+			return false, errors.Join(err, fmt.Errorf("~/.yargpt is a link to %s, not to ~/.handful; move it away, then run -move-back again", target))
+		}
+	}
+	if _, ok, err := ReadMoved(m.New); err != nil || !ok {
+		return false, errors.Join(err, errors.New("~/.handful has no record of a move from YarGPT, so there is nothing to go back to"))
+	}
+	if !exists(filepath.Join(m.New, BackupFile)) {
+		return false, errors.New("~/.handful/backup has no copy of YarGPT's data, so there is nothing to go back to")
+	}
+	return false, nil
+}
+
+// missing is the error of going back without ~/.handful: none when
+// ~/.yargpt is the folder, so the data is back.
+func (m *Mover) missing(oldDir bool) error {
+	if oldDir {
+		return nil
+	}
+	return errors.New("~/.handful is missing, so there is nothing to go back to")
 }
 
 // tellLoss tells w what going back loses: what was made in Handful after
@@ -61,7 +93,7 @@ func (m *Mover) tellLoss(ctx context.Context, movedAt int64, yes bool, w io.Writ
 	if !exists(path) {
 		path = filepath.Join(m.New, dbFile)
 	}
-	conn, err := db.Open(ctx, path)
+	conn, err := db.OpenReadOnly(path)
 	if err != nil {
 		return err
 	}
@@ -114,6 +146,9 @@ func (m *Mover) goBack() error {
 	if err := m.restoreBackup(); err != nil {
 		return err
 	}
+	if err := renameSkillTools(m.New, "mcp__handful__", "mcp__yargpt__"); err != nil {
+		return fmt.Errorf("rename the tools in the skills back: %w", err)
+	}
 	_, link, err := folderState(m.Old)
 	if err != nil {
 		return err
@@ -139,22 +174,22 @@ func (m *Mover) restoreBackup() error {
 	if exists(path) {
 		return nil
 	}
-	if err := copyFile(filepath.Join(m.New, BackupFile), path); err != nil {
+	if err := copyFile(filepath.Join(m.New, BackupFile), path, 0o600); err != nil {
 		return err
 	}
 	return m.step()
 }
 
-// copyFile copies from to to whole: through a temporary file that it then
-// renames.
-func copyFile(from, to string) error {
+// copyFile copies from to to whole, with mode perm: through a temporary file
+// that it then renames.
+func copyFile(from, to string, perm fs.FileMode) error {
 	src, err := os.Open(from)
 	if err != nil {
 		return err
 	}
 	defer src.Close()
 	tmp := to + ".tmp"
-	dst, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	dst, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}

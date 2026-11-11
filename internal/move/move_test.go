@@ -87,7 +87,7 @@ func (h *home) yargptDB(path string) {
 }
 
 func (h *home) mover() *Mover {
-	return &Mover{Paths: h.paths, Addr: "127.0.0.1:7777", Running: func() bool { return false }, Now: func() time.Time { return movedAt }, Version: "0.14.0"}
+	return &Mover{Paths: h.paths, Running: func() string { return "" }, Now: func() time.Time { return movedAt }, Version: "0.14.0"}
 }
 
 // snapshot describes everything under the home folder: each file's text
@@ -197,7 +197,7 @@ func TestTheMoveTakesYarGPTsFolderToHandfulsAndLinksTheOldName(t *testing.T) {
 		t.Errorf("backup = %q; want %q", got, yargptDB)
 	}
 	mv, ok, err := ReadMoved(h.paths.New)
-	if err != nil || !ok || mv != (Moved{MovedAt: movedAt.UnixMilli(), Version: "0.14.0"}) {
+	if err != nil || !ok || mv != (Moved{MovedAt: movedAt.UnixMilli(), Version: "0.14.0", YarGPTSchema: db.LastYarGPTSchema}) {
 		t.Errorf("moved record = %+v, %v, %v; want the time and the version", mv, ok, err)
 	}
 	for _, rel := range []string{"bots/b1/workspace", "teams/t1/workspace"} {
@@ -289,7 +289,7 @@ func TestTheMoveLeavesBothFoldersAloneWhenItCantTellOrYarGPTRuns(t *testing.T) {
 	running := newHome(t)
 	before = running.snapshot()
 	m := running.mover()
-	m.Running = func() bool { return true }
+	m.Running = func() string { return "127.0.0.1:7777" }
 	if _, err := m.Data(t.Context()); err == nil || err.Error() != "a YarGPT server is running on 127.0.0.1:7777; stop it, then start handful again" {
 		t.Fatalf("YarGPT running: %v; want the S5 line", err)
 	}
@@ -302,7 +302,7 @@ func TestTheMoveLeavesBothFoldersAloneWhenItCantTellOrYarGPTRuns(t *testing.T) {
 // start makes the folder.
 func TestAFreshInstallMovesAndLinksNothing(t *testing.T) {
 	dir := t.TempDir()
-	m := &Mover{Paths: HomePaths(dir), Running: func() bool { return true }, Now: time.Now}
+	m := &Mover{Paths: HomePaths(dir), Running: func() string { return "127.0.0.1:7777" }, Now: time.Now}
 	for range 2 {
 		if linked, err := m.Data(t.Context()); err != nil || linked {
 			t.Fatalf("Data = %v, %v; want nothing done", linked, err)
@@ -355,7 +355,7 @@ func TestCloseNoticeRecordsItAndKeepsTheMove(t *testing.T) {
 	if err := CloseNotice(h.paths.New); err != nil {
 		t.Fatal(err)
 	}
-	if mv, ok, err := ReadMoved(h.paths.New); err != nil || !ok || mv != (Moved{MovedAt: movedAt.UnixMilli(), Version: "0.14.0", NoticeDone: true}) {
+	if mv, ok, err := ReadMoved(h.paths.New); err != nil || !ok || mv != (Moved{MovedAt: movedAt.UnixMilli(), Version: "0.14.0", YarGPTSchema: db.LastYarGPTSchema, NoticeDone: true}) {
 		t.Fatalf("moved record = %+v, %v, %v; want the notice closed", mv, ok, err)
 	}
 }
@@ -385,6 +385,48 @@ func TestRenameSkillToolsRewritesOnlyTheOldToolNamesInSkills(t *testing.T) {
 	for path, want := range files {
 		if got, _ := os.ReadFile(filepath.Join(dir, path)); string(got) != want {
 			t.Errorf("%s = %q; want %q", path, got, want)
+		}
+	}
+}
+
+// ~/.yargpt as a link to a folder elsewhere isn't moved, and the start says
+// so instead of starting empty.
+func TestAStartRefusesAnOldFolderThatIsALinkElsewhere(t *testing.T) {
+	h := newHome(t)
+	elsewhere := filepath.Join(h.dir, "Dropbox", "yargpt")
+	if err := os.MkdirAll(filepath.Dir(elsewhere), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(h.paths.Old, elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, h.paths.Old); err != nil {
+		t.Fatal(err)
+	}
+	before := h.snapshot()
+	if _, err := h.mover().Data(t.Context()); err == nil || !strings.HasPrefix(err.Error(), "~/.yargpt is a link to "+elsewhere+", and Handful moves only a real folder") {
+		t.Fatalf("Data = %v; want the link refused", err)
+	}
+	if after := h.snapshot(); !maps.Equal(after, before) {
+		t.Fatalf("the start changed:%s", diff(after, before))
+	}
+}
+
+// Session copies stay as private as their originals.
+func TestSessionCopiesKeepTheirModes(t *testing.T) {
+	h := newHome(t)
+	if _, err := h.mover().Data(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := sessionKey(filepath.Join(h.paths.New, "bots/b1/workspace"))
+	for path, want := range map[string]os.FileMode{
+		filepath.Join(h.paths.Projects, key):                               0o700,
+		filepath.Join(h.paths.Projects, key, "s1.jsonl"):                   0o600,
+		filepath.Join(h.paths.Projects, key, "s1", "subagents", "a.jsonl"): 0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != want {
+			t.Errorf("%s: %v, %v; want mode %o", path, info.Mode(), err, want)
 		}
 	}
 }

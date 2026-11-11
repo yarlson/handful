@@ -68,7 +68,7 @@ func TestParseFlagsKeepsDefaultsAndRecordsGivenFlags(t *testing.T) {
 	if !o.set["model"] || !o.set["effort"] || !o.set["max-parallel"] || o.set["addr"] {
 		t.Fatalf("set = %v; want model and max-parallel only", o.set)
 	}
-	if o.mover == nil || o.mover.New != o.dataDir || o.mover.Addr != o.addr {
+	if o.mover == nil || o.mover.New != o.dataDir {
 		t.Fatalf("mover = %+v; want one that moves ~/.yargpt to %s", o.mover, o.dataDir)
 	}
 	if o, err := parseFlags([]string{"-data", t.TempDir()}); err != nil || o.mover != nil {
@@ -90,7 +90,7 @@ func TestAStartWithoutDataMovesTheOldFolderFirst(t *testing.T) {
 	paths := move.HomePaths(home)
 	o := options{
 		addr: "127.0.0.1:7777", dataDir: paths.New, Claude: fakeClaude(t), MaxParallel: 3, set: map[string]bool{},
-		mover: &move.Mover{Paths: paths, Addr: "127.0.0.1:7777", Running: func() bool { return false }, Now: time.Now},
+		mover: &move.Mover{Paths: paths, Running: func() string { return "" }, Now: time.Now},
 	}
 	if err := prepare(&o); err != nil {
 		t.Fatal(err)
@@ -103,18 +103,24 @@ func TestAStartWithoutDataMovesTheOldFolderFirst(t *testing.T) {
 	}
 }
 
-func TestServerAnswersTellsAListenerFromNone(t *testing.T) {
+func TestAnsweringFindsTheAddressWithAServer(t *testing.T) {
 	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !serverAnswers(ln.Addr().String()) {
-		t.Error("a listener: want it found")
-	}
 	addr := ln.Addr().String()
+	closed, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	none := closed.Addr().String()
+	closed.Close()
+	if got := answering([]string{none, addr}); got != addr {
+		t.Errorf("answering = %q; want the listener %s", got, addr)
+	}
 	ln.Close()
-	if serverAnswers(addr) {
-		t.Error("a closed port: want nothing found")
+	if got := answering([]string{none, addr}); got != "" {
+		t.Errorf("answering with no listener = %q; want none", got)
 	}
 }
 

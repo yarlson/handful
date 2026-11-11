@@ -47,9 +47,12 @@ func HomePaths(home string) Paths {
 
 // Moved is what MovedFile records.
 type Moved struct {
-	MovedAt    int64  `json:"movedAt"` // ms
-	Version    string `json:"handfulVersion"`
-	NoticeDone bool   `json:"noticeDone,omitempty"` // the user closed the welcome notice
+	MovedAt int64  `json:"movedAt"` // ms
+	Version string `json:"handfulVersion"`
+	// YarGPTSchema is the database's schema version as YarGPT left it; the
+	// app's version isn't known to the server.
+	YarGPTSchema int  `json:"yargptSchema"`
+	NoticeDone   bool `json:"noticeDone,omitempty"` // the user closed the welcome notice
 }
 
 // ErrBothFolders stops a start that finds both folders: either may hold
@@ -68,8 +71,9 @@ func (e *BackupError) Unwrap() error { return e.Err }
 // Mover moves the data of one user.
 type Mover struct {
 	Paths
-	Addr    string      // the server's address, which a running server holds
-	Running func() bool // whether a server answers on Addr
+	// Running returns the address of a server that answers where one of
+	// YarGPT or Handful may run, or "".
+	Running func() string
 	Now     func() time.Time
 	Version string // Handful's version
 
@@ -92,6 +96,28 @@ func (m *Mover) step() error {
 // has touched. It reports whether it created the link. Run it before the
 // server opens the database.
 func (m *Mover) Data(ctx context.Context) (bool, error) {
+	oldDir, err := m.checkFolders()
+	if err != nil {
+		return false, err
+	}
+	if oldDir {
+		if err := m.moveFolder(ctx); err != nil {
+			return false, err
+		}
+	}
+	linked, err := m.link()
+	if err != nil {
+		return false, err
+	}
+	if _, err := db.BackupBeforeHandful(ctx, filepath.Join(m.New, dbFile), filepath.Join(m.New, BackupFile)); err != nil {
+		return false, &BackupError{Err: err}
+	}
+	return linked, nil
+}
+
+// checkFolders refuses the states that a start mustn't touch, and reports
+// whether ~/.yargpt is still a real folder to move.
+func (m *Mover) checkFolders() (bool, error) {
 	oldDir, oldLink, err := folderState(m.Old)
 	if err != nil {
 		return false, err
@@ -103,35 +129,49 @@ func (m *Mover) Data(ctx context.Context) (bool, error) {
 	if oldDir && (newDir || newLink) {
 		return false, ErrBothFolders
 	}
-	if oldDir {
-		if err := m.moveFolder(); err != nil {
+	if oldLink && !newDir && !newLink {
+		target, err := os.Readlink(m.Old)
+		if err != nil {
 			return false, err
 		}
-		oldLink, newDir = false, true
+		return false, fmt.Errorf("~/.yargpt is a link to %s, and Handful moves only a real folder; move that folder to ~/.handful, or start handful with -data %s", target, target)
 	}
-	linked := false
-	if newDir && !oldLink && exists(filepath.Join(m.New, MovedFile)) {
-		if err := os.Symlink(m.New, m.Old); err != nil {
-			return false, fmt.Errorf("link %s to %s: %w", m.Old, m.New, err)
+	if newDir && m.unfinishedBack() {
+		return false, errors.New("an unfinished -move-back left ~/.handful/handful-after-move.db; run handful -move-back -yes to finish going back to YarGPT")
+	}
+	return oldDir, nil
+}
+
+// unfinishedBack reports whether a move back started to put Handful's
+// database aside: its first step renames the database's -wal file.
+func (m *Mover) unfinishedBack() bool {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if exists(filepath.Join(m.New, afterMoveFile+suffix)) {
+			return true
 		}
-		linked = true
-		if err := m.step(); err != nil {
-			return false, err
-		}
 	}
-	if _, err := db.BackupBeforeHandful(ctx, filepath.Join(m.New, dbFile), filepath.Join(m.New, BackupFile)); err != nil {
-		return false, &BackupError{Err: err}
+	return false
+}
+
+// link links ~/.yargpt to ~/.handful after a move, unless the link is there
+// already, and reports whether it made it.
+func (m *Mover) link() (bool, error) {
+	if exists(m.Old) || !exists(filepath.Join(m.New, MovedFile)) {
+		return false, nil
 	}
-	return linked, nil
+	if err := os.Symlink(m.New, m.Old); err != nil {
+		return false, fmt.Errorf("link %s to %s: %w", m.Old, m.New, err)
+	}
+	return true, m.step()
 }
 
 // moveFolder copies the Claude Code sessions to the keys of their new
 // folders, puts aside what an earlier move back left, records the move and
 // renames the folder. Nothing before the rename changes the old folder's
 // data.
-func (m *Mover) moveFolder() error {
-	if m.Running() {
-		return fmt.Errorf("a YarGPT server is running on %s; stop it, then start handful again", m.Addr)
+func (m *Mover) moveFolder(ctx context.Context) error {
+	if addr := m.Running(); addr != "" {
+		return fmt.Errorf("a YarGPT server is running on %s; stop it, then start handful again", addr)
 	}
 	if err := m.copySessions(); err != nil {
 		return err
@@ -139,11 +179,15 @@ func (m *Mover) moveFolder() error {
 	if err := m.putAside(); err != nil {
 		return err
 	}
-	data, err := json.Marshal(Moved{MovedAt: m.Now().UnixMilli(), Version: m.Version})
+	schema, err := db.SchemaVersion(ctx, filepath.Join(m.Old, dbFile))
 	if err != nil {
 		return err
 	}
-	if err := writeFile(filepath.Join(m.Old, MovedFile), data); err != nil {
+	data, err := json.Marshal(Moved{MovedAt: m.Now().UnixMilli(), Version: m.Version, YarGPTSchema: schema})
+	if err != nil {
+		return err
+	}
+	if err := writeFile(filepath.Join(m.Old, MovedFile), data, 0o600); err != nil {
 		return err
 	}
 	if err := m.step(); err != nil {
@@ -194,11 +238,11 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// writeFile writes data to path whole: through a temporary file that it
-// then renames.
-func writeFile(path string, data []byte) error {
+// writeFile writes data to path whole, with mode perm: through a temporary
+// file that it then renames.
+func writeFile(path string, data []byte, perm fs.FileMode) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := os.WriteFile(tmp, data, perm); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -232,5 +276,5 @@ func CloseNotice(dataDir string) error {
 	if err != nil {
 		return err
 	}
-	return writeFile(filepath.Join(dataDir, MovedFile), data)
+	return writeFile(filepath.Join(dataDir, MovedFile), data, 0o600)
 }

@@ -27,6 +27,10 @@ func usedHandful(t *testing.T) *home {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+	h.write(filepath.Join(h.paths.New, "skills/review/SKILL.md"), "Post with mcp__yargpt__send_to_user.")
+	if err := RenameSkillTools(h.paths.New); err != nil {
+		t.Fatal(err)
+	}
 	after := movedAt.UnixMilli() + 1
 	for _, stmt := range []string{
 		fmt.Sprintf(`INSERT INTO entries (bot_id, seq, rev, id, kind, body, created_at) VALUES ('b1', 2, 2, 'e2', 'user', '{"text":"a"}', %d)`, after),
@@ -73,7 +77,7 @@ func TestGoingBackRestoresYarGPTsDataAndKeepsHandfuls(t *testing.T) {
 	if err := h.mover().Back(t.Context(), true, &out); err != nil {
 		t.Fatal(err)
 	}
-	if want := lossText("Done: your data is back in ~/.yargpt. Now open YarGPT v0.13.0.\n"); out.String() != want {
+	if want := lossText("Done: your data is back in ~/.yargpt. Remove Handful from Login Items, or its next start moves your data again. Then open YarGPT v0.13.0.\n"); out.String() != want {
 		t.Fatalf("output = %q; want %q", out.String(), want)
 	}
 	after := h.snapshot()
@@ -89,6 +93,9 @@ func TestGoingBackRestoresYarGPTsDataAndKeepsHandfuls(t *testing.T) {
 	}
 	if got := after[".yargpt/bots/b1/workspace/notes.md"]; got != "Bot notes." {
 		t.Errorf("a bot's file = %q; want it back in ~/.yargpt", got)
+	}
+	if got := after[".yargpt/skills/review/SKILL.md"]; got != "Post with mcp__yargpt__send_to_user." {
+		t.Errorf("a skill = %q; want YarGPT's tool names back", got)
 	}
 	out.Reset()
 	if err := h.mover().Back(t.Context(), true, &out); err != nil || out.String() != "Your data is already back in ~/.yargpt.\n" {
@@ -127,9 +134,10 @@ func TestGoingBackStoppedAfterAnyStepFinishesWhenItRunsAgain(t *testing.T) {
 			t.Fatalf("stopped after step %d, then run again:%s", k, diff(got, want))
 		}
 	}
-	// The database kept, the backup restored, the link removed, the folder renamed.
-	if steps != 4 {
-		t.Fatalf("going back has %d steps; want 4", steps)
+	// The database kept with its -wal and -shm (the read of the loss leaves
+	// them), the backup restored, the link removed, the folder renamed.
+	if steps != 6 {
+		t.Fatalf("going back has %d steps; want 6", steps)
 	}
 }
 
@@ -138,7 +146,7 @@ func TestGoingBackStoppedAfterAnyStepFinishesWhenItRunsAgain(t *testing.T) {
 func TestGoingBackRefusesWhatItCantDoSafely(t *testing.T) {
 	running := usedHandful(t)
 	m := running.mover()
-	m.Running = func() bool { return true }
+	m.Running = func() string { return "127.0.0.1:7777" }
 	before := running.snapshot()
 	if err := m.Back(t.Context(), true, &bytes.Buffer{}); err == nil || err.Error() != "a server is running on 127.0.0.1:7777; quit Handful, then run -move-back again" {
 		t.Fatalf("server running: %v; want a refusal", err)
@@ -155,7 +163,7 @@ func TestGoingBackRefusesWhatItCantDoSafely(t *testing.T) {
 		t.Fatalf("no backup: %v; want a refusal", err)
 	}
 
-	fresh := &Mover{Paths: HomePaths(t.TempDir()), Running: func() bool { return false }, Now: time.Now}
+	fresh := &Mover{Paths: HomePaths(t.TempDir()), Running: func() string { return "" }, Now: time.Now}
 	if err := os.MkdirAll(fresh.New, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -187,5 +195,81 @@ func TestMovingAgainAfterGoingBackBacksUpTheDataAsItIsNow(t *testing.T) {
 	}
 	if state[".handful/handful-after-move.db"] != "" {
 		t.Error("handful-after-move.db is still there; want it put aside")
+	}
+}
+
+// Going back reads what is lost without changing Handful's database, even
+// one newer than this Handful knows (AC15: without -yes nothing changes).
+func TestGoingBackReadsTheLossWithoutMigratingOrRefusingANewerDatabase(t *testing.T) {
+	h := usedHandful(t)
+	conn, err := db.Open(t.Context(), filepath.Join(h.paths.New, dbFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(t.Context(), "PRAGMA user_version = 40"); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	before := h.snapshot()
+	var out bytes.Buffer
+	if err := h.mover().Back(t.Context(), false, &out); err != nil {
+		t.Fatalf("a newer database: %v; want the loss told", err)
+	}
+	if !strings.Contains(out.String(), "2 chat messages") {
+		t.Fatalf("output = %q; want the loss", out.String())
+	}
+	if after := h.snapshot(); !maps.Equal(after, before) {
+		t.Fatalf("telling the loss changed:%s", diff(after, before))
+	}
+}
+
+// Going back checks that it can finish before it changes anything: with a
+// real ~/.yargpt beside ~/.handful, or a link elsewhere, it refuses.
+func TestGoingBackRefusesBeforeAnyChangeWhenTheFoldersAreWrong(t *testing.T) {
+	for name, setUp := range map[string]func(h *home){
+		"a real ~/.yargpt": func(h *home) {
+			h.write(filepath.Join(h.paths.Old, "notes.md"), "made after the move")
+		},
+		"a link elsewhere": func(h *home) {
+			other := filepath.Join(h.dir, "elsewhere")
+			h.write(filepath.Join(other, "x"), "x")
+			if err := os.Symlink(other, h.paths.Old); err != nil {
+				h.t.Fatal(err)
+			}
+		},
+	} {
+		h := usedHandful(t)
+		if err := os.Remove(h.paths.Old); err != nil {
+			t.Fatal(err)
+		}
+		setUp(h)
+		before := h.snapshot()
+		if err := h.mover().Back(t.Context(), true, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "run -move-back again") {
+			t.Errorf("%s: %v; want a refusal", name, err)
+		}
+		if after := h.snapshot(); !maps.Equal(after, before) {
+			t.Errorf("%s: going back changed:%s", name, diff(after, before))
+		}
+	}
+}
+
+// A start after a move back that stopped half way doesn't serve the old
+// database: it says to finish going back.
+func TestAStartAfterAnUnfinishedMoveBackSaysToFinishIt(t *testing.T) {
+	// Stopped after it put aside the -wal, the -shm, then the database.
+	for k := 1; k <= 3; k++ {
+		h := usedHandful(t)
+		m := h.mover()
+		m.stopAfter = k
+		if err := m.Back(t.Context(), true, &bytes.Buffer{}); !errors.Is(err, errStopped) {
+			t.Fatalf("Back = %v; want it stopped", err)
+		}
+		before := h.snapshot()
+		if _, err := h.mover().Data(t.Context()); err == nil || err.Error() != "an unfinished -move-back left ~/.handful/handful-after-move.db; run handful -move-back -yes to finish going back to YarGPT" {
+			t.Fatalf("stopped after step %d, Data = %v; want the unfinished move back named", k, err)
+		}
+		if after := h.snapshot(); !maps.Equal(after, before) {
+			t.Fatalf("stopped after step %d, the start changed:%s", k, diff(after, before))
+		}
 	}
 }

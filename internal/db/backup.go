@@ -22,19 +22,15 @@ func BackupBeforeHandful(ctx context.Context, path, backup string) (bool, error)
 	if _, err := os.Stat(backup); err == nil {
 		return false, nil
 	}
-	conn, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	version, err := SchemaVersion(ctx, path)
+	if err != nil || version > LastYarGPTSchema {
+		return false, err
+	}
+	conn, err := OpenReadOnly(path)
 	if err != nil {
-		return false, fmt.Errorf("open %s: %w", path, err)
+		return false, err
 	}
 	defer conn.Close()
-	conn.SetMaxOpenConns(1)
-	var version int
-	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return false, fmt.Errorf("read the schema version of %s: %w", path, err)
-	}
-	if version > LastYarGPTSchema {
-		return false, nil
-	}
 	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
 		return false, err
 	}
@@ -52,4 +48,33 @@ func BackupBeforeHandful(ctx context.Context, path, backup string) (bool, error)
 		return false, err
 	}
 	return true, nil
+}
+
+// OpenReadOnly opens the database at path to read it: it runs no migration
+// and writes nothing to it.
+func OpenReadOnly(path string) (*sql.DB, error) {
+	conn, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	conn.SetMaxOpenConns(1)
+	return conn, nil
+}
+
+// SchemaVersion returns the user_version of the database at path, or 0 when
+// there is none.
+func SchemaVersion(ctx context.Context, path string) (int, error) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	conn, err := OpenReadOnly(path)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	var version int
+	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return 0, fmt.Errorf("read the schema version of %s: %w", path, err)
+	}
+	return version, nil
 }

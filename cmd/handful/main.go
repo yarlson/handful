@@ -150,8 +150,8 @@ func parseFlags(args []string) (options, error) {
 	_ = fs.Parse(args)
 	fs.Visit(func(f *flag.Flag) { o.set[f.Name] = true })
 	if !o.set["data"] {
-		addr := o.addr
-		o.mover = &move.Mover{Paths: move.HomePaths(home), Addr: addr, Running: func() bool { return serverAnswers(addr) }, Now: time.Now, Version: version}
+		addrs := []string{o.addr, appAddr}
+		o.mover = &move.Mover{Paths: move.HomePaths(home), Running: func() string { return answering(addrs) }, Now: time.Now, Version: version}
 	}
 	return o, nil
 }
@@ -181,6 +181,19 @@ func moveBack(ctx context.Context, o options) error {
 		return errors.New("-move-back works on the default data folder only; leave out -data")
 	}
 	return o.mover.Back(ctx, o.yes, os.Stdout)
+}
+
+// appAddr is where the YarGPT and Handful apps run their servers.
+const appAddr = "127.0.0.1:7777"
+
+// answering returns the first of addrs on which a server answers, or "".
+func answering(addrs []string) string {
+	for _, a := range addrs {
+		if serverAnswers(a) {
+			return a
+		}
+	}
+	return ""
 }
 
 // serverAnswers reports whether a server accepts connections on addr.

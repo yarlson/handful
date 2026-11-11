@@ -106,21 +106,10 @@ type Item struct {
 	CreatedBy    string `json:"createdBy"` // LearnedByUser or a bot id
 	CreatedAt    int64  `json:"createdAt"`
 	UpdatedAt    int64  `json:"updatedAt"`
-	// Intake is how the serving team took a request, on items from before
-	// requests became tasks (migration 019): IntakeRequested and so on. It is
-	// "" for a team's own item, and new items are always the team's own.
-	Intake string `json:"intake,omitempty"`
-	// IntakeNote is the note of a decline, a deferral, an out-of-order
-	// accept or a withdrawal, which the asking team sees.
-	IntakeNote   string `json:"intakeNote,omitempty"`
-	DeferRevisit string `json:"deferRevisit,omitempty"` // RevisitGoalEnd, RevisitDate or RevisitManual
-	DeferUntil   int64  `json:"deferUntil,omitempty"`   // ms, for RevisitDate
-	// SlotAt is when the request got one of its team's request slots; 0
-	// while it holds none. JumpedAt is when its lead took it out of order.
-	SlotAt   int64 `json:"slotAt,omitempty"`
-	JumpedAt int64 `json:"jumpedAt,omitempty"`
-	// ForItemID is the request of another goal that a chained request serves.
-	ForItemID string `json:"forItemId,omitempty"`
+	// unserved is set on an item that asked another team for work before
+	// requests became tasks (migration 019) and that the team did not take
+	// as a task: dropped, it still holds up the items that depend on it.
+	unserved bool
 	// LatestChange is the change request that the owner works on: the latest
 	// one, while no submission came after it. EventCount counts the item's
 	// history, which starts at HistoryFrom (ms) for items older than it.
@@ -135,21 +124,12 @@ type Item struct {
 type Board struct {
 	Goal  *Goal  `json:"goal"`
 	Items []Item `json:"items"`
-	// Requests, Slots and Asked are always empty: requests are tasks now
-	// (migration 019). They stay until the UI and the agent stop reading them.
-	Requests []Request `json:"requests"`
-	// Queue is the team's queued goals, in order.
-	Queue []Goal    `json:"queue"`
-	Slots Slots     `json:"slots"`
-	Asked []Request `json:"asked"`
-	// Incoming is the handoffs that wait for the team to take them in, oldest
-	// first; HandedOver is the team's handoffs to other teams of the last 30
-	// days, newest first.
-	Incoming   []Goal `json:"incoming"`
+	// HandedOver is the team's handoffs to other teams of the last 30 days,
+	// newest first.
 	HandedOver []Goal `json:"handedOver"`
 	// Inbox is the tasks that wait for the lead's decision: arrived, asked
-	// or deferred, oldest first. Plan is the taken tasks in their order (as
-	// Queue). Done is the closed tasks that wait for approval. Sent is the
+	// or deferred, oldest first. Plan is the taken tasks in their order.
+	// Done is the closed tasks that wait for approval. Sent is the
 	// tasks the team sent that are still in another team's inbox or plan,
 	// or being done there.
 	Inbox []Goal `json:"inbox"`
@@ -163,19 +143,8 @@ type Board struct {
 	OffTask OffTask `json:"offTask"`
 	// Budget is the team's use of its daily budget today.
 	Budget BudgetView `json:"budget"`
-	// Teams names the other teams that the board's items and requests involve.
+	// Teams names the other teams that the board's tasks involve.
 	Teams map[string]string `json:"teams"`
-}
-
-// Request is an item that another team's goal asked this team to do.
-type Request struct {
-	Item
-	FromTeamID string `json:"fromTeamId"`
-	// Position and Total place a request in its group: the requests that
-	// wait for triage, or the accepted ones that wait for a slot.
-	Position int64  `json:"position,omitempty"`
-	Total    int64  `json:"total,omitempty"`
-	Reason   Reason `json:"reason"`
 }
 
 // Actor is who acts on a board: a member in a turn in the team, or the app
@@ -200,10 +169,6 @@ type NewItem struct {
 	OwnerID    string
 	ReviewerID string
 	DependsOn  []string
-	// ForItemID and NeededBy were for RequestWork, which makes no request
-	// now; they go when the agent no longer sets them.
-	ForItemID string
-	NeededBy  []string
 }
 
 func toGoal(row db.Goal, used int64) Goal {
@@ -218,8 +183,7 @@ func toItem(row db.Item) (Item, error) {
 		ID: row.ID, TeamID: row.TeamID, GoalID: row.GoalID, Title: row.Title, Brief: row.Brief, Acceptance: row.Acceptance,
 		State: row.State, OwnerID: row.OwnerID, ReviewerID: row.ReviewerID, Result: row.Result, Note: row.Note,
 		BlockedFrom: row.BlockedFrom, ReviewRounds: row.ReviewRounds, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
-		Intake: row.Intake, IntakeNote: row.IntakeNote, DeferRevisit: row.DeferRevisit, DeferUntil: row.DeferUntil,
-		SlotAt: row.SlotAt, JumpedAt: row.JumpedAt, ForItemID: row.ForItemID,
+		unserved: row.Intake != "",
 	}
 	if err := json.Unmarshal([]byte(row.DependsOn), &it.DependsOn); err != nil {
 		return Item{}, fmt.Errorf("decode the dependencies of item %s: %w", row.ID, err)
@@ -278,7 +242,7 @@ func (s *Service) latestGoal(ctx context.Context, teamID string) (Goal, bool, er
 // Board returns the open goal of a team, or its latest goal, the goal's
 // items, and the team's other tasks.
 func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
-	board := Board{Items: []Item{}, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Stopped: []Goal{}, Teams: map[string]string{}}
+	board := Board{Items: []Item{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Stopped: []Goal{}, Teams: map[string]string{}}
 	g, ok, err := s.latestGoal(ctx, teamID)
 	if err != nil {
 		return Board{}, err
@@ -289,7 +253,7 @@ func (s *Service) Board(ctx context.Context, teamID string) (Board, error) {
 			return Board{}, err
 		}
 	}
-	if board.Queue, err = queuedGoals(ctx, s.q, teamID); err != nil {
+	if board.Plan, err = queuedGoals(ctx, s.q, teamID); err != nil {
 		return Board{}, err
 	}
 	if err := s.withHistory(ctx, board.Items); err != nil {
@@ -639,14 +603,14 @@ func (s *Service) moveItem(ctx context.Context, a Actor, itemID string, change f
 	if err != nil {
 		return Item{}, err
 	}
-	from, fromIntake := it.State, it.Intake
+	from := it.State
 	event, err := change(team, &it)
 	if err != nil {
 		return Item{}, err
 	}
 	it.UpdatedAt = s.nowMs()
 	err = s.inTx(ctx, func(q *db.Queries) error {
-		n, err := updateItem(ctx, q, it, from, fromIntake)
+		n, err := updateItem(ctx, q, it, from)
 		if err != nil {
 			return err
 		}
@@ -763,7 +727,7 @@ func ready(it Item, items []Item) bool {
 
 // satisfies reports whether an item no longer holds up the items that depend on it.
 func satisfies(dep Item) bool {
-	return dep.State == ItemDone || (dep.State == ItemDropped && dep.Intake == "")
+	return dep.State == ItemDone || (dep.State == ItemDropped && !dep.unserved)
 }
 
 // itemTurn is the board turn in which member works on it in role, in the
@@ -796,12 +760,8 @@ func itemTurns(g Goal, it Item, items []Item) []Turn {
 	return nil
 }
 
-// inFlight reports whether a member works on it or will. A deferred request
-// waits for its revisit, not for a member.
+// inFlight reports whether a member works on it or will.
 func inFlight(it Item) bool {
-	if it.Intake == IntakeDeferred {
-		return false
-	}
 	return it.State == ItemDoing || it.State == ItemReview || (it.State == ItemTodo && it.OwnerID != "")
 }
 
@@ -1268,7 +1228,7 @@ func checkDelivery(items []Item) error {
 	done := false
 	for _, it := range items {
 		if it.State != ItemDone && it.State != ItemDropped {
-			return invalid("%q is %s; deliver when every item is done or dropped", it.Title, it.State)
+			return invalid("%q is %s; close the task when every step is done or dropped", it.Title, it.State)
 		}
 		done = done || it.State == ItemDone
 	}
@@ -1552,7 +1512,7 @@ func (s *Service) GoalBoard(ctx context.Context, goalID string) (Board, error) {
 	if err != nil {
 		return Board{}, err
 	}
-	board := Board{Goal: &g, Items: items, Requests: []Request{}, Queue: []Goal{}, Asked: []Request{}, Incoming: []Goal{}, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Stopped: []Goal{}, Teams: map[string]string{}}
+	board := Board{Goal: &g, Items: items, HandedOver: []Goal{}, Inbox: []Goal{}, Plan: []Goal{}, Done: []Goal{}, Sent: []Goal{}, Stopped: []Goal{}, Teams: map[string]string{}}
 	if err := s.withHistory(ctx, board.Items); err != nil {
 		return Board{}, err
 	}
@@ -1595,4 +1555,18 @@ func release(it *Item, botID, name string) (eventDraft, error) {
 	it.State = ItemDoing
 	err := block(it, name+" left the team before reviewing it.")
 	return eventDraft{Kind: EventBlocked, Text: it.Note}, err
+}
+
+// updateItem stores an item's changes with q when its state is still from,
+// and returns how many rows changed.
+func updateItem(ctx context.Context, q *db.Queries, it Item, from string) (int64, error) {
+	n, err := q.UpdateItem(ctx, db.UpdateItemParams{
+		State: it.State, OwnerID: it.OwnerID, ReviewerID: it.ReviewerID, Result: it.Result, Note: it.Note,
+		BlockedFrom: it.BlockedFrom, ReviewRounds: it.ReviewRounds, UpdatedAt: it.UpdatedAt,
+		ID: it.ID, FromState: from,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("update item %s: %w", it.ID, err)
+	}
+	return n, nil
 }

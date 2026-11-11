@@ -363,7 +363,7 @@ func TestLaterDefersATaskWithinAWeekAndItComesBackWhenDue(t *testing.T) {
 		t.Fatal(err)
 	}
 	finishQueued(t, h.svc)
-	if board, _ := h.svc.Board(ctx, h.docs.ID); len(board.Inbox) != 3 || board.Inbox[0].State != GoalLater || len(board.Incoming) != 0 {
+	if board, _ := h.svc.Board(ctx, h.docs.ID); len(board.Inbox) != 3 || board.Inbox[0].State != GoalLater || slices.ContainsFunc(board.Inbox, func(g Goal) bool { return g.State == GoalIncoming }) {
 		t.Fatalf("Docs's inbox = %+v; want the deferred task", board.Inbox)
 	}
 	live := func(string, string) bool { return false }

@@ -36,9 +36,6 @@ type Team struct {
 	// without their own, for their turns in the team. "" inherits.
 	DefaultModel  string `json:"defaultModel"`
 	DefaultEffort string `json:"defaultEffort"`
-	// RequestSlots limits nothing since requests became tasks (migration
-	// 019); it stays, 1 to the number of members, until the UI stops setting it.
-	RequestSlots int64 `json:"requestSlots"`
 	// InboxMax is how many tasks may wait in the team's inbox at once, and
 	// InboxPerSender how many of them from one sending team. The user's tasks
 	// are exempt.
@@ -68,15 +65,13 @@ func (b Bot) Lead() (Member, bool) {
 }
 
 // TeamSettings are what the user sets on a team. An empty LeadID means the
-// first member; a zero GoalBudget means DefaultGoalBudget; zero RequestSlots
-// means 1.
+// first member; a zero GoalBudget means DefaultGoalBudget.
 type TeamSettings struct {
 	LeadID        string
 	Agreement     string
 	GoalBudget    int64
 	DefaultModel  string
 	DefaultEffort string
-	RequestSlots  int64
 	// Zero InboxMax and InboxPerSender mean DefaultInboxMax and DefaultInboxPerSender.
 	InboxMax       int64
 	InboxPerSender int64
@@ -93,7 +88,6 @@ type TeamPatch struct {
 	GoalBudget      *int64
 	DefaultModel    *string
 	DefaultEffort   *string
-	RequestSlots    *int64
 	InboxMax        *int64
 	InboxPerSender  *int64
 	DecisionMinutes *int64
@@ -128,9 +122,6 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	if !team.IsTeam() {
 		return Bot{}, invalid("%s is not a team", team.Name)
 	}
-	if p.RequestSlots != nil && *p.RequestSlots == 0 {
-		return Bot{}, invalid("Requests in progress at once must be from 1 to %d.", len(team.Members))
-	}
 	if p.DecisionMinutes != nil && *p.DecisionMinutes == 0 {
 		return Bot{}, errDecisionMinutes
 	}
@@ -140,7 +131,7 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	}
 	if err := s.q.UpdateTeam(ctx, db.UpdateTeamParams{
 		LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
-		DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort, RequestSlots: updated.RequestSlots,
+		DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort,
 		InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, DailyBudget: updated.DailyBudget, TeamID: id,
 	}); err != nil {
 		return Bot{}, fmt.Errorf("update team %s: %w", id, err)
@@ -165,7 +156,6 @@ func (p TeamPatch) apply(t Team) TeamSettings {
 	setIf(&set.GoalBudget, p.GoalBudget)
 	setIf(&set.DefaultModel, p.DefaultModel)
 	setIf(&set.DefaultEffort, p.DefaultEffort)
-	setIf(&set.RequestSlots, p.RequestSlots)
 	setIf(&set.InboxMax, p.InboxMax)
 	setIf(&set.InboxPerSender, p.InboxPerSender)
 	setIf(&set.DecisionMinutes, p.DecisionMinutes)
@@ -204,13 +194,6 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if err != nil {
 		return nil, err
 	}
-	slots := set.RequestSlots
-	if slots == 0 {
-		slots = 1
-	}
-	if slots < 1 || slots > int64(len(members)) {
-		return nil, invalid("Requests in progress at once must be from 1 to %d.", len(members))
-	}
 	inboxMax, perSender, err := validInbox(set.InboxMax, set.InboxPerSender)
 	if err != nil {
 		return nil, err
@@ -220,7 +203,7 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 		return nil, err
 	}
 	return &Team{
-		LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort, RequestSlots: slots,
+		LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort,
 		InboxMax: inboxMax, InboxPerSender: perSender, DecisionMinutes: decision, DailyBudget: daily,
 	}, nil
 }
@@ -290,14 +273,9 @@ func toTeam(row db.Team, members []Member) *Team {
 	}
 	return &Team{
 		LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
-		RequestSlots: clampSlots(row.RequestSlots, len(members)), InboxMax: row.InboxMax, InboxPerSender: row.InboxPerSender,
+		InboxMax: row.InboxMax, InboxPerSender: row.InboxPerSender,
 		DecisionMinutes: row.DecisionMinutes, DailyBudget: row.DailyBudget,
 	}
-}
-
-// clampSlots keeps a team's request slots within its number of members.
-func clampSlots(slots int64, members int) int64 {
-	return max(1, min(slots, int64(members)))
 }
 
 // TurnTeam returns roomID when it is a team, and "" when it is a plain room

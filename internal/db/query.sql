@@ -294,7 +294,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -306,7 +306,7 @@ SELECT * FROM teams;
 -- A wait and a pause note belong to one limit: a changed daily_budget
 -- clears both, so reaching the new limit the same day notes and asks again.
 UPDATE teams SET lead_bot_id = sqlc.arg(lead_bot_id), agreement = sqlc.arg(agreement), goal_budget = sqlc.arg(goal_budget),
-  default_model = sqlc.arg(default_model), default_effort = sqlc.arg(default_effort), request_slots = sqlc.arg(request_slots),
+  default_model = sqlc.arg(default_model), default_effort = sqlc.arg(default_effort),
   inbox_max = sqlc.arg(inbox_max), inbox_per_sender = sqlc.arg(inbox_per_sender), decision_minutes = sqlc.arg(decision_minutes),
   budget_noted_on = CASE WHEN daily_budget = sqlc.arg(daily_budget) THEN budget_noted_on ELSE '' END,
   budget_waited_on = CASE WHEN daily_budget = sqlc.arg(daily_budget) THEN budget_waited_on ELSE '' END,
@@ -332,9 +332,6 @@ UPDATE teams SET budget_noted_on = sqlc.arg(day) WHERE team_id = sqlc.arg(team_i
 -- name: WaitTeamBudget :execrows
 -- The user waits out the team's budget pause until the local day ends.
 UPDATE teams SET budget_waited_on = sqlc.arg(day) WHERE team_id = sqlc.arg(team_id);
-
--- name: SetRequestSlots :exec
-UPDATE teams SET request_slots = ? WHERE team_id = ?;
 
 -- name: InsertGoal :one
 INSERT INTO goals (id, team_id, text, state, budget, queue_pos, created_at)
@@ -519,10 +516,8 @@ SELECT * FROM items WHERE goal_id = ? ORDER BY position;
 UPDATE items
 SET state = sqlc.arg(state), owner_id = sqlc.arg(owner_id), reviewer_id = sqlc.arg(reviewer_id),
     result = sqlc.arg(result), note = sqlc.arg(note), blocked_from = sqlc.arg(blocked_from),
-    review_rounds = sqlc.arg(review_rounds), updated_at = sqlc.arg(updated_at),
-    intake = sqlc.arg(intake), intake_note = sqlc.arg(intake_note), defer_revisit = sqlc.arg(defer_revisit),
-    defer_until = sqlc.arg(defer_until), jumped_at = sqlc.arg(jumped_at)
-WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state) AND intake = sqlc.arg(from_intake);
+    review_rounds = sqlc.arg(review_rounds), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: StartItem :execrows
 UPDATE items SET state = 'doing', updated_at = ?

@@ -745,8 +745,8 @@ func TestTheLeadDeliversWhenEveryItemIsClosed(t *testing.T) {
 	lead := f.lead
 	lead.TurnID = "turn-9"
 
-	if _, err := f.svc.DeliverGoal(ctx, lead, "Done."); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("deliver with open items: err = %v; want ErrInvalid", err)
+	if _, err := f.svc.DeliverGoal(ctx, lead, "Done."); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `"Parse" is todo; close the task when every step is done or dropped`) {
+		t.Fatalf("deliver with open items: err = %v; want ErrInvalid that says to close the task when every step is done or dropped", err)
 	}
 	f.finish(t, parse, f.ana)
 	if _, err := f.svc.DropItem(ctx, f.lead, docs.ID, "Not needed."); err != nil {
@@ -1316,4 +1316,28 @@ func (f *boardFixture) otherTeam(t *testing.T, name, leadName, memberName string
 	}
 	f.names[lead.ID], f.names[member.ID] = leadName, memberName
 	return team, lead
+}
+
+// A step that asked another team for work before requests became tasks, and
+// that the team did not take as a task, holds up its dependents when it is
+// dropped; a team's own dropped step does not.
+func TestADroppedStepThatAskedAnotherTeamStillHoldsUpItsDependents(t *testing.T) {
+	for _, tc := range []struct {
+		intake string
+		want   bool
+	}{{"", true}, {"declined", false}} {
+		f := newBoardFixture(t, 30)
+		ctx := context.Background()
+		guide := f.create(t, f.lead, item("Guide", "", ""))
+		f.create(t, f.lead, item("Publish", f.ana.ID, "", guide.ID))
+		if _, err := f.svc.sqlDB.ExecContext(ctx, `UPDATE items SET intake = ? WHERE id = ?`, tc.intake, guide.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.svc.DropItem(ctx, f.lead, guide.ID, "Not needed."); err != nil {
+			t.Fatal(err)
+		}
+		if got := slices.Contains(f.queued(t), "Ana work Publish"); got != tc.want {
+			t.Errorf("intake %q: Publish queued = %v; want %v (queued %q)", tc.intake, got, tc.want, f.queued(t))
+		}
+	}
 }

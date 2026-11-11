@@ -648,7 +648,7 @@ func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (R
 }
 
 const createTeam = `-- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTeamParams struct {
@@ -658,7 +658,6 @@ type CreateTeamParams struct {
 	GoalBudget      int64  `json:"goal_budget"`
 	DefaultModel    string `json:"default_model"`
 	DefaultEffort   string `json:"default_effort"`
-	RequestSlots    int64  `json:"request_slots"`
 	InboxMax        int64  `json:"inbox_max"`
 	InboxPerSender  int64  `json:"inbox_per_sender"`
 	DecisionMinutes int64  `json:"decision_minutes"`
@@ -674,7 +673,6 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
 		arg.GoalBudget,
 		arg.DefaultModel,
 		arg.DefaultEffort,
-		arg.RequestSlots,
 		arg.InboxMax,
 		arg.InboxPerSender,
 		arg.DecisionMinutes,
@@ -3862,20 +3860,6 @@ func (q *Queries) SetQueuePos(ctx context.Context, arg SetQueuePosParams) error 
 	return err
 }
 
-const setRequestSlots = `-- name: SetRequestSlots :exec
-UPDATE teams SET request_slots = ? WHERE team_id = ?
-`
-
-type SetRequestSlotsParams struct {
-	RequestSlots int64  `json:"request_slots"`
-	TeamID       string `json:"team_id"`
-}
-
-func (q *Queries) SetRequestSlots(ctx context.Context, arg SetRequestSlotsParams) error {
-	_, err := q.db.ExecContext(ctx, setRequestSlots, arg.RequestSlots, arg.TeamID)
-	return err
-}
-
 const setRoomMemberSeen = `-- name: SetRoomMemberSeen :exec
 UPDATE room_members SET last_seen_seq = ? WHERE room_id = ? AND bot_id = ?
 `
@@ -4070,10 +4054,8 @@ const updateItem = `-- name: UpdateItem :execrows
 UPDATE items
 SET state = ?1, owner_id = ?2, reviewer_id = ?3,
     result = ?4, note = ?5, blocked_from = ?6,
-    review_rounds = ?7, updated_at = ?8,
-    intake = ?9, intake_note = ?10, defer_revisit = ?11,
-    defer_until = ?12, jumped_at = ?13
-WHERE id = ?14 AND state = ?15 AND intake = ?16
+    review_rounds = ?7, updated_at = ?8
+WHERE id = ?9 AND state = ?10
 `
 
 type UpdateItemParams struct {
@@ -4085,14 +4067,8 @@ type UpdateItemParams struct {
 	BlockedFrom  string `json:"blocked_from"`
 	ReviewRounds int64  `json:"review_rounds"`
 	UpdatedAt    int64  `json:"updated_at"`
-	Intake       string `json:"intake"`
-	IntakeNote   string `json:"intake_note"`
-	DeferRevisit string `json:"defer_revisit"`
-	DeferUntil   int64  `json:"defer_until"`
-	JumpedAt     int64  `json:"jumped_at"`
 	ID           string `json:"id"`
 	FromState    string `json:"from_state"`
-	FromIntake   string `json:"from_intake"`
 }
 
 func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (int64, error) {
@@ -4105,14 +4081,8 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) (int64, 
 		arg.BlockedFrom,
 		arg.ReviewRounds,
 		arg.UpdatedAt,
-		arg.Intake,
-		arg.IntakeNote,
-		arg.DeferRevisit,
-		arg.DeferUntil,
-		arg.JumpedAt,
 		arg.ID,
 		arg.FromState,
-		arg.FromIntake,
 	)
 	if err != nil {
 		return 0, err
@@ -4166,12 +4136,12 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 
 const updateTeam = `-- name: UpdateTeam :exec
 UPDATE teams SET lead_bot_id = ?1, agreement = ?2, goal_budget = ?3,
-  default_model = ?4, default_effort = ?5, request_slots = ?6,
-  inbox_max = ?7, inbox_per_sender = ?8, decision_minutes = ?9,
-  budget_noted_on = CASE WHEN daily_budget = ?10 THEN budget_noted_on ELSE '' END,
-  budget_waited_on = CASE WHEN daily_budget = ?10 THEN budget_waited_on ELSE '' END,
-  daily_budget = ?10
-WHERE team_id = ?11
+  default_model = ?4, default_effort = ?5,
+  inbox_max = ?6, inbox_per_sender = ?7, decision_minutes = ?8,
+  budget_noted_on = CASE WHEN daily_budget = ?9 THEN budget_noted_on ELSE '' END,
+  budget_waited_on = CASE WHEN daily_budget = ?9 THEN budget_waited_on ELSE '' END,
+  daily_budget = ?9
+WHERE team_id = ?10
 `
 
 type UpdateTeamParams struct {
@@ -4180,7 +4150,6 @@ type UpdateTeamParams struct {
 	GoalBudget      int64  `json:"goal_budget"`
 	DefaultModel    string `json:"default_model"`
 	DefaultEffort   string `json:"default_effort"`
-	RequestSlots    int64  `json:"request_slots"`
 	InboxMax        int64  `json:"inbox_max"`
 	InboxPerSender  int64  `json:"inbox_per_sender"`
 	DecisionMinutes int64  `json:"decision_minutes"`
@@ -4197,7 +4166,6 @@ func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
 		arg.GoalBudget,
 		arg.DefaultModel,
 		arg.DefaultEffort,
-		arg.RequestSlots,
 		arg.InboxMax,
 		arg.InboxPerSender,
 		arg.DecisionMinutes,

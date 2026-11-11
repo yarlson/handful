@@ -90,7 +90,7 @@ func TestHandoffEndpointsHandOverAnswerAcceptDeclineAndWithdraw(t *testing.T) {
 	}
 	fourth := handOver("Four.")
 	rec = do(h, "GET", "/api/teams/"+docs.ID+"/board", "", nil)
-	if err := json.Unmarshal(rec.Body.Bytes(), &board); err != nil || len(board.Incoming) != 1 || board.Incoming[0].ID != fourth.ID || !strings.Contains(rec.Body.String(), `"origin":"handoff"`) {
+	if err := json.Unmarshal(rec.Body.Bytes(), &board); err != nil || len(board.Inbox) != 1 || board.Inbox[0].ID != fourth.ID || !strings.Contains(rec.Body.String(), `"origin":"handoff"`) {
 		t.Fatalf("Docs's board: %s", rec.Body)
 	}
 	rec = do(h, "GET", "/api/bots", "", nil)

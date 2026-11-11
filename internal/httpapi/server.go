@@ -570,7 +570,6 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 		GoalBudget      *int64  `json:"goalBudget"`
 		DefaultModel    *string `json:"defaultModel"`
 		DefaultEffort   *string `json:"defaultEffort"`
-		RequestSlots    *int64  `json:"requestSlots"`
 		InboxMax        *int64  `json:"inboxMax"`
 		InboxPerSender  *int64  `json:"inboxPerSender"`
 		DecisionMinutes *int64  `json:"decisionMinutes"`
@@ -582,7 +581,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{
 		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
-		RequestSlots: in.RequestSlots, InboxMax: in.InboxMax, InboxPerSender: in.InboxPerSender, DecisionMinutes: in.DecisionMinutes,
+		InboxMax: in.InboxMax, InboxPerSender: in.InboxPerSender, DecisionMinutes: in.DecisionMinutes,
 		DailyBudget: in.DailyBudget,
 	})
 	if err != nil {

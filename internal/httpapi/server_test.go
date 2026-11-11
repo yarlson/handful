@@ -699,7 +699,7 @@ func TestTeamEndpointsCreateAndUpdateATeamAndShowItsMemory(t *testing.T) {
 		Kind string
 		Team core.Team
 	}
-	want := core.Team{LeadID: bo.ID, Agreement: "Tests pass.", GoalBudget: 20, RequestSlots: 1, InboxMax: core.DefaultInboxMax, InboxPerSender: core.DefaultInboxPerSender, DecisionMinutes: core.DefaultDecisionMinutes}
+	want := core.Team{LeadID: bo.ID, Agreement: "Tests pass.", GoalBudget: 20, InboxMax: core.DefaultInboxMax, InboxPerSender: core.DefaultInboxPerSender, DecisionMinutes: core.DefaultDecisionMinutes}
 	if err := json.Unmarshal(rec.Body.Bytes(), &team); err != nil || team.Kind != "room" || team.Team != want {
 		t.Fatalf("created team = %s; want a room with %+v", rec.Body, want)
 	}
@@ -749,7 +749,7 @@ func TestGoalEndpointsStartExtendAndEndAGoal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil); rec.Code != http.StatusOK || rec.Body.String() != `{"goal":null,"items":[],"requests":[],"queue":[],"slots":{"limit":0,"used":0,"applies":false},"asked":[],"incoming":[],"handedOver":[],"inbox":[],"plan":[],"done":[],"sent":[],"stopped":[],"offTask":{"count":0,"turns":[]},"budget":{"today":0,"limit":0,"suggested":0,"watchUntil":`+strconv.FormatInt(budget.WatchUntil, 10)+`,"paused":false,"warn":false},"teams":{}}`+"\n" {
+	if rec := do(h, "GET", "/api/teams/"+team.ID+"/board", "", nil); rec.Code != http.StatusOK || rec.Body.String() != `{"goal":null,"items":[],"handedOver":[],"inbox":[],"plan":[],"done":[],"sent":[],"stopped":[],"offTask":{"count":0,"turns":[]},"budget":{"today":0,"limit":0,"suggested":0,"watchUntil":`+strconv.FormatInt(budget.WatchUntil, 10)+`,"paused":false,"warn":false},"teams":{}}`+"\n" {
 		t.Fatalf("board without a goal: %d %s", rec.Code, rec.Body)
 	}
 	rec := do(h, "POST", "/api/teams/"+team.ID+"/goals", `{"text":"Ship CSV export."}`, jsonHeader)

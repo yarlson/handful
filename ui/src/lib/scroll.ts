@@ -65,11 +65,19 @@ export class ScrollMemory {
   }
 }
 
-// anchorIndex returns the first of the transcript's entries, top to bottom, that reaches into
+// anchorIndex returns the first of the transcript's boxes, top to bottom, that reaches into
 // the view whose top edge is at viewTop, or -1 when none does. An unpinned view keeps that
-// entry where it is when media above it loads and grows the transcript.
-export function anchorIndex(rects: { bottom: number }[], viewTop: number): number {
-  return rects.findIndex((r) => r.bottom > viewTop)
+// entry where it is when media above it loads and grows the transcript. It measures only the
+// few boxes of a binary search: the boxes are in order, so their bottoms only go down.
+export function anchorIndex(boxes: { getBoundingClientRect(): { bottom: number } }[], viewTop: number): number {
+  let lo = 0
+  let hi = boxes.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (boxes[mid].getBoundingClientRect().bottom > viewTop) hi = mid
+    else lo = mid + 1
+  }
+  return lo < boxes.length ? lo : -1
 }
 
 // Box is the part of an element that ScrollFollower measures.
@@ -126,16 +134,23 @@ export class ScrollFollower {
   // it is.
   capture(id: string, view: Box, items: Item[]) {
     const viewTop = view.getBoundingClientRect().top
-    const rects = items.map((it) => it.box.getBoundingClientRect())
-    const i = anchorIndex(rects, viewTop)
+    const i = anchorIndex(
+      items.map((it) => it.box),
+      viewTop,
+    )
     if (i < 0) {
       this.anchor = null
       this.left.delete(id)
       return
     }
-    const offset = rects[i].top - viewTop
+    const offset = items[i].box.getBoundingClientRect().top - viewTop
     this.anchor = { box: items[i].box, offset }
     this.left.set(id, { key: items[i].key, offset })
+  }
+
+  // leftAt returns the entry that chat id was left at, while it is unpinned.
+  leftAt(id: string): string | undefined {
+    return this.left.get(id)?.key
   }
 
   // restore scrolls chat id's view back to the item it was left at, and returns false when

@@ -84,12 +84,31 @@ test("sending a message pins the chat", () => {
   assert.isFalse(m.pinned("b"))
 })
 
+// boxesAt returns boxes whose bottoms are at the given offsets, and the list of boxes measured.
+function boxesAt(bottoms: number[]) {
+  const measured: number[] = []
+  const boxes = bottoms.map((bottom, i) => ({
+    getBoundingClientRect: () => {
+      measured.push(i)
+      return { bottom }
+    },
+  }))
+  return { boxes, measured }
+}
+
 test("the anchor is the first entry that reaches into the view", () => {
-  const rects = [{ bottom: -50 }, { bottom: 0 }, { bottom: 1 }, { bottom: 300 }]
-  assert.equal(anchorIndex(rects, 0), 2)
-  assert.equal(anchorIndex(rects, -100), 0)
-  assert.equal(anchorIndex(rects, 300), -1)
+  const { boxes } = boxesAt([-50, 0, 1, 300])
+  assert.equal(anchorIndex(boxes, 0), 2)
+  assert.equal(anchorIndex(boxes, -100), 0)
+  assert.equal(anchorIndex(boxes, 300), -1)
+  assert.equal(anchorIndex(boxes, 299), 3)
   assert.equal(anchorIndex([], 0), -1)
+})
+
+test("finding the anchor measures a few entries, not each one", () => {
+  const { boxes, measured } = boxesAt(Array.from({ length: 1000 }, (_, i) => (i + 1) * 100 - 5000))
+  assert.equal(anchorIndex(boxes, 0), 50)
+  assert.isAtMost(measured.length, 10, `measured ${measured.length} of 1000 boxes`)
 })
 
 // Layout is a fake transcript: entries of given heights stacked in a view of a given height
@@ -253,6 +272,18 @@ test("a chat reopens on the entry it was left at, even if images above have not 
   l.heights[2] = 100
   f.settle("a", l.view)
   assert.equal(l.topOf(9), -30)
+})
+
+test("an unpinned chat tells the entry it was left at, and a pinned one none", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  assert.isUndefined(f.leftAt("a"))
+  l.scrollTop = 930
+  f.scrolled("a", l.view, l.entries())
+  assert.equal(f.leftAt("a"), "e9")
+  l.scrollTop = 1700
+  f.scrolled("a", l.view, l.entries())
+  assert.isUndefined(f.leftAt("a"))
 })
 
 test("restore is not possible without a remembered entry on the page", () => {

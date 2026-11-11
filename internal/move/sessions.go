@@ -106,17 +106,16 @@ func copyTree(from, to string) error {
 		if err != nil {
 			return err
 		}
-		switch {
-		case d.IsDir():
+		if d.IsDir() {
 			return os.Mkdir(dst, info.Mode().Perm())
-		case d.Type()&fs.ModeSymlink != 0:
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
 			target, err := os.Readlink(path)
 			if err != nil {
 				return err
 			}
 			return os.Symlink(target, dst)
-		default:
-			return copyFile(path, dst, info.Mode().Perm())
 		}
+		return copyFile(path, dst, info.Mode().Perm())
 	})
 }

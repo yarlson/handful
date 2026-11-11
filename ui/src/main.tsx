@@ -11,7 +11,7 @@ applyScheme()
 dark.addEventListener("change", applyScheme)
 
 try {
-  moveOldKeys(localStorage)
+  moveOldKeys(localStorage, Object.keys(localStorage))
 } catch {
   // Storage that the browser blocks holds no old keys.
 }

@@ -4,15 +4,11 @@
 const OLD = "yargpt."
 const NEW = "handful."
 
-type Store = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">
+type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">
 
-export function moveOldKeys(store: Store): void {
-  const old: string[] = []
-  for (let i = 0; i < store.length; i++) {
-    const key = store.key(i)
-    if (key?.startsWith(OLD)) old.push(key)
-  }
-  for (const key of old) {
+// moveOldKeys moves the old keys among keys, the keys that store holds.
+export function moveOldKeys(store: Store, keys: string[]): void {
+  for (const key of keys.filter((k) => k.startsWith(OLD))) {
     const moved = NEW + key.slice(OLD.length)
     const value = store.getItem(key)
     if (store.getItem(moved) === null && value !== null) store.setItem(moved, value)

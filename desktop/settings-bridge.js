@@ -1,8 +1,8 @@
 // The bridge between the Settings page and the main process:
-// window.yargptSettings. It restarts the server, chooses the Claude Code
+// window.handfulSettings. It restarts the server, chooses the Claude Code
 // program and opens or reveals the settings file. Electron and the launch
 // agent come in as dependencies, so the tests run without them.
-// The methods of window.yargptSettings, in preload.js. Each one is the IPC
+// The methods of window.handfulSettings, in preload.js. Each one is the IPC
 // channel settings:<name>.
 const settingsMethods = ["restartServer", "chooseClaude", "openFile", "revealFile", "revealLog"]
 
@@ -93,11 +93,11 @@ function createSettingsBridge({ api, registerAgent, startServer, dialog, shell, 
     try {
       file = ensureSettingsFile()
     } catch (err) {
-      dialog.showErrorBox("YarGPT could not create the settings file", err.message)
+      dialog.showErrorBox("Handful could not create the settings file", err.message)
       return
     }
     const err = await shell.openPath(file)
-    if (err) dialog.showErrorBox("YarGPT could not open the settings file", `${file}: ${err}`)
+    if (err) dialog.showErrorBox("Handful could not open the settings file", `${file}: ${err}`)
   }
 
   // The page names no file: these show only config.json and the server log.

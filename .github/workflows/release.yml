@@ -1,10 +1,12 @@
 # Never change the Developer ID certificate (team ID) used to sign the app without first shipping a bridge release signed with both. Squirrel.Mac rejects an update whose signature doesn't satisfy the running app's designated requirement, and every user would stop getting updates.
 #
-# A tag push builds, signs and notarizes the app and publishes three files:
-# YarGPT-universal-mac.zip, its blockmap and latest-mac.yml, the feed that the
-# app's updater reads from releases/latest/download/. Run the workflow by hand
-# to stage or stop a release: it re-uploads only latest-mac.yml of an existing
-# release, with stagingPercentage set. docs/releasing.md explains both.
+# A tag push builds, signs and notarizes the app and publishes six files:
+# Handful-universal-mac.zip, its blockmap and handful-mac.yml, the feed that
+# the app's updater reads from releases/latest/download/, and the bridge
+# files, copied from the bridge release, for the apps from before the rename.
+# Run the workflow by hand to stage or stop a release: it re-uploads only
+# handful-mac.yml of an existing release, with stagingPercentage set.
+# docs/releasing.md explains all of it.
 name: release
 
 on:
@@ -66,18 +68,18 @@ jobs:
           make app-universal-package VERSION="${TAG#v}"
       - name: Check the app
         run: |
-          ditto -x -k "desktop/dist/YarGPT-${TAG#v}-universal-mac.zip" "$RUNNER_TEMP/app"
-          app="$RUNNER_TEMP/app/YarGPT.app"
+          ditto -x -k "desktop/dist/Handful-${TAG#v}-universal-mac.zip" "$RUNNER_TEMP/app"
+          app="$RUNNER_TEMP/app/Handful.app"
           codesign --verify --deep --strict "$app"
           spctl --assess --type execute -vv "$app" 2>&1 | tee "$RUNNER_TEMP/spctl.txt"
           grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl.txt" || { echo "::error::Gatekeeper does not accept the app as notarized"; exit 1; }
           xcrun stapler validate "$app"
-          for binary in "$app/Contents/MacOS/YarGPT" "$app/Contents/Resources/yargpt"; do
+          for binary in "$app/Contents/MacOS/Handful" "$app/Contents/Resources/handful"; do
             archs=" $(lipo -archs "$binary") "
             [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]] || { echo "::error::$binary has the architectures$archs, not arm64 and x86_64"; exit 1; }
           done
-      # yargpt.com links releases/latest/download/YarGPT-universal-mac.zip,
-      # and the updater reads the zip's name from latest-mac.yml, so the zip
+      # The site links releases/latest/download/Handful-universal-mac.zip,
+      # and the updater reads the zip's name from handful-mac.yml, so the zip
       # gets a fixed name, and the feed names it with its sha512 and size.
       # The zip holds the stapled app: electron-builder zips after it
       # notarizes, so the zip is uploaded as it was built.
@@ -87,17 +89,20 @@ jobs:
       # exact zip to upload must keep a valid signature.
       - name: Check the update feed
         run: |
-          mise exec -- node desktop/scripts/release-feed.js verify desktop/dist
-          ditto -x -k desktop/dist/YarGPT-universal-mac.zip "$RUNNER_TEMP/feed-app"
-          codesign --verify --deep --strict "$RUNNER_TEMP/feed-app/YarGPT.app"
-          grep -qx 'provider: generic' "$RUNNER_TEMP/feed-app/YarGPT.app/Contents/Resources/app-update.yml" || { echo "::error::The app has no generic update feed"; exit 1; }
+          mise exec -- node desktop/scripts/release-feed.js verify desktop/dist "handful=${TAG#v}"
+          ditto -x -k desktop/dist/Handful-universal-mac.zip "$RUNNER_TEMP/feed-app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/feed-app/Handful.app"
+          update_yml="$RUNNER_TEMP/feed-app/Handful.app/Contents/Resources/app-update.yml"
+          grep -qx 'provider: generic' "$update_yml" || { echo "::error::The app has no generic update feed"; exit 1; }
+          # The channel names the feed that the app reads: handful-mac.yml.
+          grep -qx 'channel: handful' "$update_yml" || { echo "::error::The app does not read handful-mac.yml"; exit 1; }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app
           path: |
-            desktop/dist/YarGPT-universal-mac.zip
-            desktop/dist/YarGPT-universal-mac.zip.blockmap
-            desktop/dist/latest-mac.yml
+            desktop/dist/Handful-universal-mac.zip
+            desktop/dist/Handful-universal-mac.zip.blockmap
+            desktop/dist/handful-mac.yml
           if-no-files-found: error
           # The release keeps the files; the artifact only carries them to the release job.
           retention-days: 1
@@ -108,18 +113,50 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+    env:
+      # The bridge: the last release under the old name. Every Handful release
+      # carries copies of its zip, blockmap and latest-mac.yml, so that the old
+      # apps, which read releases/latest/download/latest-mac.yml, keep finding
+      # it. It stays for 12 months after Handful's first release, v0.14.0
+      # (spec ad09e72c §3, §7; docs/releasing.md, Bridge files).
+      BRIDGE_TAG: v0.13.0
+      TAG: ${{ github.ref_name }}
     steps:
+      # Only for desktop/scripts/release-feed.js, which needs no packages.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app
-      - name: Publish the zip and the update feed
+          path: ${{ runner.temp }}/upload
+      - name: Download the bridge files
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
-          # One command uploads all three files, so the feed never names a zip
+          bridge="$RUNNER_TEMP/bridge"
+          gh release download "$BRIDGE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$bridge" \
+            --pattern YarGPT-universal-mac.zip --pattern YarGPT-universal-mac.zip.blockmap --pattern latest-mac.yml
+          for file in YarGPT-universal-mac.zip YarGPT-universal-mac.zip.blockmap latest-mac.yml; do
+            [[ -f "$bridge/$file" ]] || { echo "::error::$BRIDGE_TAG has no $file"; exit 1; }
+            cp "$bridge/$file" "$RUNNER_TEMP/upload/$file"
+          done
+      # The gate: each feed must name its own zip with that zip's sha512 and
+      # size, handful-mac.yml this release's version and latest-mac.yml the
+      # bridge's.
+      - name: Check both update feeds
+        run: node desktop/scripts/release-feed.js verify "$RUNNER_TEMP/upload" "handful=${TAG#v}" "bridge=${BRIDGE_TAG#v}"
+      - name: Publish the zips and the update feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}/upload
+        run: |
+          # One command uploads all six files, so a feed never names a zip
           # that is not there yet.
-          files=(YarGPT-universal-mac.zip YarGPT-universal-mac.zip.blockmap latest-mac.yml)
+          files=(
+            Handful-universal-mac.zip Handful-universal-mac.zip.blockmap handful-mac.yml
+            YarGPT-universal-mac.zip YarGPT-universal-mac.zip.blockmap latest-mac.yml
+          )
           # A release made on GitHub pushes its tag too; it keeps its title and notes.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null; then
             gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
@@ -128,13 +165,14 @@ jobs:
           prerelease=()
           case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
           gh release create "$TAG" "${files[@]}" \
-            --repo "$GITHUB_REPOSITORY" --verify-tag --title "YarGPT $TAG" --generate-notes "${prerelease[@]}" \
-            --notes "Download YarGPT-universal-mac.zip, unzip it, move YarGPT.app to /Applications, and open it. The app is signed with a Developer ID and notarized by Apple."
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "Handful $TAG" --generate-notes "${prerelease[@]}" \
+            --notes "Download Handful-universal-mac.zip, unzip it, move Handful.app to /Applications, and open it. The app is signed with a Developer ID and notarized by Apple."
 
-  # Run by hand: re-uploads latest-mac.yml of an existing release with
+  # Run by hand: re-uploads handful-mac.yml of an existing release with
   # stagingPercentage, so that only that share of users gets the update. 0
   # stops a bad release; an empty percentage releases to everyone. It runs no
-  # packages: the script uses only node.
+  # packages: the script uses only node. The bridge's latest-mac.yml is never
+  # staged; release-feed.js refuses it.
   stage:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -152,11 +190,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Re-publish latest-mac.yml
+      - name: Re-publish handful-mac.yml
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest-mac.yml --dir "$RUNNER_TEMP/feed"
-          node desktop/scripts/release-feed.js stage "$RUNNER_TEMP/feed/latest-mac.yml" "$PERCENTAGE"
-          cat "$RUNNER_TEMP/feed/latest-mac.yml"
-          gh release upload "$TAG" "$RUNNER_TEMP/feed/latest-mac.yml" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern handful-mac.yml --dir "$RUNNER_TEMP/feed"
+          node desktop/scripts/release-feed.js stage "$RUNNER_TEMP/feed/handful-mac.yml" "$PERCENTAGE"
+          cat "$RUNNER_TEMP/feed/handful-mac.yml"
+          gh release upload "$TAG" "$RUNNER_TEMP/feed/handful-mac.yml" --repo "$GITHUB_REPOSITORY" --clobber

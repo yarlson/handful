@@ -8,7 +8,7 @@ const { DAY, HOUR, UpdaterModel } = require("./updater-state")
 const { firstCheckDelay, fileStore, loadSettings, createScheduler, fetchFeedVersion, serverAPI, sharedDrain, runningOf } = require("./updater-io")
 
 function tempDir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yargpt-updater-"))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "handful-updater-"))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -81,8 +81,8 @@ async function feedSetup(t, settingsJSON) {
   const feedDir = path.join(dir, "feed")
   fs.mkdirSync(feedDir)
   fs.writeFileSync(
-    path.join(feedDir, "latest-mac.yml"),
-    "version: 1.4.0\nfiles:\n  - url: YarGPT-universal-mac.zip\n    sha512: abc\n    size: 3\npath: YarGPT-universal-mac.zip\nsha512: abc\n",
+    path.join(feedDir, "handful-mac.yml"),
+    "version: 1.4.0\nfiles:\n  - url: Handful-universal-mac.zip\n    sha512: abc\n    size: 3\npath: Handful-universal-mac.zip\nsha512: abc\n",
   )
   const configFile = path.join(dir, "config.json")
   fs.writeFileSync(configFile, settingsJSON)
@@ -118,7 +118,7 @@ test("with autoCheck off the scheduler makes no request; a manual check does", a
   }
   assert.deepEqual(log, [])
   await check(true)
-  assert.deepEqual(log, ["GET /latest-mac.yml"])
+  assert.deepEqual(log, ["GET /handful-mac.yml"])
   assert.equal(model.snapshot().state, "source")
   assert.equal(model.snapshot().version, "1.4.0")
   scheduler.stop()
@@ -141,7 +141,7 @@ test("the scheduler checks a minute after launch, then at most once a day", asyn
   clock.t += HOUR
   await timers.fire()
   assert.equal(log.length, 2)
-  assert.deepEqual(log, ["GET /latest-mac.yml", "GET /latest-mac.yml"])
+  assert.deepEqual(log, ["GET /handful-mac.yml", "GET /handful-mac.yml"])
   scheduler.stop()
 })
 
@@ -198,7 +198,7 @@ test("a check that throws does not stop the schedule", async () => {
 
 test("fetchFeedVersion fails on a missing feed or a feed without a version", async (t) => {
   const { base } = await serve(t, (req, res) => {
-    if (req.url === "/empty/latest-mac.yml") res.writeHead(200).end("files: []\n")
+    if (req.url === "/empty/handful-mac.yml") res.writeHead(200).end("files: []\n")
     else res.writeHead(404).end()
   })
   await assert.rejects(fetchFeedVersion(`${base}/`), /404/)

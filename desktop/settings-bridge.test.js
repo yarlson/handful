@@ -4,7 +4,7 @@ const { test } = require("node:test")
 const { settingsMethods, settingsAPI, createSettingsBridge, registerSettingsIPC } = require("./settings-bridge")
 
 const configFile = "/Users/me/.yargpt/config.json"
-const logFile = "/Users/me/Library/Logs/YarGPT/server.log"
+const logFile = "/Users/me/Library/Logs/Handful/server.log"
 
 // fakes builds a bridge whose dependencies log their calls.
 function fakes({ settings = { status: 200, body: { values: {} } }, restart = { status: 202, body: {} }, started = true, open = "", chosen } = {}) {
@@ -82,8 +82,8 @@ test("restart when idle asks the server to restart once no work runs", async () 
 })
 
 test("restart when idle reports the server's refusal", async () => {
-  const refused = fakes({ restart: { status: 409, statusText: "Conflict", body: { key: "claude", message: "YarGPT wouldn't start after a restart.", error: "x" } } })
-  assert.deepEqual(await refused.bridge.restartServer("idle"), { ok: false, error: "YarGPT wouldn't start after a restart." })
+  const refused = fakes({ restart: { status: 409, statusText: "Conflict", body: { key: "claude", message: "Handful wouldn't start after a restart.", error: "x" } } })
+  assert.deepEqual(await refused.bridge.restartServer("idle"), { ok: false, error: "Handful wouldn't start after a restart." })
   const manual = fakes({ restart: { status: 501, statusText: "Not Implemented", body: null } })
   assert.deepEqual(await manual.bridge.restartServer("idle"), { ok: false, error: "Not Implemented" })
   const bare = fakes({ restart: { status: 500, statusText: "", body: null } })
@@ -125,13 +125,13 @@ test("openFile creates config.json if needed and opens it", async () => {
   assert.deepEqual(calls, ["ensureSettingsFile", ["openPath", configFile]])
   const failed = fakes({ open: "No application knows how to open it." })
   await failed.bridge.openFile()
-  assert.deepEqual(failed.calls.at(-1), ["showErrorBox", "YarGPT could not open the settings file", `${configFile}: No application knows how to open it.`])
+  assert.deepEqual(failed.calls.at(-1), ["showErrorBox", "Handful could not open the settings file", `${configFile}: No application knows how to open it.`])
   const broken = fakes()
   broken.deps.ensureSettingsFile = () => {
     throw new Error("EACCES: permission denied")
   }
   await createSettingsBridge(broken.deps).openFile()
-  assert.deepEqual(broken.calls, [["showErrorBox", "YarGPT could not create the settings file", "EACCES: permission denied"]])
+  assert.deepEqual(broken.calls, [["showErrorBox", "Handful could not create the settings file", "EACCES: permission denied"]])
 })
 
 test("revealFile and revealLog show config.json and the server log", () => {

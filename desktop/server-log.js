@@ -1,15 +1,15 @@
 // The server's last startup error, read from its log for the error screen.
-// cmd/yargpt/main.go ends a server that fails with the line "yargpt: <error>",
-// for example `yargpt: config file /Users/me/.yargpt/config.json: ...`.
+// cmd/handful/main.go ends a server that fails with the line "handful: <error>",
+// for example `handful: config file /Users/me/.yargpt/config.json: ...`.
 const fs = require("node:fs")
 
 const tailBytes = 64 * 1024
 const maxLineLength = 1000
-const errorPrefix = "yargpt: "
+const errorPrefix = "handful: "
 // A server that ends to restart writes this line; it is no error.
-const restartLine = "yargpt: restarting: launchd starts the server again"
+const restartLine = "handful: restarting: launchd starts the server again"
 // slog's line when a server has started.
-const runningMessage = 'msg="YarGPT is running"'
+const runningMessage = 'msg="Handful is running"'
 
 // lastStartupError returns the last line of text that reports a fatal
 // error, or null. A start after that line means the error is old, so it
@@ -64,7 +64,7 @@ function serverErrorDialog(errorLine, logFile) {
   return {
     options: {
       type: "error",
-      message: "The YarGPT server did not start",
+      message: "The Handful server did not start",
       detail: errorLine ? `${errorLine}\n\n${where}` : where,
       buttons: ["Open config.json", "Open Log", "Close"],
       defaultId: 0,

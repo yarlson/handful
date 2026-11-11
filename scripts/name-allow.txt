@@ -25,7 +25,12 @@ YARGPT_NO_UPDATE_CHECK
 # The README's lines about moving from YarGPT and going back to it (spec §4.4, §6).
 ^README\.md:[0-9]+:.*(Moving from YarGPT|Go back to YarGPT|called YarGPT before|YarGPT is now Handful|Mac app, YarGPT [0-9]|YarGPT-universal-mac\.zip)
 
-# Renamed by the desktop and release rename PR, which removes these lines.
-^desktop/
-^\.github/workflows/release\.yml:
-^docs/releasing\.md:
+# The bridge files that every Handful release carries for 12 months, for the
+# apps from before the rename (spec §3, §7; docs/releasing.md, Bridge files).
+^(\.github/workflows/release\.yml|desktop/scripts/release-feed(\.test)?\.js|docs/releasing\.md):[0-9]+:.*YarGPT-universal-mac\.zip
+# Why the bridge files exist: the old app's name and bundle id (spec §3).
+^docs/releasing\.md:[0-9]+:The app was called YarGPT before, with the bundle id `dev\.yarlson\.yargpt`\.
+# The manual path: Handful stops the old app's server, its launch agent
+# dev.yarlson.yargpt.server, with S5's copy and the Login Items step (spec §4.2, §5).
+^desktop/manual-move(\.test)?\.js:
+

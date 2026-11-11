@@ -4,7 +4,7 @@ const path = require("node:path")
 // The server's address. The OAuth redirect URI holds the port, so it is fixed.
 const serverURL = "http://127.0.0.1:7777"
 
-// isAppURL reports whether url is a page of the YarGPT server.
+// isAppURL reports whether url is a page of the Handful server.
 function isAppURL(url) {
   try {
     return new URL(url).origin === serverURL
@@ -25,13 +25,13 @@ function isWebURL(url) {
 }
 
 // The menu-bar icon of the server opens this address for Check for updates….
-const checkForUpdatesURL = "yargpt://check-for-updates"
+const checkForUpdatesURL = "handful://check-for-updates"
 
 // isCheckForUpdatesURL reports whether url asks the app to check for updates.
 function isCheckForUpdatesURL(url) {
   try {
     const u = new URL(url)
-    return u.protocol === "yargpt:" && u.host === "check-for-updates" && (u.pathname === "" || u.pathname === "/")
+    return u.protocol === "handful:" && u.host === "check-for-updates" && (u.pathname === "" || u.pathname === "/")
   } catch {
     return false
   }

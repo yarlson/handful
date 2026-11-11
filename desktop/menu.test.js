@@ -5,7 +5,7 @@ const { appMenuTemplate } = require("./menu")
 function template(moveItem) {
   const calls = []
   const items = appMenuTemplate({
-    appName: "YarGPT",
+    appName: "Handful",
     updateItem: { id: "updates", label: "Check for Updates…" },
     moveItem,
     openSettingsPage: () => calls.push("page"),
@@ -16,7 +16,7 @@ function template(moveItem) {
 
 test("the app menu has Settings… and Open Settings File right below it", () => {
   const { items, appMenu } = template()
-  assert.equal(items[0].label, "YarGPT")
+  assert.equal(items[0].label, "Handful")
   assert.deepEqual(
     appMenu.map((item) => item.id ?? item.role ?? item.type),
     ["about", "updates", "separator", "settings", "settings-file", "separator", "services", "separator", "hide", "hideOthers", "unhide", "separator", "quit"],

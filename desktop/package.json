@@ -1,9 +1,9 @@
 {
-  "name": "yargpt-desktop",
-  "productName": "YarGPT",
+  "name": "handful-desktop",
+  "productName": "Handful",
   "version": "0.1.0",
   "private": true,
-  "description": "YarGPT for macOS",
+  "description": "Handful for macOS",
   "author": "Yar Kravtsov",
   "license": "MIT",
   "main": "main.js",
@@ -20,7 +20,7 @@
     "electron-builder": "26.18.0"
   },
   "build": {
-    "appId": "dev.yarlson.yargpt",
+    "appId": "dev.yarlson.handful",
     "files": [
       "main.js",
       "app.js",
@@ -32,6 +32,7 @@
       "bridge.css",
       "context-menu.js",
       "menu.js",
+      "manual-move.js",
       "preload.js",
       "server-log.js",
       "settings-bridge.js",
@@ -39,15 +40,15 @@
       "updater-state.js",
       "updater-io.js"
     ],
-    "extraResources": [{ "from": "../bin/yargpt", "to": "yargpt" }],
+    "extraResources": [{ "from": "../bin/handful", "to": "handful" }],
     "extraFiles": [
       {
-        "from": "build/dev.yarlson.yargpt.server.plist",
-        "to": "Library/LaunchAgents/dev.yarlson.yargpt.server.plist"
+        "from": "build/dev.yarlson.handful.server.plist",
+        "to": "Library/LaunchAgents/dev.yarlson.handful.server.plist"
       }
     ],
-    "protocols": [{ "name": "YarGPT", "schemes": ["yargpt"] }],
-    "publish": [{ "provider": "generic", "url": "https://github.com/yarlson/yargpt/releases/latest/download/", "channel": "latest" }],
+    "protocols": [{ "name": "Handful", "schemes": ["handful"] }],
+    "publish": [{ "provider": "generic", "url": "https://github.com/yarlson/handful/releases/latest/download/", "channel": "handful" }],
     "mac": {
       "target": "dir",
       "category": "public.app-category.productivity",

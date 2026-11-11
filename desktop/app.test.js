@@ -6,7 +6,7 @@ const { test } = require("node:test")
 const { checkForUpdatesURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFile } = require("./app")
 
 function tempDir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yargpt-desktop-"))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "handful-desktop-"))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -46,12 +46,12 @@ test("an existing settings file is kept as it is", (t) => {
   assert.equal(fs.readFileSync(file, "utf8"), '{"model": "sonnet"}\n')
 })
 
-test("only yargpt://check-for-updates asks for a check", () => {
-  assert.equal(checkForUpdatesURL, "yargpt://check-for-updates")
-  assert.equal(isCheckForUpdatesURL("yargpt://check-for-updates"), true)
-  assert.equal(isCheckForUpdatesURL("yargpt://check-for-updates/"), true)
-  assert.equal(isCheckForUpdatesURL("yargpt://check-for-updates/x"), false)
-  assert.equal(isCheckForUpdatesURL("yargpt://other"), false)
+test("only handful://check-for-updates asks for a check", () => {
+  assert.equal(checkForUpdatesURL, "handful://check-for-updates")
+  assert.equal(isCheckForUpdatesURL("handful://check-for-updates"), true)
+  assert.equal(isCheckForUpdatesURL("handful://check-for-updates/"), true)
+  assert.equal(isCheckForUpdatesURL("handful://check-for-updates/x"), false)
+  assert.equal(isCheckForUpdatesURL("handful://other"), false)
   assert.equal(isCheckForUpdatesURL("https://check-for-updates/"), false)
   assert.equal(isCheckForUpdatesURL("--inspect"), false)
   assert.equal(isCheckForUpdatesURL(undefined), false)

@@ -1,5 +1,5 @@
 // The updater of the app, in the main process. Release builds, signed with a
-// Developer ID, check the latest release's latest-mac.yml once a day,
+// Developer ID, check the latest release's handful-mac.yml once a day,
 // download an update in the background, and install it only when the user
 // asks: Restart now, Update when idle, or ⌘Q. Copies that are signed ad-hoc,
 // such as make app builds, cannot update themselves, because Squirrel.Mac
@@ -17,7 +17,7 @@ const readyPollInterval = 30_000
 const waitPollInterval = 5_000
 const installTimeout = 120_000
 
-// The methods of window.yargptUpdater, in preload.js, without get.
+// The methods of window.handfulUpdater, in preload.js, without get.
 const bridgeMethods = [
   "download",
   "cancelDownload",
@@ -124,7 +124,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
       if (manual) {
         void dialog.showMessageBox({
           type: "info",
-          message: "This copy of YarGPT can't check for updates",
+          message: "This copy of Handful can't check for updates",
           detail: "It runs from its source folder. Build the app with make app, or download it from GitHub.",
         })
       }
@@ -139,7 +139,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
       return
     }
     if (action === "upToDate") {
-      void dialog.showMessageBox({ type: "info", message: `YarGPT ${model.current} is up to date` })
+      void dialog.showMessageBox({ type: "info", message: `Handful ${model.current} is up to date` })
     } else if (action === "download") {
       void download(true)
     }
@@ -251,7 +251,7 @@ function createUpdater({ serverURL, dataDir, isTrusted, isAppURL, onStateChange,
       : ["Update when they finish", "Restart now", "Cancel"]
     const { response } = await dialog.showMessageBox({
       type: "question",
-      message: "YarGPT has an update ready.",
+      message: "Handful has an update ready.",
       detail: `${botsWorkingText(running)} Restart now stops their turns.`,
       buttons,
       defaultId: 0,

@@ -5,9 +5,12 @@
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
-const releasesURL = "https://github.com/yarlson/yargpt/releases"
-// The feed is the latest release's assets: latest-mac.yml, the zip and its blockmap.
+const releasesURL = "https://github.com/yarlson/handful/releases"
+// The feed is the latest release's assets: handful-mac.yml, the zip and its
+// blockmap. The channel handful in package.json's build.publish names the
+// feed; latest-mac.yml in the same release is the old app's (docs/releasing.md).
 const feedURL = `${releasesURL}/latest/download/`
+const feedFile = "handful-mac.yml"
 
 const defaultDrainMinutes = 30
 
@@ -107,7 +110,7 @@ function releaseURLFor(version) {
   return version ? `${releasesURL}/tag/v${plainVersion(version)}` : `${releasesURL}/latest`
 }
 
-// feedVersion reads the version of a latest-mac.yml.
+// feedVersion reads the version of a handful-mac.yml.
 function feedVersion(yml) {
   const match = /^version:[ \t]*['"]?([^'"\s#]+)['"]?[ \t]*(?:#.*)?$/m.exec(String(yml ?? ""))
   return match && parseVersion(match[1]) ? plainVersion(match[1]) : null
@@ -153,7 +156,7 @@ function menuItemFor(s) {
     case "restarting":
       return { label: "Restarting…", enabled: false, action: null }
     case "source":
-      return { label: `Get YarGPT ${v}…`, enabled: true, action: "openReleasePage" }
+      return { label: `Get Handful ${v}…`, enabled: true, action: "openReleasePage" }
     default:
       return { label: "Check for updates…", enabled: true, action: "check" }
   }
@@ -469,7 +472,7 @@ class UpdaterModel {
   }
 
   serverMismatch(version) {
-    this.fail("other", "server", `The server is still on ${plainVersion(version)}. Quit and reopen YarGPT.`)
+    this.fail("other", "server", `The server is still on ${plainVersion(version)}. Quit and reopen Handful.`)
     this.changed()
   }
 }
@@ -478,6 +481,7 @@ module.exports = {
   HOUR,
   DAY,
   feedURL,
+  feedFile,
   releasesURL,
   errorTexts,
   parseVersion,

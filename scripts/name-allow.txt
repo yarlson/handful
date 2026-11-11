@@ -14,6 +14,10 @@ mcp__yargpt__
 YARGPT_NO_UPDATE_CHECK
 # The browser keys stored before the rename, which the page moves (spec §3).
 ^ui/src/lib/stored-keys(\.test)?\.ts:
+# The boundary between YarGPT's migrations and Handful's (spec §4.3, §6).
+^internal/db/(open|schema_test)\.go:
+# The old repo's path, which the update check follows to the renamed repo.
+^cmd/handful/update_test\.go:.*/yarlson/yargpt/releases/
 # The README's lines about moving from YarGPT and going back to it (spec §4.4, §6).
 ^README\.md:[0-9]+:.*(Moving from YarGPT|Go back to YarGPT|called YarGPT before|YarGPT is now Handful|Mac app, YarGPT [0-9]|YarGPT-universal-mac\.zip)
 

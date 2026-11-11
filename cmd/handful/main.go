@@ -183,7 +183,7 @@ func moveBack(ctx context.Context, o options) error {
 	return o.mover.Back(ctx, o.yes, os.Stdout)
 }
 
-// appAddr is where the YarGPT and Handful apps run their servers.
+// appAddr is where the desktop apps, old and new, run their servers.
 const appAddr = "127.0.0.1:7777"
 
 // answering returns the first of addrs on which a server answers, or "".

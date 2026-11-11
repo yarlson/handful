@@ -48,6 +48,9 @@ func newHome(t *testing.T) *home {
 		key, _ := sessionKey(filepath.Join(h.paths.Old, rel))
 		h.write(filepath.Join(h.paths.Projects, key, "s1.jsonl"), "session of "+rel)
 		h.write(filepath.Join(h.paths.Projects, key, "s1", "subagents", "a.jsonl"), "subagent of "+rel)
+		if err := os.Symlink("s1.jsonl", filepath.Join(h.paths.Projects, key, "latest.jsonl")); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h.write(filepath.Join(h.paths.Projects, "-other-project", "x.jsonl"), "another folder's session")
 	return h
@@ -205,7 +208,7 @@ func TestTheMoveTakesYarGPTsFolderToHandfulsAndLinksTheOldName(t *testing.T) {
 		oldKey, _ := sessionKey(filepath.Join(h.paths.Old, rel))
 		newKey, _ := sessionKey(filepath.Join(h.paths.New, rel))
 		oldKey, newKey = strings.Replace(oldKey, homeKey, "<home>", 1), strings.Replace(newKey, homeKey, "<home>", 1)
-		for _, file := range []string{"s1.jsonl", "s1/subagents/a.jsonl"} {
+		for _, file := range []string{"s1.jsonl", "s1/subagents/a.jsonl", "latest.jsonl"} {
 			from, to := filepath.Join(".claude/projects", oldKey, file), filepath.Join(".claude/projects", newKey, file)
 			if after[to] == "" || after[to] != before[from] || after[from] != before[from] {
 				t.Errorf("session %s: copy %q, original %q; want both %q", file, after[to], after[from], before[from])

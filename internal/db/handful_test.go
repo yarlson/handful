@@ -208,3 +208,15 @@ func TestYarGPTRefusesTheDatabaseThatHandfulMigrated(t *testing.T) {
 		t.Fatalf("database files = %q; want only yargpt.db", files)
 	}
 }
+
+func TestSchemaVersionReadsTheVersionOrZeroForNoDatabase(t *testing.T) {
+	dir := t.TempDir()
+	if v, err := SchemaVersion(t.Context(), filepath.Join(dir, "none.db")); v != 0 || err != nil {
+		t.Fatalf("no database: %d, %v; want 0", v, err)
+	}
+	path := filepath.Join(dir, "yargpt.db")
+	yargptDatabase(t, path)
+	if v, err := SchemaVersion(t.Context(), path); v != LastYarGPTSchema || err != nil {
+		t.Fatalf("YarGPT's database: %d, %v; want %d", v, err, LastYarGPTSchema)
+	}
+}

@@ -154,6 +154,16 @@ func TestBuildKindTellsTheSignedAppFromALocalOneAndASourceBuild(t *testing.T) {
 	}
 }
 
+// Plain codesign -dv prints no Authority lines, so a Developer ID app looked
+// built locally.
+func TestCodesignAsksForTheAuthorityLines(t *testing.T) {
+	cmd := codesignCommand(context.Background(), "/Applications/YarGPT.app")
+	want := []string{"/usr/bin/codesign", "-dv", "--verbose=2", "/Applications/YarGPT.app"}
+	if cmd.Path != want[0] || !slices.Equal(cmd.Args, want) {
+		t.Fatalf("codesign command = %s %q; want %q", cmd.Path, cmd.Args, want)
+	}
+}
+
 // restartWatch runs waitIdle with a tick that send drives. A send returns
 // once waitIdle took the tick, so the tick before it is fully handled. held
 // is the restart's own hold on drain mode.

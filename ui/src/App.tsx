@@ -20,6 +20,7 @@ import { type Link, linkLabel } from "@/lib/connection"
 import { orderedEntries, useHandful } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
+import { MoveNotice } from "@/components/move-notice"
 import { TaskBar } from "@/components/board"
 import { AcrossScreen, InboxScreen } from "@/components/tasks"
 import { tasksKey } from "@/lib/tasks"
@@ -646,6 +647,7 @@ export function App() {
   const waitingN = waiting.data ? waitingCount(waiting.data) : 0
   const taskKey = tasksKey(bots)
   const needs = useLoad(() => api.needsYou(), taskKey)
+  const moved = useLoad(() => api.moveNotice(), "")
   const needsN = needs.data?.length ?? 0
   const chatName = (id: string) => bots.find((b) => b.id === id)?.name ?? "a deleted chat"
 
@@ -679,6 +681,14 @@ export function App() {
         <div className="flex items-center px-3 py-3">
           <img src="/logo.svg" alt="Handful" className="size-7" />
         </div>
+        {moved.data?.show && (
+          <MoveNotice
+            teams={teams}
+            error={moved.error}
+            onDone={() => void api.closeMoveNotice().then(moved.reload, (e: Error) => moved.setError(e.message))}
+            onRename={(t, name) => void api.updateBot(t.id, { name }).catch((e: Error) => moved.setError(e.message))}
+          />
+        )}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
           <button
             type="button"

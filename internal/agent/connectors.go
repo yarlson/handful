@@ -77,8 +77,8 @@ func loadConnectors(path string) (map[string]connector, error) {
 		return nil, fmt.Errorf("read connectors file %s: unexpected data after the JSON object", path)
 	}
 	for name, c := range file.Servers {
-		if !connectorName.MatchString(name) || name == mcpServerName {
-			return nil, fmt.Errorf("connectors file %s: server name %q must match [a-z0-9-]+ and must not be %q", path, name, mcpServerName)
+		if !connectorName.MatchString(name) || name == mcpServerName || name == oldMCPServerName {
+			return nil, fmt.Errorf("connectors file %s: server name %q must match [a-z0-9-]+ and must not be %q or %q", path, name, mcpServerName, oldMCPServerName)
 		}
 		u, err := url.Parse(c.URL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

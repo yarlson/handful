@@ -302,7 +302,7 @@ For example, Slack's MCP server works with Slack's public client for Claude Code
 | Flag | Default | Meaning |
 |---|---|---|
 | `-addr` | `127.0.0.1:7777` | Listen address. Handful refuses an address that is not loopback. |
-| `-data` | `~/.handful` | Data folder |
+| `-data` | `~/.handful` | Data folder. Without it, the first start moves `~/.yargpt` here; see [Moving from YarGPT](#moving-from-yargpt). |
 | `-claude` | `claude` | Claude Code CLI to run |
 | `-model` | Claude Code's default | Model for every bot without its own: an alias (`fable`, `opus`, `sonnet`, `haiku`) or a full model ID |
 | `-effort` | the model's own | Reasoning effort for every bot without its own: `low`, `medium`, `high`, `xhigh` or `max` |
@@ -310,6 +310,8 @@ For example, Slack's MCP server works with Slack's public client for Claude Code
 | `-login-env` | off | Take the environment, such as `PATH`, from your login shell. The macOS app uses it, because launchd starts the server with a minimal `PATH`. |
 | `-tray` | off | Show an icon in the macOS menu bar with two items: **Check for updates…**, which opens the app and checks for a new version, and **Exit server**, which stops the server. The macOS app uses it. |
 | `-log` | none | Append the log and all other error output to this file. `~/` is your home folder. Without it, they go to stderr. |
+| `-move-back` | off | Go back to YarGPT: say what would be lost, then stop. See [Go back to YarGPT](#go-back-to-yargpt). |
+| `-yes` | off | With `-move-back`, go back. |
 
 To set these without flags, put `claude`, `model`, `effort` or `maxParallel` in `~/.handful/config.json`, for example `{"model": "sonnet", "effort": "high", "maxParallel": 4}`.
 

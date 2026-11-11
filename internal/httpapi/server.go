@@ -35,6 +35,8 @@ type server struct {
 	models   ModelReporter // nil: no model IDs are known
 	updates  Updates
 	settings Settings
+	// moveNotice is the welcome notice after the data moved to ~/.handful.
+	moveNotice MoveNotice
 	// settingsMu orders the reads and writes of the settings file, so that
 	// two changes at once cannot lose one of them.
 	settingsMu sync.Mutex
@@ -65,6 +67,8 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.HandleFunc("GET /api/version", s.version)
 	mux.HandleFunc("POST /api/drain", s.setDrain(true))
 	mux.HandleFunc("DELETE /api/drain", s.setDrain(false))
+	mux.HandleFunc("GET /api/move-notice", s.getMoveNotice)
+	mux.HandleFunc("POST /api/move-notice/close", s.closeMoveNotice)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.patchSettings)
 	mux.HandleFunc("PUT /api/settings/file", s.resetSettingsFile)

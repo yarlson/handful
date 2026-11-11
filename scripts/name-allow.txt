@@ -15,13 +15,23 @@ YARGPT_NO_UPDATE_CHECK
 # The browser keys stored before the rename, which the page moves (spec §3).
 ^ui/src/lib/stored-keys(\.test)?\.ts:
 # The boundary between YarGPT's migrations and Handful's (spec §4.3, §6).
-^internal/db/(open|schema_test)\.go:
+^internal/db/(open|schema_test|backup|handful_test)\.go:
 # The old repo's path, which the update check follows to the renamed repo.
 ^cmd/handful/update_test\.go:.*/yarlson/yargpt/releases/
 # The site's lines about the old name and the move (spec §6): the old name
 # for search engines, the move note and the footer.
 ^web/public/llms\.txt:[0-9]+:.*(called YarGPT until|Moving from YarGPT|YarGPT 0\.9\.0 or later)
 ^web/src/pages/index\.astro:[0-9]+:.*(alternateName: "YarGPT"|Moving from YarGPT\?|Formerly YarGPT)
+# The move and the way back, and their tests (spec §4.3, §4.4, §6): the move,
+# the backup and its boundary, the welcome notice that offers the new team
+# names, and the -move-back flag.
+^internal/move/
+^internal/httpapi/move(_test)?\.go:
+^ui/src/(lib|components)/move-notice(\.test)?\.tsx?:
+LastYarGPTSchema
+go back to YarGPT
+# The old MCP server name stays reserved for connectors.
+oldMCPServerName = "yargpt"|"old reserved name"
 # The README's lines about moving from YarGPT and going back to it (spec §4.4, §6).
 ^README\.md:[0-9]+:.*(Moving from YarGPT|Go back to YarGPT|called YarGPT before|YarGPT is now Handful|Mac app, YarGPT [0-9]|YarGPT-universal-mac\.zip)
 

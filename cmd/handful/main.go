@@ -22,6 +22,7 @@ import (
 	"handful/internal/core"
 	"handful/internal/db"
 	"handful/internal/httpapi"
+	"handful/internal/move"
 	"handful/internal/shellenv"
 	"handful/ui"
 )
@@ -58,6 +59,11 @@ type options struct {
 	flagSettings settings
 	claudePath   string
 	defaults     core.Defaults
+	// mover moves the old data folder, ~/.yargpt, to dataDir at the start; nil with
+	// -data, which names the folder to use as it is.
+	mover    *move.Mover
+	moveBack bool // -move-back: go back to the old app instead of serving
+	yes      bool
 }
 
 func run(args []string) error {
@@ -67,6 +73,9 @@ func run(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if o.moveBack {
+		return moveBack(ctx, o)
+	}
 	serveUntil := func(ctx context.Context) error { return serve(ctx, o, log) }
 	if o.tray {
 		return runWithTray(ctx, serveUntil)
@@ -87,6 +96,9 @@ func setUp(args []string) (options, *slog.Logger, error) {
 		}
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if o.moveBack {
+		return o, log, nil
+	}
 	if o.loginEnv {
 		if err := useLoginShellEnv(); err != nil {
 			log.Warn("keeping the environment that the server started with", "err", err)
@@ -124,7 +136,7 @@ func parseFlags(args []string) (options, error) {
 	o := options{set: map[string]bool{}, Updates: updateSettings{AutoCheck: config.DefaultAutoCheck, DrainMinutes: config.DefaultDrainMinutes, UpdateCheck: config.DefaultUpdateCheck}}
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "loopback address to listen on")
-	fs.StringVar(&o.dataDir, "data", filepath.Join(home, ".yargpt"), "directory for the database, bot workspaces and skills")
+	fs.StringVar(&o.dataDir, "data", filepath.Join(home, ".handful"), "directory for the database, bot workspaces and skills; without it, a start moves YarGPT's ~/.yargpt here")
 	fs.StringVar(&o.Claude, "claude", config.DefaultClaude, "path to the Claude Code CLI")
 	fs.StringVar(&o.Model, "model", "", "model alias for every bot (default: Claude Code's default)")
 	fs.StringVar(&o.Effort, "effort", "", "reasoning effort for every bot: low, medium, high, xhigh or max (default: the model's own)")
@@ -132,14 +144,83 @@ func parseFlags(args []string) (options, error) {
 	fs.BoolVar(&o.loginEnv, "login-env", false, "take the environment, such as PATH, from the user's login shell (launchd starts the server with a minimal PATH)")
 	fs.BoolVar(&o.tray, "tray", false, "show a menu-bar icon with Check for updates…, which opens the app, and Exit server, which stops the server (macOS)")
 	fs.StringVar(&o.logFile, "log", "", "append the log and all other error output to this file; ~/ is the home directory")
+	fs.BoolVar(&o.moveBack, "move-back", false, "go back to YarGPT: say what would be lost, and with -yes restore ~/.yargpt as it was at the move")
+	fs.BoolVar(&o.yes, "yes", false, "with -move-back, go back")
 	// ExitOnError: Parse exits on -h or a bad flag, as flag.Parse does.
 	_ = fs.Parse(args)
 	fs.Visit(func(f *flag.Flag) { o.set[f.Name] = true })
+	if !o.set["data"] {
+		addrs := []string{o.addr, appAddr}
+		o.mover = &move.Mover{Paths: move.HomePaths(home), Running: func() string { return answering(addrs) }, Now: time.Now, Version: version}
+	}
 	return o, nil
 }
 
-// prepare applies the config file, checks the address and finds Claude Code.
+// moveNotice is the welcome notice of a move to the data folder; a server
+// with -data shows none.
+func (o options) moveNotice() httpapi.MoveNotice {
+	if o.mover == nil {
+		return httpapi.MoveNotice{}
+	}
+	dir := o.dataDir
+	return httpapi.MoveNotice{
+		Show: func() (bool, error) {
+			mv, moved, err := move.ReadMoved(dir)
+			return moved && !mv.NoticeDone, err
+		},
+		Close: func() error { return move.CloseNotice(dir) },
+	}
+}
+
+// movedLine is what a start that moved the data says.
+const movedLine = "handful: moved your data from ~/.yargpt to ~/.handful; ~/.yargpt is now a link to it, so leave it in place (a backup is in ~/.handful/backup)"
+
+// moveBack goes back to the old app, as -move-back asks.
+func moveBack(ctx context.Context, o options) error {
+	if o.mover == nil {
+		return errors.New("-move-back works on the default data folder only; leave out -data")
+	}
+	return o.mover.Back(ctx, o.yes, os.Stdout)
+}
+
+// appAddr is where the desktop apps, old and new, run their servers.
+const appAddr = "127.0.0.1:7777"
+
+// answering returns the first of addrs on which a server answers, or "".
+func answering(addrs []string) string {
+	for _, a := range addrs {
+		if serverAnswers(a) {
+			return a
+		}
+	}
+	return ""
+}
+
+// serverAnswers reports whether a server accepts connections on addr.
+func serverAnswers(addr string) bool {
+	conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(context.Background(), "tcp", addr)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// prepare moves the old data folder, ~/.yargpt, when it may, applies the config file,
+// checks the address and finds Claude Code.
 func prepare(o *options) error {
+	if o.mover != nil {
+		linked, err := o.mover.Data(context.Background())
+		if err != nil {
+			return err
+		}
+		if linked {
+			fmt.Fprintln(os.Stderr, movedLine)
+		}
+	}
+	if err := move.RenameSkillTools(o.dataDir); err != nil {
+		return fmt.Errorf("rename the tools in the skills: %w", err)
+	}
 	if err := o.loadSettings(os.Getenv, exec.LookPath); err != nil {
 		return err
 	}
@@ -197,7 +278,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, svc.PublishRestart, func(on bool) { svc.HoldDrain(core.DrainRestart, on) }, log)
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings)),
+		Handler:           httpapi.New(svc, runner, assets, log, httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings), httpapi.WithMoveNotice(o.moveNotice())),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Requests end with the server: event streams and pending approvals stop on shutdown.
 		BaseContext: func(net.Listener) context.Context { return ctx },

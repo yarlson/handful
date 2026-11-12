@@ -230,3 +230,44 @@ func TestTheBoardOfABotThatIsNoTeamHasNoOffTaskTurns(t *testing.T) {
 		t.Fatalf("board of a missing bot: err = %v; want ErrNotFound", err)
 	}
 }
+
+func TestPuttingAwayTheTurnsOnNoTaskLeavesOnlyLaterOnes(t *testing.T) {
+	f := newOffTaskFixture(t)
+	ctx := context.Background()
+	team := f.team.ID
+	storeTurn(t, f.svc, turnSpec{id: "early", bot: f.ana.ID, room: team, hops: 1, started: f.ago(10 * time.Minute)})
+	storeTurn(t, f.svc, turnSpec{id: "late", bot: f.ana.ID, room: team, hops: 1, started: f.ago(time.Minute)})
+	if got := f.offTaskIDs(t); !slices.Equal(got, []string{"early", "late"}) {
+		t.Fatalf("off-task turns = %q; want both", got)
+	}
+	off, err := f.svc.DismissOffTask(ctx, team)
+	if err != nil || off.Count != 0 || len(off.Turns) != 0 {
+		t.Fatalf("dismiss = %+v, %v; want no turns left", off, err)
+	}
+	// A turn that started in the same millisecond was put away with the rest.
+	storeTurn(t, f.svc, turnSpec{id: "same-ms", bot: f.ana.ID, room: team, hops: 1, started: f.now})
+	if board, err := f.svc.Board(ctx, team); err != nil || board.OffTask.Count != 0 {
+		t.Fatalf("board after the dismiss = %+v, %v; want no turns on no task", board.OffTask, err)
+	}
+	put := f.now
+	f.now = f.now.Add(time.Minute)
+	storeTurn(t, f.svc, turnSpec{id: "after", bot: f.ana.ID, room: team, hops: 1, started: f.now})
+	if got := f.offTaskIDs(t); !slices.Equal(got, []string{"after"}) {
+		t.Fatalf("off-task turns after a new one = %q; want only it", got)
+	}
+	// A clock set back keeps the later time: the put-away turns stay away.
+	f.now = put.Add(-time.Hour)
+	if _, err := f.svc.DismissOffTask(ctx, team); err != nil {
+		t.Fatal(err)
+	}
+	f.now = put.Add(time.Minute)
+	if got := f.offTaskIDs(t); !slices.Equal(got, []string{"after"}) {
+		t.Fatalf("off-task turns after an earlier dismiss = %q; want the later dismiss to hold", got)
+	}
+	if _, err := f.svc.DismissOffTask(ctx, f.ana.ID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("dismiss for a bot that is no team: err = %v; want ErrInvalid", err)
+	}
+	if _, err := f.svc.DismissOffTask(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("dismiss for a missing team: err = %v; want ErrNotFound", err)
+	}
+}

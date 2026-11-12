@@ -81,6 +81,10 @@ func withdrawHandoff(svc *core.Service, r *http.Request, a core.Actor, id, _ str
 	return svc.WithdrawHandoff(r.Context(), a, id)
 }
 
+func dismissTask(svc *core.Service, r *http.Request, _ core.Actor, id, _ string) (core.Goal, error) {
+	return svc.DismissTask(r.Context(), id)
+}
+
 // userTask gives a team a task from the user: into its inbox, or, with
 // startNow, to the top of its plan.
 func (s *server) userTask(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +129,16 @@ func (s *server) makeTask(w http.ResponseWriter, r *http.Request) {
 // offTask lists the team's turns of the last hour that were on no task.
 func (s *server) offTask(w http.ResponseWriter, r *http.Request) {
 	off, err := s.svc.RecentOffTask(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, off)
+}
+
+// dismissOffTask puts away the team's turns on no task up to now.
+func (s *server) dismissOffTask(w http.ResponseWriter, r *http.Request) {
+	off, err := s.svc.DismissOffTask(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.fail(w, r, err)
 		return

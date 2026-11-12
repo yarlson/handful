@@ -336,6 +336,26 @@ WHERE t.started_at >= CAST(sqlc.arg(from_ms) AS INTEGER) AND t.started_at < CAST
 -- row changes when it was told already.
 UPDATE teams SET budget_noted_on = sqlc.arg(day) WHERE team_id = sqlc.arg(team_id) AND budget_noted_on <> sqlc.arg(day);
 
+-- name: DismissOffTask :exec
+-- The user puts away the team's turns on no task up to now (ms). The time
+-- never goes back, so a second call keeps the later of the two.
+INSERT INTO off_task_dismissals (team_id, dismissed_at) VALUES (sqlc.arg(team_id), sqlc.arg(at))
+ON CONFLICT (team_id) DO UPDATE SET dismissed_at = MAX(dismissed_at, excluded.dismissed_at);
+
+-- name: DismissGoal :execrows
+-- The user puts away a task that its lead pushed back. A second call keeps
+-- the first time.
+INSERT INTO goal_dismissals (goal_id, dismissed_at) VALUES (sqlc.arg(id), sqlc.arg(at)) ON CONFLICT (goal_id) DO NOTHING;
+
+-- name: GetGoalDismissal :one
+-- When the user put task id away, or 0.
+SELECT CAST(COALESCE((SELECT dismissed_at FROM goal_dismissals WHERE goal_id = sqlc.arg(id)), 0) AS INTEGER) AS dismissed_at;
+
+-- name: ListSentDismissals :many
+-- When the user put away each task that team from_team_id sent since a time (ms).
+SELECT d.goal_id, d.dismissed_at FROM goal_dismissals d JOIN goals g ON g.id = d.goal_id
+WHERE g.origin = 'handoff' AND g.from_team_id = sqlc.arg(from_team_id) AND g.created_at >= sqlc.arg(since);
+
 -- name: WaitTeamBudget :execrows
 -- The user waits out the team's budget pause until the local day ends.
 UPDATE teams SET budget_waited_on = sqlc.arg(day) WHERE team_id = sqlc.arg(team_id);
@@ -618,7 +638,8 @@ WHERE bot_id = ? AND room_id = ? AND id != ? AND started_at IS NOT NULL;
 -- section 5 point 4), oldest first, with the first post of the bot in the
 -- turn. Left out: the lead's board turns (decisions and its other wakes),
 -- retros, and the turns of the lead that a user post woke, which are the
--- talk of the lead with the user.
+-- talk of the lead with the user. Turns that started before the user put
+-- the team's turns on no task away (off_task_dismissals) are left out too.
 SELECT t.id, t.bot_id, b.name, CAST(t.started_at AS INTEGER) AS started_at, t.prompt,
   CAST(COALESCE((SELECT json_extract(e.body, '$.text') FROM entries e
     WHERE e.bot_id = t.room_id AND e.turn_id = t.id AND e.kind = 'bot' AND json_extract(e.body, '$.speakerId') = t.bot_id
@@ -626,6 +647,7 @@ SELECT t.id, t.bot_id, b.name, CAST(t.started_at AS INTEGER) AS started_at, t.pr
 FROM turns t JOIN bots b ON b.id = t.bot_id
 WHERE t.room_id = sqlc.arg(team_id) AND t.goal_id = '' AND t.board_role NOT IN ('lead', 'retro')
   AND t.started_at >= CAST(sqlc.arg(since) AS INTEGER)
+  AND t.started_at > COALESCE((SELECT d.dismissed_at FROM off_task_dismissals d WHERE d.team_id = sqlc.arg(team_id)), 0)
   AND NOT (t.source = 'room' AND t.hops = 0 AND t.board_role = '' AND t.bot_id = sqlc.arg(lead_id))
 ORDER BY t.started_at, t.rowid;
 

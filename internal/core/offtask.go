@@ -176,3 +176,17 @@ func attachTurns(ctx context.Context, q *db.Queries, teamID, goalID string, ids 
 	}
 	return nil
 }
+
+// DismissOffTask puts away the turns of team teamID that were on no task up
+// to now: its board counts only the turns that start after this. The turns
+// stay in the chat. Calling it again changes nothing but the time.
+func (s *Service) DismissOffTask(ctx context.Context, teamID string) (OffTask, error) {
+	if _, err := s.team(ctx, teamID); err != nil {
+		return OffTask{}, err
+	}
+	if err := s.q.DismissOffTask(ctx, db.DismissOffTaskParams{TeamID: teamID, At: s.now().UnixMilli()}); err != nil {
+		return OffTask{}, fmt.Errorf("put away the turns of %s on no task: %w", teamID, err)
+	}
+	s.hub.Publish(Event{Type: "bots"})
+	return s.RecentOffTask(ctx, teamID)
+}

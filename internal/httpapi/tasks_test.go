@@ -307,3 +307,94 @@ func TestATeamsDailyBudgetIsSetWarnedAndWaitedOut(t *testing.T) {
 		t.Fatalf("wait for a missing team = %d; want 404", rec.Code)
 	}
 }
+
+func TestTheUserPutsAwayAPushedBackTaskAndTheTurnsOnNoTask(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bo, err := svc.CreateBot(ctx, "Bo", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cy, err := svc.CreateBot(ctx, "Cy", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ship, err := svc.CreateTeam(ctx, "Ship", "", []string{ana.ID, cy.ID}, core.TeamSettings{LeadID: ana.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := svc.CreateTeam(ctx, "Dev", "", []string{bo.ID}, core.TeamSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := core.Actor{Role: core.RoleUser}
+	sent, err := svc.HandOver(ctx, user, ship.ID, dev.ID, core.NewHandoff{Text: "Guide."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "POST", "/api/tasks/"+sent.ID+"/dismiss", ``, jsonHeader); rec.Code != http.StatusConflict {
+		t.Fatalf("put away a task that is still open: %d %s; want 409", rec.Code, rec.Body)
+	}
+	if _, err := svc.DeclineHandoff(ctx, user, sent.ID, "Not ours."); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "POST", "/api/tasks/"+sent.ID+"/dismiss", ``, jsonHeader)
+	var first core.Goal
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); rec.Code != http.StatusOK || err != nil || first.DismissedAt == 0 {
+		t.Fatalf("put away the pushed-back task: %d %s", rec.Code, rec.Body)
+	}
+	rec = do(h, "POST", "/api/tasks/"+sent.ID+"/dismiss", ``, jsonHeader)
+	var again core.Goal
+	if err := json.Unmarshal(rec.Body.Bytes(), &again); rec.Code != http.StatusOK || err != nil || again.DismissedAt != first.DismissedAt {
+		t.Fatalf("put it away again: %d %s; want the first time, %d", rec.Code, rec.Body, first.DismissedAt)
+	}
+	own, err := svc.UserTask(ctx, dev.ID, core.NewTask{Text: "Own."}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DeclineHandoff(ctx, user, own.ID, "No."); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "POST", "/api/tasks/"+own.ID+"/dismiss", ``, jsonHeader); rec.Code != http.StatusConflict {
+		t.Fatalf("put away a pushed-back task that no team sent: %d %s; want 409", rec.Code, rec.Body)
+	}
+	if rec := do(h, "POST", "/api/tasks/missing/dismiss", ``, jsonHeader); rec.Code != http.StatusNotFound {
+		t.Fatalf("put away a missing task: %d", rec.Code)
+	}
+
+	// Cy's turn on no task, which the user then puts away.
+	if _, _, err := svc.SubmitUserMessage(ctx, ship.ID, "@Cy which format?", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := svc.QueuedTurns(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tr := range turns {
+		if _, err := svc.StartTurn(ctx, tr.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec = do(h, "GET", "/api/teams/"+ship.ID+"/board", "", nil)
+	if !strings.Contains(rec.Body.String(), `"offTask":{"count":1,`) {
+		t.Fatalf("board before the dismiss = %s; want 1 turn on no task", rec.Body)
+	}
+	rec = do(h, "POST", "/api/teams/"+ship.ID+"/off-task/dismiss", ``, jsonHeader)
+	if rec.Code != http.StatusOK || rec.Body.String() != "{\"count\":0,\"turns\":[]}\n" {
+		t.Fatalf("put away the turns on no task: %d %q", rec.Code, rec.Body)
+	}
+	rec = do(h, "GET", "/api/teams/"+ship.ID+"/board", "", nil)
+	if !strings.Contains(rec.Body.String(), `"offTask":{"count":0,"turns":[]}`) {
+		t.Fatalf("board after the dismiss = %s; want no turns on no task", rec.Body)
+	}
+	if rec := do(h, "POST", "/api/teams/missing/off-task/dismiss", ``, jsonHeader); rec.Code != http.StatusNotFound {
+		t.Fatalf("put away the turns of a missing team: %d", rec.Code)
+	}
+	if rec := do(h, "POST", "/api/teams/"+ana.ID+"/off-task/dismiss", ``, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("put away the turns of a bot that is no team: %d", rec.Code)
+	}
+}

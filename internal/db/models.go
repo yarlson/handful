@@ -86,6 +86,11 @@ type Goal struct {
 	MissedAt      int64  `json:"missed_at"`
 }
 
+type GoalDismissal struct {
+	GoalID      string `json:"goal_id"`
+	DismissedAt int64  `json:"dismissed_at"`
+}
+
 type GoalEvent struct {
 	ID        string `json:"id"`
 	GoalID    string `json:"goal_id"`
@@ -142,6 +147,11 @@ type Memory struct {
 	Fact      string `json:"fact"`
 	LearnedBy string `json:"learned_by"`
 	CreatedAt int64  `json:"created_at"`
+}
+
+type OffTaskDismissal struct {
+	TeamID      string `json:"team_id"`
+	DismissedAt int64  `json:"dismissed_at"`
 }
 
 type RoomMember struct {

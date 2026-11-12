@@ -846,8 +846,16 @@ func (s *Service) QueuedTurnsPage(ctx context.Context, leads bool, skip, page in
 }
 
 // StartTurn marks a queued turn as running. It returns false when the turn
-// is no longer queued, for example because a change on a board cancelled it.
+// is no longer queued, for example because a change on a board cancelled it,
+// or while the server drains. The drain's lock is held across the update, so
+// a turn either started before drain mode began or stays queued: a dispatch
+// that read the queue before then starts nothing after it.
 func (s *Service) StartTurn(ctx context.Context, id string) (bool, error) {
+	s.drain.mu.Lock()
+	defer s.drain.mu.Unlock()
+	if len(s.drain.holders) > 0 {
+		return false, nil
+	}
 	n, err := s.q.StartTurn(ctx, db.StartTurnParams{StartedAt: sql.NullInt64{Int64: s.nowMs(), Valid: true}, ID: id})
 	if err != nil {
 		return false, fmt.Errorf("start turn %s: %w", id, err)

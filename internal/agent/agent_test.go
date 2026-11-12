@@ -3449,9 +3449,11 @@ func TestSilentTaskTurnFailsAndTheBotTakesItsNextTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	failed := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == "turn-failed" })
-	var source, status string
-	if err := h.conn.QueryRowContext(t.Context(), `SELECT source, status FROM turns WHERE id = ?`, failed.TurnID).Scan(&source, &status); err != nil || source != "task" || status != "failed" {
-		t.Fatalf("silent turn = %q %q, %v; want a failed task turn (%s)", source, status, err, failed.Body)
+	// The turn-failed note is written before the turn's status, so wait for the status.
+	h.waitTurnStatus(t, failed.TurnID, bot.ID, "failed")
+	var source string
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT source FROM turns WHERE id = ?`, failed.TurnID).Scan(&source); err != nil || source != "task" {
+		t.Fatalf("silent turn's source = %q, %v; want a task turn (%s)", source, err, failed.Body)
 	}
 	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "are you there?", "n3"); err != nil {
 		t.Fatal(err)

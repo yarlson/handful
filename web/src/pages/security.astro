@@ -40,9 +40,10 @@ const code = "rounded bg-fill px-1 py-0.5 font-mono text-[0.875em]";
 		</p>
 
 		<h2 class={h2}>What Handful does not protect</h2>
-		<p class="mt-4 text-pretty text-base text-ink">Handful has no login. It is safe only on a computer that one person uses.</p>
+		<p class="mt-4 text-pretty text-base text-ink">Handful has no account or login. It is safe only on a computer that one person uses.</p>
 		<ul class={`${list} list-disc pl-5`}>
 			<li>It listens on loopback only, and it rejects requests from other hosts and other web origins.</li>
+			<li>Every write to the local API needs a key that Handful keeps in <code class={code}>~/.handful/ui-key</code>. The key stops code that does not know about it. Bots run as your user and can read the key, so it does not stop a bot, or a script that a command you approve runs, that sets out to use it.</li>
 			<li>Bots run as your user. A command that you approve can do anything that you can do, so read each card.</li>
 			<li>Bots are not isolated from each other. Any bot can read any file, including another bot's folder and the tokens of your connectors.</li>
 			<li>A team keeps its members' work in one place. It is not a security boundary.</li>

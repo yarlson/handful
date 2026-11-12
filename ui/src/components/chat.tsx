@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Copy,
   Loader2,
+  Lock,
   Paperclip,
   Play,
   SmilePlus,
@@ -36,6 +37,8 @@ import {
 import { api, type BackgroundTask, type Bot, type Decision, type Entry, type Member, type Skill } from "@/lib/api"
 import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type MentionQuery } from "@/lib/completion"
 import { Popover } from "radix-ui"
+import { useNarrow } from "@/lib/narrow"
+import { usePhoneSession } from "@/lib/session"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { imageHost, isExternalLink, isLocalImage } from "@/lib/links"
 import { taskCommand } from "@/lib/task-command"
@@ -43,7 +46,7 @@ import { answers, sendPlan } from "@/lib/send"
 import { offeredSkills, teamSkillOf } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, touchArea } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
@@ -120,7 +123,7 @@ function ActivityRow({
     <div className={cn("text-muted-foreground text-xs", b.subagent && "ml-5")}>
       <button
         type="button"
-        className="hover:text-foreground flex w-full items-center gap-1.5 text-left"
+        className={cn(touchArea, "hover:text-foreground flex w-full items-center gap-1.5 text-left")}
         onClick={() => onToggle(entry.id)}
         disabled={!b.output}
       >
@@ -147,8 +150,14 @@ function ActivityRow({
   )
 }
 
+// phoneButton sizes an approval button: 44 px and half the row on a paired phone, and 44 px on
+// any narrow window.
+const phoneButton = (phone: boolean) => (phone ? "h-11 flex-1" : "max-md:h-11 max-md:flex-1")
+
 function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }) {
   const [busy, setBusy] = useState(false)
+  // A paired phone may allow one call or deny it, never widen what a bot may do.
+  const phone = usePhoneSession()
   const [error, setError] = useState<string | null>(null)
   const b = entry.body
   const decide = async (d: Decision) => {
@@ -220,16 +229,30 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
         {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
       </CardContent>
       {b.status === "pending" && (
-        <CardFooter className="gap-2">
-          <Button size="sm" disabled={busy} onClick={() => void decide("once")}>
+        <CardFooter className="gap-2 max-md:flex-wrap">
+          <Button size="sm" className={phoneButton(phone)} disabled={busy} onClick={() => void decide("once")}>
             <Check /> Allow once
           </Button>
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide("always")}>
-            Always allow {b.tool}
-          </Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide("deny")}>
+          {!phone && (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide("always")}>
+              Always allow {b.tool}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant={phone ? "outline" : "ghost"}
+            className={phoneButton(phone)}
+            disabled={busy}
+            onClick={() => void decide("deny")}
+          >
             Deny
           </Button>
+          {phone && (
+            <p className="text-muted-foreground flex w-full items-center gap-1.5 text-xs">
+              <Lock className="size-3.5 shrink-0" aria-hidden />
+              Always allow {b.tool} works only on your computer.
+            </p>
+          )}
         </CardFooter>
       )}
     </Card>
@@ -743,6 +766,7 @@ function Composer({
   answering: Asked | null
   onAnswer: (q: Asked | null) => void
 }) {
+  const narrow = useNarrow()
   const [text, setText] = useState(() => loadDraft(bot.id))
   useEffect(() => saveDraft(bot.id, text), [bot.id, text])
   const [error, setError] = useState<string | null>(null)
@@ -857,7 +881,7 @@ function Composer({
     }
   }
   return (
-    <div className="border-t p-3">
+    <div className="border-t p-3 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {(error ?? attachError) && <p className="text-destructive mb-2 text-xs">{error ?? attachError}</p>}
       <div className="relative">
         {open && (
@@ -962,6 +986,7 @@ function Composer({
             <Button
               size="icon-lg"
               variant="ghost"
+              className="max-md:size-11"
               aria-label="Attach images or videos"
               title="Attach images or videos"
               onClick={() => filePicker.current?.click()}
@@ -976,13 +1001,15 @@ function Composer({
               aria-expanded={open}
               aria-controls={open ? "completion-list" : undefined}
               aria-activedescendant={open ? `completion-${active}` : undefined}
-              className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0"
+              className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0 max-md:max-h-32 max-md:min-h-11 max-md:text-base"
               placeholder={
-                bot.team
-                  ? `Message ${bot.name}… (the lead answers; @Name, @here, / for commands)`
-                  : isRoom
-                    ? `Message ${bot.name}… (@Name asks one member, @here all, / for commands)`
-                    : `Message ${bot.name}… (/ for commands and skills, @ for bots)`
+                narrow
+                  ? `Message ${bot.name}…`
+                  : bot.team
+                    ? `Message ${bot.name}… (the lead answers; @Name, @here, / for commands)`
+                    : isRoom
+                      ? `Message ${bot.name}… (@Name asks one member, @here all, / for commands)`
+                      : `Message ${bot.name}… (/ for commands and skills, @ for bots)`
               }
               value={text}
               onChange={(e) => {
@@ -1004,6 +1031,7 @@ function Composer({
               <Button
                 size="icon-lg"
                 variant="outline"
+                className="max-md:size-11"
                 aria-label={bot.running ? "Stop" : "Stop background tasks"}
                 title={bot.running ? "Stop" : "Stop background tasks"}
                 onClick={() => void api.interrupt(bot.id)}
@@ -1013,6 +1041,7 @@ function Composer({
             )}
             <Button
               size="icon-lg"
+              className="max-md:size-11"
               aria-label="Send"
               disabled={(!text.trim() && media.length === 0) || sending}
               onClick={() => void send()}

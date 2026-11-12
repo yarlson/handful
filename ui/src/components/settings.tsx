@@ -700,24 +700,27 @@ export function SettingsPage({
   const disk = diskNotice(view, diskChanges(view, saved))
   const title = SECTIONS.find((s) => s.id === section)?.label ?? "General"
   return (
-    <div className="bg-background text-foreground relative flex h-dvh min-w-0 flex-1 overflow-clip">
-      <aside className="flex w-52 shrink-0 flex-col gap-3 border-r px-2 py-4">
+    <div className="bg-background text-foreground relative flex h-dvh min-w-0 flex-1 overflow-clip max-md:flex-col">
+      <aside className="flex w-52 shrink-0 flex-col gap-3 border-r px-2 py-4 max-md:w-full max-md:gap-1 max-md:border-r-0 max-md:border-b max-md:pt-[max(0.5rem,env(safe-area-inset-top))] max-md:pb-0">
         <button
           type="button"
-          className="text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 text-xs"
+          className="text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 text-xs max-md:min-h-11 max-md:text-sm"
           onClick={onBack}
         >
           <ArrowLeft className="size-3" /> Back to chats
         </button>
         <h1 className="px-2 text-sm font-semibold">Settings</h1>
-        <nav aria-label="Settings sections" className="flex flex-col gap-0.5">
+        <nav
+          aria-label="Settings sections"
+          className="flex flex-col gap-0.5 max-md:-mx-2 max-md:flex-row max-md:overflow-x-auto max-md:px-2"
+        >
           {SECTIONS.map((s) => (
             <button
               key={s.id}
               type="button"
               aria-current={s.id === section ? "page" : undefined}
               className={cn(
-                "flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm",
+                "flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm max-md:shrink-0 max-md:gap-1.5 max-md:rounded-b-none max-md:px-3 max-md:py-3",
                 s.id === section ? "bg-muted font-medium" : "hover:bg-muted/60",
               )}
               onClick={() => onSection(s.id)}
@@ -733,7 +736,7 @@ export function SettingsPage({
           ))}
         </nav>
       </aside>
-      <main className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5">
+      <main className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5 max-md:px-4">
         <div className="max-w-[680px]">
           {restart.state === "now" && (
             <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">

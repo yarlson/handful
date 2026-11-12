@@ -271,9 +271,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await res.json()) as T
 }
 
+// Session is what the server knows of this browser: phone is true for a paired phone.
+export type Session = { phone: boolean }
+
 export const api = {
   listBots: () => request<Bot[]>("GET", "/api/bots"),
   version: () => request<ServerVersion>("GET", "/api/version"),
+  // session says whether this browser is a paired phone.
+  session: () => request<Session>("GET", "/api/session"),
   settings: () => request<SettingsView>("GET", "/api/settings"),
   // The welcome notice after the data moved to ~/.handful shows until the user closes it.
   moveNotice: () => request<{ show: boolean }>("GET", "/api/move-notice"),

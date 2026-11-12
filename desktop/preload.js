@@ -1,5 +1,6 @@
 // The bridges between the page and the main process: window.handfulUpdater
-// for the updater, and window.handfulSettings for the Settings page. The main
+// for the updater, window.handfulSettings for the Settings page, and the
+// page's handful:pair-request event for the Dock badge. The main
 // process answers only the main frame of the server's page.
 const { contextBridge, ipcRenderer } = require("electron")
 
@@ -45,3 +46,7 @@ contextBridge.exposeInMainWorld("handfulSettings", {
   revealLog: () => ipcRenderer.invoke("settings:revealLog"),
   showYarGPTApp: () => ipcRenderer.invoke("settings:showYarGPTApp"),
 })
+
+// The page fires handful:pair-request with detail 1 while a phone waits to
+// pair, and 0 when the request ends.
+window.addEventListener("handful:pair-request", (event) => ipcRenderer.send("pair:change", event.detail === 1))

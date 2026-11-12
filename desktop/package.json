@@ -27,6 +27,7 @@
       "context-menu.js",
       "menu.js",
       "manual-move.js",
+      "pair-badge.js",
       "preload.js",
       "server-log.js",
       "settings-bridge.js",

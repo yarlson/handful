@@ -11,6 +11,7 @@ const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ens
 const { contextMenuTemplate } = require("./context-menu")
 const { appMenuTemplate } = require("./menu")
 const { createOldServerGate, launchctlRunner } = require("./manual-move")
+const { createPairBadge } = require("./pair-badge")
 const { lastStartupErrorIn, runServerErrorAction, serverErrorDialog } = require("./server-log")
 const { createSettingsBridge, registerSettingsIPC, settingsAPI } = require("./settings-bridge")
 const { createUpdater } = require("./updater")
@@ -52,6 +53,9 @@ const updater = createUpdater({
   },
   getWindow: () => window,
 })
+
+// The Dock badge while a phone waits to pair and the window is not in front.
+const pairBadge = createPairBadge({ dock: app.dock ?? null, isFocused: () => !!window?.isFocused() })
 
 // The manual path of the move: before Handful registers its agent, the old
 // app's server, if it still holds the port, is stopped with the user's
@@ -115,6 +119,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(buildMenu())
     registerSettingsIPC(ipcMain, settingsBridge, isTrusted)
+    ipcMain.on("pair:change", (event, waiting) => {
+      if (isTrusted(event)) pairBadge.change(waiting)
+    })
     void updater.start().catch((err) => console.error("start the updater:", err))
     session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
       callback(pagePermissions.has(permission) && isAppURL(details.requestingUrl)),
@@ -345,8 +352,10 @@ async function openWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, sandbox: true },
   })
   window.once("ready-to-show", () => window?.show())
+  window.on("focus", () => pairBadge.focus())
   window.on("closed", () => {
     window = null
+    pairBadge.closed()
   })
   routeLinks(window.webContents)
   showContextMenus(window)

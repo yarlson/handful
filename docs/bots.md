@@ -62,7 +62,7 @@ Bots remember facts across conversations. To see and edit them, open the bot pan
 
 ## Routines
 
-Ask a bot for anything that repeats, for example "every weekday at 8:10, brief me on my calendar". The bot saves a routine: a prompt and a schedule in your local time. Two runs must be at least 5 minutes apart.
+Ask a bot for anything that repeats, for example "every weekday at 8:10, brief me on my calendar". The bot saves a routine: a prompt and a schedule in your local time. When the Mac's time zone changes, the next runs move to the new zone within two minutes, with no restart. Two runs must be at least 5 minutes apart; Handful checks this when a routine is made or its schedule changes.
 
 The **Routines** tab in the bot panel shows each routine and its next run. There you can pause it, run it now or delete it. When you change a routine, the bot gets a notice. A routine queues at most one scheduled run: while a run waits for a busy bot or a usage limit, later times only move its next run. Changing, pausing or deleting a routine drops its runs that haven't started.
 

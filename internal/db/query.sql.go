@@ -3882,6 +3882,45 @@ func (q *Queries) ListToolGrants(ctx context.Context, botID string) ([]string, e
 	return items, nil
 }
 
+const listUpcomingRoutines = `-- name: ListUpcomingRoutines :many
+SELECT id, bot_id, name, prompt, schedule, enabled, next_run_at, last_run_at, created_at, updated_at, last_run_by FROM routines WHERE enabled = 1 AND next_run_at > ?
+`
+
+func (q *Queries) ListUpcomingRoutines(ctx context.Context, nextRunAt sql.NullInt64) ([]Routine, error) {
+	rows, err := q.db.QueryContext(ctx, listUpcomingRoutines, nextRunAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Routine
+	for rows.Next() {
+		var i Routine
+		if err := rows.Scan(
+			&i.ID,
+			&i.BotID,
+			&i.Name,
+			&i.Prompt,
+			&i.Schedule,
+			&i.Enabled,
+			&i.NextRunAt,
+			&i.LastRunAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastRunBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markRoutineFired = `-- name: MarkRoutineFired :exec
 UPDATE routines SET last_run_at = ?, last_run_by = ?, next_run_at = ? WHERE id = ?
 `

@@ -256,7 +256,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		return err
 	}
 	defer conn.Close()
-	svc, err := core.New(conn, o.dataDir, time.Local, core.WithDefaults(o.defaults))
+	svc, err := core.New(conn, o.dataDir, time.Local, core.WithDefaults(o.defaults), core.WithClock(computerClock(log)))
 	if err != nil {
 		return err
 	}

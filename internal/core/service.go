@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -147,11 +148,12 @@ type BackgroundTask struct {
 }
 
 type Service struct {
-	sqlDB      *sql.DB
-	q          *db.Queries
-	hub        *Hub
-	dataDir    string
-	loc        *time.Location
+	sqlDB   *sql.DB
+	q       *db.Queries
+	hub     *Hub
+	dataDir string
+	// now is the clock. The location of the time it returns is the user's time zone, so a
+	// clock that follows the computer's zone moves days and routines with it.
 	now        func() time.Time
 	turnsReady chan struct{}
 	approvals  *approvalWaiters
@@ -164,6 +166,9 @@ type Service struct {
 	modelAttention *modelFlags
 	drain          drain
 	pairing        *pairing
+	// routineZone is the time zone that the routines' upcoming runs were set in; nil until
+	// FireDueRoutines first runs.
+	routineZone atomic.Pointer[time.Location]
 }
 
 // Option changes a new Service.
@@ -174,13 +179,13 @@ func WithDefaults(d Defaults) Option {
 	return func(s *Service) { s.defaults = d }
 }
 
-// WithClock reads the time from now.
+// WithClock reads the time from now. The location of now's time is the user's time zone.
 func WithClock(now func() time.Time) Option {
 	return func(s *Service) { s.now = now }
 }
 
 // New creates the service. dataDir holds bot workspaces, shared skills and
-// the media files of messages.
+// the media files of messages. loc is the user's time zone, unless WithClock sets a clock.
 func New(sqlDB *sql.DB, dataDir string, loc *time.Location, opts ...Option) (*Service, error) {
 	if err := os.MkdirAll(filepath.Join(dataDir, "skills"), 0o755); err != nil {
 		return nil, fmt.Errorf("create skills dir: %w", err)
@@ -197,8 +202,7 @@ func New(sqlDB *sql.DB, dataDir string, loc *time.Location, opts ...Option) (*Se
 		q:              db.New(sqlDB),
 		hub:            NewHub(),
 		dataDir:        dataDir,
-		loc:            loc,
-		now:            time.Now,
+		now:            func() time.Time { return time.Now().In(loc) },
 		turnsReady:     make(chan struct{}, 1),
 		approvals:      newApprovalWaiters(),
 		tempDirs:       []string{"/tmp", os.TempDir()},
@@ -216,7 +220,7 @@ func New(sqlDB *sql.DB, dataDir string, loc *time.Location, opts ...Option) (*Se
 func (s *Service) Defaults() Defaults { return s.defaults }
 
 func (s *Service) Hub() *Hub                   { return s.hub }
-func (s *Service) Location() *time.Location    { return s.loc }
+func (s *Service) Location() *time.Location    { return s.now().Location() }
 func (s *Service) TurnsReady() <-chan struct{} { return s.turnsReady }
 func (s *Service) DataDir() string             { return s.dataDir }
 func (s *Service) SkillsDir() string           { return filepath.Join(s.dataDir, "skills") }
@@ -876,8 +880,8 @@ func (s *Service) RecoverAfterRestart(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("abandon running turns: %w", err)
 	}
-	for _, t := range turns {
-		if _, err := s.AppendEntry(ctx, t.BotID, KindEvent, t.ID, map[string]string{"type": "interrupted", "text": "The server restarted while this turn was running."}); err != nil {
+	for _, t := range toTurns(turns) {
+		if _, err := s.AppendEntry(ctx, t.Transcript(), KindEvent, t.ID, map[string]string{"type": "interrupted", "text": "The server restarted while this turn was running."}); err != nil {
 			return err
 		}
 	}

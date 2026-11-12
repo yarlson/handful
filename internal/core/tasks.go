@@ -218,7 +218,7 @@ func (s *Service) LaterTask(ctx context.Context, a Actor, goalID, note string, u
 	if until <= now.UnixMilli() || until > now.AddDate(0, 0, maxLaterDays).UnixMilli() {
 		return Goal{}, invalid("Pick a time in the future, at most 7 days from now.")
 	}
-	when := time.UnixMilli(until).In(s.loc).Format("Mon Jan 2 15:04")
+	when := time.UnixMilli(until).In(now.Location()).Format("Mon Jan 2 15:04")
 	err = s.inTx(ctx, func(q *db.Queries) error {
 		n, err := q.SetGoalLater(ctx, db.SetGoalLaterParams{LaterUntil: until, IntakeNote: note, ID: g.ID})
 		if err != nil {

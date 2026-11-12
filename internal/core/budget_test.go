@@ -20,8 +20,7 @@ type budgetFixture struct {
 func newBudgetFixture(t *testing.T) *budgetFixture {
 	t.Helper()
 	f := &budgetFixture{handoffFixture: newHandoffFixture(t)}
-	f.svc.loc = time.FixedZone("EET", 2*60*60)
-	f.clock = time.Date(2027, 1, 15, 15, 0, 0, 0, f.svc.loc)
+	f.clock = time.Date(2027, 1, 15, 15, 0, 0, 0, time.FixedZone("EET", 2*60*60))
 	f.svc.now = func() time.Time { return f.clock }
 	f.watchSince(t, f.team.ID, f.clock.AddDate(0, 0, -10))
 	return f
@@ -104,10 +103,10 @@ func TestEveryTurnOfATeamCountsOnItsDayButItsLeadsDecisions(t *testing.T) {
 		{id: "plain-room", bot: f.ana.ID, room: other.ID, hops: 1, started: now},
 		{id: "docs", bot: f.dee.ID, room: f.docs.ID, hops: 1, started: now},
 		// Not today in EET: 23:59 yesterday and 00:00 tomorrow.
-		{id: "yesterday", bot: f.ana.ID, room: team, hops: 1, started: time.Date(2027, 1, 14, 23, 59, 0, 0, f.svc.loc)},
-		{id: "tomorrow", bot: f.ana.ID, room: team, hops: 1, started: time.Date(2027, 1, 16, 0, 0, 0, 0, f.svc.loc)},
+		{id: "yesterday", bot: f.ana.ID, room: team, hops: 1, started: time.Date(2027, 1, 14, 23, 59, 0, 0, f.clock.Location())},
+		{id: "tomorrow", bot: f.ana.ID, room: team, hops: 1, started: time.Date(2027, 1, 16, 0, 0, 0, 0, f.clock.Location())},
 		// Midnight in EET is today.
-		{id: "midnight", bot: f.ana.ID, room: team, hops: 1, started: time.Date(2027, 1, 15, 0, 0, 0, 0, f.svc.loc)},
+		{id: "midnight", bot: f.ana.ID, room: team, hops: 1, started: time.Date(2027, 1, 15, 0, 0, 0, 0, f.clock.Location())},
 	} {
 		storeTurn(t, f.svc, s)
 	}

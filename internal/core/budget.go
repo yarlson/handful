@@ -46,14 +46,15 @@ type BudgetView struct {
 
 // dayStart is the start of the user's local day that t falls in.
 func (s *Service) dayStart(t time.Time) time.Time {
-	y, m, d := t.In(s.loc).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, s.loc)
+	loc := s.Location()
+	y, m, d := t.In(loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, loc)
 }
 
 // dayKey names the user's local day of t, as budget_noted_on and
 // budget_waited_on store it.
 func (s *Service) dayKey(t time.Time) string {
-	return t.In(s.loc).Format(time.DateOnly)
+	return t.In(s.Location()).Format(time.DateOnly)
 }
 
 // teamTurnsOn counts the turns of team that started on the local day that

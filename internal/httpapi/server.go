@@ -45,6 +45,8 @@ type server struct {
 	phone *Phone
 	// routes are the main listener's routes.
 	routes *routes
+	// key is what writes to the API on the main listener need.
+	key apiKey
 }
 
 // routes is the main listener's mux, which keeps the patterns it registers.
@@ -93,6 +95,7 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	mux.HandleFunc("GET /api/defaults", s.defaults)
 	mux.HandleFunc("GET /api/version", s.version)
 	mux.HandleFunc("GET /api/session", s.session)
+	mux.HandleFunc("POST "+keyPath, s.saveKey)
 	mux.HandleFunc("POST /api/drain", s.setDrain(true))
 	mux.HandleFunc("DELETE /api/drain", s.setDrain(false))
 	mux.HandleFunc("GET /api/move-notice", s.getMoveNotice)
@@ -194,13 +197,13 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 		mux.HandleFunc("DELETE /api/phone/sessions/{id}", s.revokePhoneSession)
 		s.phone.handler = s.phoneHandler(mux, files)
 	}
-	return s, guard(mux)
+	return s, guard(mux, s.key)
 }
 
 // guard rejects requests that could come from a web page on another origin:
-// a Host that is not loopback (DNS rebinding) or a foreign Origin (CSRF).
-// The API has no other authentication, so this check is the trust boundary.
-func guard(next http.Handler) http.Handler {
+// a Host that is not loopback (DNS rebinding) or a foreign Origin (CSRF), and
+// writes to the API without Handful's key.
+func guard(next http.Handler, key apiKey) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isLoopbackHost(r.Host) {
 			http.Error(w, "Handful only answers on a loopback host", http.StatusForbidden)
@@ -212,6 +215,10 @@ func guard(next http.Handler) http.Handler {
 				http.Error(w, "cross-origin request refused", http.StatusForbidden)
 				return
 			}
+		}
+		if needsKey(r) && !key.carried(r) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "This needs Handful's key."})
+			return
 		}
 		// POST is the only write a page on another origin can send without a CORS
 		// preflight, and then only with a form or text body. Other write methods

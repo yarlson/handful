@@ -114,6 +114,9 @@ Handful has no login. It is safe only on a computer that one person uses, and on
 - It rejects requests whose `Host` is not loopback, to block DNS rebinding.
 - It rejects requests from another web origin, to block cross-site request forgery.
 - It rejects API POST requests whose body is not JSON.
+- Every change through the API needs Handful's key, from the file `~/.handful/ui-key`. Without it, the request gets 401. Handful.app gives its window the key itself. A browser on the computer asks for it once: run `cat ~/.handful/ui-key` and paste the key. A script sends it as the `X-Handful-Key` header. Reads need no key. [Handful's key](docs/configuration.md#handfuls-key) says how to rotate it.
+
+The key stops only code that doesn't know about it, such as a plain request that a prompt slipped into a bot's command. Bots run as your user, so a bot can read the key file, and so can any script that an approved command runs, without showing on any card. An approved command can also change Handful's database directly.
 
 Bots run as your user. An approved command can do anything that you can do, so read each approval card before you allow it.
 

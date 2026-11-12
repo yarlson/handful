@@ -46,11 +46,17 @@ func newTestHandler(t *testing.T) (http.Handler, *core.Service) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: "/nonexistent"}, log)
 	ui := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>app")}}
-	return New(svc, runner, ui, log), svc
+	return New(svc, runner, ui, log, WithKey(testKey, "/data/ui-key")), svc
 }
 
+// testKey is the key of the test servers; jsonHeader carries it.
+const testKey = "test-key"
+
+// do sends a request to h as the computer's UI does, with Handful's key; a header in header
+// replaces it, and KeyHeader set to "" sends a request without a valid key.
 func do(h http.Handler, method, target, body string, header map[string]string) *httptest.ResponseRecorder {
 	req := httptest.NewRequestWithContext(context.Background(), method, "http://127.0.0.1:7777"+target, strings.NewReader(body))
+	req.Header.Set(KeyHeader, testKey)
 	for k, v := range header {
 		req.Header.Set(k, v)
 	}
@@ -74,8 +80,9 @@ func TestGuardRefusesForeignHostOriginAndNonJSONWrites(t *testing.T) {
 		{"localhost GET", "GET", "localhost:7777", nil, http.StatusOK},
 		{"rebinding host", "GET", "evil.example:7777", nil, http.StatusForbidden},
 		{"foreign origin", "GET", "127.0.0.1:7777", map[string]string{"Origin": "https://evil.example"}, http.StatusForbidden},
-		{"same origin write", "POST", "127.0.0.1:7777", map[string]string{"Origin": "http://127.0.0.1:7777", "Content-Type": "application/json"}, http.StatusCreated},
-		{"form-encoded write", "POST", "127.0.0.1:7777", map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, http.StatusUnsupportedMediaType},
+		{"same origin write", "POST", "127.0.0.1:7777", map[string]string{"Origin": "http://127.0.0.1:7777", "Content-Type": "application/json", KeyHeader: testKey}, http.StatusCreated},
+		{"form-encoded write", "POST", "127.0.0.1:7777", map[string]string{"Content-Type": "application/x-www-form-urlencoded", KeyHeader: testKey}, http.StatusUnsupportedMediaType},
+		{"write without the key", "POST", "127.0.0.1:7777", map[string]string{"Content-Type": "application/json"}, http.StatusUnauthorized},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -448,7 +455,7 @@ func TestConnectorSignInThroughTheBrowserNeverShowsTokens(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: "/nonexistent", OAuthCallbackURL: "http://127.0.0.1:7777/oauth/callback"}, log)
-	h := New(svc, runner, nil, log)
+	h := New(svc, runner, nil, log, WithKey(testKey, "/data/ui-key"))
 
 	rec := do(h, "POST", "/api/connectors/tracker/connect", `{}`, jsonHeader)
 	if rec.Code != http.StatusOK {
@@ -882,8 +889,8 @@ func TestAcceptEndpointFinishesADeliveredGoal(t *testing.T) {
 func TestTheSessionOnTheComputerIsNoPhone(t *testing.T) {
 	h, _ := newTestHandler(t)
 	rec := do(h, "GET", "/api/session", "", nil)
-	if rec.Code != http.StatusOK || rec.Body.String() != "{\"phone\":false}\n" {
-		t.Fatalf("session = %d %q; want 200 {\"phone\":false}", rec.Code, rec.Body)
+	if rec.Code != http.StatusOK || rec.Body.String() != "{\"key\":true,\"phone\":false}\n" {
+		t.Fatalf("session = %d %q; want 200 {\"key\":true,\"phone\":false}", rec.Code, rec.Body)
 	}
 }
 
@@ -902,7 +909,7 @@ func TestTwoSendsOfOneDraftGiveOneMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := New(svc, agent.NewRunner(svc, agent.Config{ClaudePath: "/nonexistent"}, log), nil, log)
+	h := New(svc, agent.NewRunner(svc, agent.Config{ClaudePath: "/nonexistent"}, log), nil, log, WithKey(testKey, "/data/ui-key"))
 	bot, err := svc.CreateBot(context.Background(), "Ana", "")
 	if err != nil {
 		t.Fatal(err)

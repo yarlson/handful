@@ -1,5 +1,5 @@
 import { afterEach, assert, test, vi } from "vitest"
-import { api } from "./api.ts"
+import { api, onKeyLost } from "./api.ts"
 
 type Call = { method: string; url: string; body: unknown }
 
@@ -141,6 +141,26 @@ test("a message carries the draft's nonce, its files and the questions it answer
       body: { text: "look", media: ["aGk="], clientNonce: "n2", answers: ["q1"] },
     },
   ])
+})
+
+test("saveKey posts the pasted key to /api/key", async () => {
+  const calls = stubFetch(204)
+  await api.saveKey("abc")
+  assert.deepEqual(calls, [{ method: "POST", url: "/api/key", body: { key: "abc" } }])
+})
+
+test("only a 401 runs what onKeyLost set", async () => {
+  let lost = 0
+  onKeyLost(() => lost++)
+  for (const status of [400, 403, 404, 500]) {
+    vi.stubGlobal("fetch", async () => Response.json({ error: "x" }, { status }))
+    await api.createBot("Ana", "").catch(() => {})
+  }
+  assert.equal(lost, 0)
+  vi.stubGlobal("fetch", async () => Response.json({ error: "x" }, { status: 401 }))
+  await api.createBot("Ana", "").catch(() => {})
+  assert.equal(lost, 1)
+  onKeyLost(() => {})
 })
 
 test("settings and restart calls go to the server's routes with their bodies", async () => {

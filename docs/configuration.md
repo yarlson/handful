@@ -30,6 +30,7 @@ The data folder holds:
 | `skills/` | Skills that all bots share |
 | `media/` | Images and videos of messages |
 | `AGENTS.md`, `connectors.json`, `config.json` | Your optional settings |
+| `ui-key` | Handful's key, which every change through the API needs (mode 0600) |
 | `oauth/` | Connector sign-in tokens |
 | `run/` | MCP configs of running bots, with their per-turn tokens |
 
@@ -46,6 +47,18 @@ Each bot can have its own model and reasoning effort: set them in the bot's **Se
 - **When a change applies.** From the bot's next turn. Switching models makes that turn slower and costlier, because the prompt cache starts over.
 - **Problems.** When Claude Code can't run a model, the chat says so, names where the value comes from and links to Settings, and the turn isn't retried. When Claude Code runs another model than the one asked for, the header chip turns amber and the chat notes it once. A bot can't change its own model or effort.
 - **Environment.** When Handful sets an effort, it removes `CLAUDE_CODE_EFFORT_LEVEL` from the bot's run, since that variable would outrank it; with no effort in Handful, the variable applies. `ANTHROPIC_MODEL` stays, because `--model` outranks it. Handful always removes `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_SUBAGENT_EFFORT` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, so a bot's helper subagents use the bot's model and effort.
+
+## Handful's key
+
+Every change through Handful's API (any request under `/api/` other than GET) needs Handful's key; without it, the request gets 401 with `{"error": "This needs Handful's key."}`. Reads need no key, and neither does a paired phone, which has its own session.
+
+- **Where it is:** the file `ui-key` in the data folder, so `~/.handful/ui-key`, or `<dir>/ui-key` with `-data <dir>`. Handful makes it at its first start, readable by you only (mode 0600), and keeps it across restarts. A file that others can read is narrowed to 0600 at the next start.
+- **Handful.app** reads the file and gives its window the key, so you never see it.
+- **A browser on the computer** shows a page that asks for the key once: run `cat ~/.handful/ui-key` in a terminal (the page shows the path in use), and paste the key. The browser keeps it in a cookie.
+- **A script** sends it as the `X-Handful-Key` header, for example `curl -H "X-Handful-Key: $(cat ~/.handful/ui-key)" …`.
+- **To rotate it,** delete the file and restart Handful. Every browser then asks for the new key.
+
+The key stops only code that doesn't know about it, such as a plain request that a prompt slipped into a bot's command. Bots run as your user, so a bot can read the key file, and so can any script that an approved command runs, without showing on any card. An approved command can also change Handful's database directly. Bots are not isolated from each other or from Handful's files.
 
 ## Global instructions
 

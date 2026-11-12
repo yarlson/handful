@@ -64,6 +64,8 @@ type options struct {
 	mover    *move.Mover
 	moveBack bool // -move-back: go back to the old app instead of serving
 	yes      bool
+	// key is Handful's key, which writes to the API need, and keyFile the file that holds it.
+	key, keyFile string
 }
 
 func run(args []string) error {
@@ -229,10 +231,17 @@ func prepare(o *options) error {
 		return fmt.Errorf("parse -addr %q: %w", o.addr, err)
 	}
 	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-		return fmt.Errorf("-addr %q is not a loopback address; Handful has no authentication and must not listen on the network", o.addr)
+		return fmt.Errorf("-addr %q is not a loopback address; Handful must not listen on the network", o.addr)
 	}
 	if err := os.MkdirAll(o.dataDir, 0o700); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
+	}
+	var widened bool
+	if o.key, o.keyFile, widened, err = ensureKey(o.dataDir); err != nil {
+		return err
+	}
+	if widened {
+		fmt.Fprintf(os.Stderr, "%s was readable by others; it is now readable by you only.\n", o.keyFile)
 	}
 	return nil
 }
@@ -276,7 +285,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	}
 	updates := startUpdateNotice(ctx, o, log)
 	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, svc.PublishRestart, func(on bool) { svc.HoldDrain(core.DrainRestart, on) }, log)
-	apiOpts := []httpapi.Option{httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings), httpapi.WithMoveNotice(o.moveNotice())}
+	apiOpts := []httpapi.Option{httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings), httpapi.WithMoveNotice(o.moveNotice()), httpapi.WithKey(o.key, o.keyFile)}
 	// Phone access is off unless config.json or Settings turns it on; then a second listener opens.
 	phone := httpapi.NewPhone(o.Phone, log)
 	apiOpts = append(apiOpts, httpapi.WithPhone(phone))

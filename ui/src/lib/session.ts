@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react"
-import { api, type Session } from "./api"
+import { api, onKeyLost, type Session } from "./api"
 import { rightsOf, type Rights } from "./phones"
 
 // SessionStore holds what the server says about this browser's session: whether it is a paired
@@ -17,7 +17,14 @@ export type SessionStore = {
 const COMPUTER_SESSION: Session = { phone: false }
 
 function same(a: Session, b: Session) {
-  return a.phone === b.phone && a.scope === b.scope && a.device === b.device && a.lost === b.lost
+  return (
+    a.phone === b.phone &&
+    a.scope === b.scope &&
+    a.device === b.device &&
+    a.lost === b.lost &&
+    a.key === b.key &&
+    a.keyFile === b.keyFile
+  )
 }
 
 export function sessionStore(load: () => Promise<Session>): SessionStore {
@@ -53,8 +60,16 @@ export function sessionStore(load: () => Promise<Session>): SessionStore {
   }
 }
 
-// phoneSession is this page's session, as the server tells it.
+// phoneSession is this page's session, as the server tells it. A write refused for want of
+// Handful's key asks again, so the page offers the key page.
 export const phoneSession = sessionStore(() => api.session())
+onKeyLost(phoneSession.recheck)
+
+// needsKey reports whether this browser is the computer's and lacks Handful's key, so the page
+// asks for it. Until the server answers, it doesn't.
+export function needsKey(s: Session): boolean {
+  return !s.phone && s.key === false
+}
 
 // usePhoneSession tells whether this browser is a paired phone, so the UI leaves out what the
 // server would refuse it. It is never decided by the window's width; a server render is no phone.

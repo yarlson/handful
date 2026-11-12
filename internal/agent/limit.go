@@ -16,6 +16,10 @@ const (
 	usageLimitPrefix  = "You've hit your "
 	limitPauseDefault = 15 * time.Minute
 	limitPauseMax     = 6 * time.Hour
+	// A reset time in the message that passed less than limitResetGraceMinutes ago is the
+	// reset that just happened, not the next one; then turns wait limitPauseShort and try again.
+	limitResetGraceMinutes = 5
+	limitPauseShort        = time.Minute
 )
 
 // limitResetText matches the reset in a usage limit message: "resets 8pm
@@ -25,6 +29,7 @@ var limitResetText = regexp.MustCompile(`resets (?:([A-Z][a-z]{2} \d{1,2}), )?(\
 
 // usageLimitReset returns when a usage limit ends: at resetsAt (Unix seconds)
 // when it is after now, else at the reset in text, else limitPauseDefault after now.
+// A reset in text that passed within limitResetGraceMinutes gives limitPauseShort.
 func usageLimitReset(resetsAt int64, text string, now time.Time) time.Time {
 	if reset := time.Unix(resetsAt, 0); resetsAt > 0 && reset.After(now) {
 		return reset
@@ -47,15 +52,7 @@ func usageLimitReset(resetsAt int64, text string, now time.Time) time.Time {
 		if err != nil {
 			continue
 		}
-		reset := time.Date(local.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, loc)
-		switch {
-		case reset.After(now):
-		case dated:
-			reset = reset.AddDate(1, 0, 0)
-		default:
-			reset = reset.AddDate(0, 0, 1)
-		}
-		return reset
+		return nextReset(time.Date(local.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, loc), now, dated)
 	}
 	return now.Add(limitPauseDefault)
 }
@@ -109,4 +106,20 @@ func (r *Runner) endPause() {
 	r.pausedUntil = time.Time{}
 	r.svc.PublishPause(time.Time{})
 	r.mu.Unlock()
+}
+
+// nextReset returns when a limit whose message names reset ends: reset itself when it is after
+// now; limitPauseShort from now when it passed within the grace window; else the same time a
+// year later, for a dated reset, or a day later.
+func nextReset(reset, now time.Time, dated bool) time.Time {
+	if reset.After(now) {
+		return reset
+	}
+	if now.Sub(reset) < limitResetGraceMinutes*time.Minute {
+		return now.Add(limitPauseShort)
+	}
+	if dated {
+		return reset.AddDate(1, 0, 0)
+	}
+	return reset.AddDate(0, 0, 1)
 }

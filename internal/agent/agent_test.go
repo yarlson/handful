@@ -201,6 +201,21 @@ usage-limit)
     while IFS= read -r _; do :; done
   fi
   ;;
+usage-limit-fallback)
+  # The first two processes hit a usage limit whose message names no reset
+  # time, so the pause is the 15-minute fallback. Later processes answer.
+  n=$(ls "$dir" | grep -c '^fallback-limit-' || true)
+  if [ "$n" -ge 2 ]; then
+    lifecycle started; result "ok"; lifecycle completed
+  else
+    touch "$dir/fallback-limit-$n"
+    lifecycle started
+    init
+    echo '{"type":"result","subtype":"success","is_error":true,"result":"You'"'"'ve hit your usage limit."}'
+    lifecycle cancelled
+    while IFS= read -r _; do :; done
+  fi
+  ;;
 silent)
   # The first process starts its turn and then prints nothing more, as a
   # process that hangs after a usage limit. Later processes answer.
@@ -3049,14 +3064,65 @@ func TestTurnCancelledAfterAnAPIErrorFailsAndTheNextTurnRuns(t *testing.T) {
 	}
 }
 
+// endPauseNow ends the runner's usage-limit pause at once, as its timer would at its end.
+func (h *harness) endPauseNow() {
+	h.runner.mu.Lock()
+	h.runner.pausedUntil = time.Now().Add(-time.Millisecond)
+	h.runner.mu.Unlock()
+	h.runner.resume.Reset(0)
+}
+
+// waitTurnStatus polls turn id until its status is want and the runner runs no turn of bot.
+func (h *harness) waitTurnStatus(t *testing.T, id, botID, want string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var status string
+	for time.Now().Before(deadline) {
+		if err := h.conn.QueryRowContext(t.Context(), `SELECT status FROM turns WHERE id = ?`, id).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		h.runner.mu.Lock()
+		_, running := h.runner.running[botID]
+		h.runner.mu.Unlock()
+		if status == want && !running {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("turn %s status = %q; want %q", id, status, want)
+}
+
+// countEntries counts bot's entries that match.
+func (h *harness) countEntries(t *testing.T, botID string, match func(core.Entry) bool) int {
+	t.Helper()
+	entries, err := h.svc.Entries(context.Background(), botID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range entries {
+		if match(e) {
+			n++
+		}
+	}
+	return n
+}
+
+func isEvent(kind string) func(core.Entry) bool {
+	return func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == kind }
+}
+
+// #13: the turn that hits the usage limit goes back to the queue and runs after the pause,
+// with no second message from the user; it is never marked failed.
 func TestUsageLimitHoldsQueuedTurnsUntilThePauseEnds(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "usage-limit")
-	h.runner.maxLimitPause = time.Second
+	h.runner.maxLimitPause = time.Hour
 	bot := h.newBot(t)
 	h.start(t)
 	ctx := context.Background()
-	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "first", "n1"); err != nil {
+	first, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "first", "n1")
+	if err != nil {
 		t.Fatal(err)
 	}
 	second, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "second", "n2")
@@ -3064,39 +3130,81 @@ func TestUsageLimitHoldsQueuedTurnsUntilThePauseEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	limitText := "You've hit your 5-hour limit · resets 8pm (Europe/Riga)"
-	failed := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == "turn-failed" })
-	if text := bodyField(failed, "text"); text != limitText {
-		t.Fatalf("failure = %q; want %q", text, limitText)
-	}
-	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == "usage-limit" })
+	h.waitEntry(t, bot.ID, isEvent("usage-limit"))
+	h.waitTurnStatus(t, first, bot.ID, "queued")
 	if h.runner.PausedUntil().IsZero() {
 		t.Fatal("PausedUntil is zero after the usage limit; want the end of the pause")
 	}
-	var status string
-	if err := h.conn.QueryRowContext(t.Context(), `SELECT status FROM turns WHERE id = ?`, second).Scan(&status); err != nil || status != "queued" {
-		t.Fatalf("second turn status = %q (err %v) during the pause; want queued", status, err)
+	h.waitTurnStatus(t, second, bot.ID, "queued")
+	if n := h.countEntries(t, bot.ID, isEvent("turn-failed")); n != 0 {
+		t.Fatalf("turn-failed events = %d after the usage limit; want 0", n)
 	}
 
-	reply := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot })
-	if text := bodyField(reply, "text"); text != "ok" {
-		t.Fatalf("reply to the second turn = %q; want \"ok\"", text)
-	}
+	h.endPauseNow()
+	h.waitTurnStatus(t, first, bot.ID, "done")
+	h.waitTurnStatus(t, second, bot.ID, "done")
 	if until := h.runner.PausedUntil(); !until.IsZero() {
 		t.Fatalf("PausedUntil = %v after the pause ended; want zero", until)
 	}
-	entries, err := h.svc.Entries(ctx, bot.ID, 0, 0)
+	isBot := func(e core.Entry) bool { return e.Kind == core.KindBot && bodyField(e, "text") == "ok" }
+	isUser := func(e core.Entry) bool { return e.Kind == core.KindUser }
+	if replies, users := h.countEntries(t, bot.ID, isBot), h.countEntries(t, bot.ID, isUser); replies != 2 || users != 2 {
+		t.Fatalf("replies = %d, user messages = %d; want 2 each, so the first turn ran again without a new message", replies, users)
+	}
+	if n := h.countEntries(t, bot.ID, isEvent("usage-limit")); n != 1 {
+		t.Fatalf("usage-limit events = %d; want 1", n)
+	}
+	if logs := h.logs.String(); strings.Contains(logs, "finish turn") {
+		t.Fatalf("the log has a turn that couldn't be recorded: %s", logs)
+	}
+	if n := h.countEntries(t, bot.ID, isEvent("turn-failed")); n != 0 {
+		t.Fatalf("turn-failed events = %d; want 0", n)
+	}
+	var started int
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM turns WHERE id = ? AND started_at IS NOT NULL AND error = ''`, first).Scan(&started); err != nil || started != 1 {
+		t.Fatalf("the first turn has started_at %d times with no error (err %v); want 1", started, err)
+	}
+}
+
+// #13, the 15-minute fallback: a limit whose message names no reset time pauses for 15
+// minutes, and a turn that hits the limit again after the pause goes back again; the
+// queue never loses a turn to a failure.
+func TestUsageLimitWithoutAResetTimeKeepsEveryTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "usage-limit-fallback")
+	h.runner.maxLimitPause = time.Hour
+	bot := h.newBot(t)
+	h.start(t)
+	ctx := context.Background()
+	first, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "first", "n1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	notes := 0
-	for _, e := range entries {
-		if e.Kind == core.KindEvent && bodyField(e, "type") == "usage-limit" {
-			notes++
-		}
+	second, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "second", "n2")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if notes != 1 {
-		t.Fatalf("usage-limit events = %d; want 1; transcript:\n%s", notes, dump(entries))
+	before := time.Now()
+	for round := 1; round <= 2; round++ {
+		// Each round starts a new pause, which adds one usage-limit event.
+		for h.countEntries(t, bot.ID, isEvent("usage-limit")) < round {
+			time.Sleep(10 * time.Millisecond)
+		}
+		h.waitTurnStatus(t, first, bot.ID, "queued")
+		if until := h.runner.PausedUntil(); until.Before(before.Add(15*time.Minute)) || until.After(time.Now().Add(15*time.Minute)) {
+			t.Fatalf("round %d: PausedUntil = %v; want 15 minutes after %v", round, until, before)
+		}
+		h.waitTurnStatus(t, second, bot.ID, "queued")
+		if n := h.countEntries(t, bot.ID, isEvent("turn-failed")); n != 0 {
+			t.Fatalf("round %d: turn-failed events = %d; want 0", round, n)
+		}
+		before = time.Now()
+		h.endPauseNow()
+	}
+	h.waitTurnStatus(t, first, bot.ID, "done")
+	h.waitTurnStatus(t, second, bot.ID, "done")
+	if n := h.countEntries(t, bot.ID, isEvent("turn-failed")); n != 0 {
+		t.Fatalf("turn-failed events = %d; want 0", n)
 	}
 }
 
@@ -3115,6 +3223,13 @@ func TestUsageLimitResetTime(t *testing.T) {
 		{"hour already passed today", 0, "You've hit your 5-hour limit · resets 4pm (Europe/Riga)", time.Date(2026, 11, 7, 14, 0, 0, 0, time.UTC)},
 		{"text after the reset", 0, "You've hit your weekly limit · resets 7am (UTC) · progress saved", time.Date(2026, 11, 7, 7, 0, 0, 0, time.UTC)},
 		{"date and hour", 0, "You've hit your weekly limit · resets Nov 13, 4pm (Europe/Riga)", time.Date(2026, 11, 13, 14, 0, 0, 0, time.UTC)},
+		// #32: a reset that passed under 5 minutes ago is the one that just happened.
+		{"reset a minute ago waits a minute", 0, "You've hit your 5-hour limit · resets 7:47pm (Europe/Riga)", now.Add(time.Minute)},
+		{"reset 4 minutes ago waits a minute", 0, "You've hit your 5-hour limit · resets 7:44pm (Europe/Riga)", now.Add(time.Minute)},
+		{"reset 5 minutes ago is tomorrow's", 0, "You've hit your 5-hour limit · resets 7:43pm (Europe/Riga)", time.Date(2026, 11, 7, 17, 43, 0, 0, time.UTC)},
+		{"reset at this minute waits a minute", 0, "You've hit your 5-hour limit · resets 7:48pm (Europe/Riga)", now.Add(time.Minute)},
+		{"dated reset a minute ago waits a minute", 0, "You've hit your weekly limit · resets Nov 6, 7:47pm (Europe/Riga)", now.Add(time.Minute)},
+		{"dated reset a week ago is next year's", 0, "You've hit your weekly limit · resets Oct 30, 4pm (Europe/Riga)", time.Date(2027, 10, 30, 13, 0, 0, 0, time.UTC)}, // summer time, UTC+3,
 		{"past reset time falls back", 1700000000, "", now.Add(15 * time.Minute)},
 		{"unknown zone falls back", 0, "You've hit your 5-hour limit · resets 8pm (Mars/Base)", now.Add(15 * time.Minute)},
 		{"no reset falls back", 0, "You've hit your monthly spend limit.", now.Add(15 * time.Minute)},

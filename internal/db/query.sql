@@ -88,6 +88,10 @@ UPDATE turns SET status = 'running', started_at = ? WHERE id = ? AND status = 'q
 -- name: FinishTurn :exec
 UPDATE turns SET status = ?, error = ?, finished_at = ? WHERE id = ?;
 
+-- name: RequeueTurn :execrows
+UPDATE turns SET status = 'queued', error = '', started_at = NULL, finished_at = NULL
+WHERE id = ? AND status = 'running';
+
 -- name: AbandonRunningTurns :many
 UPDATE turns SET status = 'interrupted', error = 'server restarted', finished_at = ?
 WHERE status = 'running'

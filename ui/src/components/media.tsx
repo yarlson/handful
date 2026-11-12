@@ -125,7 +125,7 @@ function MediaViewer({
       </div>
       {count > 1 && (
         <>
-          {/* On a phone a swipe pages an image, so its side arrows hide. */}
+          {/* On a narrow touch screen a swipe pages an image, so its side arrows hide. */}
           <button
             type="button"
             aria-label="Previous"
@@ -133,7 +133,7 @@ function MediaViewer({
             className={cn(
               viewerButton,
               "absolute top-1/2 left-3 -translate-y-1/2",
-              kind !== "video" && "max-md:hidden",
+              kind !== "video" && "max-md:pointer-coarse:hidden",
             )}
             onClick={() => go(-1)}
           >
@@ -146,7 +146,7 @@ function MediaViewer({
             className={cn(
               viewerButton,
               "absolute top-1/2 right-3 -translate-y-1/2",
-              kind !== "video" && "max-md:hidden",
+              kind !== "video" && "max-md:pointer-coarse:hidden",
             )}
             onClick={() => go(1)}
           >

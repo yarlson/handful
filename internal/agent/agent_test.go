@@ -3957,3 +3957,198 @@ func TestDeletingABotWithAQueuedTurnStartsNoTurn(t *testing.T) {
 		t.Fatalf("claude started %d times; want once: the queued turn must not start during the deletion", len(calls))
 	}
 }
+
+// #25: a turn behind more than a page of a busy bot's queued turns still runs.
+func TestAnIdleBotsTurnPastTheFirstPageRuns(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	busy, idle := h.newNamedBot(t, "Busy"), h.newNamedBot(t, "Idle")
+	// Busy runs a turn that never ends, so none of its queued turns can start.
+	h.runner.mu.Lock()
+	h.runner.running[busy.ID] = runningTurn{}
+	h.runner.mu.Unlock()
+	t.Cleanup(func() {
+		h.runner.mu.Lock()
+		delete(h.runner.running, busy.ID)
+		h.runner.mu.Unlock()
+	})
+	for range dispatchPage + 20 {
+		if _, err := h.svc.EnqueueTurn(ctx, busy.ID, core.SourceSystem, "wait"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	turn, err := h.svc.EnqueueTurn(ctx, idle.ID, core.SourceSystem, "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+	h.waitTurnStatus(t, turn, idle.ID, "done")
+}
+
+// #25: the task turns that Claude Code starts on its own count toward MaxParallel, so dispatch
+// starts no turn while they fill it.
+func TestTaskTurnsCountTowardMaxParallel(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	h.runner.cfg.MaxParallel = 2
+	ctx := context.Background()
+	x, y, z := h.newNamedBot(t, "X"), h.newNamedBot(t, "Y"), h.newNamedBot(t, "Z")
+	wakingX := &session{key: sessionKey{botID: x.ID}, waking: true}
+	wakingY := &session{key: sessionKey{botID: y.ID}, waking: true}
+	h.runner.mu.Lock()
+	h.runner.sessions[wakingX.key], h.runner.sessions[wakingY.key] = wakingX, wakingY
+	h.runner.mu.Unlock()
+	h.start(t)
+	// After the harness's own cleanup is set, so it runs first: stopping the runner must not
+	// meet sessions that have no process.
+	t.Cleanup(func() {
+		h.runner.mu.Lock()
+		delete(h.runner.sessions, wakingX.key)
+		delete(h.runner.sessions, wakingY.key)
+		h.runner.mu.Unlock()
+	})
+	turn, err := h.svc.EnqueueTurn(ctx, z.ID, core.SourceSystem, "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.runner.dispatch(ctx)
+	var status string
+	if err := h.conn.QueryRowContext(ctx, `SELECT status FROM turns WHERE id = ?`, turn).Scan(&status); err != nil || status != "queued" {
+		t.Fatalf("Z's turn while two task turns run = %q (%v); want queued, MaxParallel is 2", status, err)
+	}
+	h.runner.mu.Lock()
+	wakingY.waking = false
+	delete(h.runner.sessions, wakingY.key)
+	h.runner.mu.Unlock()
+	h.runner.signalDone()
+	h.waitTurnStatus(t, turn, z.ID, "done")
+}
+
+// #25: dispatch starts turns up to MaxParallel and no further, within one page too.
+func TestDispatchStopsAtMaxParallel(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	h.runner.cfg.MaxParallel = 2
+	ctx := context.Background()
+	var turns, bots []string
+	for _, name := range []string{"A", "B", "C"} {
+		bots = append(bots, h.newNamedBot(t, name).ID)
+	}
+	for _, b := range bots {
+		id, err := h.svc.EnqueueTurn(ctx, b, core.SourceSystem, "go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		turns = append(turns, id)
+	}
+	// Without Run, nothing else dispatches, and a turn that ends starts no other.
+	h.runner.dispatch(ctx)
+	if got := h.statuses(t, turns...); !slices.Equal(got, []string{"running", "running", "queued"}) {
+		t.Fatalf("statuses = %v; want the first two running and the third queued", got)
+	}
+	h.start(t)
+	for i, id := range turns {
+		h.waitTurnStatus(t, id, bots[i], "done")
+	}
+}
+
+// #25: turns that dispatch starts leave the queue, so the next page starts that many earlier:
+// a turn right after the first page still starts in the same pass.
+func TestDispatchReadsThePageAfterTheTurnsItStarted(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	busy, first, next := h.newNamedBot(t, "Busy"), h.newNamedBot(t, "First"), h.newNamedBot(t, "Next")
+	h.runner.mu.Lock()
+	h.runner.running[busy.ID] = runningTurn{}
+	h.runner.mu.Unlock()
+	t.Cleanup(func() {
+		h.runner.mu.Lock()
+		delete(h.runner.running, busy.ID)
+		h.runner.mu.Unlock()
+	})
+	enqueue := func(botID string) string {
+		t.Helper()
+		id, err := h.svc.EnqueueTurn(ctx, botID, core.SourceSystem, "go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	a := enqueue(first.ID)
+	for range dispatchPage - 1 {
+		enqueue(busy.ID)
+	}
+	c := enqueue(next.ID)
+	for range 20 {
+		enqueue(busy.ID)
+	}
+	h.runner.dispatch(ctx)
+	if got := h.statuses(t, a, c); !slices.Equal(got, []string{"running", "running"}) {
+		t.Fatalf("statuses = %v; want both idle bots' turns started in one pass", got)
+	}
+	h.start(t)
+	h.waitTurnStatus(t, a, first.ID, "done")
+	h.waitTurnStatus(t, c, next.ID, "done")
+}
+
+// A room turn that dispatch starts marks the room as working, for the sidebar.
+func TestARoomTurnMarksTheRoomWorking(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	a := h.newNamedBot(t, "Ana")
+	room, err := h.svc.CreateRoom(ctx, "Plan", "", []string{a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain := func() {
+		for {
+			ts, err := h.svc.QueuedTurns(ctx, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(ts) == 0 {
+				return
+			}
+			for _, tr := range ts {
+				if err := h.svc.FinishTurn(ctx, tr.ID, "done", ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	drain()
+	events, stop := h.svc.Hub().Subscribe()
+	defer stop()
+	if _, _, err := h.svc.SubmitUserMessage(ctx, room.ID, "Hello", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.runner.dispatch(ctx)
+	for {
+		select {
+		case e := <-events:
+			if e.Type == "state" && e.BotID == room.ID && e.Running != nil && *e.Running {
+				h.start(t)
+				return
+			}
+		default:
+			t.Fatal("no event marks the room working after its turn started")
+		}
+	}
+}
+
+// statuses returns the statuses of turns ids, in order.
+func (h *harness) statuses(t *testing.T, ids ...string) []string {
+	t.Helper()
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		var s string
+		if err := h.conn.QueryRowContext(t.Context(), `SELECT status FROM turns WHERE id = ?`, id).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	return out
+}

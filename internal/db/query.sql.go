@@ -288,6 +288,22 @@ func (q *Queries) CancelQueuedRoomTurns(ctx context.Context, arg CancelQueuedRoo
 	return err
 }
 
+const cancelQueuedRoutineTurns = `-- name: CancelQueuedRoutineTurns :exec
+UPDATE turns SET status = 'interrupted', error = ?1, finished_at = ?2
+WHERE status = 'queued' AND id IN (SELECT turn_id FROM routine_turns WHERE routine_id = ?3)
+`
+
+type CancelQueuedRoutineTurnsParams struct {
+	Reason    string        `json:"reason"`
+	At        sql.NullInt64 `json:"at"`
+	RoutineID string        `json:"routine_id"`
+}
+
+func (q *Queries) CancelQueuedRoutineTurns(ctx context.Context, arg CancelQueuedRoutineTurnsParams) error {
+	_, err := q.db.ExecContext(ctx, cancelQueuedRoutineTurns, arg.Reason, arg.At, arg.RoutineID)
+	return err
+}
+
 const cancelQueuedTurnsOf = `-- name: CancelQueuedTurnsOf :exec
 UPDATE turns SET status = 'interrupted', error = 'the bot was deleted', finished_at = ?
 WHERE (bot_id = ?2 OR room_id = ?2) AND status = 'queued'
@@ -1313,6 +1329,20 @@ func (q *Queries) GetTurnUserEntryBody(ctx context.Context, arg GetTurnUserEntry
 	return body, err
 }
 
+const hasQueuedRoutineTurn = `-- name: HasQueuedRoutineTurn :one
+SELECT EXISTS (
+  SELECT 1 FROM routine_turns rt JOIN turns t ON t.id = rt.turn_id
+  WHERE rt.routine_id = ? AND t.status = 'queued'
+) AS queued
+`
+
+func (q *Queries) HasQueuedRoutineTurn(ctx context.Context, routineID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasQueuedRoutineTurn, routineID)
+	var queued bool
+	err := row.Scan(&queued)
+	return queued, err
+}
+
 const insertArtifact = `-- name: InsertArtifact :one
 INSERT INTO artifacts (id, kind, title, content, links, author_id, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1903,6 +1933,20 @@ func (q *Queries) LatestGoalEventAt(ctx context.Context, goalID string) (int64, 
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const linkRoutineTurn = `-- name: LinkRoutineTurn :exec
+INSERT INTO routine_turns (turn_id, routine_id) VALUES (?, ?)
+`
+
+type LinkRoutineTurnParams struct {
+	TurnID    string `json:"turn_id"`
+	RoutineID string `json:"routine_id"`
+}
+
+func (q *Queries) LinkRoutineTurn(ctx context.Context, arg LinkRoutineTurnParams) error {
+	_, err := q.db.ExecContext(ctx, linkRoutineTurn, arg.TurnID, arg.RoutineID)
+	return err
 }
 
 const listAllOpenQuestionEntries = `-- name: ListAllOpenQuestionEntries :many
@@ -3422,6 +3466,61 @@ func (q *Queries) ListQueuedTurns(ctx context.Context, limit int64) ([]Turn, err
 	return items, nil
 }
 
+const listQueuedTurnsPage = `-- name: ListQueuedTurnsPage :many
+SELECT id, bot_id, source, client_nonce, prompt, status, error, room_id, hops, created_at, started_at, finished_at, goal_id, item_id, board_role, decision FROM turns
+WHERE status = 'queued' AND (board_role IN ('lead', 'retro')) = CAST(?1 AS INTEGER)
+ORDER BY created_at, rowid
+LIMIT ?3 OFFSET ?2
+`
+
+type ListQueuedTurnsPageParams struct {
+	Leads int64 `json:"leads"`
+	Skip  int64 `json:"skip"`
+	Page  int64 `json:"page"`
+}
+
+// One page of the queued turns in queue order: the leads' board turns when leads is 1, the
+// others when it is 0.
+func (q *Queries) ListQueuedTurnsPage(ctx context.Context, arg ListQueuedTurnsPageParams) ([]Turn, error) {
+	rows, err := q.db.QueryContext(ctx, listQueuedTurnsPage, arg.Leads, arg.Skip, arg.Page)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Turn
+	for rows.Next() {
+		var i Turn
+		if err := rows.Scan(
+			&i.ID,
+			&i.BotID,
+			&i.Source,
+			&i.ClientNonce,
+			&i.Prompt,
+			&i.Status,
+			&i.Error,
+			&i.RoomID,
+			&i.Hops,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.GoalID,
+			&i.ItemID,
+			&i.BoardRole,
+			&i.Decision,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoomMembers = `-- name: ListRoomMembers :many
 SELECT rm.room_id, rm.bot_id, rm.claude_session_id, rm.last_seen_seq, b.name, b.model, b.effort
 FROM room_members rm JOIN bots b ON b.id = rm.bot_id
@@ -4315,6 +4414,20 @@ type SetRoutineLastRunParams struct {
 
 func (q *Queries) SetRoutineLastRun(ctx context.Context, arg SetRoutineLastRunParams) error {
 	_, err := q.db.ExecContext(ctx, setRoutineLastRun, arg.LastRunAt, arg.LastRunBy, arg.ID)
+	return err
+}
+
+const setRoutineNextRun = `-- name: SetRoutineNextRun :exec
+UPDATE routines SET next_run_at = ? WHERE id = ?
+`
+
+type SetRoutineNextRunParams struct {
+	NextRunAt sql.NullInt64 `json:"next_run_at"`
+	ID        string        `json:"id"`
+}
+
+func (q *Queries) SetRoutineNextRun(ctx context.Context, arg SetRoutineNextRunParams) error {
+	_, err := q.db.ExecContext(ctx, setRoutineNextRun, arg.NextRunAt, arg.ID)
 	return err
 }
 

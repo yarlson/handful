@@ -161,19 +161,7 @@ func (s *Service) UpdateRoutine(ctx context.Context, id string, p RoutinePatch, 
 	if err != nil {
 		return Routine{}, err
 	}
-	name, prompt, schedule, enabled := cur.Name, cur.Prompt, cur.Schedule, cur.Enabled
-	if p.Name != nil {
-		name = *p.Name
-	}
-	if p.Prompt != nil {
-		prompt = *p.Prompt
-	}
-	if p.Schedule != nil {
-		schedule = strings.TrimSpace(*p.Schedule)
-	}
-	if p.Enabled != nil {
-		enabled = *p.Enabled
-	}
+	name, prompt, schedule, enabled := p.applyTo(cur)
 	name, prompt, err = validateRoutineText(name, prompt)
 	if err != nil {
 		return Routine{}, err
@@ -188,9 +176,9 @@ func (s *Service) UpdateRoutine(ctx context.Context, id string, p RoutinePatch, 
 		enabledInt = 1
 		next = sql.NullInt64{Int64: sched.Next(s.now().In(s.loc)).UnixMilli(), Valid: true}
 	}
-	row, err := s.q.UpdateRoutine(ctx, db.UpdateRoutineParams{Name: name, Prompt: prompt, Schedule: schedule, Enabled: enabledInt, NextRunAt: next, UpdatedAt: s.nowMs(), ID: id})
+	row, err := s.storeRoutine(ctx, db.UpdateRoutineParams{Name: name, Prompt: prompt, Schedule: schedule, Enabled: enabledInt, NextRunAt: next, UpdatedAt: s.nowMs(), ID: id})
 	if err != nil {
-		return Routine{}, fmt.Errorf("update routine %s: %w", id, err)
+		return Routine{}, err
 	}
 	if changed := routineChanges(cur, toRoutine(row)); byBot == "" && len(changed) > 0 {
 		text := fmt.Sprintf("The user changed routine %q: %s.", cur.Name, strings.Join(changed, ", "))
@@ -199,6 +187,40 @@ func (s *Service) UpdateRoutine(ctx context.Context, id string, p RoutinePatch, 
 		}
 	}
 	return toRoutine(row), nil
+}
+
+// applyTo returns cur's name, prompt, schedule and enabled state with the patch's values in
+// place of the ones it sets.
+func (p RoutinePatch) applyTo(cur Routine) (name, prompt, schedule string, enabled bool) {
+	name, prompt, schedule, enabled = cur.Name, cur.Prompt, cur.Schedule, cur.Enabled
+	if p.Name != nil {
+		name = *p.Name
+	}
+	if p.Prompt != nil {
+		prompt = *p.Prompt
+	}
+	if p.Schedule != nil {
+		schedule = strings.TrimSpace(*p.Schedule)
+	}
+	if p.Enabled != nil {
+		enabled = *p.Enabled
+	}
+	return name, prompt, schedule, enabled
+}
+
+// storeRoutine saves a changed routine and ends its queued runs, which hold its old version.
+func (s *Service) storeRoutine(ctx context.Context, arg db.UpdateRoutineParams) (db.Routine, error) {
+	var row db.Routine
+	err := s.inTx(ctx, func(q *db.Queries) (err error) {
+		if err := s.cancelRoutineRuns(ctx, q, arg.ID, "the routine changed"); err != nil {
+			return err
+		}
+		if row, err = q.UpdateRoutine(ctx, arg); err != nil {
+			return fmt.Errorf("update routine %s: %w", arg.ID, err)
+		}
+		return nil
+	})
+	return row, err
 }
 
 // routineChanges names what differs between two versions of a routine.
@@ -239,9 +261,18 @@ func (s *Service) DeleteRoutine(ctx context.Context, id, byBot string) error {
 	if err != nil {
 		return err
 	}
-	n, err := s.q.DeleteRoutine(ctx, id)
+	var n int64
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		if err := s.cancelRoutineRuns(ctx, q, id, "the routine was deleted"); err != nil {
+			return err
+		}
+		if n, err = q.DeleteRoutine(ctx, id); err != nil {
+			return fmt.Errorf("delete routine %s: %w", id, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("delete routine %s: %w", id, err)
+		return err
 	}
 	if n == 0 {
 		return notFound("routine", id)
@@ -276,11 +307,44 @@ func (s *Service) RunRoutineNow(ctx context.Context, id, byBot string, hops int6
 	if err := s.q.SetRoutineLastRun(ctx, db.SetRoutineLastRunParams{LastRunAt: sql.NullInt64{Int64: now.UnixMilli(), Valid: true}, LastRunBy: sql.NullString{String: trigger, Valid: true}, ID: r.ID}); err != nil {
 		return "", fmt.Errorf("record the run of routine %s: %w", r.ID, err)
 	}
-	return s.enqueueTurn(ctx, Turn{BotID: r.BotID, Source: SourceRoutine, Hops: turnHops, Prompt: routinePrompt(r, "was run on demand by "+by, now)})
+	t := Turn{BotID: r.BotID, Source: SourceRoutine, Hops: turnHops, Prompt: routinePrompt(r, "was run on demand by "+by, now)}
+	var turnID string
+	err = s.inTx(ctx, func(q *db.Queries) (err error) {
+		turnID, err = s.queueRoutineTurn(ctx, q, r.ID, t)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	s.signalTurns()
+	return turnID, nil
+}
+
+// queueRoutineTurn queues turn t, with q, as a run of routine routineID, and returns its id.
+func (s *Service) queueRoutineTurn(ctx context.Context, q *db.Queries, routineID string, t Turn) (string, error) {
+	id, err := s.queueTurn(ctx, q, t)
+	if err != nil {
+		return "", err
+	}
+	if err := q.LinkRoutineTurn(ctx, db.LinkRoutineTurnParams{TurnID: id, RoutineID: routineID}); err != nil {
+		return "", fmt.Errorf("link turn %s to routine %s: %w", id, routineID, err)
+	}
+	return id, nil
+}
+
+// cancelRoutineRuns ends the queued runs of routine id, which a change or a deletion made
+// stale: they hold the routine's old text, or a routine that is gone.
+func (s *Service) cancelRoutineRuns(ctx context.Context, q *db.Queries, id, reason string) error {
+	if err := q.CancelQueuedRoutineTurns(ctx, db.CancelQueuedRoutineTurnsParams{Reason: reason, At: sql.NullInt64{Int64: s.nowMs(), Valid: true}, RoutineID: id}); err != nil {
+		return fmt.Errorf("cancel the queued runs of routine %s: %w", id, err)
+	}
+	return nil
 }
 
 // FireDueRoutines queues a turn for each enabled routine whose time has come
-// and moves its next run forward. It returns the number of routines fired.
+// and moves its next run forward. A routine whose last run still waits in the
+// queue, behind a busy bot or a usage limit, only moves its next run forward:
+// one waiting run does its work. It returns the number of routines fired.
 func (s *Service) FireDueRoutines(ctx context.Context) (int, error) {
 	now := s.now().In(s.loc)
 	rows, err := s.q.ListDueRoutines(ctx, sql.NullInt64{Int64: now.UnixMilli(), Valid: true})
@@ -289,23 +353,49 @@ func (s *Service) FireDueRoutines(ctx context.Context) (int, error) {
 	}
 	fired := 0
 	for _, row := range rows {
-		r := toRoutine(row)
-		next := sql.NullInt64{}
-		// The spacing check ran when the schedule was saved. Running it again
-		// here can fail near a clock change, which would stop the routine.
-		if sched, err := cronParser.Parse(strings.TrimSpace(r.Schedule)); err == nil {
-			next = sql.NullInt64{Int64: sched.Next(now).UnixMilli(), Valid: true}
-		}
-		// Advance first: a crash after this point skips one run instead of repeating it.
-		if err := s.q.MarkRoutineFired(ctx, db.MarkRoutineFiredParams{LastRunAt: sql.NullInt64{Int64: now.UnixMilli(), Valid: true}, LastRunBy: sql.NullString{String: "the schedule", Valid: true}, NextRunAt: next, ID: r.ID}); err != nil {
-			return fired, fmt.Errorf("advance routine %s: %w", r.ID, err)
-		}
-		if _, err := s.EnqueueTurn(ctx, r.BotID, SourceRoutine, routinePrompt(r, "is due", now)); err != nil {
+		ok, err := s.fireRoutine(ctx, toRoutine(row), now)
+		if err != nil {
 			return fired, err
 		}
-		fired++
+		if ok {
+			fired++
+		}
+	}
+	if fired > 0 {
+		s.signalTurns()
 	}
 	return fired, nil
+}
+
+// fireRoutine moves routine r's next run forward from now and, unless a run of r waits in the
+// queue, records this run and queues it, in one transaction. It reports whether it queued one.
+func (s *Service) fireRoutine(ctx context.Context, r Routine, now time.Time) (bool, error) {
+	next := sql.NullInt64{}
+	// The spacing check ran when the schedule was saved. Running it again
+	// here can fail near a clock change, which would stop the routine.
+	if sched, err := cronParser.Parse(strings.TrimSpace(r.Schedule)); err == nil {
+		next = sql.NullInt64{Int64: sched.Next(now).UnixMilli(), Valid: true}
+	}
+	fired := false
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		waiting, err := q.HasQueuedRoutineTurn(ctx, r.ID)
+		if err != nil {
+			return fmt.Errorf("look for a queued run of routine %s: %w", r.ID, err)
+		}
+		if waiting {
+			if err := q.SetRoutineNextRun(ctx, db.SetRoutineNextRunParams{NextRunAt: next, ID: r.ID}); err != nil {
+				return fmt.Errorf("advance routine %s: %w", r.ID, err)
+			}
+			return nil
+		}
+		if err := q.MarkRoutineFired(ctx, db.MarkRoutineFiredParams{LastRunAt: sql.NullInt64{Int64: now.UnixMilli(), Valid: true}, LastRunBy: sql.NullString{String: "the schedule", Valid: true}, NextRunAt: next, ID: r.ID}); err != nil {
+			return fmt.Errorf("advance routine %s: %w", r.ID, err)
+		}
+		fired = true
+		_, err = s.queueRoutineTurn(ctx, q, r.ID, Turn{BotID: r.BotID, Source: SourceRoutine, Prompt: routinePrompt(r, "is due", now)})
+		return err
+	})
+	return fired && err == nil, err
 }
 
 func routinePrompt(r Routine, why string, at time.Time) string {

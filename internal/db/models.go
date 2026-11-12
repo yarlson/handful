@@ -186,6 +186,11 @@ type Routine struct {
 	LastRunBy sql.NullString `json:"last_run_by"`
 }
 
+type RoutineTurn struct {
+	TurnID    string `json:"turn_id"`
+	RoutineID string `json:"routine_id"`
+}
+
 type Team struct {
 	TeamID          string `json:"team_id"`
 	LeadBotID       string `json:"lead_bot_id"`

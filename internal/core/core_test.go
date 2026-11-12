@@ -442,13 +442,14 @@ func TestRoutineRecordsWhoRanItLast(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, "Scout", 0); return err }, `bot "Scout"`},
-		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, "", 0); return err }, "the user"},
+		// The schedule first: a run that waits in the queue holds back the next scheduled one.
 		{func() error {
 			svc.now = func() time.Time { return start.Add(2 * time.Minute) }
 			_, err := svc.FireDueRoutines(ctx)
 			return err
 		}, "the schedule"},
+		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, "Scout", 0); return err }, `bot "Scout"`},
+		{func() error { _, err := svc.RunRoutineNow(ctx, r.ID, "", 0); return err }, "the user"},
 	} {
 		if err := step.run(); err != nil {
 			t.Fatal(err)
@@ -1070,5 +1071,172 @@ func TestADuplicateSendLeavesNoFiles(t *testing.T) {
 	files, err := os.ReadDir(svc.MediaDir())
 	if err != nil || len(files) != 1 {
 		t.Fatalf("media files = %d (%v); want the first send's 1", len(files), err)
+	}
+}
+
+// routineRuns lists the statuses of routine id's turns, oldest first, with their errors.
+func routineRuns(t *testing.T, svc *Service, id string) []string {
+	t.Helper()
+	rows, err := svc.sqlDB.QueryContext(context.Background(), `SELECT t.status, t.error FROM turns t JOIN routine_turns rt ON rt.turn_id = t.id WHERE rt.routine_id = ? ORDER BY t.created_at, t.rowid`, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var status, msg string
+		if err := rows.Scan(&status, &msg); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, strings.TrimSuffix(status+": "+msg, ": "))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// #12: a routine whose run still waits in the queue, behind a busy bot or a usage limit,
+// queues no second run when it fires again; its next run still moves forward.
+func TestARoutineWhoseRunWaitsQueuesNoSecondRun(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	start := time.Date(2026, 11, 6, 7, 59, 0, 0, time.UTC)
+	at := start
+	svc.now = func() time.Time { return at }
+	bot := newTestBot(t, svc)
+	r, err := svc.CreateRoutine(ctx, bot.ID, "Check", "Check the build.", "0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []int{1, 0, 0} {
+		at = start.Add(time.Duration(i)*time.Hour + 2*time.Minute)
+		select {
+		case <-svc.TurnsReady():
+		default:
+		}
+		if n, err := svc.FireDueRoutines(ctx); err != nil || n != want {
+			t.Fatalf("fire %d: n=%d err=%v; want %d", i+1, n, err, want)
+		}
+		select {
+		case <-svc.TurnsReady():
+			if want == 0 {
+				t.Fatalf("fire %d queued nothing but woke the runner", i+1)
+			}
+		default:
+			if want == 1 {
+				t.Fatalf("fire %d queued a run but didn't wake the runner", i+1)
+			}
+		}
+		got, err := svc.GetRoutine(ctx, r.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if next := time.Date(2026, 11, 6, 9+i, 0, 0, 0, time.UTC).UnixMilli(); got.NextRunAt == nil || *got.NextRunAt != next {
+			t.Fatalf("fire %d: next run %v; want %d", i+1, got.NextRunAt, next)
+		}
+		if got.LastRunAt == nil || *got.LastRunAt != start.Add(2*time.Minute).UnixMilli() {
+			t.Fatalf("fire %d: last run %v; want the first fire's", i+1, got.LastRunAt)
+		}
+	}
+	if runs := routineRuns(t, svc, r.ID); !slices.Equal(runs, []string{"queued"}) {
+		t.Fatalf("runs = %v; want one queued", runs)
+	}
+	var run string
+	if err := svc.sqlDB.QueryRowContext(ctx, `SELECT turn_id FROM routine_turns WHERE routine_id = ?`, r.ID).Scan(&run); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := svc.StartTurn(ctx, run); !ok || err != nil {
+		t.Fatalf("start the run = %v, %v", ok, err)
+	}
+	at = start.Add(3*time.Hour + 2*time.Minute)
+	if n, err := svc.FireDueRoutines(ctx); err != nil || n != 1 {
+		t.Fatalf("fire while the run runs: n=%d err=%v; want 1", n, err)
+	}
+	if runs := routineRuns(t, svc, r.ID); !slices.Equal(runs, []string{"running", "queued"}) {
+		t.Fatalf("runs = %v; want the running one and a new queued one", runs)
+	}
+}
+
+// #12: changing or deleting a routine ends its queued runs, the on-demand ones too, and only
+// its own.
+func TestChangingOrDeletingARoutineEndsItsQueuedRuns(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	at := time.Date(2026, 11, 6, 8, 2, 0, 0, time.UTC)
+	svc.now = func() time.Time { return at }
+	bot := newTestBot(t, svc)
+	r, err := svc.CreateRoutine(ctx, bot.ID, "Check", "Check the build.", "0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.CreateRoutine(ctx, bot.ID, "Other", "Other work.", "0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{r.ID, r.ID, other.ID} {
+		if _, err := svc.RunRoutineNow(ctx, id, "", 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if runs := routineRuns(t, svc, r.ID); !slices.Equal(runs, []string{"queued", "queued"}) {
+		t.Fatalf("runs = %v; want two queued on-demand runs", runs)
+	}
+	paused := false
+	if _, err := svc.UpdateRoutine(ctx, r.ID, RoutinePatch{Enabled: &paused}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if runs := routineRuns(t, svc, r.ID); !slices.Equal(runs, []string{"interrupted: the routine changed", "interrupted: the routine changed"}) {
+		t.Fatalf("runs after a pause = %v; want both ended", runs)
+	}
+	if _, err := svc.RunRoutineNow(ctx, r.ID, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteRoutine(ctx, r.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if runs := routineRuns(t, svc, r.ID); len(runs) != 3 || runs[2] != "interrupted: the routine was deleted" {
+		t.Fatalf("runs after the delete = %v; want the last one ended", runs)
+	}
+	if runs := routineRuns(t, svc, other.ID); !slices.Equal(runs, []string{"queued"}) {
+		t.Fatalf("the other routine's runs = %v; want its run still queued", runs)
+	}
+}
+
+// #25: dispatch reads the queue a page at a time, the leads' board turns first, each kind in
+// queue order.
+func TestQueuedTurnsPageReadsLeadsTurnsApartInQueueOrder(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	drainQueue(t, svc)
+	ids := map[string]string{}
+	for _, tr := range []struct{ name, role string }{{"chat1", ""}, {"retro", RoleRetro}, {"work", RoleWork}, {"plan", RoleLead}, {"chat2", ""}, {"review", RoleReview}} {
+		id, err := svc.queueTurn(ctx, svc.q, Turn{BotID: bot.ID, Source: SourceSystem, Prompt: tr.name, BoardRole: tr.role})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[id] = tr.name
+	}
+	page := func(leads bool, skip, n int) []string {
+		t.Helper()
+		turns, err := svc.QueuedTurnsPage(ctx, leads, skip, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, tr := range turns {
+			out = append(out, ids[tr.ID])
+		}
+		return out
+	}
+	if got := page(true, 0, 10); !slices.Equal(got, []string{"retro", "plan"}) {
+		t.Fatalf("leads = %v; want retro, plan", got)
+	}
+	if got := page(false, 0, 10); !slices.Equal(got, []string{"chat1", "work", "chat2", "review"}) {
+		t.Fatalf("others = %v", got)
+	}
+	if got := page(false, 1, 2); !slices.Equal(got, []string{"work", "chat2"}) {
+		t.Fatalf("others, skip 1, page 2 = %v; want work, chat2", got)
 	}
 }

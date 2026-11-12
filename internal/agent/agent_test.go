@@ -636,7 +636,7 @@ func TestATurnsSettingsKeepFileToolsOutOfHandfulsFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"Read(/" + data + "/ui-key)", "Read(/" + data + "/run/**)", "Read(/" + data + "/oauth/**)", "Read(/" + data + "/connectors.json)", "Read(/" + data + "/yargpt.db*)"}
+	want := []string{"Read(/" + data + "/ui-key)", "Read(/" + data + "/run/**)", "Read(/" + data + "/oauth/**)", "Read(/" + data + "/connectors.json)", "Read(/" + data + "/*.db*)", "Read(/" + data + "/backup/**)"}
 	if !slices.Equal(got.Permissions.Deny, want) || got.AutoMemoryEnabled == nil || *got.AutoMemoryEnabled || got.Attribution["commit"] != "" || got.Attribution["pr"] != "" || len(got.Attribution) != 2 {
 		t.Fatalf("settings = %s; want auto memory and attribution off, and deny %q", settings[1], want)
 	}

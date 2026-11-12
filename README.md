@@ -117,7 +117,7 @@ Handful has no login. It is safe only on a computer that one person uses, and on
 
 Bots run as your user. An approved command can do anything that you can do, so read each approval card before you allow it.
 
-Bots are not isolated from each other. Reading files needs no approval and has no path limit. Claude Code's file tools (Read, Grep, Glob) skip Handful's own secrets in the data folder: `ui-key`, `connectors.json`, the tokens in `oauth/`, the per-turn tokens of running bots in `run/`, and the database. A bot can still read them, and any other file, with an approved Bash command, or through a program that such a command runs.
+Bots are not isolated from each other. Reading files needs no approval and has no path limit. Claude Code's file tools (Read, Grep, Glob) skip Handful's own secrets in the data folder: `ui-key`, `connectors.json`, the tokens in `oauth/`, the per-turn tokens of running bots in `run/`, and the database with its copies (`*.db*` files and `backup/`). A bot can still read them, and any other file, with an approved Bash command, or through a program that such a command runs.
 
 A team keeps its members' work focused on the team, but it is not a security boundary: a member can still read any file, including other teams' folders.
 

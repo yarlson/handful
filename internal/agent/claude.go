@@ -53,9 +53,10 @@ const isolatedSettings = `{"autoMemoryEnabled":false,"attribution":{"commit":"",
 
 // handfulSecrets are the files and folders of the data folder that hold Handful's secrets:
 // its API key, the MCP configs of running bots with their per-run tokens, connector sign-ins
-// and settings, and the database. Paths are relative to the data folder, in Claude Code's
-// gitignore-style patterns.
-var handfulSecrets = []string{"ui-key", "run/**", "oauth/**", "connectors.json", "yargpt.db*"}
+// and settings, and the database with every copy of it: yargpt.db and its WAL files, the
+// move's backup folder, and handful-after-move.db and its stamped copies. Paths are relative
+// to the data folder, in Claude Code's gitignore-style patterns; "*" stays in one folder.
+var handfulSecrets = []string{"ui-key", "run/**", "oauth/**", "connectors.json", "*.db*", "backup/**"}
 
 // turnSettings is the --settings value of a turn's run: isolatedSettings, plus rules that keep
 // Claude Code's file tools (Read, and Grep and Glob, which follow Read's rules) out of

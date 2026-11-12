@@ -747,6 +747,7 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 		SessionID:    sessionID,
 		Resume:       sessionID != "",
 		BotName:      bot.Name,
+		DataDir:      r.svc.DataDir(),
 		Flags:        flags,
 	}
 	if !run.Resume {

@@ -323,6 +323,14 @@ test("an empty team shows only Nothing now, Waiting on other teams (0) and Today
     assert.notInclude(html, gone)
 })
 
+test("a paused Now task can be resumed, and an active one can't", () => {
+  const paused = render(board({ goal: goal("g1", "Ship CSV export", "paused") }))
+  assert.include(paused, ">Paused<")
+  assert.match(paused, /<button[^>]*aria-label="Resume: Ship CSV export"[^>]*>.*?Resume<\/button>/)
+  assert.include(paused, 'aria-label="Stop: Ship CSV export"')
+  assert.notInclude(render(board({})), "Resume")
+})
+
 test("a drain shows on the Now card as Paused for update, or the restart's label", () => {
   assert.include(render(board({}), { paused: "Paused for update" }), "Paused for update")
   assert.include(render(board({}), { paused: "Paused for restart" }), "Paused for restart")

@@ -11,6 +11,7 @@ import {
   MinusCircle,
   Pin,
   PinOff,
+  Play,
   Send,
   Square,
   type LucideIcon,
@@ -675,6 +676,15 @@ function NowSection({
           <div className="flex flex-wrap items-center gap-2 border-t pt-2">
             <TaskHistory goal={goal} steps={data.items} version={rev} />
             <span className="flex-1" />
+            {goal.state === "paused" && !stopping && (
+              <Button
+                size="xs"
+                aria-label={`Resume: ${goal.text}`}
+                onClick={() => void act(() => api.extendGoal(goal.id, 0))}
+              >
+                <Play /> Resume
+              </Button>
+            )}
             {stopping ? (
               <span className="flex flex-wrap items-center gap-1.5 text-xs">
                 Stop the task? Running turns finish, and its steps stay.

@@ -21,6 +21,11 @@ test("the three scopes have P3's names and words, in its order", () => {
       "Chat and approve once — also Allow once or Deny a bot's request.",
     ],
   )
+  assert.deepEqual(
+    SCOPES.map((s) => s.id),
+    ["view", "chat", "chat+approve"],
+    "the ids are the server's scopes",
+  )
   assert.equal(scopeName("chat+approve"), "Chat and approve once")
   assert.equal(scopeName("view"), "View")
   assert.equal(scopeName("other"), "other", "an unknown scope shows as it is")
@@ -39,6 +44,7 @@ test("the pair page reads the code from the fragment, and is empty when the link
   assert.equal(codeOfHash(""), "")
   assert.equal(codeOfHash("#"), "")
   assert.equal(codeOfHash("K7QM2XPD9WTR"), "", "a hash starts with #")
+  assert.equal(codeOfHash("x#K7QM2XPD9WTR"), "", "and only with #")
   assert.equal(codeOfHash("#<script>"), "", "only code symbols")
   assert.equal(codeOfHash("#K7QM2XPD9WTR&x"), "", "nothing after the code")
   assert.equal(codeOfHash("#" + "A".repeat(21)), "", "at most 20 symbols")

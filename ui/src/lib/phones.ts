@@ -71,8 +71,5 @@ export function rightsOf(session: { phone: boolean; scope?: string }): Rights {
 
 // splitHosts reads the phone addresses typed in Settings: one or more, split by commas or spaces.
 export function splitHosts(text: string): string[] {
-  return text
-    .split(/[\s,]+/)
-    .map((h) => h.trim())
-    .filter(Boolean)
+  return text.split(/[\s,]/).filter(Boolean)
 }

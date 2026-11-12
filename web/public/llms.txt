@@ -361,7 +361,7 @@ Rules for every request:
 - A request with an `Origin` header from another origin gets 403, to block cross-site request forgery.
 - Every `POST` under `/api/` must have `Content-Type: application/json`, or it gets 415.
 - A request body has at most 1 MiB. A message body may also carry its files, up to 100 MB before base64.
-- Every write under `/api/`, that is any method other than `GET`, `HEAD` or `OPTIONS`, must carry Handful's key, or it gets 401 with `{"error": "This needs Handful's key."}`. The key is the content of the file `ui-key` in the data folder (`~/.handful/ui-key`, or `<data>/ui-key` with `-data`). A program sends it in the header `X-Handful-Key`. A browser sends it in the cookie `handful_key`, which the web UI sets after you paste the key once. Reads need no key.
+- Every write under `/api/`, that is any method other than `GET`, `HEAD` or `OPTIONS`, must carry Handful's key, or it gets 401 with `{"error": "This needs Handful's key."}`. The key is the content of the file `ui-key` in the data folder (`~/.handful/ui-key`, or `<data>/ui-key` with `-data`). A program sends it in the header `X-Handful-Key`. A browser sends it in the cookie `handful_key`, which a browser gets after you paste the key once on the key page, and which Handful.app sets itself. Reads need no key. The one write without the key is `POST /api/key`, which checks a pasted key and sets that cookie.
 - An error is JSON: `{"error": "<message>"}`. Status 400 means invalid input, 404 not found, and 409 a conflict, for example an approval that is no longer pending.
 
 For example, to send a message to a bot from a script:

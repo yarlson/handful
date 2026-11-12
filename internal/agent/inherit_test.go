@@ -163,7 +163,7 @@ func TestInheritedTurnsAreConversationForTheRunner(t *testing.T) {
 	waits, runs := r.mayStartLocked(context.Background(), inherited), r.chatBusyLocked("team")
 	r.running = map[string]runningTurn{"bo": {roomID: "team", work: true, board: true, goalID: "g"}}
 	stepBusy := r.chatBusyLocked("team")
-	noop := func() {}
+	noop := func(error) {}
 	r.running = map[string]runningTurn{"bo": {roomID: "team", goalID: "g", cancel: noop}, "ana": {roomID: "x", goalID: "g", board: true, cancel: noop}}
 	r.mu.Unlock()
 	if waits || !runs || stepBusy {

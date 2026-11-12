@@ -125,10 +125,6 @@ A team keeps its members' work focused on the team, but it is not a security bou
 
 Routines that start on events (only schedules work now), per-bot Claude Code plugins, a vault for secrets, voice, and bots that run on other machines.
 
-## Moving from YarGPT
-
-Handful was called YarGPT before. The old name said "GPT", but the app runs Claude Code. Your bots, chats, teams, memory and settings come with you: see [Moving from YarGPT](docs/moving-from-yargpt.md).
-
 ## Development
 
 `make build` builds the UI and embeds it in `bin/handful`. `make test` runs the tests, and `make check` runs every check of CI. [Development](docs/development.md) explains the UI, the Mac app, the website, releases, the checks, and how a turn runs.

@@ -40,13 +40,19 @@ const (
 )
 
 // Keys are the settings, in the order of the Settings page and the file.
-var Keys = []string{"model", "effort", "maxParallel", "claude", "updates.autoCheck", "updates.drainMinutes", "updateCheck"}
+var Keys = []string{
+	"model", "effort", "maxParallel", "claude", "updates.autoCheck", "updates.drainMinutes", "updateCheck",
+	"phone.enabled", "phone.addr", "phone.hosts", "phone.proxy", "phone.cloudflare.teamDomain", "phone.cloudflare.aud",
+}
 
 // flags names the command-line flag that overrides a key.
 var flags = map[string]string{"model": "model", "effort": "effort", "maxParallel": "max-parallel", "claude": "claude"}
 
 // restart holds the keys that apply only when the server starts again.
-var restart = map[string]bool{"model": true, "effort": true, "maxParallel": true, "claude": true, "updateCheck": true}
+var restart = map[string]bool{
+	"model": true, "effort": true, "maxParallel": true, "claude": true, "updateCheck": true,
+	"phone.enabled": true, "phone.addr": true, "phone.hosts": true, "phone.proxy": true, "phone.cloudflare.teamDomain": true, "phone.cloudflare.aud": true,
+}
 
 // File is config.json. A nil field is a key the file does not set. The
 // fields are in the order of Keys, which is the order Write keeps.
@@ -57,6 +63,7 @@ type File struct {
 	Claude      *string  `json:"claude,omitempty"`
 	Updates     *Updates `json:"updates,omitempty"`
 	UpdateCheck *bool    `json:"updateCheck,omitempty"`
+	Phone       *Phone   `json:"phone,omitempty"`
 }
 
 // Updates is the "updates" object of the file, which the desktop app reads.
@@ -85,6 +92,8 @@ func Default(key string) any {
 	values := map[string]any{
 		"model": "", "effort": "", "maxParallel": DefaultMaxParallel, "claude": DefaultClaude,
 		"updates.autoCheck": DefaultAutoCheck, "updates.drainMinutes": DefaultDrainMinutes, "updateCheck": DefaultUpdateCheck,
+		"phone.enabled": false, "phone.addr": DefaultPhoneAddr, "phone.hosts": []string{}, "phone.proxy": ProxyCloudflare,
+		"phone.cloudflare.teamDomain": "", "phone.cloudflare.aud": "",
 	}
 	return values[key]
 }
@@ -122,6 +131,9 @@ func Load(path string) (File, error) {
 			return File{}, fmt.Errorf("config file %s: %w", path, err)
 		}
 	}
+	if err := f.Phone.check(); err != nil {
+		return File{}, fmt.Errorf("config file %s: %w", path, err)
+	}
 	return f, nil
 }
 
@@ -130,6 +142,9 @@ func (f File) Get(key string) (any, bool) {
 	u := f.Updates
 	if u == nil {
 		u = &Updates{}
+	}
+	if strings.HasPrefix(key, "phone.") {
+		return f.Phone.get(key)
 	}
 	values := map[string]func() (any, bool){
 		"model":                func() (any, bool) { return deref(f.Model) },
@@ -166,6 +181,9 @@ func (f *File) Set(key string, raw json.RawMessage) error {
 		"updates.autoCheck":    func(r json.RawMessage) error { return setBool(&f.updates().AutoCheck, key, r) },
 		"updates.drainMinutes": func(r json.RawMessage) error { return setInt(&f.updates().DrainMinutes, key, r, checkDrainMinutes) },
 		"updateCheck":          func(r json.RawMessage) error { return setBool(&f.UpdateCheck, key, r) },
+	}
+	if strings.HasPrefix(key, "phone.") {
+		return f.setPhone(key, raw)
 	}
 	set, ok := setters[key]
 	if !ok {

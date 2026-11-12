@@ -35,6 +35,8 @@ type approvalBody struct {
 	Input    json.RawMessage `json:"input"`
 	Status   string          `json:"status"` // pending, allowed, denied, expired
 	Decision string          `json:"decision,omitempty"`
+	// DecidedOn names the paired phone the decision came from; "" for the computer.
+	DecidedOn string `json:"decidedOn,omitempty"`
 }
 
 // approvalWaiters connects a pending approval card to the worker that waits on it.
@@ -161,9 +163,26 @@ func (s *Service) ExpireTurnApprovals(turnID string) { s.approvals.expireTurn(tu
 
 // ResolveApproval records the user's decision on a pending approval card.
 func (s *Service) ResolveApproval(ctx context.Context, entryID, decision string) error {
+	return s.resolveApproval(ctx, entryID, decision, "")
+}
+
+// ResolveApprovalOnPhone records a decision from paired phone device. A phone allows one call
+// or denies it; it never widens what a bot may do, and it never allows a setup, which creates
+// bots and teams.
+func (s *Service) ResolveApprovalOnPhone(ctx context.Context, entryID, decision, device string) error {
+	if decision == DecisionAlways {
+		return notAllowed("Always allow can only be chosen on the computer.")
+	}
+	return s.resolveApproval(ctx, entryID, decision, device)
+}
+
+func (s *Service) resolveApproval(ctx context.Context, entryID, decision, device string) error {
 	body, err := s.decidableApproval(ctx, entryID, decision)
 	if err != nil {
 		return err
+	}
+	if device != "" && decision == DecisionOnce && body.Tool == ToolCreateSetup {
+		return notAllowed("A setup can only be allowed on the computer.")
 	}
 	ch, ok := s.approvals.take(entryID)
 	if !ok {
@@ -172,6 +191,7 @@ func (s *Service) ResolveApproval(ctx context.Context, entryID, decision string)
 	// The waiting worker gets the decision even if recording it below fails.
 	defer func() { ch.ch <- decision }()
 	body.Decision = decision
+	body.DecidedOn = device
 	body.Status = "allowed"
 	if decision == DecisionDeny {
 		body.Status = "denied"

@@ -3,8 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"handful/internal/config"
 
 	"handful/internal/core"
 )
@@ -34,6 +37,11 @@ func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
 		{name: "drain limit above the most", file: `{"updates": {"drainMinutes": 241}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{DrainMinutes: 240}}},
 		{name: "updates without a drain limit", file: `{"updates": {"autoCheck": false}}`, want: defaults},
 		{name: "unknown update setting", file: `{"updates": {"channel": "beta"}}`, wantErr: `unknown field "channel"`},
+		{name: "phone access", file: `{"phone": {"enabled": true, "hosts": ["phone.example.com"], "proxy": "tailscale"}}`, want: settings{
+			Claude: "claude", MaxParallel: 3,
+			Phone: config.PhoneSettings{Enabled: true, Addr: config.DefaultPhoneAddr, Hosts: []string{"phone.example.com"}, Proxy: config.ProxyTailscale},
+		}},
+		{name: "a phone address on the network", file: `{"phone": {"addr": "0.0.0.0:7778"}}`, wantErr: "phone.addr"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -51,7 +59,10 @@ func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || got != tc.want {
+			if tc.want.Phone.Addr == "" {
+				tc.want.Phone = config.File{}.PhoneSettings()
+			}
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("settings = %+v, %v; want %+v", got, err, tc.want)
 			}
 		})

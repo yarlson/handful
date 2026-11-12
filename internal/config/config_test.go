@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -55,14 +56,20 @@ func TestSetStoresCheckedValuesAndNullRemovesThem(t *testing.T) {
 	for key, raw := range map[string]string{
 		"model": `" OPUS "`, "effort": `"High"`, "maxParallel": `1`, "claude": `"/opt/claude code/claude"`,
 		"updates.autoCheck": `false`, "updates.drainMinutes": `240`, "updateCheck": `false`,
+		"phone.enabled": `true`, "phone.addr": `"127.0.0.1:7900"`, "phone.hosts": `[" Phone.Example.com "]`, "phone.proxy": `"tailscale"`,
+		"phone.cloudflare.teamDomain": `"https://You.cloudflareaccess.com/"`, "phone.cloudflare.aud": `"ABCDEF0123456789abcdef"`,
 	} {
 		if err := f.Set(key, json.RawMessage(raw)); err != nil {
 			t.Fatalf("Set(%s, %s) = %v", key, raw, err)
 		}
 	}
-	want := map[string]any{"model": "opus", "effort": "high", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 240, "updateCheck": false}
+	want := map[string]any{
+		"model": "opus", "effort": "high", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 240, "updateCheck": false,
+		"phone.enabled": true, "phone.addr": "127.0.0.1:7900", "phone.hosts": []string{"phone.example.com"}, "phone.proxy": "tailscale",
+		"phone.cloudflare.teamDomain": "you.cloudflareaccess.com", "phone.cloudflare.aud": "abcdef0123456789abcdef",
+	}
 	for _, key := range Keys {
-		if got, ok := f.Get(key); !ok || got != want[key] {
+		if got, ok := f.Get(key); !ok || !reflect.DeepEqual(got, want[key]) {
 			t.Errorf("Get(%s) = %v, %v; want %v", key, got, ok, want[key])
 		}
 	}
@@ -194,11 +201,17 @@ func TestWriteFailsWithoutAFolderAndLeavesNothing(t *testing.T) {
 }
 
 func TestKeysHaveDefaultsFlagsAndRestartRules(t *testing.T) {
-	defaults := map[string]any{"model": "", "effort": "", "maxParallel": 3, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true}
-	restarts := map[string]bool{"model": true, "effort": true, "maxParallel": true, "claude": true, "updateCheck": true}
+	defaults := map[string]any{
+		"model": "", "effort": "", "maxParallel": 3, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true,
+		"phone.enabled": false, "phone.addr": "127.0.0.1:7778", "phone.hosts": []string{}, "phone.proxy": "cloudflare", "phone.cloudflare.teamDomain": "", "phone.cloudflare.aud": "",
+	}
+	restarts := map[string]bool{
+		"model": true, "effort": true, "maxParallel": true, "claude": true, "updateCheck": true,
+		"phone.enabled": true, "phone.addr": true, "phone.hosts": true, "phone.proxy": true, "phone.cloudflare.teamDomain": true, "phone.cloudflare.aud": true,
+	}
 	flagNames := map[string]string{"model": "model", "effort": "effort", "maxParallel": "max-parallel", "claude": "claude"}
 	for _, key := range Keys {
-		if Default(key) != defaults[key] || NeedsRestart(key) != restarts[key] || Flag(key) != flagNames[key] {
+		if !reflect.DeepEqual(Default(key), defaults[key]) || NeedsRestart(key) != restarts[key] || Flag(key) != flagNames[key] {
 			t.Errorf("%s: default %v, restart %v, flag %q; want %v, %v, %q", key, Default(key), NeedsRestart(key), Flag(key), defaults[key], restarts[key], flagNames[key])
 		}
 	}

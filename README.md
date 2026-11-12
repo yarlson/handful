@@ -95,7 +95,7 @@ Teams can also send tasks to each other. [More about teams](docs/teams.md).
 - **Model and effort.** Set them for one bot, for a team's members, or for every bot.
 - **Settings.** Click the gear at the bottom of the sidebar.
 
-[Configuration](docs/configuration.md) has the flags, `config.json`, the data folder, and the rules for model and effort.
+[Configuration](docs/configuration.md) has the flags, `config.json`, the data folder, the rules for model and effort, and phone access.
 
 ## Good to know
 
@@ -120,6 +120,8 @@ Bots run as your user. An approved command can do anything that you can do, so r
 Bots are not isolated from each other. Reading files needs no approval and has no path limit, so any bot can read `AGENTS.md`, `connectors.json`, the tokens in `oauth/`, and the per-turn tokens of other bots' running processes in `run/`.
 
 A team keeps its members' work focused on the team, but it is not a security boundary: a member can still read any file, including other teams' folders.
+
+Phone access is off by default. Turned on, it opens a second loopback address for a proxy on this computer, and every request needs a paired phone. A phone is paired for one of three scopes: **View**, **Chat**, or **Chat and approve once**. A phone never chooses Always allow, but it can message your bots, and a bot can then use any tool you have already always-allowed for it, with no approval card. With a Cloudflare Tunnel, Cloudflare sees your chats and approvals. [Phone access](docs/configuration.md#phone-access) has the keys and the limits.
 
 ## Not built yet
 

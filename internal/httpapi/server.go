@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,25 @@ type server struct {
 	// settingsMu orders the reads and writes of the settings file, so that
 	// two changes at once cannot lose one of them.
 	settingsMu sync.Mutex
+	// phone is the phone listener; nil while phone access is off.
+	phone *Phone
+	// routes are the main listener's routes.
+	routes *routes
+}
+
+// routes is the main listener's mux, which keeps the patterns it registers.
+type routes struct {
+	*http.ServeMux
+	patterns []string
+}
+
+func (m *routes) Handle(pattern string, h http.Handler) {
+	m.patterns = append(m.patterns, pattern)
+	m.ServeMux.Handle(pattern, h)
+}
+
+func (m *routes) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
+	m.Handle(pattern, http.HandlerFunc(h))
 }
 
 // ModelReporter tells which model Claude Code ran in a bot's latest run in a
@@ -58,11 +78,18 @@ func WithModelReporter(r ModelReporter) Option {
 
 // New returns the HTTP handler. ui holds the built web app; it may be nil.
 func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, opts ...Option) http.Handler {
+	_, h := build(svc, runner, ui, log, opts...)
+	return h
+}
+
+// build returns the server and the main listener's handler.
+func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, opts ...Option) (*server, http.Handler) {
 	s := &server{svc: svc, runner: runner, log: log, updates: DefaultUpdates()}
 	for _, o := range opts {
 		o(s)
 	}
-	mux := http.NewServeMux()
+	mux := &routes{ServeMux: http.NewServeMux()}
+	s.routes = mux
 	mux.HandleFunc("GET /api/defaults", s.defaults)
 	mux.HandleFunc("GET /api/version", s.version)
 	mux.HandleFunc("GET /api/session", s.session)
@@ -153,8 +180,16 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux.Handle("GET /oauth/callback", runner.SignInCallback())
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.Handle("/mcp", runner.MCPHandler())
-	mux.Handle("/", spa(ui))
-	return guard(mux)
+	files := spa(ui)
+	mux.Handle("/", files)
+	if s.phone != nil {
+		mux.HandleFunc("POST /api/phone/off", s.phoneOff)
+		mux.HandleFunc("GET /api/phone/sessions", s.listPhoneSessions)
+		mux.HandleFunc("DELETE /api/phone/sessions", s.revokeAllPhoneSessions)
+		mux.HandleFunc("DELETE /api/phone/sessions/{id}", s.revokePhoneSession)
+		s.phone.handler = s.phoneHandler(mux, files)
+	}
+	return s, guard(mux)
 }
 
 // guard rejects requests that could come from a web page on another origin:
@@ -234,6 +269,8 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusBadRequest
 	case errors.Is(err, core.ErrApprovalClosed), errors.Is(err, core.ErrConflict):
 		status = http.StatusConflict
+	case errors.Is(err, core.ErrNotAllowed):
+		status = http.StatusForbidden
 	}
 	if status == http.StatusInternalServerError {
 		s.log.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
@@ -875,7 +912,13 @@ func (s *server) resolveApproval(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.svc.ResolveApproval(r.Context(), r.PathValue("id"), in.Decision); err != nil {
+	resolve := s.svc.ResolveApproval
+	if dev, ok := phoneDeviceOf(r.Context()); ok {
+		resolve = func(ctx context.Context, id, decision string) error {
+			return s.svc.ResolveApprovalOnPhone(ctx, id, decision, dev.Name)
+		}
+	}
+	if err := resolve(r.Context(), r.PathValue("id"), in.Decision); err != nil {
 		s.fail(w, r, err)
 		return
 	}

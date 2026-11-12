@@ -683,3 +683,25 @@ SELECT count(*) FROM memories WHERE created_at > ?;
 
 -- name: CountRoutinesChangedSince :one
 SELECT count(*) FROM routines WHERE updated_at > ?;
+
+-- name: InsertPhoneSession :exec
+INSERT INTO phone_sessions (id, name, scope, token_hash, paired_by, created_at, last_seen_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetPhoneSessionByHash :one
+SELECT * FROM phone_sessions WHERE token_hash = ?;
+
+-- name: GetPhoneSession :one
+SELECT * FROM phone_sessions WHERE id = ?;
+
+-- name: ListPhoneSessions :many
+SELECT * FROM phone_sessions ORDER BY created_at, rowid;
+
+-- name: TouchPhoneSession :exec
+UPDATE phone_sessions SET last_seen_at = sqlc.arg(at) WHERE id = sqlc.arg(id) AND last_seen_at < sqlc.arg(at);
+
+-- name: RevokePhoneSession :execrows
+UPDATE phone_sessions SET revoked_at = sqlc.arg(at) WHERE id = sqlc.arg(id) AND revoked_at = 0;
+
+-- name: RevokeAllPhoneSessions :execrows
+UPDATE phone_sessions SET revoked_at = sqlc.arg(at) WHERE revoked_at = 0;

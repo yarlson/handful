@@ -1,8 +1,15 @@
+---
+import GithubMark from "./GithubMark.astro";
+---
+
 <div class="mx-auto w-full max-w-6xl px-6 sm:px-10 lg:px-16">
 	<footer class="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-line pb-12 pt-8 text-sm text-ink-3">
 		<span>© 2026 Yar Kravtsov · Not affiliated with or endorsed by Anthropic.</span>
 		<nav aria-label="Footer" class="flex flex-wrap gap-x-6 gap-y-2">
-			<a href="https://github.com/yarlson/handful" class="text-ink-2 transition-colors hover:text-ink">GitHub</a>
+			<a href="https://github.com/yarlson/handful" class="inline-flex items-center gap-2 text-ink-2 transition-colors hover:text-ink">
+				<GithubMark />
+				GitHub
+			</a>
 			<a href="https://github.com/yarlson/handful/releases" class="text-ink-2 transition-colors hover:text-ink">Releases</a>
 			<a href="/security/" class="text-ink-2 transition-colors hover:text-ink">Security</a>
 			<a href="/llms.txt" class="text-ink-2 transition-colors hover:text-ink">llms.txt</a>

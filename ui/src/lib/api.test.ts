@@ -129,6 +129,20 @@ test("a failed request without a server error throws its status", async () => {
   assert.strictEqual((err as Error).message, "GET /api/teams/t1/board failed with 502")
 })
 
+test("a message carries the draft's nonce, its files and the questions it answers", async () => {
+  const calls = stubFetch(202)
+  await api.send("b1", "hi", "n1")
+  await api.send("b1", "look", "n2", ["aGk="], ["q1"])
+  assert.deepEqual(calls, [
+    { method: "POST", url: "/api/bots/b1/messages", body: { text: "hi", media: [], clientNonce: "n1" } },
+    {
+      method: "POST",
+      url: "/api/bots/b1/messages",
+      body: { text: "look", media: ["aGk="], clientNonce: "n2", answers: ["q1"] },
+    },
+  ])
+})
+
 test("settings and restart calls go to the server's routes with their bodies", async () => {
   const calls = stubFetch(200)
   await api.settings()

@@ -392,12 +392,13 @@ export const api = {
       "GET",
       `/api/bots/${id}/entries?limit=${limit}${before === undefined ? "" : `&before=${before}`}`,
     ).then((r) => r.entries),
-  // media are base64-encoded file contents.
-  send: (id: string, text: string, media: string[] = [], answers: string[] = []) =>
-    request<{ turnId: string }>("POST", `/api/bots/${id}/messages`, {
+  // media are base64-encoded file contents. clientNonce names the draft: a send of the same
+  // draft again, after an error, stores the message once (send.ts, draftNonce).
+  send: (id: string, text: string, clientNonce: string, media: string[] = [], answers: string[] = []) =>
+    request<{ turnId: string; duplicate: boolean }>("POST", `/api/bots/${id}/messages`, {
       text,
       media,
-      clientNonce: crypto.randomUUID(),
+      clientNonce,
       ...(answers.length > 0 && { answers }),
     }),
   itemEvents: (id: string) => request<ItemEvent[]>("GET", `/api/items/${id}/events`),

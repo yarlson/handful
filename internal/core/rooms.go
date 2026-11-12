@@ -289,24 +289,37 @@ func nameRune(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
-// wakeRoomMembers queues room turns after the user's post in the room. It
-// wakes the members the post @mentions and the askers of the questions it
-// answers; when there are none, it wakes the lead of a team, or all members
-// of a plain room.
+// roomWake is what a user's post in a room needs to know before its transaction:
+// the members it @mentions, and the team's Now task with the members on its steps.
+type roomWake struct {
+	targets []Member
+	now     string
+	onSteps map[string]bool
+}
+
+// roomWake reads what waking the members of room for a post of text needs.
+func (s *Service) roomWake(ctx context.Context, room Bot, text string) (roomWake, error) {
+	now, onSteps, err := s.nowTask(ctx, room)
+	if err != nil {
+		return roomWake{}, err
+	}
+	return roomWake{targets: mentioned(text, room.Members, ""), now: now, onSteps: onSteps}, nil
+}
+
+// wakeRoomMembers queues, with q, the room turns of the user's post in the
+// room. It wakes the members the post @mentions and the askers of the
+// questions it answers; when there are none, it wakes the lead of a team, or
+// all members of a plain room. The caller signals the runner after commit.
 // Members take their turns one at a time, in order (the runner runs one turn
 // per room at a time), so each sees the replies before it.
-func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string, askers ...string) error {
-	targets := mentioned(text, room.Members, "")
+func (s *Service) wakeRoomMembers(ctx context.Context, q *db.Queries, room Bot, w roomWake, askers []string) error {
+	targets := w.targets
 	// A member the user @mentions in a team works on the team's Now task when
 	// the member owns or reviews one of its steps; any other turn the post
 	// wakes is not on a task.
-	now, onSteps, err := s.nowTask(ctx, room)
-	if err != nil {
-		return err
-	}
 	onNow := map[string]bool{}
 	for _, m := range targets {
-		onNow[m.ID] = onSteps[m.ID]
+		onNow[m.ID] = w.onSteps[m.ID]
 	}
 	for _, m := range room.Members {
 		if slices.Contains(askers, m.ID) && !slices.Contains(targets, m) {
@@ -324,13 +337,12 @@ func (s *Service) wakeRoomMembers(ctx context.Context, room Bot, text string, as
 	for _, m := range targets {
 		goalID := ""
 		if onNow[m.ID] {
-			goalID = now
+			goalID = w.now
 		}
-		if _, err := s.q.QueueUserPostTurn(ctx, db.QueueUserPostTurnParams{ID: uuid.NewString(), BotID: m.ID, Prompt: "The user posted a new message.", RoomID: room.ID, GoalID: goalID, CreatedAt: s.nowMs()}); err != nil {
+		if _, err := q.QueueUserPostTurn(ctx, db.QueueUserPostTurnParams{ID: uuid.NewString(), BotID: m.ID, Prompt: "The user posted a new message.", RoomID: room.ID, GoalID: goalID, CreatedAt: s.nowMs()}); err != nil {
 			return fmt.Errorf("queue room turn for bot %s: %w", m.ID, err)
 		}
 	}
-	s.signalTurns()
 	return nil
 }
 

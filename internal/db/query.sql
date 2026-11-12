@@ -76,6 +76,14 @@ RETURNING *;
 -- The task and step a turn works on, and what kind of board turn it is.
 SELECT goal_id, item_id, board_role, decision FROM turns WHERE id = ?;
 
+-- name: InsertUserTurn :one
+-- Inserts the turn of a user's message, unless the bot has a turn with the same client
+-- nonce: then it returns no row, and the message is a duplicate.
+INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (bot_id, client_nonce) DO NOTHING
+RETURNING *;
+
 -- name: GetTurnByNonce :one
 SELECT * FROM turns WHERE bot_id = ? AND client_nonce = ?;
 

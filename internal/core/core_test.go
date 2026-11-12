@@ -997,3 +997,78 @@ func TestARequeuedTurnIsQueuedAgainWithNoStartAndOnlyARunningOne(t *testing.T) {
 		t.Fatalf("requeue on a closed database: err = %v; want an error naming %s", err, id)
 	}
 }
+
+// userEntries counts the user's messages in chat id.
+func userEntries(t *testing.T, svc *Service, id string) int {
+	t.Helper()
+	entries, err := svc.Entries(context.Background(), id, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range entries {
+		if e.Kind == KindUser {
+			n++
+		}
+	}
+	return n
+}
+
+// #21: a send that another request with the same nonce beats between its check and its
+// insert is that request's duplicate, never an error. A trigger plays the other request: it
+// stores a turn with the nonce just before this one's insert.
+func TestASendThatLosesTheRaceForItsNonceIsADuplicate(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	if _, err := svc.sqlDB.ExecContext(ctx, `CREATE TRIGGER other_request BEFORE INSERT ON turns
+		WHEN NEW.client_nonce = 'n1' AND NEW.id != 'other'
+		BEGIN
+			INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, created_at)
+			VALUES ('other', NEW.bot_id, 'user', 'n1', NEW.prompt, 'queued', '', NEW.created_at);
+		END`); err != nil {
+		t.Fatal(err)
+	}
+	id, dup, err := svc.SubmitUserMessage(ctx, bot.ID, "hello", "n1")
+	if err != nil || !dup || id != "other" {
+		t.Fatalf("send = %q, %v, %v; want the other request's turn as a duplicate", id, dup, err)
+	}
+	if n := userEntries(t, svc, bot.ID); n != 0 {
+		t.Fatalf("user entries = %d; want none from the losing send", n)
+	}
+}
+
+// A nonce sent again with other text is refused: the server keeps the first message and says
+// so, instead of answering "duplicate" for a message it never stored.
+func TestANonceSentAgainWithOtherTextIsRefused(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	if _, _, err := svc.SubmitUserMessage(ctx, bot.ID, "hello", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.SubmitUserMessage(ctx, bot.ID, "hello, edited", "n1"); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "n1") {
+		t.Fatalf("other text with the same nonce: err = %v; want ErrConflict naming the nonce", err)
+	}
+	if n := userEntries(t, svc, bot.ID); n != 1 {
+		t.Fatalf("user entries = %d; want 1", n)
+	}
+}
+
+// A duplicate send with files keeps no second copy of them.
+func TestADuplicateSendLeavesNoFiles(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	png := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("x", 32))
+	if _, _, err := svc.SubmitUserMessage(ctx, bot.ID, "look", "n1", png); err != nil {
+		t.Fatal(err)
+	}
+	if _, dup, err := svc.SubmitUserMessage(ctx, bot.ID, "look", "n1", png); err != nil || !dup {
+		t.Fatalf("again = %v, %v; want a duplicate", dup, err)
+	}
+	files, err := os.ReadDir(svc.MediaDir())
+	if err != nil || len(files) != 1 {
+		t.Fatalf("media files = %d (%v); want the first send's 1", len(files), err)
+	}
+}

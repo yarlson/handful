@@ -1828,6 +1828,59 @@ func (q *Queries) InsertTurn(ctx context.Context, arg InsertTurnParams) (Turn, e
 	return i, err
 }
 
+const insertUserTurn = `-- name: InsertUserTurn :one
+INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (bot_id, client_nonce) DO NOTHING
+RETURNING id, bot_id, source, client_nonce, prompt, status, error, room_id, hops, created_at, started_at, finished_at, goal_id, item_id, board_role, decision
+`
+
+type InsertUserTurnParams struct {
+	ID          string         `json:"id"`
+	BotID       string         `json:"bot_id"`
+	Source      string         `json:"source"`
+	ClientNonce sql.NullString `json:"client_nonce"`
+	Prompt      string         `json:"prompt"`
+	Status      string         `json:"status"`
+	RoomID      string         `json:"room_id"`
+	CreatedAt   int64          `json:"created_at"`
+}
+
+// Inserts the turn of a user's message, unless the bot has a turn with the same client
+// nonce: then it returns no row, and the message is a duplicate.
+func (q *Queries) InsertUserTurn(ctx context.Context, arg InsertUserTurnParams) (Turn, error) {
+	row := q.db.QueryRowContext(ctx, insertUserTurn,
+		arg.ID,
+		arg.BotID,
+		arg.Source,
+		arg.ClientNonce,
+		arg.Prompt,
+		arg.Status,
+		arg.RoomID,
+		arg.CreatedAt,
+	)
+	var i Turn
+	err := row.Scan(
+		&i.ID,
+		&i.BotID,
+		&i.Source,
+		&i.ClientNonce,
+		&i.Prompt,
+		&i.Status,
+		&i.Error,
+		&i.RoomID,
+		&i.Hops,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.GoalID,
+		&i.ItemID,
+		&i.BoardRole,
+		&i.Decision,
+	)
+	return i, err
+}
+
 const lastGoalTurnStatus = `-- name: LastGoalTurnStatus :one
 SELECT status FROM turns WHERE goal_id = ? AND status NOT IN ('queued', 'running') AND board_role <> ''
 ORDER BY created_at DESC, rowid DESC LIMIT 1

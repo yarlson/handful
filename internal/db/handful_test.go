@@ -197,7 +197,7 @@ func TestYarGPTRefusesTheDatabaseThatHandfulMigrated(t *testing.T) {
 	}
 	err = migrateNames(context.Background(), old, names[:LastYarGPTSchema], len(names))
 	old.Close()
-	if err == nil || !strings.Contains(err.Error(), "database schema version 20 is newer") {
+	if err == nil || !strings.Contains(err.Error(), "database schema version 21 is newer") {
 		t.Fatalf("YarGPT's migrations on Handful's database: %v; want the schema version error", err)
 	}
 	if after, _ := os.ReadFile(path); !bytes.Equal(after, before) {

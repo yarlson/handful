@@ -828,6 +828,7 @@ export function BotPanel({
   show,
   teams = [],
   onOpenInbox,
+  paused,
   onClose,
 }: {
   bot: Bot
@@ -838,6 +839,8 @@ export function BotPanel({
   teams?: Bot[]
   // onOpenInbox opens the team's inbox.
   onOpenInbox?: () => void
+  // paused names a drain that holds the Now task (an update or a restart), or is null.
+  paused?: string | null
   version: number
   onDeleted: () => void
   // show asks for a tab; its n changes with every ask, so the same tab can be asked again.
@@ -874,7 +877,7 @@ export function BotPanel({
           </TabsContent>
           {bot.team && (
             <TabsContent value="board">
-              <BoardTab team={bot} version={version} teams={teams} onOpenInbox={onOpenInbox} />
+              <BoardTab team={bot} version={version} teams={teams} onOpenInbox={onOpenInbox} paused={paused} />
             </TabsContent>
           )}
           {bot.team && (

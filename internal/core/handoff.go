@@ -77,6 +77,9 @@ type Handoff struct {
 	PassedBy string `json:"passedBy,omitempty"`
 	// WaitsOnItemID is the sender's step that waits on the task.
 	WaitsOnItemID string `json:"waitsOnItemId,omitempty"`
+	// DismissedAt is when the user put the task away, in ms, after its lead
+	// pushed it back; only the sending team's board uses it.
+	DismissedAt int64 `json:"dismissedAt,omitempty"`
 }
 
 func toHandoff(row db.Goal) Handoff {
@@ -986,6 +989,31 @@ func (s *Service) WithdrawTask(ctx context.Context, a Actor, goalID string) (Goa
 	})
 }
 
+// DismissTask puts away a task that a team sent and the other team's lead
+// pushed back: the user has read the reason, and the sending team's board
+// shows it under Earlier. Only such a task is put away; a second call keeps
+// the first time.
+func (s *Service) DismissTask(ctx context.Context, goalID string) (Goal, error) {
+	g, err := s.goal(ctx, s.q, goalID)
+	if err != nil {
+		return Goal{}, err
+	}
+	if g.State != GoalDeclined || g.FromTeamID == "" {
+		return Goal{}, conflict("%q is %s; only a task that a team sent and that was pushed back is put away", g.Text, g.State)
+	}
+	n, err := s.q.DismissGoal(ctx, db.DismissGoalParams{ID: g.ID, At: s.now().UnixMilli()})
+	if err != nil {
+		return Goal{}, fmt.Errorf("put away task %s: %w", g.ID, err)
+	}
+	if n > 0 {
+		s.hub.Publish(Event{Type: "bots"})
+	}
+	if g.DismissedAt, err = s.q.GetGoalDismissal(ctx, g.ID); err != nil {
+		return Goal{}, fmt.Errorf("read when task %s was put away: %w", g.ID, err)
+	}
+	return g, nil
+}
+
 // handoffResult tells the team that sent task g what became of it: it was
 // delivered, approved or ended. On a delivery its lead wakes, in a turn that
 // no goal pays for.
@@ -1072,11 +1100,20 @@ func (s *Service) fillSent(ctx context.Context, teamID string, board *Board) err
 	if err != nil {
 		return fmt.Errorf("list the tasks that team %s sent: %w", teamID, err)
 	}
+	put, err := s.q.ListSentDismissals(ctx, db.ListSentDismissalsParams{FromTeamID: teamID, Since: since})
+	if err != nil {
+		return fmt.Errorf("list the tasks that team %s put away: %w", teamID, err)
+	}
+	dismissed := make(map[string]int64, len(put))
+	for _, d := range put {
+		dismissed[d.GoalID] = d.DismissedAt
+	}
 	for _, row := range rows {
 		g, err := s.goal(ctx, s.q, row.ID)
 		if err != nil {
 			return err
 		}
+		g.DismissedAt = dismissed[g.ID]
 		board.HandedOver = append(board.HandedOver, g)
 		if g.State != GoalDone && g.State != GoalEnded && g.State != GoalDeclined {
 			board.Sent = append(board.Sent, g)

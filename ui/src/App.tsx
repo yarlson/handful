@@ -21,7 +21,7 @@ import { useHandful } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
 import { MoveNotice } from "@/components/move-notice"
-import { TaskBar } from "@/components/board"
+import { NowChip } from "@/components/board"
 import { AcrossScreen, InboxScreen } from "@/components/tasks"
 import { tasksKey } from "@/lib/tasks"
 import { openSettingsPage, SettingsPage } from "@/components/settings"
@@ -883,9 +883,24 @@ export function App() {
                 <span className="max-w-[60%] shrink-0 truncate font-medium" title={bot.name}>
                   {bot.name}
                 </span>
-                <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm" title={subtitle}>
+                <span
+                  className={cn(
+                    "text-muted-foreground min-w-0 flex-1 truncate text-sm",
+                    bot.team && !panel && "max-xl:hidden",
+                  )}
+                  title={subtitle}
+                >
                   {subtitle}
                 </span>
+                {bot.team && !panel && (
+                  <NowChip
+                    key={bot.id}
+                    team={bot}
+                    version={`${transcript?.rev ?? 0}:${taskKey}:${bot.team.dailyBudget ?? ""}`}
+                    onOpen={() => showTab("board")}
+                  />
+                )}
+                {bot.team && !panel && <span className="flex-1 xl:hidden" />}
                 {bot.effective && (
                   <ModelChip effective={bot.effective} aliases={aliases} onClick={() => showTab("settings")} />
                 )}
@@ -909,18 +924,6 @@ export function App() {
                   <PanelRight />
                 </Button>
               </header>
-              {bot.team && (
-                <TaskBar
-                  key={bot.id}
-                  team={bot}
-                  version={`${transcript?.rev ?? 0}:${bot.team.dailyBudget ?? ""}`}
-                  onShowWork={() => showTab("board")}
-                  onOpenInbox={() => setScreen("inbox")}
-                  teams={teams}
-                  draining={draining}
-                  pause={pause}
-                />
-              )}
               <div className="flex min-h-0 flex-1">
                 <Chat
                   bot={bot}
@@ -970,6 +973,7 @@ export function App() {
               show={show}
               teams={teams}
               onOpenInbox={() => setScreen("inbox")}
+              paused={draining ? pause : null}
               onClose={() => setPanel(false)}
             />
           </aside>

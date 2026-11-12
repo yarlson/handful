@@ -858,6 +858,42 @@ func (q *Queries) DeleteToolGrant(ctx context.Context, arg DeleteToolGrantParams
 	return result.RowsAffected()
 }
 
+const dismissGoal = `-- name: DismissGoal :execrows
+INSERT INTO goal_dismissals (goal_id, dismissed_at) VALUES (?1, ?2) ON CONFLICT (goal_id) DO NOTHING
+`
+
+type DismissGoalParams struct {
+	ID string `json:"id"`
+	At int64  `json:"at"`
+}
+
+// The user puts away a task that its lead pushed back. A second call keeps
+// the first time.
+func (q *Queries) DismissGoal(ctx context.Context, arg DismissGoalParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, dismissGoal, arg.ID, arg.At)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const dismissOffTask = `-- name: DismissOffTask :exec
+INSERT INTO off_task_dismissals (team_id, dismissed_at) VALUES (?1, ?2)
+ON CONFLICT (team_id) DO UPDATE SET dismissed_at = MAX(dismissed_at, excluded.dismissed_at)
+`
+
+type DismissOffTaskParams struct {
+	TeamID string `json:"team_id"`
+	At     int64  `json:"at"`
+}
+
+// The user puts away the team's turns on no task up to now (ms). The time
+// never goes back, so a second call keeps the later of the two.
+func (q *Queries) DismissOffTask(ctx context.Context, arg DismissOffTaskParams) error {
+	_, err := q.db.ExecContext(ctx, dismissOffTask, arg.TeamID, arg.At)
+	return err
+}
+
 const failedLeadTurnsSinceDone = `-- name: FailedLeadTurnsSinceDone :one
 SELECT COUNT(*) AS failed,
   CAST(COALESCE((SELECT l.id FROM turns l WHERE l.goal_id = ?1 AND l.bot_id = ?2 AND l.board_role <> '' AND l.status = 'failed'
@@ -1009,6 +1045,18 @@ func (q *Queries) GetGoal(ctx context.Context, id string) (Goal, error) {
 		&i.MissedAt,
 	)
 	return i, err
+}
+
+const getGoalDismissal = `-- name: GetGoalDismissal :one
+SELECT CAST(COALESCE((SELECT dismissed_at FROM goal_dismissals WHERE goal_id = ?1), 0) AS INTEGER) AS dismissed_at
+`
+
+// When the user put task id away, or 0.
+func (q *Queries) GetGoalDismissal(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getGoalDismissal, id)
+	var dismissed_at int64
+	err := row.Scan(&dismissed_at)
+	return dismissed_at, err
 }
 
 const getItem = `-- name: GetItem :one
@@ -2935,6 +2983,7 @@ SELECT t.id, t.bot_id, b.name, CAST(t.started_at AS INTEGER) AS started_at, t.pr
 FROM turns t JOIN bots b ON b.id = t.bot_id
 WHERE t.room_id = ?1 AND t.goal_id = '' AND t.board_role NOT IN ('lead', 'retro')
   AND t.started_at >= CAST(?2 AS INTEGER)
+  AND t.started_at > COALESCE((SELECT d.dismissed_at FROM off_task_dismissals d WHERE d.team_id = ?1), 0)
   AND NOT (t.source = 'room' AND t.hops = 0 AND t.board_role = '' AND t.bot_id = ?3)
 ORDER BY t.started_at, t.rowid
 `
@@ -2958,7 +3007,8 @@ type ListOffTaskTurnsRow struct {
 // section 5 point 4), oldest first, with the first post of the bot in the
 // turn. Left out: the lead's board turns (decisions and its other wakes),
 // retros, and the turns of the lead that a user post woke, which are the
-// talk of the lead with the user.
+// talk of the lead with the user. Turns that started before the user put
+// the team's turns on no task away (off_task_dismissals) are left out too.
 func (q *Queries) ListOffTaskTurns(ctx context.Context, arg ListOffTaskTurnsParams) ([]ListOffTaskTurnsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listOffTaskTurns, arg.TeamID, arg.Since, arg.LeadID)
 	if err != nil {
@@ -3330,6 +3380,40 @@ func (q *Queries) ListRoutines(ctx context.Context, botID string) ([]Routine, er
 			&i.UpdatedAt,
 			&i.LastRunBy,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSentDismissals = `-- name: ListSentDismissals :many
+SELECT d.goal_id, d.dismissed_at FROM goal_dismissals d JOIN goals g ON g.id = d.goal_id
+WHERE g.origin = 'handoff' AND g.from_team_id = ?1 AND g.created_at >= ?2
+`
+
+type ListSentDismissalsParams struct {
+	FromTeamID string `json:"from_team_id"`
+	Since      int64  `json:"since"`
+}
+
+// When the user put away each task that team from_team_id sent since a time (ms).
+func (q *Queries) ListSentDismissals(ctx context.Context, arg ListSentDismissalsParams) ([]GoalDismissal, error) {
+	rows, err := q.db.QueryContext(ctx, listSentDismissals, arg.FromTeamID, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GoalDismissal
+	for rows.Next() {
+		var i GoalDismissal
+		if err := rows.Scan(&i.GoalID, &i.DismissedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

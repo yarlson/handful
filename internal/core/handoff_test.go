@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -801,5 +802,60 @@ func TestAHandoffCarriesUpToTenArtifacts(t *testing.T) {
 	}
 	if _, err := h.svc.HandOver(ctx, f.lead, "", h.docs.ID, NewHandoff{Text: "Eleven.", ArtifactIDs: ids}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a handoff with %d artifacts: err = %v; want ErrInvalid", len(ids), err)
+	}
+}
+
+func TestThePushedBackTaskOfASendingTeamIsPutAwayOnce(t *testing.T) {
+	h := newHandoffFixture(t)
+	ctx := context.Background()
+	f := h.boardFixture
+	now := time.UnixMilli(1_800_000_000_000)
+	h.svc.now = func() time.Time { return now }
+	g := h.handOver(t, f.lead, f.team, h.docs, "Guide.")
+	if _, err := h.svc.DismissTask(ctx, g.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("put away a task in the inbox: err = %v; want ErrConflict", err)
+	}
+	if _, err := h.svc.DeclineHandoff(ctx, h.docsLead, g.ID, "Not ours."); err != nil {
+		t.Fatal(err)
+	}
+	docsBefore, err := h.svc.Board(ctx, h.docs.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, stop := h.svc.Hub().Subscribe()
+	defer stop()
+	got, err := h.svc.DismissTask(ctx, g.ID)
+	if err != nil || got.DismissedAt != now.UnixMilli() || got.State != GoalDeclined {
+		t.Fatalf("put away = %+v, %v; want it declined and put away now", got, err)
+	}
+	if !gotEvent(events, "bots") {
+		t.Fatal("no bots event for the put-away task")
+	}
+	now = now.Add(time.Hour)
+	if again, err := h.svc.DismissTask(ctx, g.ID); err != nil || again.DismissedAt != got.DismissedAt {
+		t.Fatalf("put away again = %+v, %v; want the first time kept", again, err)
+	}
+	if gotEvent(events, "bots") {
+		t.Fatal("a bots event for a task already put away; want none, nothing changed")
+	}
+	ship, err := h.svc.Board(ctx, f.team.ID)
+	if err != nil || len(ship.HandedOver) != 1 || ship.HandedOver[0].DismissedAt != got.DismissedAt {
+		t.Fatalf("Ship's sent tasks = %+v, %v; want the task, put away", ship.HandedOver, err)
+	}
+	if docsAfter, err := h.svc.Board(ctx, h.docs.ID); err != nil || !reflect.DeepEqual(docsAfter, docsBefore) {
+		t.Fatalf("Docs's board = %+v, %v; want it as before: %+v", docsAfter, err, docsBefore)
+	}
+	own, err := h.svc.UserTask(ctx, h.docs.ID, NewTask{Text: "Own."}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.DeclineHandoff(ctx, h.docsLead, own.ID, "No."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.DismissTask(ctx, own.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("put away a pushed-back task that no team sent: err = %v; want ErrConflict", err)
+	}
+	if _, err := h.svc.DismissTask(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("put away a missing task: err = %v; want ErrNotFound", err)
 	}
 }

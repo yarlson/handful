@@ -1,13 +1,29 @@
-import { useEffect, useRef, useState } from "react"
-import { ArrowDown, ArrowUp, Pin, PinOff, Send } from "lucide-react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  CircleDot,
+  Eye,
+  MinusCircle,
+  Pin,
+  PinOff,
+  Play,
+  Send,
+  Square,
+  type LucideIcon,
+} from "lucide-react"
 import { api, type Board, type Bot, type Goal, type Item } from "@/lib/api"
 import { PausedForUpdate } from "@/components/update-pill"
 import {
   clock,
   SendTaskDialog,
-  SentSection,
   SourceChip,
   BudgetSection,
+  LimitAction,
   OffTaskBox,
   TaskHistory,
   TextAction,
@@ -20,25 +36,20 @@ import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@
 import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { fromUser, leadName, memberName, nextUp, taskBar, type Names } from "@/lib/tasks"
+import {
+  awaitsAnswer,
+  canWithdraw,
+  fromUser,
+  leadName,
+  memberName,
+  sentState,
+  turnsLine,
+  type Names,
+} from "@/lib/tasks"
 import { moved, placeNote } from "@/lib/queue"
 import { cn } from "@/lib/utils"
 
 export type { Act }
-
-// taskWord names a task's state as text.
-const taskWord: Record<Goal["state"], string> = {
-  active: "Now",
-  paused: "Paused",
-  delivered: "Done, waiting for approval",
-  done: "Approved",
-  ended: "Ended",
-  stopped: "Stopped",
-  queued: "Planned",
-  incoming: "In the inbox",
-  later: "Later",
-  declined: "Pushed back",
-}
 
 // stateOrder lists step states in the order the board shows them: what needs
 // attention first, what is over last.
@@ -68,196 +79,131 @@ function FromChip({ goal, names }: { goal: Goal; names: Names }) {
   return fromUser(goal) ? null : <SourceChip goal={goal} names={names} />
 }
 
-// NowTask starts the task bar: the Now task's state, where it came from and its title. The
-// title keeps at least 40% of the bar, so a long chip or the controls after it wrap instead of
-// squeezing it. paused names a drain that holds the task, or is null.
-export function NowTask({ goal, names, paused }: { goal: Goal; names: Names; paused: string | null }) {
-  return (
-    <>
-      <Badge variant={goal.state === "paused" ? "destructive" : "secondary"}>{taskWord[goal.state]}</Badge>
-      <FromChip goal={goal} names={names} />
-      {paused && <PausedForUpdate label={paused} />}
-      <span className="min-w-[40%] flex-1 truncate" title={goal.text}>
-        {goal.text}
-      </span>
-    </>
-  )
-}
-
-// TaskBar shows a team's Now task above its channel, with the controls of its budget, the
-// way into the team's inbox, and the next task in the plan. "/task <text>" in the team's
-// chat sends the lead a task, which adds a board event to the transcript: its new rev reloads
-// the bar. onShowWork opens the Work tab, where the plan is.
-export function TaskBar({
-  team,
-  version,
-  onShowWork,
-  onOpenInbox,
-  teams = [],
-  draining = false,
-  pause = "Paused for update",
-}: {
-  team: Bot
-  // version changes when the team's transcript or daily budget changes; it reloads the bar. It
-  // leaves out who is running: a key that changes faster than the board loads never shows one.
-  version: string
-  onShowWork?: () => void
-  onOpenInbox?: () => void
-  // teams are the app's teams, to send tasks to.
-  teams?: Bot[]
-  // draining: the server starts no new turns until it restarts for an update.
-  draining?: boolean
-  // pause names the drain: for an update or for a restart.
-  pause?: string
-}) {
+// NowChip stands in for the Work tab in the chat header while the panel is closed: what the team
+// does now and how many things need the user. It opens the Work tab.
+export function NowChip({ team, version, onOpen }: { team: Bot; version: string; onOpen: () => void }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
-  const [sending, setSending] = useState(false)
-  // stopping is the task whose Stop waits for a confirm; a confirm left open never stops the next task.
-  const [stopping, setStopping] = useState<string | null>(null)
-  const names = boardNames(board.data, teams, team)
-  const goal = board.data?.goal
-  const plan = board.data?.plan ?? []
-  const inbox = board.data?.inbox?.length ?? 0
-  const act = async (action: () => Promise<unknown>) => {
-    try {
-      await action()
-      board.setError(null)
-      board.reload()
-      return true
-    } catch (e) {
-      board.setError((e as Error).message)
-      return false
-    }
-  }
-  if (!board.data) {
-    return board.error ? <p className="text-destructive border-b px-4 py-2 text-xs">{board.error}</p> : null
-  }
-  const bar = taskBar(goal, plan.length)
-  const upNext = nextUp(plan)
+  return board.data ? <NowChipView data={board.data} onOpen={onOpen} /> : null
+}
+
+// NowChipView is the Now chip of a loaded board.
+export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void }) {
+  const now = nowTask(data.goal)
+  const needs = needsOf(data).length
   return (
-    <div className="@container flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" data-task-bar={bar.mode}>
-      {goal && bar.mode === "now" ? (
-        <>
-          <NowTask goal={goal} names={names} paused={draining && goal.state === "active" ? pause : null} />
-          {upNext && (
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground hidden max-w-[20%] truncate text-xs underline-offset-2 hover:underline @min-[96rem]:block"
-              title={upNext}
-              onClick={onShowWork}
-            >
-              {upNext}
-            </button>
-          )}
-          {board.data.budget?.paused && <ToneChip tone="attention">Today's turns used</ToneChip>}
-          <span className="text-muted-foreground hidden shrink-0 text-xs @4xl:inline">
-            {goal.used} {goal.used === 1 ? "turn" : "turns"} so far
-          </span>
-          {bar.actions.includes("approve") && (
-            <Button
-              size="xs"
-              aria-label={`Approve: ${goal.text}`}
-              onClick={() => void act(() => api.approveTask(goal.id))}
-            >
-              Approve
-            </Button>
-          )}
-          {bar.actions.includes("changes") && (
-            <TextAction
-              id={`bar-changes-${goal.id}`}
-              label="What should change? The task comes back as Now."
-              open={`Ask for changes: ${goal.text}`}
-              submit="Ask for changes"
-              onSubmit={(text) => act(() => api.changesTask(goal.id, text))}
-            />
-          )}
-          {bar.actions.includes("resume") && (
-            <Button size="xs" onClick={() => void act(() => api.extendGoal(goal.id, 0))}>
-              Resume
-            </Button>
-          )}
-          {bar.actions.includes("stop") &&
-            (stopping === goal.id ? (
-              <>
-                <span className="text-xs">Stop the task? Running turns finish, and its steps stay.</span>
-                <Button
-                  size="xs"
-                  variant="destructive"
-                  onClick={() => void act(() => api.stopTask(goal.id)).then(() => setStopping(null))}
-                >
-                  Stop task
-                </Button>
-                <Button size="xs" variant="ghost" onClick={() => setStopping(null)}>
-                  Keep it
-                </Button>
-              </>
-            ) : (
-              <Button size="xs" variant="ghost" onClick={() => setStopping(goal.id)}>
-                Stop…
-              </Button>
-            ))}
-        </>
-      ) : goal && bar.mode === "stopped" ? (
-        <>
-          <Badge variant="outline">Stopped</Badge>
-          <span className="min-w-0 flex-1 truncate" title={goal.text}>
-            {goal.text}
-          </span>
-          <Button size="xs" variant="outline" onClick={() => void act(() => api.reopenTask(goal.id))}>
-            Reopen
-          </Button>
-          <span className="text-muted-foreground shrink-0 text-xs">Reopen puts it back in the inbox.</span>
-        </>
-      ) : bar.mode === "hold" && plan[0] ? (
-        <>
-          <Badge variant="outline">Plan on hold</Badge>
-          <span className="min-w-0 flex-1 truncate" title={plan[0].text}>
-            next: {plan[0].text}
-          </span>
-          <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
-            Start now
-          </Button>
-        </>
-      ) : (
-        <>
-          <span className="text-muted-foreground min-w-0 flex-1 truncate">Nothing now.</span>
-          <span className="text-muted-foreground shrink-0 text-xs">
-            To send the lead a task, type <code className="font-mono">/task &lt;what the team should do&gt;</code> in
-            the chat.
-          </span>
-        </>
-      )}
-      <Button
-        size="xs"
-        variant="outline"
-        aria-label={`Inbox, ${inbox} waiting`}
-        onClick={onOpenInbox}
-        disabled={!onOpenInbox}
-      >
-        Inbox <strong>{inbox}</strong>
-      </Button>
-      {teams.length > 1 && (
-        <Button
-          size="xs"
-          variant="ghost"
-          aria-haspopup="dialog"
-          aria-label="Send to a team…"
-          title="Send to a team…"
-          onClick={() => setSending(true)}
-        >
-          <Send />
-          <span className="hidden @2xl:inline">Send to a team…</span>
-        </Button>
-      )}
-      <SendTaskDialog open={sending} onOpenChange={setSending} from={team} teams={teams} onDone={board.reload} />
-      {board.error && <span className="text-destructive w-full text-xs">{board.error}</span>}
-    </div>
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Work: ${now ? `now, ${now.text}` : "nothing now"}${needs > 0 ? `; ${needs} need you` : ""}. Opens the Work tab.`}
+      title={now?.text}
+      className="hover:bg-muted flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          !now ? "bg-muted-foreground/40" : now.state === "paused" ? "bg-amber-500" : "bg-emerald-500",
+        )}
+      />
+      <span className="text-muted-foreground shrink-0">{now ? "Now" : "Nothing now"}</span>
+      {now && <span className="min-w-0 truncate">{now.text}</span>}
+      {needs > 0 && <ToneChip tone="attention">{needs} need you</ToneChip>}
+    </button>
   )
 }
 
-// StepCard is one step of the Now task: its owner and reviewer, its change requests and its
-// history.
-function StepCard({ team, item }: { team: Bot; item: Item }) {
+// nowTask is the task the team works on: active, or paused by its budget. A stopped or finished
+// latest task is not Now; it shows under Earlier.
+function nowTask(goal: Goal | null): Goal | null {
+  return goal && (goal.state === "active" || goal.state === "paused") ? goal : null
+}
+
+// Need is one thing in a team's Work tab that only the user settles.
+type Need =
+  | { kind: "approve"; goal: Goal } // the team's own task is done and waits for approval
+  | { kind: "sent-done"; goal: Goal } // a task the team sent is done at the other team
+  | { kind: "answer"; goal: Goal } // a team the task was sent to asked a question
+  | { kind: "pushed"; goal: Goal } // a team the task was sent to pushed it back
+  | { kind: "decide"; goal: Goal } // the lead missed a decision; only the user decides now
+  | { kind: "budget" } // today's turns are used
+
+// needsOf lists what needs the user in a team's board, most pressing first.
+export function needsOf(data: Board): Need[] {
+  const sent = data.handedOver ?? []
+  return [
+    ...(data.budget?.paused ? [{ kind: "budget" } as const] : []),
+    ...(data.inbox ?? []).filter((g) => g.needsUser).map((goal) => ({ kind: "decide", goal }) as const),
+    ...sent.filter((g) => awaitsAnswer(g)).map((goal) => ({ kind: "answer", goal }) as const),
+    ...(data.done ?? []).map((goal) => ({ kind: "approve", goal }) as const),
+    ...sent.filter((g) => g.state === "delivered").map((goal) => ({ kind: "sent-done", goal }) as const),
+    ...sent.filter((g) => g.state === "declined" && !g.dismissedAt).map((goal) => ({ kind: "pushed", goal }) as const),
+  ]
+}
+
+// sentOpen tells whether a sent task is still with the other team: not over, and not waiting on
+// the user (those are in Needs you).
+function sentOpen(g: Goal): boolean {
+  return ["incoming", "later", "queued", "active", "paused"].includes(g.state) && !awaitsAnswer(g)
+}
+
+// sentOver tells whether a sent task is finished for the sender: done, stopped, withdrawn, or
+// pushed back and put away.
+function sentOver(g: Goal): boolean {
+  return ["done", "stopped", "ended"].includes(g.state) || (g.state === "declined" && Boolean(g.dismissedAt))
+}
+
+// StepRow is one step of the Now task, as one line: its state, title and owner. It opens to the
+// step's change requests, history and details.
+function StepRow({ team, item }: { team: Bot; item: Item }) {
+  const [open, setOpen] = useState(false)
+  const id = `step-${item.id}`
+  const over = item.state === "done" || item.state === "dropped"
+  const who = item.ownerId ? memberName(team, item.ownerId) : "No owner yet"
+  const Mark = stepMark[item.state]
+  return (
+    <li className="text-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((v) => !v)}
+        className="hover:bg-sidebar-foreground/5 flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left"
+      >
+        <Mark.icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", Mark.className)} />
+        <span className="min-w-0 flex-1">
+          <span className={cn("block", over ? "text-muted-foreground" : "font-medium")}>{item.title}</span>
+          <span className="text-muted-foreground block text-xs">
+            {stateLabel[item.state]} · {who}
+            {item.reviewRounds > 0 &&
+              ` · ${item.reviewRounds} ${item.reviewRounds === 1 ? "change request" : "change requests"}`}
+          </span>
+        </span>
+        <ChevronRight
+          aria-hidden
+          className={cn("text-muted-foreground mt-0.5 size-3.5 shrink-0 transition-transform", open && "rotate-90")}
+        />
+      </button>
+      {open && (
+        <div id={id} className="mt-1 mb-2 ml-7">
+          <StepDetails team={team} item={item} />
+        </div>
+      )}
+    </li>
+  )
+}
+
+// stepMark is the icon of a step's state; the state is also written next to it.
+const stepMark: Record<Item["state"], { icon: LucideIcon; className: string }> = {
+  blocked: { icon: AlertTriangle, className: "text-amber-600 dark:text-amber-400" },
+  review: { icon: Eye, className: "text-violet-600 dark:text-violet-400" },
+  doing: { icon: CircleDot, className: "text-blue-600 dark:text-blue-400" },
+  todo: { icon: Circle, className: "text-muted-foreground" },
+  done: { icon: CheckCircle2, className: "text-emerald-600 dark:text-emerald-400" },
+  dropped: { icon: MinusCircle, className: "text-muted-foreground" },
+}
+
+// StepDetails is an opened step: its reviewer, change requests, history and details.
+export function StepDetails({ team, item }: { team: Bot; item: Item }) {
   const who = `${item.ownerId ? memberName(team, item.ownerId) : "No owner yet"}${item.reviewerId ? ` · reviewed by ${memberName(team, item.reviewerId)}` : ""}`
   const [history, setHistory] = useState(false)
   const historyId = `history-${item.id}`
@@ -275,14 +221,10 @@ function StepCard({ team, item }: { team: Bot; item: Item }) {
     </Button>
   )
   return (
-    <div className="flex flex-col gap-1 rounded-md border p-2 text-sm">
-      <div className="flex items-start gap-2">
-        <span className="flex-1 font-medium">{item.title}</span>
-        {item.reviewRounds > 0 && toggle}
-      </div>
+    <div className="flex flex-col gap-1.5 text-sm">
       <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
         {who}
-        {item.reviewRounds === 0 && toggle}
+        {toggle}
       </p>
       {item.latestChange && (
         <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
@@ -360,6 +302,12 @@ export function HistoryList({ id, item, events }: { id: string; item: Item; even
   )
 }
 
+// reveal shows a planned task's controls while the pointer is on it or the keyboard is in it, on
+// a touch screen, and while its history or its Withdraw confirm is open: they are a lot of chrome
+// for what is mostly status.
+const reveal =
+  "opacity-0 transition-opacity group-hover/plan:opacity-100 group-focus-within/plan:opacity-100 pointer-coarse:opacity-100 has-[[aria-expanded=true]]:opacity-100 has-[[data-variant=destructive]]:opacity-100"
+
 // PlanList shows a team's planned tasks in the lead's order. The user moves them, pins one
 // where it is so the lead can't move it, starts the first when the plan holds, or withdraws one.
 function PlanList({
@@ -402,13 +350,10 @@ function PlanList({
     focus.current = { id: g.id, step, to: i + step }
   }
   return (
-    <section className="flex flex-col gap-1.5" aria-labelledby="plan-heading">
-      <h3 id="plan-heading" className="text-muted-foreground text-xs font-medium uppercase">
-        Next, in {leadName(team)}'s order ({plan.length})
-      </h3>
-      <ol className="flex flex-col gap-1.5">
+    <>
+      <ol aria-labelledby="next-heading" className="flex flex-col gap-1.5">
         {plan.map((g, i) => (
-          <li key={g.id} className="flex flex-col gap-1 rounded-md border p-2 text-sm">
+          <li key={g.id} className="group/plan flex flex-col gap-1 rounded-md border p-2 text-sm">
             <div className="flex flex-wrap items-start gap-2">
               <span className="text-muted-foreground w-4 shrink-0 text-xs">{i + 1}</span>
               <span className="line-clamp-2 min-w-[60%] flex-1" title={g.text}>
@@ -417,7 +362,9 @@ function PlanList({
               <FromChip goal={g} names={names} />
               {g.pinned && <Badge variant="outline">pinned</Badge>}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-1">
+            <div className={cn("flex flex-wrap items-center gap-1", reveal)}>
+              <TaskHistory goal={g} version={rev} />
+              <span className="flex-1" />
               <Button
                 id={`plan-${g.id}-up`}
                 size="icon-xs"
@@ -450,7 +397,6 @@ function PlanList({
               </Button>
               <WithdrawAction g={g} to={team.name} act={act} />
             </div>
-            <TaskHistory goal={g} version={rev} />
           </li>
         ))}
       </ol>
@@ -462,99 +408,29 @@ function PlanList({
           </Button>
         </div>
       ) : (
-        <p className="text-muted-foreground text-xs">The first one starts when the Now task is done or stopped.</p>
+        <p className="text-muted-foreground text-xs">The first one starts when the Now task is done.</p>
       )}
       <p className="sr-only" aria-live="polite">
         {note}
       </p>
-    </section>
+    </>
   )
 }
 
-// DoneList shows the tasks that are done and wait for approval by whoever asked. The team
-// doesn't wait for it; the user can approve or ask for changes here.
-function DoneList({ done, act, names, rev }: { done: Goal[]; act: Act; names: Names; rev: number }) {
-  if (done.length === 0) return null
-  return (
-    <section className="flex flex-col gap-1.5" aria-labelledby="done-heading">
-      <h3 id="done-heading" className="text-muted-foreground text-xs font-medium uppercase">
-        Done, waiting for approval ({done.length})
-      </h3>
-      <ul className="flex flex-col gap-1.5">
-        {done.map((g) => (
-          <li key={g.id} className="flex flex-col gap-1.5 rounded-md border p-2 text-sm">
-            <div className="flex flex-wrap items-start gap-2">
-              <span className="min-w-[60%] flex-1 font-medium">{g.text}</span>
-              <FromChip goal={g} names={names} />
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <Button size="xs" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
-                Approve
-              </Button>
-              <TextAction
-                id={`changes-${g.id}`}
-                label="What should change? The task comes back as Now, first in the plan."
-                open={`Ask for changes: ${g.text}`}
-                submit="Ask for changes"
-                onSubmit={(text) => act(() => api.changesTask(g.id, text))}
-              />
-            </div>
-            <TaskHistory goal={g} version={rev} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-// StoppedList shows the team's stopped tasks: their steps stay, and Reopen puts one back in
-// the inbox for the lead to decide on again. The latest task, when stopped, shows in Now.
-function StoppedList({ stopped, act, names, rev }: { stopped: Goal[]; act: Act; names: Names; rev: number }) {
-  if (stopped.length === 0) return null
-  return (
-    <section className="flex flex-col gap-1.5" aria-labelledby="stopped-heading">
-      <h3 id="stopped-heading" className="text-muted-foreground text-xs font-medium uppercase">
-        Stopped ({stopped.length})
-      </h3>
-      <ul className="flex flex-col gap-1.5">
-        {stopped.map((g) => (
-          <li key={g.id} className="flex flex-col gap-1.5 rounded-md border p-2 text-sm">
-            <div className="flex flex-wrap items-start gap-2">
-              <span className="min-w-[60%] flex-1 font-medium">{g.text}</span>
-              <FromChip goal={g} names={names} />
-            </div>
-            <p className="text-muted-foreground text-xs">
-              {g.used} {g.used === 1 ? "turn" : "turns"} used · Reopen puts it back in the inbox.
-            </p>
-            <Button
-              size="xs"
-              variant="outline"
-              className="self-start"
-              aria-label={`Reopen: ${g.text}`}
-              onClick={() => void act(() => api.reopenTask(g.id))}
-            >
-              Reopen
-            </Button>
-            <TaskHistory goal={g} version={rev} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-// BoardTab is a team's Work tab: its Now task and steps, the tasks done and stopped, the plan,
-// turns on no task, today's budget, the inbox, and what it sent other teams.
+// BoardTab is a team's Work tab. It answers, in order: what needs me, what the team does now,
+// what comes next, what it waits on from other teams, and what is over.
 export function BoardTab({
   team,
   version,
   teams = [],
   onOpenInbox,
+  paused = null,
 }: {
   team: Bot
   version: number
   teams?: Bot[]
   onOpenInbox?: () => void
+  paused?: string | null
 }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
   const act: Act = async (action) => {
@@ -578,7 +454,31 @@ export function BoardTab({
       act={act}
       teams={teams}
       onOpenInbox={onOpenInbox}
+      paused={paused}
     />
+  )
+}
+
+// Heading is a Work tab section's title, with its count and one optional action at the right.
+function Heading({
+  id,
+  count,
+  action,
+  children,
+}: {
+  id: string
+  count?: number
+  action?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="flex min-h-7 items-center gap-2">
+      <h3 id={id} className="text-muted-foreground text-xs font-medium uppercase">
+        {children}
+        {count !== undefined && ` (${count})`}
+      </h3>
+      {action && <span className="ml-auto">{action}</span>}
+    </div>
   )
 }
 
@@ -590,6 +490,7 @@ export function BoardView({
   act,
   teams: allTeams = [],
   onOpenInbox,
+  paused = null,
   rev = 0,
 }: {
   team: Bot
@@ -600,78 +501,369 @@ export function BoardView({
   act: Act
   teams?: Bot[]
   onOpenInbox?: () => void
+  paused?: string | null
 }) {
-  const { goal, items } = data
+  const [sending, setSending] = useState(false)
   const names = boardNames(data, allTeams, team)
   const plan = data.plan ?? []
   const inbox = data.inbox ?? []
-  const now = goal?.state === "active" || goal?.state === "paused"
+  const sent = data.handedOver ?? []
+  const needs = needsOf(data)
+  const waiting = sent.filter(sentOpen)
+  const now = nowTask(data.goal)
+  const stopped = (data.stopped ?? []).concat(data.goal && !now && data.goal.state === "stopped" ? [data.goal] : [])
+  const earlier = [...new Map([...stopped, ...sent.filter(sentOver)].map((g) => [g.id, g])).values()]
+  const lead = leadName(team)
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       {error && <p className="text-destructive text-xs">{error}</p>}
-      <section className="flex flex-col gap-1.5" aria-labelledby="now-heading">
-        <h3 id="now-heading" className="text-muted-foreground text-xs font-medium uppercase">
-          {now || !goal ? "Now" : "Latest task"}
-        </h3>
-        {goal ? (
-          <div className="flex flex-col gap-1 text-sm">
-            <div className="flex flex-wrap items-start gap-2">
-              <span className="min-w-[60%] flex-1 font-medium">{goal.text}</span>
-              <FromChip goal={goal} names={names} />
-              {!now && <Badge variant="outline">{taskWord[goal.state]}</Badge>}
-              {goal.state === "paused" && <Badge variant="destructive">Paused</Badge>}
-            </div>
-            <p className="text-muted-foreground text-xs">
-              {goal.used} {goal.used === 1 ? "turn" : "turns"} so far · started {clock(goal.createdAt)}
-            </p>
-            <TaskHistory goal={goal} steps={items} version={rev} />
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-sm">
-            Nothing now. The lead splits a task into steps when it starts.
-          </p>
-        )}
-        {goal && items.length === 0 && <p className="text-muted-foreground text-sm">No steps yet.</p>}
-      </section>
-      {stateOrder.map((state) => {
-        const group = items.filter((i) => i.state === state)
-        if (group.length === 0) return null
-        return (
-          <section key={state} className="flex flex-col gap-1.5">
-            <h4 className="text-muted-foreground text-xs font-medium">
-              {stateLabel[state]} ({group.length})
-            </h4>
-            {group.map((item) => (
-              <StepCard key={item.id} team={team} item={item} />
+      <NowSection team={team} goal={now} data={data} names={names} act={act} rev={rev} paused={paused} />
+      {needs.length > 0 && (
+        <section
+          aria-labelledby="needs-heading"
+          className="flex flex-col gap-2 rounded-lg border border-amber-500/50 p-2.5"
+        >
+          <h3 id="needs-heading" className="text-xs font-medium text-amber-800 uppercase dark:text-amber-300">
+            Needs you ({needs.length})
+          </h3>
+          <ul className="flex flex-col divide-y divide-amber-500/20">
+            {needs.map((n) => (
+              <NeedRow
+                key={n.kind === "budget" ? "budget" : `${n.kind}:${n.goal.id}`}
+                n={n}
+                team={team}
+                names={names}
+                act={act}
+                onOpenInbox={onOpenInbox}
+                budget={data.budget}
+              />
             ))}
-          </section>
-        )
-      })}
-      <DoneList done={data.done ?? []} act={act} names={names} rev={rev} />
-      <StoppedList stopped={(data.stopped ?? []).filter((g) => g.id !== goal?.id)} act={act} names={names} rev={rev} />
-      {plan.length > 0 && (
-        <PlanList team={team} plan={plan} held={!now && plan.length > 0} act={act} names={names} rev={rev} />
+          </ul>
+        </section>
       )}
-      {data.offTask && <OffTaskBox team={team} offTask={data.offTask} act={act} />}
-      {data.budget && <BudgetSection team={team} budget={data.budget} act={act} />}
-      <section className="flex flex-col gap-1.5" aria-labelledby="inbox-heading">
-        <h3 id="inbox-heading" className="text-muted-foreground text-xs font-medium uppercase">
-          Inbox ({inbox.length})
-        </h3>
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground flex-1">
-            {inbox.length === 0
-              ? "Nothing waits for a decision."
-              : `${inbox.length} ${inbox.length === 1 ? "task waits" : "tasks wait"} for ${leadName(team)}'s decision.`}
-          </span>
-          {onOpenInbox && (
-            <Button size="xs" variant="outline" onClick={onOpenInbox}>
-              Open inbox
-            </Button>
+      {(plan.length > 0 || inbox.length > 0) && (
+        <section aria-labelledby="next-heading" className="flex flex-col gap-1.5">
+          <Heading id="next-heading" count={plan.length}>
+            Next
+          </Heading>
+          {plan.length > 0 && (
+            <>
+              <p className="text-muted-foreground -mt-1 text-xs">In {lead}'s order. Move or pin to change it.</p>
+              <PlanList team={team} plan={plan} held={!now} act={act} names={names} rev={rev} />
+            </>
           )}
-        </div>
+          {inbox.length > 0 && (
+            <div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-xs">
+              <span className="flex-1">
+                {`Inbox: ${inbox.length} ${inbox.length === 1 ? "task waits" : "tasks wait"} for ${lead}'s decision.`}
+              </span>
+              {onOpenInbox && (
+                <Button size="xs" variant="outline" onClick={onOpenInbox}>
+                  Open inbox
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+      <section aria-labelledby="sent-heading" className="flex flex-col gap-1.5">
+        <Heading
+          id="sent-heading"
+          count={waiting.length}
+          action={
+            allTeams.length > 1 && (
+              <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
+                <Send /> Send a task…
+              </Button>
+            )
+          }
+        >
+          Waiting on other teams
+        </Heading>
+        {waiting.length === 0 ? (
+          <p className="text-muted-foreground text-xs">Nothing sent is open.</p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {waiting.map((g) => (
+              <SentRow key={g.id} g={g} names={names} act={act} rev={rev} />
+            ))}
+          </ul>
+        )}
       </section>
-      <SentSection goals={data.handedOver ?? []} names={names} act={act} version={rev} />
+      {earlier.length > 0 && (
+        <details className="group/earlier">
+          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center gap-1 text-xs font-medium uppercase">
+            <ChevronRight aria-hidden className="size-3.5 transition-transform group-open/earlier:rotate-90" />
+            Earlier ({earlier.length})
+          </summary>
+          <ul className="mt-1.5 flex flex-col gap-1.5">
+            {earlier.map((g) =>
+              g.teamId === team.id ? (
+                <StoppedRow key={g.id} g={g} names={names} act={act} rev={rev} />
+              ) : (
+                <SentRow key={g.id} g={g} names={names} act={act} rev={rev} />
+              ),
+            )}
+          </ul>
+        </details>
+      )}
+      {(data.budget || (data.offTask?.count ?? 0) > 0) && (
+        <footer className="flex flex-col gap-3 border-t pt-3">
+          {data.offTask && <OffTaskBox team={team} offTask={data.offTask} act={act} />}
+          {data.budget && <BudgetSection team={team} budget={data.budget} act={act} />}
+        </footer>
+      )}
+      <SendTaskDialog
+        open={sending}
+        onOpenChange={setSending}
+        from={team}
+        teams={allTeams}
+        onDone={() => void act(async () => {})}
+      />
     </div>
+  )
+}
+
+// NowSection is the task the team works on, with its steps nested under it.
+function NowSection({
+  team,
+  goal,
+  data,
+  names,
+  act,
+  rev,
+  paused,
+}: {
+  team: Bot
+  goal: Goal | null
+  data: Board
+  names: Names
+  act: Act
+  rev: number
+  paused: string | null
+}) {
+  const [stopping, setStopping] = useState(false)
+  const items = [...data.items].sort((a, b) => stateOrder.indexOf(a.state) - stateOrder.indexOf(b.state))
+  const done = data.items.filter((i) => i.state === "done").length
+  const plan = data.plan ?? []
+  return (
+    <section aria-labelledby="now-heading" className="flex flex-col gap-1.5">
+      <Heading id="now-heading">Now</Heading>
+      {goal ? (
+        <div className="bg-background/60 flex flex-col gap-2 rounded-lg border p-2.5">
+          <div className="flex flex-wrap items-start gap-2">
+            <span className="min-w-[60%] flex-1 text-sm font-medium">{goal.text}</span>
+            <FromChip goal={goal} names={names} />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            {goal.state === "paused" && <Badge variant="destructive">Paused</Badge>}
+            {paused && goal.state === "active" && <PausedForUpdate label={paused} />}
+            <span className="text-muted-foreground">
+              {[
+                items.length > 0 ? `${done} of ${items.length} steps done` : "No steps yet",
+                `${goal.used} ${goal.used === 1 ? "turn" : "turns"}`,
+                `since ${clock(goal.createdAt)}`,
+              ].join(" · ")}
+            </span>
+          </div>
+          {items.length > 0 && (
+            <ul aria-label={`Steps of ${goal.text}`} className="-mx-1.5 flex flex-col">
+              {items.map((item) => (
+                <StepRow key={item.id} team={team} item={item} />
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+            <TaskHistory goal={goal} steps={data.items} version={rev} />
+            <span className="flex-1" />
+            {goal.state === "paused" && !stopping && (
+              <Button
+                size="xs"
+                aria-label={`Resume: ${goal.text}`}
+                onClick={() => void act(() => api.extendGoal(goal.id, 0))}
+              >
+                <Play /> Resume
+              </Button>
+            )}
+            {stopping ? (
+              <span className="flex flex-wrap items-center gap-1.5 text-xs">
+                Stop the task? Running turns finish, and its steps stay.
+                <Button
+                  size="xs"
+                  variant="destructive"
+                  onClick={() => void act(() => api.stopTask(goal.id)).then(() => setStopping(false))}
+                >
+                  Stop task
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => setStopping(false)}>
+                  Keep it
+                </Button>
+              </span>
+            ) : (
+              <Button size="xs" variant="ghost" aria-label={`Stop: ${goal.text}`} onClick={() => setStopping(true)}>
+                <Square /> Stop…
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className="text-muted-foreground text-sm">
+          {plan.length > 0
+            ? "Nothing now. The plan is on hold: start the next task below."
+            : "Nothing now. To send the lead a task, type /task <what the team should do> in the chat."}
+        </p>
+      )}
+    </section>
+  )
+}
+
+// NeedRow is one thing in the Work tab that only the user settles, with the buttons that settle it.
+function NeedRow({
+  n,
+  team,
+  names,
+  act,
+  onOpenInbox,
+  budget,
+}: {
+  n: Need
+  team: Bot
+  names: Names
+  act: Act
+  onOpenInbox?: () => void
+  budget?: Board["budget"]
+}) {
+  if (n.kind === "budget") {
+    return (
+      <li className="flex flex-col gap-1.5 py-2 text-sm first:pt-0 last:pb-0">
+        <p>
+          <strong>Today's turns are used.</strong> New turns wait until midnight or a higher limit.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <LimitAction team={team} open={`Raise: ${team.name}`} value={(budget?.limit ?? 0) + 50} act={act} />
+        </div>
+      </li>
+    )
+  }
+  const g = n.goal
+  const to = names.team(g.teamId)
+  const lead =
+    n.kind === "approve"
+      ? "Done, approve it:"
+      : n.kind === "sent-done"
+        ? `Done at ${to}, approve it:`
+        : n.kind === "answer"
+          ? `${to} asks:`
+          : n.kind === "pushed"
+            ? `${to} pushed back:`
+            : `${leadName(team)} didn't decide in time:`
+  return (
+    <li className="flex flex-col gap-1.5 py-2 text-sm first:pt-0 last:pb-0">
+      <p>
+        <span className="text-muted-foreground">{lead}</span> <span className="font-medium">{g.text}</span>
+      </p>
+      {(n.kind === "answer" || n.kind === "pushed") && g.intakeNote && (
+        <p className="text-xs">
+          <strong>{to}:</strong> {g.intakeNote}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {(n.kind === "approve" || n.kind === "sent-done") && (
+          <>
+            <Button size="xs" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
+              Approve
+            </Button>
+            <TextAction
+              id={`changes-${g.id}`}
+              label="What should change? The task comes back as Now, first in the plan."
+              open={`Ask for changes: ${g.text}`}
+              submit="Ask for changes"
+              onSubmit={(text) => act(() => api.changesTask(g.id, text))}
+            />
+          </>
+        )}
+        {n.kind === "answer" && (
+          <TextAction
+            id={`answer-${g.id}`}
+            label={`Your answer to ${to}: ${g.intakeNote ?? ""}`}
+            open={`Answer: ${g.text}`}
+            submit="Send answer"
+            onSubmit={(text) => act(() => api.answerTask(g.id, text))}
+          />
+        )}
+        {n.kind === "pushed" && (
+          <Button
+            size="xs"
+            variant="outline"
+            aria-label={`Dismiss: ${g.text}`}
+            onClick={() => void act(() => api.dismissSent(g.id))}
+          >
+            Dismiss
+          </Button>
+        )}
+        {n.kind === "decide" && onOpenInbox && (
+          <Button size="xs" variant="outline" onClick={onOpenInbox}>
+            Open inbox
+          </Button>
+        )}
+        {(n.kind === "answer" || n.kind === "pushed") && <TaskHistory goal={g} version={0} />}
+      </div>
+    </li>
+  )
+}
+
+// SentRow is a task the team sent: where it is at the other team, and Withdraw while it hasn't
+// started.
+function SentRow({ g, names, act, rev }: { g: Goal; names: Names; act: Act; rev: number }) {
+  const to = names.team(g.teamId)
+  const state = sentState(g, to, when)
+  return (
+    <li className="flex flex-col gap-1 rounded-md border p-2 text-sm">
+      <div className="flex items-start gap-2">
+        <span className="line-clamp-2 min-w-0 flex-1" title={g.text}>
+          {g.text}
+        </span>
+        <ToneChip tone={state.tone}>{state.label}</ToneChip>
+      </div>
+      <p className="text-muted-foreground text-xs">
+        {[
+          `To ${to}`,
+          g.passedBy,
+          turnsLine(g.used, to),
+          g.state === "later" && g.intakeNote ? `Note: ${g.intakeNote}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <TaskHistory goal={g} version={rev} />
+        {canWithdraw(g) && <WithdrawAction g={g} to={to} act={act} />}
+      </div>
+    </li>
+  )
+}
+
+// StoppedRow is a team's own stopped task under Earlier: its steps stay, and Reopen puts it back
+// in the inbox for the lead to decide on again.
+function StoppedRow({ g, names, act, rev }: { g: Goal; names: Names; act: Act; rev: number }) {
+  return (
+    <li className="flex flex-col gap-1 rounded-md border p-2 text-sm">
+      <div className="flex flex-wrap items-start gap-2">
+        <span className="text-muted-foreground line-clamp-2 min-w-[60%] flex-1">{g.text}</span>
+        <FromChip goal={g} names={names} />
+        <ToneChip tone="over">Stopped</ToneChip>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <TaskHistory goal={g} version={rev} />
+        <Button
+          size="xs"
+          variant="outline"
+          aria-label={`Reopen: ${g.text}`}
+          onClick={() => void act(() => api.reopenTask(g.id))}
+        >
+          Reopen
+        </Button>
+      </div>
+    </li>
   )
 }

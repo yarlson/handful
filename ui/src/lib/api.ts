@@ -169,6 +169,8 @@ export type Goal = {
   missedAt?: number // ms when the lead's decision time ran out
   decisionMs?: number // decision time counted so far
   pinned?: boolean
+  // dismissedAt is when the sender put this sent task away; it then shows under Earlier.
+  dismissedAt?: number
   laterUntil?: number // ms when a deferred task returns to the inbox
   passes?: number
   passedBy?: string // "Passed to Dev by Product Lead"
@@ -307,6 +309,10 @@ export const api = {
   stopTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/stop`, {}),
   reopenTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/reopen`, {}),
   withdrawTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/withdraw`, {}),
+  // dismissSent puts away a task the team sent that the other team pushed back.
+  dismissSent: (id: string) => request<Goal>("POST", `/api/tasks/${id}/dismiss`, {}),
+  // dismissOffTask puts away the team's turns on no task up to now; later ones count again.
+  dismissOffTask: (teamId: string) => request<unknown>("POST", `/api/teams/${teamId}/off-task/dismiss`, {}),
   approveTask: (id: string) => request<Goal>("POST", `/api/tasks/${id}/approve`, {}),
   changesTask: (id: string, text: string) => request<Goal>("POST", `/api/tasks/${id}/changes`, { text }),
   // A task's history: the decisions on it and its steps' events, oldest first.

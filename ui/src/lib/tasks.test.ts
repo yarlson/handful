@@ -16,7 +16,6 @@ import {
   leadName,
   memberName,
   needsYouLine,
-  nextUp,
   sentState,
   sourceLabel,
   stuckReason,
@@ -25,12 +24,10 @@ import {
   MAX_TASK_TURNS,
   taskEventLabel,
   tasksKey,
-  taskBar,
   teamOption,
   teamSummary,
   turnsLine,
   type TaskLike,
-  type TaskState,
 } from "./tasks.ts"
 
 const task = (over: Partial<TaskLike> = {}): TaskLike => ({
@@ -143,31 +140,6 @@ test("a lead waits for an answer while a question is open and the user doesn't d
   assert.isFalse(awaitsAnswer(task({ askedAt: 3, needsUser: true })))
   assert.isFalse(awaitsAnswer(task({ askedAt: 0 })))
   assert.isFalse(awaitsAnswer(task()))
-})
-
-const bar = (state: TaskState | "x") => ({ state })
-
-test("the task bar shows the buttons of the Now or done task, and a paused task always resumes", () => {
-  assert.deepEqual(taskBar(bar("active"), 0), { mode: "now", actions: ["stop"] })
-  assert.deepEqual(taskBar(bar("active"), 2), { mode: "now", actions: ["stop"] })
-  assert.deepEqual(taskBar(bar("paused"), 0), { mode: "now", actions: ["resume", "stop"] })
-  assert.deepEqual(taskBar(bar("delivered"), 1), { mode: "now", actions: ["approve", "changes"] })
-})
-
-test("without a Now task the bar offers to reopen, start the plan, or send a task", () => {
-  assert.deepEqual(taskBar(bar("stopped"), 2), { mode: "stopped" })
-  for (const state of ["done", "ended", "queued", "incoming", "later", "declined", "x"] as const) {
-    assert.deepEqual(taskBar(bar(state), 1), { mode: "hold" }, state)
-    assert.deepEqual(taskBar(bar(state), 0), { mode: "idle" }, state)
-  }
-  assert.deepEqual(taskBar(undefined, 2), { mode: "hold" })
-  assert.deepEqual(taskBar(null, 0), { mode: "idle" })
-})
-
-test("the bar names the next task and how many follow", () => {
-  assert.isNull(nextUp([]))
-  assert.equal(nextUp([{ text: "B" }]), "Next: B")
-  assert.equal(nextUp([{ text: "B" }, { text: "C" }, { text: "D" }]), "Next: B (+2)")
 })
 
 test("each Needs you kind has its own line", () => {

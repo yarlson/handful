@@ -119,6 +119,7 @@ export function useHandful() {
       )
       void refreshBots()
       chats.reconnected()
+      // Stryker disable next-line all: the event stream runs only in a browser; pair-e2e.mjs checks it
       setPairRev((n) => n + 1)
     })
     source.onmessage = (msg) => {
@@ -131,7 +132,11 @@ export function useHandful() {
         setPausedUntil(ev.pausedUntil ?? null)
       } else if (ev.type === "restart") {
         setRestartRev((n) => n + 1)
-      } else if (ev.type === "pair") {
+      } else if (
+        // Stryker disable next-line all: the event stream runs only in a browser; pair-e2e.mjs checks it
+        ev.type === "pair"
+      ) {
+        // Stryker disable next-line all: the event stream runs only in a browser; pair-e2e.mjs checks it
         setPairRev((n) => n + 1)
       } else if (ev.type === "drain") {
         setDrain(drainChanged(drain.current, ev.draining))
@@ -146,11 +151,10 @@ export function useHandful() {
         }
       }
     }
-    source.onerror = () => {
-      onLink("error")
-      // A phone's stream ends when its session is revoked; then the page offers to pair again.
-      phoneSession.recheck()
-    }
+    source.onerror = () => onLink("error")
+    // A phone's stream ends when its session is revoked; then the page offers to pair again.
+    // Stryker disable next-line all: the event stream runs only in a browser; pair-e2e.mjs checks it
+    source.addEventListener("error", phoneSession.recheck)
     return () => source.close()
   }, [chats, refreshBots, scheduleBotsRefresh, onLink, setDrain])
 

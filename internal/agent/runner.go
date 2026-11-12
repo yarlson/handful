@@ -67,13 +67,14 @@ type Runner struct {
 	done     chan struct{}
 
 	// After a usage limit, dispatch starts no turn until resume fires.
-	pausedUntil   time.Time   // guarded by mu; zero when not paused
-	resume        *time.Timer // Run receives from it and ends the pause
+	pausedUntil   time.Time       // guarded by mu; zero when not paused
+	runDone       <-chan struct{} // guarded by mu; Run's context's Done, closed when the server stops
+	resume        *time.Timer     // Run receives from it and ends the pause
 	maxLimitPause time.Duration
 }
 
 type runningTurn struct {
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc // with errStoppedByUser when the user stops the turn
 	roomID string
 	work   bool   // a work or review turn on a step: not conversation
 	goalID string // set for a board turn: the goal it works for
@@ -119,6 +120,9 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 // Run dispatches turns and fires due routines until ctx ends, then stops all
 // running turns and claude processes and waits for them.
 func (r *Runner) Run(ctx context.Context) {
+	r.mu.Lock()
+	r.runDone = ctx.Done()
+	r.mu.Unlock()
 	r.stopLeftoverProcesses()
 	r.removeLeftoverRunFiles()
 	ticker := time.NewTicker(routineTick)
@@ -289,7 +293,7 @@ func (r *Runner) Interrupt(ctx context.Context, id string) (bool, error) {
 	// meanwhile; the turns stop even when that fails.
 	stopErr := r.svc.StopTeam(ctx, id)
 	r.mu.Lock()
-	var cancels []context.CancelFunc
+	var cancels []context.CancelCauseFunc
 	for botID, rt := range r.running {
 		if botID == id || rt.roomID == id {
 			cancels = append(cancels, rt.cancel)
@@ -303,7 +307,7 @@ func (r *Runner) Interrupt(ctx context.Context, id string) (bool, error) {
 	}
 	r.mu.Unlock()
 	for _, c := range cancels {
-		c()
+		c(errStoppedByUser)
 	}
 	for _, s := range sessions {
 		r.stopSession(s)
@@ -316,7 +320,7 @@ func (r *Runner) Interrupt(ctx context.Context, id string) (bool, error) {
 // and returns how many it stopped.
 func (r *Runner) CancelGoal(goalID string) int {
 	r.mu.Lock()
-	var cancels []context.CancelFunc
+	var cancels []context.CancelCauseFunc
 	for _, rt := range r.running {
 		if rt.board && rt.goalID == goalID {
 			cancels = append(cancels, rt.cancel)
@@ -324,7 +328,7 @@ func (r *Runner) CancelGoal(goalID string) int {
 	}
 	r.mu.Unlock()
 	for _, c := range cancels {
-		c()
+		c(errStoppedByUser)
 	}
 	return len(cancels)
 }
@@ -435,14 +439,14 @@ func (r *Runner) activeLocked() int {
 
 // startLocked runs turn t, which StartTurn marked running. r.mu is held.
 func (r *Runner) startLocked(ctx context.Context, t core.Turn) {
-	turnCtx, cancel := context.WithCancel(ctx)
+	turnCtx, cancel := context.WithCancelCause(ctx)
 	r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, work: stepTurn(t), goalID: t.GoalID, board: boardTurn(t), since: time.Now()}
 	r.publish(t.BotID, true)
 	if t.RoomID != "" {
 		r.publish(t.RoomID, true)
 	}
 	r.wg.Go(func() {
-		defer cancel()
+		defer cancel(nil)
 		r.execute(turnCtx, t)
 		r.mu.Lock()
 		delete(r.running, t.BotID)
@@ -567,7 +571,13 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 	status, errText := "done", ""
 	defer func() { r.endTurn(bg, t.ID, status, errText) }()
 	transcript := turnTranscript(t)
+	// An error after the turn was stopped, for example while its prompt was built, is the
+	// stop's doing: the turn is interrupted, not failed.
 	fail := func(err error) {
+		if ctx.Err() != nil {
+			status, errText = r.recordInterrupt(bg, t, transcript, context.Cause(ctx))
+			return
+		}
 		status, errText = "failed", err.Error()
 		r.recordFailure(bg, t, transcript, err)
 	}
@@ -592,7 +602,7 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 	out, err := r.runTurnOnce(ctx, bot, t, run)
 	switch {
 	case ctx.Err() != nil:
-		status, errText = r.recordInterrupt(bg, t, transcript)
+		status, errText = r.recordInterrupt(bg, t, transcript, context.Cause(ctx))
 	case err != nil:
 		fail(err)
 	case out.hitUsageLimit():
@@ -637,13 +647,28 @@ func (r *Runner) recordFailure(ctx context.Context, t core.Turn, transcript stri
 	}
 }
 
-// recordInterrupt writes the entry of a turn that the user stopped and
-// returns its status and error.
-func (r *Runner) recordInterrupt(ctx context.Context, t core.Turn, transcript string) (string, string) {
-	if _, err := r.svc.AppendEntry(ctx, transcript, core.KindEvent, t.ID, map[string]string{"type": "interrupted", "text": "Stopped."}); err != nil {
+// errStoppedByUser is the cause of a turn's cancel when the user stops it. Any other cancel
+// is the server stopping.
+var errStoppedByUser = errors.New("stopped by the user")
+
+// interruption names why a turn was stopped, from cause, the cause of its context's end: the
+// user stopped it, or the server stopped. It returns the turn's error text and the line its chat
+// shows.
+func interruption(cause error) (string, string) {
+	if errors.Is(cause, errStoppedByUser) {
+		return errStoppedByUser.Error(), "Stopped."
+	}
+	return "server stopped", "The server stopped while this turn was running."
+}
+
+// recordInterrupt writes the entry of a turn that was stopped, by the user or by the server
+// stopping, as cause says, and returns its status and error.
+func (r *Runner) recordInterrupt(ctx context.Context, t core.Turn, transcript string, cause error) (string, string) {
+	errText, line := interruption(cause)
+	if _, err := r.svc.AppendEntry(ctx, transcript, core.KindEvent, t.ID, map[string]string{"type": "interrupted", "text": line}); err != nil {
 		r.log.Error("record interrupt", "turn", t.ID, "err", err)
 	}
-	return "interrupted", "stopped by the user"
+	return "interrupted", errText
 }
 
 // runTurnOnce runs the turn, and once more on a new Claude session when the
@@ -1028,8 +1053,9 @@ func (r *Runner) compact(ctx context.Context, bot core.Bot, t core.Turn, transcr
 	// With background tasks running, the bot's process is still alive and compacts its own session.
 	out, err := r.runCompact(ctx, bot, t, sessionID)
 	if ctx.Err() != nil {
+		errText, _ := interruption(context.Cause(ctx))
 		note(who + "compaction stopped.")
-		return "interrupted", "stopped by the user"
+		return "interrupted", errText
 	}
 	return r.compactResult(bg, bot, t, who, out, err, note, fail)
 }

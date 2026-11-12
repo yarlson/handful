@@ -308,6 +308,40 @@ task-report)
     echo '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
   done
   ;;
+stale-orphan)
+  # A background task keeps the process for the next message. Before the first message
+  # starts, a stray error result comes, which belongs to no turn. The first message then runs
+  # normally; the second ends without starting or a result.
+  echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Watch"}]}'
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"stale boom"}'
+  lifecycle started; result "ok"; lifecycle completed
+  while IFS= read -r input; do lifecycle completed; done
+  ;;
+orphan-twice)
+  # A background task keeps the process for the next message. The first message fails before
+  # it starts: its error result comes outside any turn. The second ends without starting or a
+  # result.
+  echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Watch"}]}'
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"first boom"}'
+  lifecycle cancelled
+  while IFS= read -r input; do lifecycle completed; done
+  ;;
+task-hang)
+  # The first message starts a background task. The next one ends it, and Claude Code wakes
+  # the model for a task turn that then runs on until the process is stopped.
+  lifecycle started
+  init
+  echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Build the site"}]}'
+  result "started"
+  lifecycle completed
+  IFS= read -r input
+  lifecycle started
+  result "pong"
+  lifecycle completed
+  echo '{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","summary":"Background command \"Build the site\" completed (exit code 0)"}'
+  init
+  sleep 30
+  ;;
 chatty)
   # A long turn that prints a line every 0.2 seconds.
   lifecycle started
@@ -2759,6 +2793,8 @@ func TestStopEndsTheBackgroundTasksOfAnIdleBot(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid := strings.TrimSpace(string(raw))
+	events, unsubscribe := h.svc.Hub().Subscribe()
+	defer unsubscribe()
 
 	if stopped, err := h.runner.Interrupt(context.Background(), bot.ID); !stopped || err != nil {
 		t.Fatalf("Interrupt = %v, %v; want true for a bot with background tasks", stopped, err)
@@ -2770,6 +2806,46 @@ func TestStopEndsTheBackgroundTasksOfAnIdleBot(t *testing.T) {
 	}
 	if got := h.runner.Tasks(bot.ID); len(got) != 0 {
 		t.Fatalf("tasks after Stop = %+v; want none", got)
+	}
+	h.cancel()
+	<-h.done
+	if lists := taskLists(events, bot.ID); len(lists) == 0 || len(lists[len(lists)-1]) != 0 {
+		t.Fatalf("task lists published = %+v; want the last one empty, so the page drops the stopped task", lists)
+	}
+}
+
+func TestAProcessWithoutTasksPublishesNoTaskListAtItsExit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	events, unsubscribe := h.svc.Hub().Subscribe()
+	defer unsubscribe()
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(context.Background(), bot.ID, "hi", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot })
+	waitFor(t, "the process exits", func() bool { return !h.runner.HasSession(bot.ID) })
+	h.cancel()
+	<-h.done
+	if lists := taskLists(events, bot.ID); len(lists) != 0 {
+		t.Fatalf("task lists published = %+v; want none for a bot that had no tasks", lists)
+	}
+}
+
+// taskLists returns the task lists published for id so far, oldest first. Call it after the
+// runner stopped, so that every list is already in events.
+func taskLists(events <-chan core.Event, id string) [][]core.BackgroundTask {
+	var out [][]core.BackgroundTask
+	for {
+		select {
+		case e := <-events:
+			if e.Type == "tasks" && e.BotID == id {
+				out = append(out, *e.Tasks)
+			}
+		default:
+			return out
+		}
 	}
 }
 
@@ -3828,7 +3904,7 @@ func TestAStateReadBeforeATurnStartsIsNotPublishedAfterIt(t *testing.T) {
 			// to start before this state goes out.
 			go func() {
 				r.mu.Lock()
-				r.running[bot.ID] = runningTurn{cancel: func() {}}
+				r.running[bot.ID] = runningTurn{cancel: func(error) {}}
 				r.publish(bot.ID, true)
 				r.mu.Unlock()
 				close(started)
@@ -4208,4 +4284,190 @@ func (h *harness) statuses(t *testing.T, ids ...string) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// turnRow is a turn's status and error.
+func (h *harness) turnRow(t *testing.T, id string) (string, string) {
+	t.Helper()
+	var status, msg string
+	if err := h.conn.QueryRowContext(t.Context(), `SELECT status, error FROM turns WHERE id = ?`, id).Scan(&status, &msg); err != nil {
+		t.Fatal(err)
+	}
+	return status, msg
+}
+
+// #27: the user's stop is "stopped by the user", and the chat says "Stopped.".
+func TestAUsersStopIsLabelledStoppedByTheUser(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "sleep")
+	bot := h.newBot(t)
+	h.start(t)
+	turn, _, err := h.svc.SubmitUserMessage(context.Background(), bot.ID, "work", "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindActivity && bodyField(e, "status") == "running" })
+	if stopped, _ := h.runner.Interrupt(context.Background(), bot.ID); !stopped {
+		t.Fatal("Interrupt returned false for a running turn")
+	}
+	note := h.waitEntry(t, bot.ID, isEvent("interrupted"))
+	h.waitTurnStatus(t, turn, bot.ID, "interrupted")
+	if _, msg := h.turnRow(t, turn); msg != "stopped by the user" || bodyField(note, "text") != "Stopped." {
+		t.Fatalf("turn error %q, note %q; want stopped by the user and Stopped.", msg, bodyField(note, "text"))
+	}
+}
+
+// #27: a turn that the server's shutdown stops is "server stopped", not the user's stop.
+func TestAShutdownIsLabelledServerStopped(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "sleep")
+	bot := h.newBot(t)
+	h.start(t)
+	turn, _, err := h.svc.SubmitUserMessage(context.Background(), bot.ID, "work", "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindActivity && bodyField(e, "status") == "running" })
+	h.cancel()
+	<-h.done
+	status, msg := h.turnRow(t, turn)
+	note := h.waitEntry(t, bot.ID, isEvent("interrupted"))
+	if status != "interrupted" || msg != "server stopped" || bodyField(note, "text") != "The server stopped while this turn was running." {
+		t.Fatalf("turn = %q %q, note %q; want interrupted, server stopped", status, msg, bodyField(note, "text"))
+	}
+}
+
+// #27: a turn stopped before it reached Claude Code, while its prompt was built, is interrupted
+// with its stop's label, not failed.
+func TestATurnStoppedBeforeItsRunIsInterruptedNotFailed(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		cause     error
+		msg, note string
+	}{
+		{errStoppedByUser, "stopped by the user", "Stopped."},
+		{context.Canceled, "server stopped", "The server stopped while this turn was running."},
+	} {
+		h := newHarness(t, "reply")
+		bot := h.newBot(t)
+		ctx := context.Background()
+		id, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "work", "n1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := h.svc.StartTurn(ctx, id); !ok || err != nil {
+			t.Fatal(err)
+		}
+		turnCtx, cancel := context.WithCancelCause(ctx)
+		cancel(c.cause)
+		h.runner.execute(turnCtx, core.Turn{ID: id, BotID: bot.ID, Source: core.SourceUser, Prompt: "work"})
+		status, msg := h.turnRow(t, id)
+		if status != "interrupted" || msg != c.msg {
+			t.Fatalf("%v: turn = %q %q; want interrupted, %q", c.cause, status, msg, c.msg)
+		}
+		if n := h.countEntries(t, bot.ID, isEvent("turn-failed")); n != 0 {
+			t.Fatalf("%v: turn-failed events = %d; want 0", c.cause, n)
+		}
+		if note := h.waitEntry(t, bot.ID, isEvent("interrupted")); bodyField(note, "text") != c.note {
+			t.Fatalf("%v: note %q; want %q", c.cause, bodyField(note, "text"), c.note)
+		}
+	}
+}
+
+// #26: an error result outside any turn belongs to the next command that ends without
+// starting, once, and never to a command after one that started.
+func TestAnOrphanResultIsNeverALaterTurnsOutcome(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		mode       string
+		firstState string
+	}{
+		{"stale-orphan", "done"},   // the stray result came before the first turn started
+		{"orphan-twice", "failed"}, // the first turn's own failure, which it takes once
+	} {
+		h := newHarness(t, c.mode)
+		bot := h.newBot(t)
+		h.start(t)
+		ctx := context.Background()
+		first, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "one", "n1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.waitTurnStatus(t, first, bot.ID, c.firstState)
+		second, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "two", "n2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.waitTurnStatus(t, second, bot.ID, "done")
+		if _, msg := h.turnRow(t, second); msg != "" {
+			t.Fatalf("%s: the second turn's error = %q; want none", c.mode, msg)
+		}
+		if n := len(h.argsLog(t)); n != 1 {
+			t.Fatalf("%s: claude started %d times; want both turns in one process", c.mode, n)
+		}
+		if h.countEntries(t, bot.ID, isEvent("turn-failed")) != map[string]int{"done": 0, "failed": 1}[c.firstState] {
+			t.Fatalf("%s: turn-failed events = %d", c.mode, h.countEntries(t, bot.ID, isEvent("turn-failed")))
+		}
+	}
+}
+
+// taskTurnRunning starts h's task-hang turn and returns the task turn it wakes, once it runs.
+func (h *harness) taskTurnRunning(t *testing.T, botID string) string {
+	t.Helper()
+	ctx := context.Background()
+	first, _, err := h.svc.SubmitUserMessage(ctx, botID, "start", "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.waitTurnStatus(t, first, botID, "done")
+	if _, _, err := h.svc.SubmitUserMessage(ctx, botID, "ping", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var id string
+		err := h.conn.QueryRowContext(ctx, `SELECT id FROM turns WHERE bot_id = ? AND source = 'task' AND status = 'running'`, botID).Scan(&id)
+		if err == nil {
+			return id
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("no task turn runs")
+	return ""
+}
+
+// #27: a task turn that the user stops, or that the server's shutdown stops, gets its stop's
+// label.
+func TestATaskTurnsStopIsLabelledByWhoStoppedIt(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, err, line string
+		stop            func(h *harness, botID string) error
+	}{
+		{"the user", "stopped by the user", "Stopped.", func(h *harness, botID string) error {
+			_, err := h.runner.Interrupt(context.Background(), botID)
+			return err
+		}},
+		{"the server", "server stopped", "The server stopped while this turn was running.", func(h *harness, _ string) error {
+			h.cancel()
+			<-h.done
+			return nil
+		}},
+	} {
+		h := newHarness(t, "task-hang")
+		bot := h.newBot(t)
+		h.start(t)
+		task := h.taskTurnRunning(t, bot.ID)
+		if err := c.stop(h, bot.ID); err != nil {
+			t.Fatal(err)
+		}
+		h.waitTurnStatus(t, task, bot.ID, "interrupted")
+		if status, msg := h.turnRow(t, task); status != "interrupted" || msg != c.err {
+			t.Fatalf("stopped by %s: task turn = %q %q; want interrupted, %q", c.name, status, msg, c.err)
+		}
+		note := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.TurnID == task && isEvent("interrupted")(e) })
+		if text := bodyField(note, "text"); text != c.line {
+			t.Fatalf("stopped by %s: chat note = %q; want %q", c.name, text, c.line)
+		}
+	}
 }

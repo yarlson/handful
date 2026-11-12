@@ -312,7 +312,9 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 				if ev.State != "completed" && ev.State != "cancelled" {
 					r.log.Warn("unknown command state ends the turn", "bot", s.key.botID, "state", ev.State)
 				}
+				// A result outside any turn is this command's, once.
 				out := orphan
+				orphan = outcome{}
 				if cur != nil && cur.cmd == c {
 					endActivity(cur.act)
 					out, cur = cur.out, nil
@@ -405,7 +407,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 	if r.sessions[s.key] == s {
 		delete(r.sessions, s.key)
 	}
-	pending, stopped, silent, hadTasks := s.pending, s.stopped, s.silent, len(s.tasks) > 0
+	pending, stopped, silent, hadTasks, cause := s.pending, s.stopped, s.silent, len(s.tasks) > 0, r.stopCauseLocked()
 	s.open, s.pending, s.tasks = false, nil, nil
 	r.mu.Unlock()
 	r.tokens.revoke(s.token)
@@ -414,7 +416,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 	if cur != nil && cur.cmd == nil {
 		status, errText := "failed", outcome{exitErr: exitErr, stderr: stderrText}.errorText()
 		if stopped && !silent {
-			status, errText = "interrupted", "stopped by the user"
+			status, errText = r.recordInterrupt(ctx, cur.turn, s.key.transcript(), cause)
 		}
 		cur.act.closeOpen(ctx, nil)
 		r.finishTask(s, cur, status, errText)
@@ -466,18 +468,14 @@ func (r *Runner) startTask(s *session) *activeTurn {
 	return &activeTurn{turn: t, act: r.recorder(s, t.ID)}
 }
 
-// finishTask records the end of a task turn: "done", "failed" or "interrupted".
+// finishTask records the end of a task turn: "done", "failed" or "interrupted". The caller
+// writes an interrupted turn's note, which says who stopped it.
 func (r *Runner) finishTask(s *session, a *activeTurn, status, errText string) {
 	ctx := context.Background()
-	switch status {
-	case "failed":
+	if status == "failed" {
 		r.log.Error("task turn failed", "bot", s.key.botID, "turn", a.turn.ID, "err", errText)
 		if _, err := r.svc.AppendEntry(ctx, s.key.transcript(), core.KindEvent, a.turn.ID, map[string]string{"type": "turn-failed", "text": errText}); err != nil {
 			r.log.Error("record task turn failure", "turn", a.turn.ID, "err", err)
-		}
-	case "interrupted":
-		if _, err := r.svc.AppendEntry(ctx, s.key.transcript(), core.KindEvent, a.turn.ID, map[string]string{"type": "interrupted", "text": "Stopped."}); err != nil {
-			r.log.Error("record interrupt", "turn", a.turn.ID, "err", err)
 		}
 	}
 	if err := r.svc.FinishTurn(ctx, a.turn.ID, status, errText); err != nil {
@@ -590,6 +588,17 @@ func (r *Runner) stopIfSilent(s *session, quit <-chan struct{}) {
 		r.log.Warn("stop claude after no output", "bot", s.key.botID, "room", s.key.roomID, "timeout", r.outputTimeout)
 		r.stopSession(s)
 		return
+	}
+}
+
+// stopCauseLocked is why a session was stopped: the server stopping, once Run's context
+// ended, or else the user. r.mu is held.
+func (r *Runner) stopCauseLocked() error {
+	select {
+	case <-r.runDone:
+		return context.Canceled
+	default:
+		return errStoppedByUser
 	}
 }
 

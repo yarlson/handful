@@ -5,6 +5,7 @@ unleash:
   exclude-files:
     - '^internal/db/(db|models|query\.sql)\.go$'
     - '^internal/oauthtest/'
+    - '^internal/db/dbtest/'
     # gremlins 0.6.0 removes every "handful/" from coverage paths, so it never
     # finds the coverage of cmd/handful and cannot test its mutants.
     - '^cmd/handful/'

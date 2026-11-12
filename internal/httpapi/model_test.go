@@ -14,7 +14,7 @@ import (
 
 	"handful/internal/agent"
 	"handful/internal/core"
-	"handful/internal/db"
+	"handful/internal/db/dbtest"
 )
 
 type fakeModels map[string]string // "botID/roomID" -> model ID; a "!" prefix marks a mismatch
@@ -27,7 +27,7 @@ func (f fakeModels) ModelReport(botID, roomID string) (string, bool) {
 func newModelHandler(t *testing.T, d core.Defaults, opts ...Option) (http.Handler, *core.Service) {
 	t.Helper()
 	dir := t.TempDir()
-	conn, err := db.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
+	conn, err := dbtest.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

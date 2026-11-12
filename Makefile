@@ -113,7 +113,7 @@ name-check:
 	scripts/check-name.sh
 
 # crap4go scores every .go file it finds; pass only hand-written production files.
-CRAP_SOURCES = $(shell git ls-files '*.go' ':!:*_test.go' ':!:internal/oauthtest/*' | xargs grep -L '^// Code generated .* DO NOT EDIT\.$$')
+CRAP_SOURCES = $(shell git ls-files '*.go' ':!:*_test.go' ':!:internal/oauthtest/*' ':!:internal/db/dbtest/*' | xargs grep -L '^// Code generated .* DO NOT EDIT\.$$')
 
 crap:
 	$(MISE) crap4go $(CRAP_SOURCES)

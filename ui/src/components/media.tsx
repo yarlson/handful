@@ -1,8 +1,9 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, ExternalLink, Play, X } from "lucide-react"
 import { Dialog } from "radix-ui"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { viewerButton, ZoomImage, type ZoomHandle } from "./zoom-image"
 
 type MediaKind = "image" | "gif" | "video"
 
@@ -82,12 +83,9 @@ function Tile({ name, kind, fill }: { name: string; kind: MediaKind; fill: boole
   )
 }
 
-const viewerButton =
-  "grid size-10 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 [&_svg]:size-5"
-
 // MediaViewer shows one file of a message at full size. Arrows and the arrow
 // keys page through the message's files; Escape or a click beside the file
-// closes it.
+// closes it. An image zooms and pans; a video keeps its own controls.
 function MediaViewer({
   names,
   index,
@@ -104,6 +102,60 @@ function MediaViewer({
   const url = api.mediaUrl(name)
   const count = names.length
   const go = (step: number) => onIndex((index + step + count) % count)
+  const zoom = useRef<ZoomHandle>(null)
+  const chrome = (
+    <>
+      <div className="absolute top-3 right-3 flex items-center gap-2">
+        {count > 1 && (
+          <span className="mr-1 rounded-full bg-black/55 px-2 py-0.5 text-sm text-white/80 tabular-nums">{`${index + 1} / ${count}`}</span>
+        )}
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open the original"
+          title="Open the original"
+          className={viewerButton}
+        >
+          <ExternalLink />
+        </a>
+        <Dialog.Close aria-label="Close" title="Close" className={viewerButton}>
+          <X />
+        </Dialog.Close>
+      </div>
+      {count > 1 && (
+        <>
+          {/* On a narrow touch screen a swipe pages an image, so its side arrows hide. */}
+          <button
+            type="button"
+            aria-label="Previous"
+            title="Previous"
+            className={cn(
+              viewerButton,
+              "absolute top-1/2 left-3 -translate-y-1/2",
+              kind !== "video" && "max-md:pointer-coarse:hidden",
+            )}
+            onClick={() => go(-1)}
+          >
+            <ChevronLeft />
+          </button>
+          <button
+            type="button"
+            aria-label="Next"
+            title="Next"
+            className={cn(
+              viewerButton,
+              "absolute top-1/2 right-3 -translate-y-1/2",
+              kind !== "video" && "max-md:pointer-coarse:hidden",
+            )}
+            onClick={() => go(1)}
+          >
+            <ChevronRight />
+          </button>
+        </>
+      )}
+    </>
+  )
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
@@ -114,59 +166,23 @@ function MediaViewer({
           onClick={(e) => e.target === e.currentTarget && onClose()}
           onKeyDown={(e) => {
             // A focused video uses the arrow keys to seek.
-            if (count < 2 || e.target instanceof HTMLVideoElement) return
+            if (e.target instanceof HTMLVideoElement) return
+            if (zoom.current?.key(e)) return
+            if (count < 2) return
             if (e.key === "ArrowLeft") go(-1)
             if (e.key === "ArrowRight") go(1)
           }}
         >
           <Dialog.Title className="sr-only">{`${kindLabel[kind]} ${index + 1} of ${count}`}</Dialog.Title>
           {kind === "video" ? (
-            <video key={name} src={url} controls autoPlay playsInline className="max-h-full max-w-full rounded-md" />
-          ) : (
-            <img
-              key={name}
-              src={url}
-              alt={kindLabel[kind]}
-              className="max-h-full max-w-full rounded-md object-contain"
-            />
-          )}
-          <div className="absolute top-3 right-3 flex items-center gap-2">
-            {count > 1 && <span className="mr-1 text-sm text-white/80 tabular-nums">{`${index + 1} / ${count}`}</span>}
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open the original"
-              title="Open the original"
-              className={viewerButton}
-            >
-              <ExternalLink />
-            </a>
-            <Dialog.Close aria-label="Close" title="Close" className={viewerButton}>
-              <X />
-            </Dialog.Close>
-          </div>
-          {count > 1 && (
             <>
-              <button
-                type="button"
-                aria-label="Previous"
-                title="Previous"
-                className={cn(viewerButton, "absolute top-1/2 left-3 -translate-y-1/2")}
-                onClick={() => go(-1)}
-              >
-                <ChevronLeft />
-              </button>
-              <button
-                type="button"
-                aria-label="Next"
-                title="Next"
-                className={cn(viewerButton, "absolute top-1/2 right-3 -translate-y-1/2")}
-                onClick={() => go(1)}
-              >
-                <ChevronRight />
-              </button>
+              <video key={name} src={url} controls autoPlay playsInline className="max-h-full max-w-full rounded-md" />
+              {chrome}
             </>
+          ) : (
+            <ZoomImage url={url} alt={kindLabel[kind]} ref={zoom} onPage={go} onClose={onClose}>
+              {chrome}
+            </ZoomImage>
           )}
         </Dialog.Content>
       </Dialog.Portal>

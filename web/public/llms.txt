@@ -361,8 +361,17 @@ Rules for every request:
 - A request with an `Origin` header from another origin gets 403, to block cross-site request forgery.
 - Every `POST` under `/api/` must have `Content-Type: application/json`, or it gets 415.
 - A request body has at most 1 MiB. A message body may also carry its files, up to 100 MB before base64.
-- There is no authentication beyond these rules.
+- Every write under `/api/`, that is any method other than `GET`, `HEAD` or `OPTIONS`, must carry Handful's key, or it gets 401 with `{"error": "This needs Handful's key."}`. The key is the content of the file `ui-key` in the data folder (`~/.handful/ui-key`, or `<data>/ui-key` with `-data`). A program sends it in the header `X-Handful-Key`. A browser sends it in the cookie `handful_key`, which the web UI sets after you paste the key once. Reads need no key.
 - An error is JSON: `{"error": "<message>"}`. Status 400 means invalid input, 404 not found, and 409 a conflict, for example an approval that is no longer pending.
+
+For example, to send a message to a bot from a script:
+
+```sh
+curl -s -X POST http://127.0.0.1:7777/api/bots/<bot id>/messages \
+  -H "X-Handful-Key: $(cat ~/.handful/ui-key)" \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Hello"}'
+```
 
 Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `room` for a room or a team. A team also has `team`.
 
@@ -477,12 +486,13 @@ curl -N http://127.0.0.1:7777/api/events
 
 ## Security
 
-Handful has no login. It is safe only on a computer that one person uses, and only because of these limits:
+Handful has no account or login. It is safe only on a computer that one person uses, and only because of these limits:
 
 - It listens on loopback only.
 - It rejects requests whose `Host` is not loopback, to block DNS rebinding.
 - It rejects requests from another web origin, to block cross-site request forgery.
 - It rejects API POST requests whose body is not JSON.
+- Every write to the API needs Handful's key, the content of `ui-key` in the data folder. The key stops code that does not know about it. Bots run as your user and can read the key, so it does not stop a bot, or a script that an approved command runs, that sets out to use it.
 
 Bots run as your user. An approved command can do anything that you can do, so read each approval card before you allow it.
 

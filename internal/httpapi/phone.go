@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"handful/internal/access"
@@ -64,8 +65,7 @@ const sendPattern = "POST /api/bots/{id}/messages"
 // a loopback address that a proxy on this computer forwards to, and every request to it needs
 // a session.
 type Phone struct {
-	settings   config.PhoneSettings
-	verifier   *access.Verifier // nil unless the proxy is a Cloudflare Tunnel
+	cfg        atomic.Pointer[phoneConfig]
 	accessOpts []access.Option
 	now        func() time.Time
 	recheck    time.Duration // how often an open event stream checks its session
@@ -74,10 +74,17 @@ type Phone struct {
 
 	mu      sync.Mutex
 	handler http.Handler
+	base    context.Context // Start's; TurnOn opens the listener for its life
 	srv     *http.Server
 	addr    string        // where it listens; "" while it doesn't
 	closed  chan struct{} // closed by Stop
 	served  chan struct{} // closed when the server stops serving
+}
+
+// phoneConfig is the phone settings in use, with their Access token check.
+type phoneConfig struct {
+	settings config.PhoneSettings
+	verifier *access.Verifier // nil unless the proxy is a Cloudflare Tunnel
 }
 
 // PhoneOption changes the Phone that NewPhone returns.
@@ -94,34 +101,66 @@ func WithPhoneClock(now func() time.Time, recheck time.Duration) PhoneOption {
 	return func(p *Phone) { p.now, p.recheck = now, recheck }
 }
 
-// NewPhone returns the phone listener of settings, which must pass settings.Check. It opens
-// when Start runs, after New has given it its handler.
+// NewPhone returns the phone listener of settings, which must pass settings.Check. Start opens
+// it, after New has given it its handler, when settings turn phone access on.
 func NewPhone(settings config.PhoneSettings, log *slog.Logger, opts ...PhoneOption) *Phone {
-	p := &Phone{settings: settings, now: time.Now, recheck: 15 * time.Second, log: log}
+	p := &Phone{now: time.Now, recheck: 15 * time.Second, log: log}
 	for _, o := range opts {
 		o(p)
 	}
-	if settings.Proxy == config.ProxyCloudflare {
-		p.verifier = access.New(settings.TeamDomain, settings.AUD, p.accessOpts...)
-	}
+	p.configure(settings)
 	p.limits = newPhoneLimits(p.now)
 	return p
 }
+
+func (p *Phone) configure(settings config.PhoneSettings) {
+	c := &phoneConfig{settings: settings}
+	if settings.Proxy == config.ProxyCloudflare {
+		c.verifier = access.New(settings.TeamDomain, settings.AUD, p.accessOpts...)
+	}
+	p.cfg.Store(c)
+}
+
+// Settings returns the phone settings in use.
+func (p *Phone) Settings() config.PhoneSettings { return p.cfg.Load().settings }
 
 // WithPhone serves p's listener with the API's phone routes, and offers the main listener's
 // controls of phone access.
 func WithPhone(p *Phone) Option { return func(s *server) { s.phone = p } }
 
-// Start opens the phone listener and serves it until ctx ends or Stop runs.
+// Start opens the phone listener when phone access is on, and serves it until ctx ends or Stop
+// runs. TurnOn opens it later, for the rest of ctx.
 func (p *Phone) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handler == nil {
 		return errors.New("the phone listener has no handler; pass WithPhone to httpapi.New first")
 	}
-	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", p.settings.Addr)
+	p.base = ctx
+	if !p.Settings().Enabled {
+		return nil
+	}
+	return p.open(ctx)
+}
+
+// TurnOn opens the phone listener with settings, closing it first if it is open.
+func (p *Phone) TurnOn(settings config.PhoneSettings) error {
+	p.Stop()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.base == nil {
+		return errors.New("the phone listener can't open before the server starts")
+	}
+	p.configure(settings)
+	return p.open(p.base)
+}
+
+// open listens on the address of the settings in use; p.mu is held.
+func (p *Phone) open(ctx context.Context) error {
+	settings := p.Settings()
+	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", settings.Addr)
 	if err != nil {
-		return fmt.Errorf("listen for phones on %s (phone.addr): %w", p.settings.Addr, err)
+		return fmt.Errorf("listen for phones on %s (phone.addr): %w", settings.Addr, err)
 	}
 	p.srv = &http.Server{Handler: p.handler, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
 	p.addr = ln.Addr().String()
@@ -141,7 +180,7 @@ func (p *Phone) Start(ctx context.Context) error {
 		case <-closed:
 		}
 	}()
-	p.log.Info("phone access is on", "addr", p.addr, "hosts", strings.Join(p.settings.Hosts, ","), "proxy", p.settings.Proxy)
+	p.log.Info("phone access is on", "addr", p.addr, "hosts", strings.Join(settings.Hosts, ","), "proxy", settings.Proxy)
 	return nil
 }
 
@@ -171,8 +210,12 @@ func (p *Phone) Stop() {
 	p.log.Info("phone access is off")
 }
 
-// phoneDevice is the paired phone a request on the phone listener comes from.
-type phoneDeviceKey struct{}
+// phoneDeviceKey keys the paired phone a request on the phone listener comes from, and
+// signedInKey the email of its Cloudflare Access login.
+type (
+	phoneDeviceKey struct{}
+	signedInKey    struct{}
+)
 
 func phoneDeviceOf(ctx context.Context) (core.PhoneSession, bool) {
 	d, ok := ctx.Value(phoneDeviceKey{}).(core.PhoneSession)
@@ -187,6 +230,8 @@ func (s *server) phoneHandler(api, ui http.Handler) http.Handler {
 	for _, r := range phoneRoutes {
 		routes.Handle(r.pattern, p.route(s, r.scope, r.pattern == sendPattern, api))
 	}
+	routes.HandleFunc("POST /pair", s.requestPairing)
+	routes.HandleFunc("GET /pair-status", s.pairingStatus)
 	routes.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The bots' MCP endpoint and the sign-in callbacks are the computer's only.
 		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") || strings.HasPrefix(r.URL.Path, "/oauth/") {
@@ -201,14 +246,22 @@ func (s *server) phoneHandler(api, ui http.Handler) http.Handler {
 
 // gate runs the checks that every request on the phone listener passes, in this order, before
 // next: the Cloudflare Access token (tunnel mode), the Host, the Origin, a JSON body for a
-// write, and a session for anything but the web app's files. Forwarded headers are never read.
+// write, and a session for anything but the web app's files and pairing. Forwarded headers are
+// never read.
 func (p *Phone) gate(svc *core.Service, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if status, msg := p.refusal(r); status != 0 {
+		cfg := p.cfg.Load()
+		email, ok := p.signedIn(cfg, r)
+		if !ok {
+			http.Error(w, "This address needs a Cloudflare login.", http.StatusForbidden)
+			return
+		}
+		if status, msg := refusal(cfg.settings, r); status != 0 {
 			http.Error(w, msg, status)
 			return
 		}
-		if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/") {
+		r = r.WithContext(context.WithValue(r.Context(), signedInKey{}, email))
+		if (r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/")) || (r.Method == http.MethodPost && r.URL.Path == "/pair") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -222,19 +275,26 @@ func (p *Phone) gate(svc *core.Service, next http.Handler) http.Handler {
 	})
 }
 
-// refusal returns the status and text that refuse r before its session is read, or 0: no
-// valid Access token in tunnel mode, a Host not in phone.hosts, a foreign Origin, or a write
-// to the API that isn't JSON.
-func (p *Phone) refusal(r *http.Request) (int, string) {
-	if p.verifier != nil {
-		if _, err := p.verifier.Verify(r.Context(), r.Header.Get(access.Header)); err != nil {
-			if errors.Is(err, access.ErrKeys) {
-				p.log.Warn("phone request refused: the Access keys can't be fetched", "err", err)
-			}
-			return http.StatusForbidden, "This address needs a Cloudflare login."
-		}
+// signedIn checks the Cloudflare Access token of r in tunnel mode, and returns the email it
+// names; outside tunnel mode there is none to check.
+func (p *Phone) signedIn(cfg *phoneConfig, r *http.Request) (string, bool) {
+	if cfg.verifier == nil {
+		return "", true
 	}
-	if !slices.Contains(p.settings.Hosts, strings.ToLower(hostOnly(r.Host))) {
+	id, err := cfg.verifier.Verify(r.Context(), r.Header.Get(access.Header))
+	if err != nil {
+		if errors.Is(err, access.ErrKeys) {
+			p.log.Warn("phone request refused: the Access keys can't be fetched", "err", err)
+		}
+		return "", false
+	}
+	return id.Email, true
+}
+
+// refusal returns the status and text that refuse r before its session is read, or 0: a Host
+// not in phone.hosts, a foreign Origin, or a write to the API or to pairing that isn't JSON.
+func refusal(settings config.PhoneSettings, r *http.Request) (int, string) {
+	if !slices.Contains(settings.Hosts, strings.ToLower(hostOnly(r.Host))) {
 		return http.StatusForbidden, "This address isn't one of phone.hosts."
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
@@ -244,7 +304,7 @@ func (p *Phone) refusal(r *http.Request) (int, string) {
 		}
 	}
 	write := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
-	if write && strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+	if write && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/pair") && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return http.StatusUnsupportedMediaType, "Content-Type must be application/json"
 	}
 	return 0, ""

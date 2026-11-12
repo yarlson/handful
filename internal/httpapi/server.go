@@ -183,7 +183,12 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	files := spa(ui)
 	mux.Handle("/", files)
 	if s.phone != nil {
+		mux.HandleFunc("GET /api/phone", s.getPhone)
+		mux.HandleFunc("POST /api/phone/on", s.phoneOn)
 		mux.HandleFunc("POST /api/phone/off", s.phoneOff)
+		mux.HandleFunc("POST /api/phone/pairing", s.startPairing)
+		mux.HandleFunc("PATCH /api/phone/pairing", s.setPairingScope)
+		mux.HandleFunc("POST /api/phone/pairing/{id}", s.decidePairing)
 		mux.HandleFunc("GET /api/phone/sessions", s.listPhoneSessions)
 		mux.HandleFunc("DELETE /api/phone/sessions", s.revokeAllPhoneSessions)
 		mux.HandleFunc("DELETE /api/phone/sessions/{id}", s.revokePhoneSession)
@@ -271,6 +276,8 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusConflict
 	case errors.Is(err, core.ErrNotAllowed):
 		status = http.StatusForbidden
+	case errors.Is(err, core.ErrTooMany):
+		status = http.StatusTooManyRequests
 	}
 	if status == http.StatusInternalServerError {
 		s.log.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)

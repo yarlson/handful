@@ -75,6 +75,16 @@ func toPhoneSession(r db.PhoneSession) PhoneSession {
 	return PhoneSession{ID: r.ID, Name: r.Name, Scope: r.Scope, PairedBy: r.PairedBy, CreatedAt: r.CreatedAt, LastSeenAt: r.LastSeenAt, RevokedAt: r.RevokedAt}
 }
 
+// phoneName returns name without its outer spaces, or ErrInvalid for a name that is empty, too
+// long or has control characters.
+func phoneName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || utf8.RuneCountInString(name) > maxPhoneName || strings.ContainsFunc(name, func(r rune) bool { return r < ' ' }) {
+		return "", invalid("a phone's name must be 1 to %d characters, with no control characters", maxPhoneName)
+	}
+	return name, nil
+}
+
 // phoneTokenHash is what the database keeps of a token.
 func phoneTokenHash(token string) []byte {
 	h := sha256.Sum256([]byte(token))
@@ -84,11 +94,11 @@ func phoneTokenHash(token string) []byte {
 // CreatePhoneSession pairs a phone named name with scope, and returns the session's token,
 // which only the phone keeps.
 func (s *Service) CreatePhoneSession(ctx context.Context, name, scope, pairedBy string) (string, PhoneSession, error) {
-	name = strings.TrimSpace(name)
-	if name == "" || utf8.RuneCountInString(name) > maxPhoneName || strings.ContainsFunc(name, func(r rune) bool { return r < ' ' }) {
-		return "", PhoneSession{}, invalid("a phone's name must be 1 to %d characters, with no control characters", maxPhoneName)
+	name, err := phoneName(name)
+	if err != nil {
+		return "", PhoneSession{}, err
 	}
-	if scope != ScopeView && scope != ScopeChat && scope != ScopeApprove {
+	if !validScope(scope) {
 		return "", PhoneSession{}, invalid("a phone's scope must be view, chat or chat+approve")
 	}
 	raw := make([]byte, phoneTokenBytes)

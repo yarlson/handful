@@ -44,6 +44,16 @@ import { REACTIONS, toggled } from "@/lib/reactions"
 import { imageHost, isExternalLink, isLocalImage } from "@/lib/links"
 import { taskCommand } from "@/lib/task-command"
 import { answers, draftNonce, sendPlan } from "@/lib/send"
+import {
+  endBrowse,
+  historyMove,
+  loadHistory,
+  recordSent,
+  stepBrowse,
+  withStorage,
+  type Browse,
+  type Step,
+} from "@/lib/history"
 import { offeredSkills, teamSkillOf } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
@@ -784,7 +794,6 @@ function Composer({
 }) {
   const narrow = useNarrow()
   const [text, setText] = useState(() => loadDraft(bot.id))
-  useEffect(() => saveDraft(bot.id, text), [bot.id, text])
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   // The composer is keyed by chat, so each chat keeps its own draft's nonce.
@@ -793,6 +802,12 @@ function Composer({
   const [active, setActive] = useState(0)
   const [dismissedAt, setDismissedAt] = useState<number | null>(null)
   const [skills, setSkills] = useState<Skill[]>([])
+  // browse is the walk through this chat's sent messages that ↑ and ↓ make (lib/history.ts).
+  const [browse, setBrowse] = useState<Browse | null>(null)
+  const [historyStatus, setHistoryStatus] = useState("")
+  // While browsing, the box shows a sent message; the draft to keep is the one the walk saved.
+  const draft = browse ? browse.draft : text
+  useEffect(() => saveDraft(bot.id, draft), [bot.id, draft])
   const input = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const isRoom = bot.kind === "room"
@@ -834,6 +849,20 @@ function Composer({
       el.setSelectionRange(result.caret, result.caret)
     })
   }
+  // showStep puts a step of the history walk in the box, with the caret at its end. A recalled
+  // "/…" or "@…" doesn't open the menu; typing on in it works as after Escape.
+  const showStep = (step: Step) => {
+    const at = findSlashQuery(step.text, step.text.length) ?? findMentionQuery(step.text, step.text.length)
+    setText(step.text)
+    setBrowse(step.browse)
+    setHistoryStatus(step.status)
+    setDismissedAt(at?.start ?? null)
+    requestAnimationFrame(() => {
+      const el = input.current
+      el?.focus()
+      el?.setSelectionRange(step.text.length, step.text.length)
+    })
+  }
   const send = async () => {
     if (sending) return
     // sendPlan (lib/send.ts) decides what the draft does: a message, a command or nothing.
@@ -843,6 +872,9 @@ function Composer({
       setError(plan.error)
       return
     }
+    // Recorded on Send, whatever the server answers, as Claude Code records an interrupted prompt.
+    withStorage((store) => recordSent(store, bot.id, text, Date.now()), undefined)
+    setBrowse(null)
     setSending(true)
     setError(null)
     try {
@@ -874,7 +906,9 @@ function Composer({
     }
   }
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing) return
+    // keyCode 229 is a key an IME takes, in browsers that don't set isComposing on it.
+    const composing = e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
+    if (composing) return
     if (open) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault()
@@ -893,6 +927,29 @@ function Composer({
         return
       }
     }
+    const el = e.currentTarget
+    const move = historyMove({
+      key: e.key,
+      modified: e.shiftKey || e.altKey || e.ctrlKey || e.metaKey,
+      composing,
+      menuOpen: open,
+      browsing: browse !== null,
+      value: el.value,
+      start: el.selectionStart,
+      end: el.selectionEnd,
+    })
+    if (move) {
+      e.preventDefault()
+      const entries = browse?.entries ?? withStorage((store) => loadHistory(store, bot.id), [])
+      const step = stepBrowse(browse, entries, text, move)
+      if (step) showStep(step)
+      return
+    }
+    if (e.key === "Escape" && browse) {
+      e.preventDefault()
+      showStep(endBrowse(browse))
+      return
+    }
     if (e.key === "Escape" && answering) {
       e.preventDefault()
       onAnswer(null)
@@ -906,6 +963,7 @@ function Composer({
   return (
     <div className="border-t p-3 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {(error ?? attachError) && <p className="text-destructive mb-2 text-xs">{error ?? attachError}</p>}
+      <output className="sr-only">{historyStatus}</output>
       <div className="relative">
         {open && (
           <ul
@@ -1037,6 +1095,8 @@ function Composer({
               value={text}
               onChange={(e) => {
                 setText(e.target.value)
+                // Editing a recalled message ends the walk; the edited text is the draft now.
+                setBrowse(null)
                 setError(null)
                 trackCaret(e.target)
               }}

@@ -28,6 +28,7 @@ import { BoardTab } from "@/components/board"
 import { SendTaskDialog } from "@/components/tasks"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
+import { forgetHistory, withStorage } from "@/lib/history"
 
 function when(ms: number | null) {
   return ms
@@ -703,6 +704,7 @@ function SettingsTab({ bot, onDeleted }: { bot: Bot; onDeleted: () => void }) {
   const remove = async () => {
     try {
       await api.deleteBot(bot.id)
+      withStorage((store) => forgetHistory(store, bot.id), undefined)
       onDeleted()
     } catch (e) {
       setResult(failed((e as Error).message))

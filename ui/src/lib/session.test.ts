@@ -2,7 +2,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, assert, test, vi } from "vitest"
 import { api, type Session } from "./api"
-import { phoneSession, sessionStore, usePhoneSession, useRights, useSession } from "./session"
+import { needsKey, phoneSession, sessionStore, usePhoneSession, useRights, useSession } from "./session"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -139,4 +139,48 @@ test("the rights follow the session's scope", () => {
   assert.equal(renderToStaticMarkup(createElement(Probe)), "true true true", "a server render is the computer")
   const Whole = () => String(useSession().phone)
   assert.equal(renderToStaticMarkup(createElement(Whole)), "false")
+})
+
+test("a change of the key's state or file tells the watchers", async () => {
+  const server = answer()
+  const store = sessionStore(server.load)
+  let calls = 0
+  store.subscribe(() => calls++)
+  for (const next of [
+    { phone: false, key: false, keyFile: "/a/ui-key" },
+    { phone: false, key: false, keyFile: "/b/ui-key" },
+    { phone: false, key: true },
+    { phone: false, key: false },
+    { phone: false, key: true },
+  ]) {
+    store.recheck()
+    server.send(next)
+    await tick()
+    assert.deepEqual(store.session(), next)
+  }
+  assert.equal(calls, 5, "a key or a key file that changes, alone, each tell")
+})
+
+test("only the computer's browser without the key needs the key page", () => {
+  assert.isTrue(needsKey({ phone: false, key: false, keyFile: "/a/ui-key" }))
+  assert.isFalse(needsKey({ phone: false, key: true }))
+  assert.isFalse(needsKey({ phone: false }), "until the server says, no key page")
+  assert.isFalse(needsKey({ phone: true, key: false }), "a phone never")
+})
+
+test("a write refused for want of the key asks for the session again", async () => {
+  const asked: string[] = []
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    asked.push(`${init?.method ?? "GET"} ${url}`)
+    if (url === "/api/session") return new Response(JSON.stringify({ phone: false, key: false, keyFile: "/a/ui-key" }))
+    return new Response(JSON.stringify({ error: "This needs Handful's key." }), { status: 401 })
+  })
+  phoneSession.subscribe(() => {})
+  await tick()
+  asked.length = 0
+  const err = await api.createBot("Ana", "").catch((e: Error) => e)
+  await tick()
+  assert.equal((err as Error).message, "This needs Handful's key.")
+  assert.deepEqual(asked, ["POST /api/bots", "GET /api/session"])
+  assert.deepEqual(phoneSession.session(), { phone: false, key: false, keyFile: "/a/ui-key" })
 })

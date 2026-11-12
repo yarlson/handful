@@ -124,7 +124,7 @@ func newPhoneFixtureWith(t *testing.T, settings config.PhoneSettings) *phoneFixt
 	}
 	f.phone = NewPhone(settings, log, opts...)
 	ui := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>app")}, "assets/app.js": {Data: []byte("js")}}
-	f.server, f.main = build(svc, runner, ui, log, WithPhone(f.phone), WithSettings(Settings{Path: f.settings}))
+	f.server, f.main = build(svc, runner, ui, log, WithPhone(f.phone), WithSettings(Settings{Path: f.settings}), WithKey(testKey, "/data/ui-key"))
 	return f
 }
 
@@ -478,7 +478,7 @@ func TestTheBotsEndpointsAreNotOnThePhoneListener(t *testing.T) {
 // AC 44: the session answer on both listeners.
 func TestTheSessionSaysWhetherThisIsAPhone(t *testing.T) {
 	bothModes(t, func(t *testing.T, f *phoneFixture) {
-		if rec := do(f.main, http.MethodGet, "/api/session", "", nil); rec.Body.String() != "{\"phone\":false}\n" {
+		if rec := do(f.main, http.MethodGet, "/api/session", "", nil); rec.Body.String() != "{\"key\":true,\"phone\":false}\n" {
 			t.Fatalf("main: %q", rec.Body)
 		}
 		for _, scope := range []string{core.ScopeView, core.ScopeChat, core.ScopeApprove} {
@@ -902,6 +902,7 @@ func TestTheMainListenerAnswersAsBefore(t *testing.T) {
 	h, _ := newTestHandler(t)
 	cases := []struct {
 		host, origin, ct, method, path string
+		key                            bool
 		want                           int
 	}{
 		{host: "127.0.0.1:47831", method: "GET", path: "/api/bots", want: 200},
@@ -913,10 +914,12 @@ func TestTheMainListenerAnswersAsBefore(t *testing.T) {
 		{host: "evil.test", method: "GET", path: "/api/bots", want: 403},
 		{host: "127.0.0.1", origin: "https://evil.test", method: "GET", path: "/api/bots", want: 403},
 		{host: "127.0.0.1", origin: "null", method: "GET", path: "/api/bots", want: 403},
-		{host: "127.0.0.1", ct: "text/plain", method: "POST", path: "/api/bots", want: 415},
-		{host: "127.0.0.1", ct: "application/x-www-form-urlencoded", method: "POST", path: "/api/bots", want: 415},
-		{host: "127.0.0.1", ct: "application/json", method: "POST", path: "/api/bots", want: 400},
+		{host: "127.0.0.1", ct: "text/plain", method: "POST", path: "/api/bots", key: true, want: 415},
+		{host: "127.0.0.1", ct: "application/x-www-form-urlencoded", method: "POST", path: "/api/bots", key: true, want: 415},
+		{host: "127.0.0.1", ct: "application/json", method: "POST", path: "/api/bots", key: true, want: 400},
 		{host: "127.0.0.1", method: "POST", path: "/mcp", ct: "application/json", want: 401},
+		// #9: a local write without Handful's key no longer reaches its handler.
+		{host: "127.0.0.1", ct: "application/json", method: "POST", path: "/api/bots", want: 401},
 	}
 	for _, c := range cases {
 		r := httptest.NewRequestWithContext(context.Background(), c.method, "http://"+c.host+c.path, strings.NewReader("{}"))
@@ -925,6 +928,9 @@ func TestTheMainListenerAnswersAsBefore(t *testing.T) {
 		}
 		if c.ct != "" {
 			r.Header.Set("Content-Type", c.ct)
+		}
+		if c.key {
+			r.Header.Set(KeyHeader, testKey)
 		}
 		r.Header.Set("X-Forwarded-Host", "localhost")
 		r.Header.Set("X-Forwarded-For", "127.0.0.1")

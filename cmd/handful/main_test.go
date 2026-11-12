@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"handful/internal/config"
+	"handful/internal/httpapi"
 	"handful/internal/move"
 )
 
@@ -188,7 +189,7 @@ func TestPrepareStopsOnABadEffortAndKeepsGoodDefaults(t *testing.T) {
 }
 
 func TestServeAnswersUntilTheContextEnds(t *testing.T) {
-	o := options{addr: freeAddr(t), dataDir: t.TempDir(), claudePath: fakeClaude(t), MaxParallel: 3, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45}}
+	o := options{addr: freeAddr(t), dataDir: t.TempDir(), claudePath: fakeClaude(t), MaxParallel: 3, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45}, key: serveTestKey}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- serve(ctx, o, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
@@ -289,6 +290,9 @@ func getStartError(t *testing.T, addr string) *string {
 	return reply.StartError
 }
 
+// serveTestKey is the key of the servers that tests start with serve.
+const serveTestKey = "serve-test-key"
+
 // patchSettings sends body to PATCH /api/settings on addr and wants 200.
 func patchSettings(t *testing.T, addr, body string) {
 	t.Helper()
@@ -297,6 +301,7 @@ func patchSettings(t *testing.T, addr, body string) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(httpapi.KeyHeader, serveTestKey)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

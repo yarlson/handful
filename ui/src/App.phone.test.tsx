@@ -37,10 +37,12 @@ vi.mock("@/lib/store", () => ({
 }))
 
 // session is what the server says of this browser; each test sets it.
-const session = vi.hoisted(() => ({ value: { phone: false } as Session }))
-vi.mock("@/lib/session", async () => {
+const session = vi.hoisted(() => ({ value: { phone: false, key: true } as Session }))
+vi.mock("@/lib/session", async (actual) => {
   const { rightsOf } = await import("@/lib/phones")
+  const { needsKey } = await actual<typeof import("@/lib/session")>()
   return {
+    needsKey,
     usePhoneSession: () => session.value.phone,
     useSession: () => session.value,
     useRights: () => rightsOf(session.value),
@@ -63,7 +65,7 @@ function render(path = "/chat/b"): string {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  session.value = { phone: false }
+  session.value = { phone: false, key: true }
 })
 
 // The controls a phone never has (spec 6a748f8a section 4.4), as their markup shows them.
@@ -118,4 +120,23 @@ test("a phone has no Settings page: /settings shows the chats", () => {
   const html = render("/settings/phones")
   assert.notInclude(html, "Back to chats")
   assert.include(html, 'aria-label="Chats"')
+})
+
+test("a browser on the computer without Handful's key gets the key page, with the key file's path", () => {
+  session.value = { phone: false, key: false, keyFile: "/srv/h/ui-key" }
+  const html = render()
+  assert.include(html, "Handful needs its key on this browser.")
+  assert.include(html, "cat /srv/h/ui-key</code>")
+  assert.notInclude(html, "pbcopy")
+  assert.notInclude(html, 'aria-label="Send"')
+})
+
+test("a browser with the key, and a phone, get no key page", () => {
+  for (const value of [
+    { phone: false, key: true },
+    { phone: true, scope: "chat" as const, device: "Pixel 8" },
+  ]) {
+    session.value = value
+    assert.notInclude(render(), "Handful needs its key", JSON.stringify(value))
+  }
 })

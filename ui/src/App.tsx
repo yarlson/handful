@@ -51,7 +51,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { PairAgain, PairBanner, PairPage, usePairRequest } from "@/components/phones"
 import { rightsOf } from "@/lib/phones"
-import { useSession } from "@/lib/session"
+import { needsKey, phoneSession, useSession } from "@/lib/session"
+import { KeyPage } from "@/components/key-page"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
 const NEEDS_YOU_PATH = "/needs-you"
@@ -770,6 +771,7 @@ export function App() {
 
   if (path === "/pair") return <PairPage paired={session.phone && !session.lost} />
   if (session.lost) return <PairAgain />
+  if (needsKey(session)) return <KeyPage keyFile={session.keyFile ?? ""} onSaved={phoneSession.recheck} />
   if (isSettingsPath(path) && rights.computer) {
     return (
       <>

@@ -260,6 +260,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  if (res.status === 401) keyLost()
   if (!res.ok) {
     let message = `${method} ${path} failed with ${res.status}`
     try {
@@ -275,8 +276,25 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 // Session is what the server knows of this browser: phone is true for a paired phone, with its
-// scope and name; lost is a phone whose session no longer works, which pairs again.
-export type Session = { phone: boolean; scope?: Scope; device?: string; lost?: boolean }
+// scope and name; lost is a phone whose session no longer works, which pairs again. On the
+// computer, key says whether the browser has Handful's key, which writes need; keyFile is the
+// file that holds it, when it doesn't.
+export type Session = {
+  phone: boolean
+  scope?: Scope
+  device?: string
+  lost?: boolean
+  key?: boolean
+  keyFile?: string
+}
+
+// keyLost runs when a write gets 401: the browser's key is gone or the server's changed.
+let keyLost = () => {}
+
+// onKeyLost sets what runs when a write gets 401.
+export function onKeyLost(fn: () => void) {
+  keyLost = fn
+}
 
 // session asks the server for this browser's session; a 401 is a phone without one.
 async function session(): Promise<Session> {
@@ -317,6 +335,8 @@ export const api = {
   version: () => request<ServerVersion>("GET", "/api/version"),
   // session says whether this browser is a paired phone.
   session,
+  // saveKey gives this browser Handful's key, pasted from the key file; a wrong key throws.
+  saveKey: (key: string) => request<void>("POST", "/api/key", { key }),
   phone: () => request<PhoneAccess>("GET", "/api/phone"),
   phoneOn: (on: { proxy: Proxy; hosts: string[]; teamDomain?: string; aud?: string }) =>
     request<PhoneAccess>("POST", "/api/phone/on", on),

@@ -390,11 +390,16 @@ func hostOnly(hostport string) string {
 }
 
 // session tells the UI what this browser's session is: on the computer's listener never a
-// phone; on the phone listener the paired phone, its scope and its name.
+// phone, and whether it carries Handful's key, with the key's file when it doesn't; on the
+// phone listener the paired phone, its scope and its name.
 func (s *server) session(w http.ResponseWriter, r *http.Request) {
 	dev, ok := phoneDeviceOf(r.Context())
 	if !ok {
-		writeJSON(w, http.StatusOK, map[string]bool{"phone": false})
+		if s.key.carried(r) {
+			writeJSON(w, http.StatusOK, map[string]any{"phone": false, "key": true})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"phone": false, "key": false, "keyFile": s.key.file})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"phone": true, "scope": dev.Scope, "device": dev.Name})

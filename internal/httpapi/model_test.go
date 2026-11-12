@@ -38,7 +38,7 @@ func newModelHandler(t *testing.T, d core.Defaults, opts ...Option) (http.Handle
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: "/nonexistent"}, log)
-	return New(svc, runner, nil, log, opts...), svc
+	return New(svc, runner, nil, log, append([]Option{WithKey(testKey, "/data/ui-key")}, opts...)...), svc
 }
 
 type modelBot struct {

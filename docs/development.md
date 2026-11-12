@@ -60,7 +60,7 @@ Slower analyses have their own targets. They write their reports to `target/`.
 ## How it works
 
 ```
-browser ──REST + SSE──▶ Handful server (Go) ──▶ SQLite (yargpt.db)
+browser ──REST + SSE──▶ Handful server (Go) ──▶ SQLite
                            │  ▲
             spawns per turn│  │MCP over HTTP (bearer token per turn)
                            ▼  │

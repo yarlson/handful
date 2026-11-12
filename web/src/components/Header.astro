@@ -9,9 +9,12 @@ import Mark from "./Mark.astro";
 			<Mark id="header-mark" size="1.375rem" />
 			<span class="text-[1.9375rem] font-semibold leading-none tracking-[-0.04em]">handful</span>
 		</a>
-		<a href="https://github.com/yarlson/handful" class="inline-flex items-center gap-2 text-[0.9375rem] text-ink-2 transition-colors hover:text-ink">
-			<GithubMark />
-			GitHub
-		</a>
+		<nav aria-label="Main" class="flex items-center gap-6">
+			<a href="/docs/" class="text-[0.9375rem] text-ink-2 transition-colors hover:text-ink">Docs</a>
+			<a href="https://github.com/yarlson/handful" class="inline-flex items-center gap-2 text-[0.9375rem] text-ink-2 transition-colors hover:text-ink">
+				<GithubMark />
+				GitHub
+			</a>
+		</nav>
 	</header>
 </div>

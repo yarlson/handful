@@ -1,0 +1,25 @@
+.docs h1 { font-size: clamp(2rem, 4.4vw, 3rem); font-weight: 560; line-height: 1.08; letter-spacing: -0.04em; text-wrap: balance; }
+.docs h2 { margin-top: 3rem; font-size: 1.5rem; font-weight: 560; letter-spacing: -0.025em; scroll-margin-top: 1.5rem; }
+.docs h3 { margin-top: 2rem; font-size: 1.1875rem; font-weight: 560; letter-spacing: -0.015em; scroll-margin-top: 1.5rem; }
+.docs p, .docs ul, .docs ol, .docs .table-scroll, .docs pre, .docs blockquote { margin-top: 1rem; }
+.docs h1 + p { margin-top: 1.25rem; font-size: 1.125rem; color: var(--ink-2); }
+.docs p, .docs li { text-wrap: pretty; }
+.docs ul { list-style: disc; padding-left: 1.25rem; }
+.docs ol { list-style: decimal; padding-left: 1.25rem; }
+.docs li + li { margin-top: 0.5rem; }
+.docs li > ul, .docs li > ol, .docs li > p { margin-top: 0.5rem; }
+.docs a { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; transition: text-decoration-color 0.15s; }
+.docs a:hover { text-decoration-color: currentColor; }
+.docs strong { font-weight: 600; }
+.docs code { border-radius: 0.25rem; background: var(--fill); padding: 0.125rem 0.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875em; overflow-wrap: anywhere; }
+.docs pre { overflow-x: auto; border: 1px solid var(--line); border-radius: 0.75rem; background: var(--fill); padding: 0.875rem 1rem; font-size: 0.8125rem; line-height: 1.6; }
+.docs pre code { background: none; padding: 0; overflow-wrap: normal; }
+.docs img { display: block; width: 100%; height: auto; margin-top: 1.5rem; border: 1px solid var(--line); border-radius: 0.75rem; }
+.docs blockquote { border-left: 2px solid var(--line-strong); padding-left: 1rem; color: var(--ink-2); }
+.docs hr { margin: 2.5rem 0; border-color: var(--line); }
+.docs .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 0.75rem; }
+.docs table { width: 100%; min-width: 34rem; border-collapse: collapse; font-size: 0.9375rem; }
+.docs th, .docs td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.75rem; text-align: left; vertical-align: top; }
+.docs th { font-weight: 560; white-space: nowrap; }
+.docs tr:last-child td { border-bottom: 0; }
+.docs td code { white-space: nowrap; }

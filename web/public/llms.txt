@@ -370,7 +370,7 @@ For example, to send a message to a bot from a script:
 curl -s -X POST http://127.0.0.1:7777/api/bots/<bot id>/messages \
   -H "X-Handful-Key: $(cat ~/.handful/ui-key)" \
   -H 'Content-Type: application/json' \
-  -d '{"text": "Hello"}'
+  -d '{"text": "Hello", "clientNonce": "<unique id>"}'
 ```
 
 Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `room` for a room or a team. A team also has `team`.
@@ -476,6 +476,7 @@ Examples:
 curl -s http://127.0.0.1:7777/api/bots
 
 curl -s -X POST http://127.0.0.1:7777/api/bots/<bot id>/messages \
+  -H "X-Handful-Key: $(cat ~/.handful/ui-key)" \
   -H 'Content-Type: application/json' \
   -d '{"text": "@here what is the status?", "clientNonce": "<unique id>"}'
 

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"handful/internal/config"
 	"handful/internal/move"
 )
 
@@ -372,5 +373,19 @@ func TestSetUpKeepsTheEnvironmentWhenTheLoginShellFails(t *testing.T) {
 	}
 	if o.claudePath != claude || os.Getenv("PATH") != "/usr/bin:/bin" {
 		t.Fatalf("claudePath %q, PATH %q; want %q and the unchanged PATH", o.claudePath, os.Getenv("PATH"), claude)
+	}
+}
+
+// A taken phone address stops the server with an error that names phone.addr.
+func TestServeFailsOnATakenPhoneAddress(t *testing.T) {
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	phone := config.PhoneSettings{Enabled: true, Addr: ln.Addr().String(), Hosts: []string{"phone.example.com"}, Proxy: config.ProxyTailscale}
+	o := options{addr: freeAddr(t), dataDir: t.TempDir(), MaxParallel: 3, claudePath: fakeClaude(t), Phone: phone}
+	if err := serve(t.Context(), o, slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil || !strings.Contains(err.Error(), "phone.addr") {
+		t.Fatalf("serve with a taken phone address = %v; want an error naming phone.addr", err)
 	}
 }

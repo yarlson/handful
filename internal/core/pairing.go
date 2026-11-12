@@ -268,18 +268,18 @@ func (s *Service) PairingStatus(ctx context.Context, claim string) (string, stri
 	if r == nil || subtle.ConstantTimeCompare(r.claim, phoneTokenHash(claim)) != 1 {
 		return "", "", notFound("pair request", "")
 	}
-	switch {
-	case r.state == PairWaiting && now.UnixMilli() < r.ExpiresAt:
+	if r.state == PairWaiting && now.UnixMilli() < r.ExpiresAt {
 		return PairWaiting, "", nil
-	case r.state == PairApproved && now.Sub(r.decided) < PairRequestMinutes*time.Minute:
-		token, _, err := s.CreatePhoneSession(ctx, r.Name, r.Scope, r.PairedBy)
-		if err != nil {
-			return "", "", err
-		}
-		p.request = nil // a claim issues one session
-		return PairApproved, token, nil
 	}
-	return PairDenied, "", nil
+	if r.state != PairApproved || now.Sub(r.decided) >= PairRequestMinutes*time.Minute {
+		return PairDenied, "", nil
+	}
+	token, _, err := s.CreatePhoneSession(ctx, r.Name, r.Scope, r.PairedBy)
+	if err != nil {
+		return "", "", err
+	}
+	p.request = nil // a claim issues one session
+	return PairApproved, token, nil
 }
 
 func validScope(scope string) bool {

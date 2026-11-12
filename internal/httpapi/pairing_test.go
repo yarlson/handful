@@ -71,8 +71,8 @@ func TestAPhonePairsWithATypedCodeAfterTheComputerAllowsIt(t *testing.T) {
 		code := f.startCode(core.ScopeChat)
 		rec := f.do(req{method: http.MethodPost, path: "/pair", body: `{"code":"` + strings.ToLower(code) + `","deviceName":"Pixel 8"}`})
 		claim := cookie(rec, pairCookie)
-		if rec.Code != http.StatusAccepted || claim == nil || !claim.Secure || !claim.HttpOnly || claim.SameSite != http.SameSiteStrictMode || claim.Path != "/" {
-			t.Fatalf("POST /pair = %d %s, claim %+v; want 202 and a Secure, HttpOnly, Strict claim cookie", rec.Code, rec.Body, claim)
+		if rec.Code != http.StatusAccepted || claim == nil || !claim.Secure || !claim.HttpOnly || claim.SameSite != http.SameSiteStrictMode || claim.Path != "/" || claim.MaxAge != 240 {
+			t.Fatalf("POST /pair = %d %s, claim %+v; want 202 and a Secure, HttpOnly, Strict claim cookie for 4 minutes", rec.Code, rec.Body, claim)
 		}
 		if state, rec := f.pairState(claim); state != core.PairWaiting || cookie(rec, phoneCookie) != nil {
 			t.Fatalf("before a decision: %q; want waiting and no session", state)

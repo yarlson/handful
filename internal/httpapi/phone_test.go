@@ -802,6 +802,15 @@ func TestTheComputerTurnsPhoneAccessOnWithoutARestart(t *testing.T) {
 	if rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":["x.trycloudflare.com"]}`, jsonHeader); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "phone.hosts") {
 		t.Fatalf("on with a quick tunnel: %d %s; want 400 naming phone.hosts", rec.Code, rec.Body)
 	}
+	if err := os.WriteFile(f.settings, []byte(`{"model": `), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":["phone.example.com"]}`, jsonHeader); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "config.json has an error") {
+		t.Fatalf("on with a broken config.json: %d %s; want 409", rec.Code, rec.Body)
+	}
+	if err := os.WriteFile(f.settings, []byte(`{"model": "sonnet"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.phone.Start(t.Context()); err != nil || f.phone.Addr() != "" {
 		t.Fatalf("start while off = %v at %q", err, f.phone.Addr())
 	}
@@ -812,8 +821,8 @@ func TestTheComputerTurnsPhoneAccessOnWithoutARestart(t *testing.T) {
 		t.Fatalf("on: %d %s; want on, tailscale, %s", rec.Code, rec.Body, phoneHost)
 	}
 	file, err := config.Load(f.settings)
-	if err != nil || !file.PhoneSettings().Enabled || !slices.Equal(file.PhoneSettings().Hosts, []string{phoneHost}) {
-		t.Fatalf("config.json = %+v, %v; want phone access on for %s", file.PhoneSettings(), err, phoneHost)
+	if err != nil || !file.PhoneSettings().Enabled || !slices.Equal(file.PhoneSettings().Hosts, []string{phoneHost}) || file.Model == nil || *file.Model != "sonnet" {
+		t.Fatalf("config.json = %+v, model %v, %v; want phone access on for %s, and the model kept", file.PhoneSettings(), file.Model, err, phoneHost)
 	}
 	r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+f.phone.Addr()+"/", nil)
 	if err != nil {

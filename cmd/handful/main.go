@@ -288,17 +288,16 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
+	// Before the runner: a taken phone address stops the server with nothing to wait for.
+	if err := phone.Start(ctx); err != nil {
+		return err
+	}
+	defer phone.Stop()
 	runnerDone := make(chan struct{})
 	go func() { runner.Run(ctx); close(runnerDone) }()
 	waitRestarts := restarts.watch(ctx, runner)
 	defer func() { stop(); waitRestarts() }()
 
-	if err := phone.Start(ctx); err != nil {
-		stop()
-		<-runnerDone
-		return err
-	}
-	defer phone.Stop()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
 	log.Info("Handful is running", "url", base, "data", o.dataDir, "claude", o.claudePath)

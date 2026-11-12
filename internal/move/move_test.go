@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"handful/internal/db"
+	"handful/internal/db/dbtest"
 )
 
 var movedAt = time.UnixMilli(1_800_000_000_000)
@@ -73,7 +74,7 @@ func (h *home) yargptDB(path string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		h.t.Fatal(err)
 	}
-	conn, err := db.Open(h.t.Context(), path)
+	conn, err := dbtest.Open(h.t.Context(), path)
 	if err != nil {
 		h.t.Fatal(err)
 	}

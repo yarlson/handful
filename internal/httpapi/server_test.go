@@ -26,13 +26,14 @@ import (
 	"handful/internal/agent"
 	"handful/internal/core"
 	"handful/internal/db"
+	"handful/internal/db/dbtest"
 	"handful/internal/oauthtest"
 )
 
 func newTestHandler(t *testing.T) (http.Handler, *core.Service) {
 	t.Helper()
 	dir := t.TempDir()
-	conn, err := db.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
+	conn, err := dbtest.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

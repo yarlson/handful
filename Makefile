@@ -1,7 +1,7 @@
 MISE := mise exec --
 export BASE ?= origin/main
 
-.PHONY: build ui generate test run app app-universal app-universal-deps app-universal-package icons fmt check fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check name-check crap mutation mutation-diff ui-mutation
+.PHONY: build ui generate test run app app-universal app-universal-deps app-universal-package icons fmt check go-check repo-check fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check name-check crap mutation mutation-diff mutation-scope ui-mutation ui-mutation-diff
 
 # SERVER_VERSION is the version the server reports, without the tag's "v":
 # VERSION when given (the release workflow passes the tag), else the tag of
@@ -72,7 +72,12 @@ fmt:
 	$(MISE) golangci-lint fmt
 	cd ui && $(MISE) npm run format
 
-check: fmt-check lint generate-check mod-check race vuln ui-check web-check desktop-check workflow-check name-check
+# CI runs each prerequisite of check as its own job, in parallel.
+check: go-check race ui-check web-check desktop-check repo-check
+
+go-check: fmt-check lint generate-check mod-check vuln
+
+repo-check: workflow-check name-check
 
 fmt-check:
 	$(MISE) golangci-lint fmt --diff
@@ -113,7 +118,7 @@ name-check:
 	scripts/check-name.sh
 
 # crap4go scores every .go file it finds; pass only hand-written production files.
-CRAP_SOURCES = $(shell git ls-files '*.go' ':!:*_test.go' ':!:internal/oauthtest/*' | xargs grep -L '^// Code generated .* DO NOT EDIT\.$$')
+CRAP_SOURCES = $(shell git ls-files '*.go' ':!:*_test.go' ':!:internal/oauthtest/*' ':!:internal/db/dbtest/*' | xargs grep -L '^// Code generated .* DO NOT EDIT\.$$')
 
 crap:
 	$(MISE) crap4go $(CRAP_SOURCES)
@@ -142,8 +147,12 @@ mutation:
 ZERO_CONTEXT_DIFF = GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=diff.context GIT_CONFIG_VALUE_0=0 \
 	GIT_CONFIG_KEY_1=diff.interHunkContext GIT_CONFIG_VALUE_1=0
 
+# The lines that mutation-diff and ui-mutation-diff test.
+GO_MUTATION_PATHS = '*.go' ':!:*_test.go'
+UI_MUTATION_PATHS = 'ui/src/lib/*.ts' ':!:ui/src/lib/*.test.ts'
+
 mutation-diff:
-	@if git diff --quiet --merge-base "$$BASE" -- '*.go' ':!:*_test.go'; then \
+	@if git diff --quiet --merge-base "$$BASE" -- $(GO_MUTATION_PATHS); then \
 		echo "no production Go changes since $$BASE"; \
 	else \
 		rm -f target/mutation-results.json && mkdir -p target && \
@@ -154,3 +163,14 @@ mutation-diff:
 
 ui-mutation:
 	cd ui && $(MISE) npm run mutation
+
+ui-mutation-diff:
+	cd ui && $(MISE) npm ci
+	$(MISE) scripts/ui-mutation-diff.sh $(UI_MUTATION_PATHS)
+
+# Prints go=true when mutation-diff has lines to test, and ui=true when
+# ui-mutation-diff has. CI skips a mutation job that has none. An error in
+# git diff counts as a change.
+mutation-scope:
+	@git diff --quiet --merge-base "$$BASE" -- $(GO_MUTATION_PATHS) && echo go=false || echo go=true
+	@git diff --quiet --merge-base "$$BASE" -- $(UI_MUTATION_PATHS) && echo ui=false || echo ui=true

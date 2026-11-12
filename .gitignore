@@ -14,6 +14,7 @@
 !/docs/measures/
 /target/
 /ui/.stryker-tmp/
+/ui/reports/
 /desktop/node_modules/
 /desktop/dist/
 /web/node_modules/

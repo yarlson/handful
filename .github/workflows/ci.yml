@@ -16,19 +16,67 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
+  checks:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The prerequisites of make check.
+        target: [go-check, race, ui-check, web-check, desktop-check, repo-check]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Go reuses a cached test result only when the test binary and every
+      # file in the repository and variable that the test read are unchanged.
+      # The weekly run tests everything again.
+      GOFLAGS: ${{ github.event_name == 'schedule' && '-count=1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
-      - run: make check
+      - id: cache
+        if: matrix.target != 'repo-check'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: &cache-paths |
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+            ~/go/pkg/mod
+            ~/.npm
+          key: ${{ matrix.target }}-${{ hashFiles('mise.toml', 'go.sum', '*/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ matrix.target }}-${{ hashFiles('mise.toml', 'go.sum', '*/package-lock.json') }}-
+            ${{ matrix.target }}-
+      - run: make ${{ matrix.target }}
+      # Only main saves caches, so that each pull request starts from main's.
+      - if: github.event_name == 'push' && matrix.target != 'repo-check'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: *cache-paths
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
-  mutation:
+  # Which mutation jobs have changed lines to test.
+  changes:
     if: github.event_name == 'pull_request'
-    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.scope.outputs.go }}
+      ui: ${{ steps.scope.outputs.ui }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: make -s mutation-scope BASE="origin/$BASE_REF" | tee -a "$GITHUB_OUTPUT"
+
+  mutation-go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -37,7 +85,52 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
-      - name: Mutation-test the changed lines
+      # go-check's cache holds the compiled packages, without the race detector.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: *cache-paths
+          key: go-check-${{ hashFiles('mise.toml', 'go.sum', '*/package-lock.json') }}-${{ github.sha }}
+          restore-keys: go-check-
+      - name: Mutation-test the changed Go lines
         env:
           BASE_REF: ${{ github.base_ref }}
         run: make mutation-diff BASE="origin/$BASE_REF"
+
+  mutation-ui:
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: *cache-paths
+          key: ui-check-${{ hashFiles('mise.toml', 'go.sum', '*/package-lock.json') }}-${{ github.sha }}
+          restore-keys: ui-check-
+      - name: Mutation-test the changed UI lines
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: make ui-mutation-diff BASE="origin/$BASE_REF"
+
+  # One result for the whole run. It fails when any check failed or was
+  # cancelled.
+  check:
+    if: always()
+    needs: [checks, changes, mutation-go, mutation-ui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            case "$result" in
+              success | skipped) ;;
+              *) echo "a check ended with: $result" >&2; exit 1 ;;
+            esac
+          done

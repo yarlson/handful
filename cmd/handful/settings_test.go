@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"handful/internal/core"
-	"handful/internal/db"
+	"handful/internal/db/dbtest"
 	"handful/internal/httpapi"
 )
 
@@ -404,7 +404,7 @@ func TestTheDrainLimitComesFreshFromTheFile(t *testing.T) {
 func newServiceForTest(t *testing.T) *core.Service {
 	t.Helper()
 	dir := t.TempDir()
-	conn, err := db.Open(t.Context(), filepath.Join(dir, "yargpt.db"))
+	conn, err := dbtest.Open(t.Context(), filepath.Join(dir, "yargpt.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

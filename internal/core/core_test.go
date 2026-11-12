@@ -15,13 +15,13 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"handful/internal/db"
+	"handful/internal/db/dbtest"
 )
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 	dir := t.TempDir()
-	conn, err := db.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
+	conn, err := dbtest.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

@@ -22,13 +22,16 @@ Push a tag such as `v0.2.0` to release; the tag must be a version, such as `v0.2
 
 ```sh
 make test    # Go tests, the TypeScript type check and the UI unit tests
-make check   # every check of CI's check job
+make check   # every check of CI
 make fmt     # format Go and UI code
 ```
 
 The agent tests replace Claude Code with a fake CLI script and run a real MCP client against the tool endpoint.
 
-`make check` runs these targets:
+`make check` runs these targets. CI runs them as six jobs at the same time: `go-check` (the targets from `fmt-check` to `vuln` that check Go code), `race`, `ui-check`, `web-check`, `desktop-check` and `repo-check` (`workflow-check` and `name-check`). The `check` job fails when one of them fails.
+
+CI keeps Go's build and test cache and the npm cache from the last run on main. Go reports a test result from the cache only when the test binary and every repository file and environment variable that the test read are unchanged, so a change that touches no Go code tests nothing again. The weekly run tests everything again.
+
 
 | Target | Fails when |
 |---|---|
@@ -48,7 +51,8 @@ Slower analyses have their own targets. They write their reports to `target/`.
 
 | Target | What it does |
 |---|---|
-| `mutation-diff` | Mutation-tests, with gremlins, the Go lines changed since `BASE` (default `origin/main`). It fails when a mutant on a changed line survives the tests, or when no test runs that line. Git must track new files, for example with `git add -N`. CI runs it on each pull request. |
+| `mutation-diff` | Mutation-tests, with gremlins, the Go lines changed since `BASE` (default `origin/main`). It fails when a mutant on a changed line survives the tests, or when no test runs that line. Git must track new files, for example with `git add -N`. CI runs it on each pull request that changes such a line. |
+| `ui-mutation-diff` | The same for the lines of `ui/src/lib` changed since `BASE`, with Stryker. CI runs it on each pull request that changes such a line. A pull request that changes only the website, the docs or other files runs neither. |
 | `mutation` | Mutation-tests all Go code, in about 8 minutes on 10 cores. It fails below 81 % efficacy or 85 % mutant coverage. CI does not run it. `cmd/handful` is not mutation-tested: gremlins 0.6.0 cannot map its coverage. |
 | `crap` | Prints the CRAP score of each hand-written Go function: its complexity combined with its test coverage. Higher means riskier to change. |
 | `ui-mutation` | Mutation-tests `ui/src/lib` with Stryker and prints the score. |

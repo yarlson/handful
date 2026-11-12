@@ -26,7 +26,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"handful/internal/core"
-	"handful/internal/db"
+	"handful/internal/db/dbtest"
 )
 
 // fakeClaude is a stand-in for the claude CLI. It appends its arguments, the
@@ -394,7 +394,7 @@ func newHarness(t *testing.T, mode string) *harness {
 func newHarnessWith(t *testing.T, mode, model, effort string) *harness {
 	t.Helper()
 	dir := t.TempDir()
-	conn, err := db.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
+	conn, err := dbtest.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

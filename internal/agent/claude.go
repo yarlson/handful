@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"handful/internal/core"
@@ -40,6 +41,8 @@ type claudeRun struct {
 	MCPConfig        string // path of the file that writeMCPConfig wrote
 	BotName          string
 	Flags            runFlags // the model and effort
+	// DataDir is Handful's data folder, whose own files the bot's file tools may not read.
+	DataDir string
 }
 
 // isolatedSettings is the --settings value for every claude run. It turns
@@ -47,6 +50,36 @@ type claudeRun struct {
 // lines that Claude Code adds to commits and pull requests, since
 // --setting-sources project keeps the user's own attribution setting out.
 const isolatedSettings = `{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}`
+
+// handfulSecrets are the files and folders of the data folder that hold Handful's secrets:
+// its API key, the MCP configs of running bots with their per-run tokens, connector sign-ins
+// and settings, and the database. Paths are relative to the data folder, in Claude Code's
+// gitignore-style patterns.
+var handfulSecrets = []string{"ui-key", "run/**", "oauth/**", "connectors.json", "yargpt.db*"}
+
+// turnSettings is the --settings value of a turn's run: isolatedSettings, plus rules that keep
+// Claude Code's file tools (Read, and Grep and Glob, which follow Read's rules) out of
+// handfulSecrets in dataDir. Bash, and the programs it runs, can still read them.
+func turnSettings(dataDir string) (string, error) {
+	// Claude Code checks a rule against a file's real path, so the folder's real path goes in.
+	if real, err := filepath.EvalSymlinks(dataDir); err == nil {
+		dataDir = real
+	}
+	deny := make([]string, 0, len(handfulSecrets))
+	for _, p := range handfulSecrets {
+		// "//" starts an absolute path in a rule.
+		deny = append(deny, "Read(/"+filepath.ToSlash(filepath.Join(dataDir, p))+")")
+	}
+	raw, err := json.Marshal(map[string]any{
+		"autoMemoryEnabled": false,
+		"attribution":       map[string]string{"commit": "", "pr": ""},
+		"permissions":       map[string][]string{"deny": deny},
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode the run's settings: %w", err)
+	}
+	return string(raw), nil
+}
 
 // args builds the claude CLI arguments; the prompt goes to stdin as a
 // userMessage. --setting-sources project keeps the
@@ -58,6 +91,10 @@ func (r claudeRun) args() ([]string, error) {
 	agents, err := json.Marshal(executorAgents(r.BotName))
 	if err != nil {
 		return nil, fmt.Errorf("encode agents: %w", err)
+	}
+	settings, err := turnSettings(r.DataDir)
+	if err != nil {
+		return nil, err
 	}
 	allowed := append([]string{}, readOnlyTools...)
 	for _, t := range []string{"send_to_user", "send_to_agent", "read_room", "recall_memory", "update_memory", "update_routine", "update_skill", "find_artifacts", "read_artifact", "update_artifact", "update_profile", "update_board", core.ToolCreateSetup} {
@@ -72,7 +109,7 @@ func (r claudeRun) args() ([]string, error) {
 		"--setting-sources", "project",
 		"--strict-mcp-config",
 		"--mcp-config", r.MCPConfig,
-		"--settings", isolatedSettings,
+		"--settings", settings,
 		"--system-prompt-snapshot", "off",
 		"--append-system-prompt-file", r.SystemPromptFile,
 		"--agents", string(agents),

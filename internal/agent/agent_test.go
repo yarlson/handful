@@ -599,10 +599,67 @@ func TestFirstTurnStartsSessionAndLaterTurnsResumeIt(t *testing.T) {
 			t.Errorf("first call does not allow %s without approval: %v", tool, allowed)
 		}
 	}
-	for _, flag := range []string{"--setting-sources project", "--strict-mcp-config", "--permission-prompt-tool mcp__handful__approve", "--system-prompt-snapshot off", `--settings {"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}`, "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
+	for _, flag := range []string{"--setting-sources project", "--strict-mcp-config", "--permission-prompt-tool mcp__handful__approve", "--system-prompt-snapshot off", `--settings {"attribution":{"commit":"","pr":""},"autoMemoryEnabled":false,"permissions":`, "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
 		if !strings.Contains(calls[0], flag) {
 			t.Errorf("first call lacks %q", flag)
 		}
+	}
+}
+
+// #9: a turn's settings keep the bot's file tools out of Handful's own files, in the data
+// folder the server runs with (-data), by its real path.
+func TestATurnsSettingsKeepFileToolsOutOfHandfulsFiles(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	bot := h.newBot(t)
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(context.Background(), bot.ID, "hi", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot })
+	call := h.argsLog(t)[0]
+	settings := regexp.MustCompile(`--settings (\{.*?\]\}\}) `).FindStringSubmatch(call)
+	if settings == nil {
+		t.Fatalf("no --settings in %q", call)
+	}
+	var got struct {
+		AutoMemoryEnabled *bool             `json:"autoMemoryEnabled"`
+		Attribution       map[string]string `json:"attribution"`
+		Permissions       struct {
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal([]byte(settings[1]), &got); err != nil {
+		t.Fatalf("settings %q: %v", settings[1], err)
+	}
+	data, err := filepath.EvalSymlinks(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Read(/" + data + "/ui-key)", "Read(/" + data + "/run/**)", "Read(/" + data + "/oauth/**)", "Read(/" + data + "/connectors.json)", "Read(/" + data + "/yargpt.db*)"}
+	if !slices.Equal(got.Permissions.Deny, want) || got.AutoMemoryEnabled == nil || *got.AutoMemoryEnabled || got.Attribution["commit"] != "" || got.Attribution["pr"] != "" || len(got.Attribution) != 2 {
+		t.Fatalf("settings = %s; want auto memory and attribution off, and deny %q", settings[1], want)
+	}
+}
+
+func TestATurnsSettingsUseTheDataFoldersRealPath(t *testing.T) {
+	t.Parallel()
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	realPath, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := turnSettings(link)
+	if err != nil || !strings.Contains(got, `"Read(/`+realPath+`/ui-key)"`) || strings.Contains(got, link) {
+		t.Fatalf("settings for a linked folder = %s, %v; want the rules on its real path %s", got, err, realPath)
+	}
+	missing := filepath.Join(t.TempDir(), "missing")
+	if got, err := turnSettings(missing); err != nil || !strings.Contains(got, `"Read(/`+missing+`/run/**)"`) {
+		t.Fatalf("settings for a folder that doesn't exist yet = %s, %v; want its path as given", got, err)
 	}
 }
 

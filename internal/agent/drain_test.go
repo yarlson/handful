@@ -57,7 +57,16 @@ func TestDrainModeLetsRunningTurnsFinishAndHoldsTheQueueUntilItEnds(t *testing.T
 	h.newGoal(t, team, boardItem("Docs", "Write the docs.", bo.ID, ""))
 
 	waitFor(t, "Solo's running turn finishes", func() bool { return !h.runner.Running(solo.ID) })
-	time.Sleep(300 * time.Millisecond) // dispatch runs when a turn ends; give it the chance to start the queue
+	// A dispatch, at any time during the drain, reads the queue and tries to start it.
+	for _, leads := range []bool{true, false} {
+		queued, err := h.svc.QueuedTurnsPage(ctx, leads, 0, dispatchPage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if started, _ := h.runner.startTurns(ctx, queued); started != 0 {
+			t.Fatalf("a dispatch during the drain started %d turns; want none", started)
+		}
+	}
 	if raw, _ := os.ReadFile(filepath.Join(h.dir, "order.log")); string(raw) != "start "+solo.ID+"-long\nend "+solo.ID+"-long\n" {
 		t.Fatalf("order.log during the drain = %q; want only the turn that ran before it", raw)
 	}

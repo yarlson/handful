@@ -14,6 +14,8 @@
 | `-move-back` | off | Go back to the data folder as it was before the move: say what would be lost, then stop. |
 | `-yes` | off | With `-move-back`, go back. |
 
+Moving from YarGPT? See [Moving from YarGPT](moving-from-yargpt.md).
+
 To set these without flags, put `claude`, `model`, `effort` or `maxParallel` in `~/.handful/config.json`, for example `{"model": "sonnet", "effort": "high", "maxParallel": 4}`.
 
 - A flag wins over the file.

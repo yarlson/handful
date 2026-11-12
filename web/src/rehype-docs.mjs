@@ -14,6 +14,10 @@ const published = new Map([
 	["docs/development.md", "/docs/development/"],
 ]);
 
+// Pages that exist in the repo but that the site never shows. A paragraph that links to one is
+// left out of the site, so the repo's docs keep the link and the site stays free of the old name.
+const hidden = new Set(["docs/moving-from-yargpt.md"]);
+
 function walk(node, visit, parent) {
 	visit(node, parent);
 	for (const child of [...(node.children ?? [])]) walk(child, visit, node);
@@ -23,6 +27,18 @@ export default function rehypeDocs() {
 	return (tree, file) => {
 		const root = new URL("../../", import.meta.url).pathname;
 		const from = path.relative(root, file.path);
+		const linksHidden = (node) => {
+			let found = false;
+			walk(node, (n) => {
+				if (n.type === "element" && n.tagName === "a" && typeof n.properties?.href === "string" && !/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(n.properties.href)) {
+					found ||= hidden.has(path.normalize(path.join(path.dirname(from), n.properties.href.split("#")[0])));
+				}
+			});
+			return found;
+		};
+		walk(tree, (node) => {
+			node.children = node.children?.filter((child) => !(child.type === "element" && child.tagName === "p" && linksHidden(child)));
+		});
 		walk(tree, (node, parent) => {
 			if (node.type !== "element") return;
 			if (node.tagName === "a" && typeof node.properties?.href === "string") {

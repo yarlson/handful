@@ -11,8 +11,9 @@ function scan(dir) {
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
 		const path = join(dir, entry.name);
 		if (entry.isDirectory()) scan(path);
-		else if (/\.(html|txt|xml|json|css|js|svg|webmanifest)$/i.test(entry.name)) {
-			readFileSync(path, "utf8").split("\n").forEach((line, i) => {
+		else {
+			// Every file is read as bytes, so a file without a text extension is covered too.
+			readFileSync(path).toString("latin1").split("\n").forEach((line, i) => {
 				if (line.toLowerCase().includes(name)) found.push(`${path.slice(dist.length)}:${i + 1}`);
 			});
 		}

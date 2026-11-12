@@ -31,6 +31,10 @@ oldMCPServerName = "yargpt"|"old reserved name"
 # The move page and the way back (spec §4.4, §6), line by line; the data folder,
 # the update-check variable and the old binary are allowed above.
 ^docs/moving-from-yargpt\.md:[0-9]+:(# Moving from YarGPT|YarGPT is now Handful\. Your bots|- \*\*Mac app, YarGPT 0\.(9\.0 or later|8\.0 or earlier):\*\*|## Go back to YarGPT|3\. Download `YarGPT-universal-mac\.zip`|4\. Click \*\*Later\*\* in its "YarGPT is now Handful" window)
+# The configuration page's link to the move page. The site build leaves this paragraph out (web/src/rehype-docs.mjs).
+^docs/configuration\.md:[0-9]+:Moving from YarGPT\? See \[Moving from YarGPT\]\(moving-from-yargpt\.md\)\.$
+# The site build's list of pages it never shows.
+^web/src/rehype-docs\.mjs:[0-9]+:const hidden = new Set\(\["docs/moving-from-yargpt\.md"\]\);$
 # The move page's line in .gitignore, which keeps docs/ ignored but for its pages.
 ^\.gitignore:[0-9]+:!/docs/moving-from-yargpt\.md$
 

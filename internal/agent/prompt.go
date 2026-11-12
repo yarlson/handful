@@ -852,22 +852,6 @@ func timestampLine(now time.Time) string {
 	return fmt.Sprintf("<timestamp>%s</timestamp>\n", now.Format("Mon Jan 2 2006 15:04 MST"))
 }
 
-// skillPrompt is the turn message when the user starts a message with
-// "/<skill-id>": it carries the skill's recipe, so the bot runs it at once.
-// In a team's chat it follows the room context of the turn.
-func skillPrompt(skill core.Skill, args string) string {
-	request := "no further details"
-	if args != "" {
-		request = args
-	}
-	return fmt.Sprintf(`The user invoked your skill %q. Their request: %s
-<skill name=%q>
-%s
-</skill>
-Follow the skill now for this request. The skill's folder, with any helper files, is .claude/skills/%s/ in your working directory.`,
-		skill.ID, request, skill.ID, strings.TrimSpace(skill.Body), skill.ID)
-}
-
 func executorAgents(botName string) map[string]any {
 	return map[string]any{
 		"executor": map[string]any{

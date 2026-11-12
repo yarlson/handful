@@ -35,7 +35,15 @@ import {
   X,
 } from "lucide-react"
 import { api, type BackgroundTask, type Bot, type Decision, type Entry, type Member, type Skill } from "@/lib/api"
-import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type MentionQuery } from "@/lib/completion"
+import {
+  applyCompletion,
+  findMentionQuery,
+  findSlashQuery,
+  matchNames,
+  namedSkills,
+  type MentionQuery,
+  type SlashQuery,
+} from "@/lib/completion"
 import { Popover } from "radix-ui"
 import { useNarrow } from "@/lib/narrow"
 import { usePhoneSession, useRights } from "@/lib/session"
@@ -54,7 +62,7 @@ import {
   type Browse,
   type Step,
 } from "@/lib/history"
-import { offeredSkills, teamSkillOf } from "@/lib/skills"
+import { offeredSkills } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
 import { Button, touchArea } from "@/components/ui/button"
@@ -535,28 +543,34 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
 export function EntryView({
   entry,
   chat,
-  skill,
+  skillIds,
   onAnswer,
   expanded = false,
   onExpand = () => {},
 }: {
   entry: Entry
   chat: ChatInfo
-  skill: string | null
+  // skillIds are the skills that the chat offers; a user's message shows those it names.
+  skillIds: string[]
   onAnswer?: (q: Asked) => void
   // expanded says a tool run's output is shown; onExpand shows or hides it.
   expanded?: boolean
   onExpand?: (entryId: string) => void
 }) {
   switch (entry.kind) {
-    case "user":
+    case "user": {
+      const skills = entry.body.text ? namedSkills(entry.body.text, skillIds) : []
       return (
         <div className="group/message flex flex-col items-end">
-          {skill && (
-            <Badge variant="outline" className="mb-1 font-mono" title="This message invoked a skill">
-              <Sparkles className="size-3" />
-              skill: {skill}
-            </Badge>
+          {skills.length > 0 && (
+            <div className="mb-1 flex flex-wrap justify-end gap-1">
+              {skills.map((id) => (
+                <Badge key={id} variant="outline" className="font-mono" title="This message names a skill">
+                  <Sparkles className="size-3" />
+                  skill: {id}
+                </Badge>
+              ))}
+            </div>
           )}
           {entry.body.media && entry.body.media.length > 0 && (
             <div className="mb-1 flex max-w-[75%] justify-end">
@@ -573,6 +587,7 @@ export function EntryView({
           )}
         </div>
       )
+    }
     case "bot": {
       const speaker = entry.body.speakerName ?? chat.name
       const color = botColor(entry.body.speakerId ?? entry.botId)
@@ -693,11 +708,12 @@ const teamCommands: Suggestion[] = [
   },
 ]
 
-// suggestionsFor returns what the typed query can complete to: bot names
-// after "@" (and "here" for everyone in a room), commands and skills after a
-// leading "/". A team's chat also offers the team commands.
+// suggestionsFor returns what the typed query can complete to: bot names after "@" (and "here"
+// for everyone in a room); after "/", commands and skills at the start of the text, and skills
+// only elsewhere, since Handful's commands work only at the start. A team's chat also offers
+// the team commands.
 function suggestionsFor(
-  query: MentionQuery & { mode: "mention" | "slash" },
+  query: (MentionQuery & { mode: "mention" }) | (SlashQuery & { mode: "slash" }),
   mentionables: Member[],
   skills: Skill[],
   inRoom: boolean,
@@ -722,8 +738,8 @@ function suggestionsFor(
       : names
   }
   const all = [
-    ...(inTeam ? teamCommands : []),
-    ...commands,
+    ...(query.atStart && inTeam ? teamCommands : []),
+    ...(query.atStart ? commands : []),
     ...skills.map((sk) => ({
       token: `/${sk.id}`,
       label: `/${sk.id}`,
@@ -798,7 +814,9 @@ function Composer({
   const [sending, setSending] = useState(false)
   // The composer is keyed by chat, so each chat keeps its own draft's nonce.
   const [nonces] = useState(() => draftNonce())
-  const [query, setQuery] = useState<(MentionQuery & { mode: "mention" | "slash" }) | null>(null)
+  const [query, setQuery] = useState<((MentionQuery & { mode: "mention" }) | (SlashQuery & { mode: "slash" })) | null>(
+    null,
+  )
   const [active, setActive] = useState(0)
   const [dismissedAt, setDismissedAt] = useState<number | null>(null)
   const [skills, setSkills] = useState<Skill[]>([])
@@ -969,7 +987,7 @@ function Composer({
           <ul
             id="completion-list"
             role="listbox"
-            aria-label={query?.mode === "slash" ? "Commands and skills" : "Mention a bot"}
+            aria-label={query?.mode !== "slash" ? "Mention a bot" : query.atStart ? "Commands and skills" : "Skills"}
             className="bg-popover text-popover-foreground absolute bottom-full left-0 z-10 mb-2 max-h-72 w-96 overflow-y-auto rounded-lg border p-1 shadow-md"
           >
             {suggestions.map((s, i) => (
@@ -1412,18 +1430,23 @@ export function Chat({
   const [attachError, setAttachError] = useState<string | null>(null)
   const [dropping, setDropping] = useState(false)
   useEffect(() => setAttachError(null), [bot.id])
-  // A user's post in a team's chat that invokes a skill shows it.
-  const [skillIds, setSkillIds] = useState<string[]>([])
-  const isTeam = Boolean(bot.team)
+  // A user's message shows the skills it names, among those its chat offers. The list is
+  // loaded per chat; a failed load shows no labels.
+  const [skillList, setSkillList] = useState<{ chat: string; skills: { id: string }[] }>({ chat: "", skills: [] })
   useEffect(() => {
-    if (!isTeam) return
+    const chat = bot.id
     api.skills().then(
-      (list) => setSkillIds(list.map((sk) => sk.id)),
-      () => setSkillIds([]),
+      (list) => setSkillList({ chat, skills: list }),
+      () => setSkillList({ chat, skills: [] }),
     )
-  }, [bot.id, isTeam])
-  const memberNames = (bot.members ?? []).map((m) => m.name)
-  const skillOf = (e: Entry) => (isTeam && e.kind === "user" ? teamSkillOf(e.body.text, skillIds, memberNames) : null)
+  }, [bot.id])
+  // skillIds keeps its value between renders, so the rows' props stay the same.
+  const chatKind = bot.kind
+  const inTeam = Boolean(bot.team)
+  const skillIds = useMemo(() => {
+    const listed = skillList.chat === bot.id ? skillList.skills : []
+    return offeredSkills(listed, { kind: chatKind, team: inTeam ? {} : undefined }).map((sk) => sk.id)
+  }, [skillList, bot.id, chatKind, inTeam])
   const updateMedia = (botId: string, update: (media: PendingMedia[]) => PendingMedia[]) =>
     setPending((m) => new Map(m).set(botId, update(m.get(botId) ?? [])))
   const attach = (files: File[]) => {
@@ -1479,7 +1502,7 @@ export function Chat({
                   key={e.id}
                   entry={e}
                   chat={chat}
-                  skill={skillOf(e)}
+                  skillIds={skillIds}
                   onAnswer={answer}
                   expanded={expanded.has(e.id)}
                   onExpand={expand}

@@ -46,7 +46,7 @@ const card = (
         } as Entry
       }
       chat={chat}
-      skill={null}
+      skillIds={[]}
     />,
   )
 

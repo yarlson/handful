@@ -735,7 +735,7 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 			return claudeRun{}, delivery{}, err
 		}
 	}
-	prompt, update, err := r.turnPrompt(ctx, bot, t)
+	prompt, command, update, err := r.turnPrompt(ctx, bot, t)
 	if err != nil {
 		return claudeRun{}, delivery{}, err
 	}
@@ -759,6 +759,7 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 	}
 	run := claudeRun{
 		Prompt:       timestampLine(now) + questions + inboxBlock(inbox) + heldOverflow(more) + prompt,
+		Command:      command,
 		SystemPrompt: systemPrompt(pc),
 		SessionID:    sessionID,
 		Resume:       sessionID != "",
@@ -792,44 +793,43 @@ func (r *Runner) runSettings(ctx context.Context, bot core.Bot, t core.Turn) (ru
 	return flags, err
 }
 
-// turnPrompt returns the message of the turn, and for a turn in a room the
-// room update that the message carries.
-func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (string, core.RoomUpdate, error) {
+// turnPrompt returns the message of the turn, and for a turn in a room the room update that the
+// message carries. command is the user's skill command, which goes after the message (see
+// skillCommand); a bot chat's message then holds only what Handful adds.
+func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (prompt, command string, update core.RoomUpdate, err error) {
 	if t.RoomID != "" {
-		update, err := r.svc.PendingRoomUpdate(ctx, t.RoomID, bot.ID)
+		update, err = r.svc.PendingRoomUpdate(ctx, t.RoomID, bot.ID)
 		if err != nil {
-			return "", core.RoomUpdate{}, err
+			return "", "", core.RoomUpdate{}, err
 		}
 		board, err := r.teamBoard(ctx, update.Room, t)
 		if err != nil {
-			return "", core.RoomUpdate{}, err
+			return "", "", core.RoomUpdate{}, err
 		}
 		changes, err := r.itemChanges(ctx, t)
 		if err != nil {
-			return "", core.RoomUpdate{}, err
+			return "", "", core.RoomUpdate{}, err
 		}
 		onTask, err := r.inheritedTask(ctx, t)
 		if err != nil {
-			return "", core.RoomUpdate{}, err
+			return "", "", core.RoomUpdate{}, err
 		}
-		prompt := roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes, time.Now().In(r.svc.Location())) + onTask
-		if skill, args, ok := r.teamSkill(update, t); ok {
-			prompt += "\n\n" + skillPrompt(skill, args)
-		}
-		return prompt, update, nil
+		prompt = roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes, time.Now().In(r.svc.Location())) + onTask
+		command, _ = r.teamCommand(update, t)
+		return prompt, command, update, nil
 	}
-	prompt := t.Prompt
-	if skill, args, ok := r.invokedSkill(t); ok {
-		prompt = skillPrompt(skill, args)
-	}
+	prompt = t.Prompt
 	if t.Source == core.SourceUser {
+		if c, ok := r.skillCommand(t.Prompt, nil); ok {
+			prompt, command = "", c
+		}
 		media, err := r.svc.TurnMedia(ctx, bot.ID, t.ID)
 		if err != nil {
-			return "", core.RoomUpdate{}, err
+			return "", "", core.RoomUpdate{}, err
 		}
 		prompt += mediaNote(r.svc.MediaDir(), media)
 	}
-	return prompt, core.RoomUpdate{}, nil
+	return prompt, command, core.RoomUpdate{}, nil
 }
 
 // inheritedTask names the task, and the step, that a conversation turn
@@ -996,29 +996,6 @@ func (r *Runner) otherTeams(ctx context.Context, room core.Bot) ([]core.Bot, err
 	return teams, nil
 }
 
-// invokedSkill reports whether a user message starts with "/<skill-id>" for an
-// existing skill, and returns the skill and the text after the id.
-func (r *Runner) invokedSkill(t core.Turn) (core.Skill, string, bool) {
-	if t.Source != core.SourceUser {
-		return core.Skill{}, "", false
-	}
-	return r.slashSkill(t.Prompt)
-}
-
-// slashSkill reports whether text starts with "/<skill-id>" for an existing
-// skill, and returns the skill and the text after the id.
-func (r *Runner) slashSkill(text string) (core.Skill, string, bool) {
-	if !strings.HasPrefix(text, "/") {
-		return core.Skill{}, "", false
-	}
-	id, args, _ := strings.Cut(strings.TrimPrefix(text, "/"), " ")
-	skill, err := r.svc.GetSkill(id)
-	if err != nil {
-		return core.Skill{}, "", false
-	}
-	return skill, strings.TrimSpace(args), true
-}
-
 // compact runs Claude Code's /compact on the bot's session (its seat's session
 // for a room turn) and records the result. It returns the turn status and error.
 func (r *Runner) compact(ctx context.Context, bot core.Bot, t core.Turn, transcript string, fail func(error)) (string, string) {
@@ -1108,7 +1085,7 @@ func (r *Runner) runCompact(ctx context.Context, bot core.Bot, t core.Turn, sess
 	if err != nil {
 		return outcome{}, err
 	}
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", flags, func(string) ([]string, []string, error) {
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", "", flags, func(string) ([]string, []string, error) {
 		return compactArgs(sessionID, flags.model, flags.effort), nil, nil
 	})
 }
@@ -1145,7 +1122,7 @@ func (r *Runner) saveSession(ctx context.Context, botID, roomID, sessionID strin
 // session, which starts with run's arguments and a new MCP config file when
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Flags, func(token string) ([]string, []string, error) {
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Command, run.Flags, func(token string) ([]string, []string, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
 			return nil, nil, err

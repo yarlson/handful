@@ -11,24 +11,41 @@ import (
 	"handful/internal/core"
 )
 
-// teamCommands are the commands of a team's chat. A skill with one of these
-// ids cannot be invoked there: the command wins.
-var teamCommands = map[string]bool{"clear": true, "compact": true, "goal": true}
+// teamCommands are the commands of a team's chat, which the UI handles before it sends: a skill
+// with one of these ids runs there only through the Skill tool, never as a command.
+var teamCommands = map[string]bool{"clear": true, "compact": true, "goal": true, "task": true}
 
-// teamSkill reports whether the user's post that woke a turn in a team
-// invokes a skill: after any @mentions, it starts with "/<skill-id>" for an
-// existing skill that is not a team command. It returns the skill and the
-// text after the id. Posts of bots and plain rooms invoke none.
-func (r *Runner) teamSkill(u core.RoomUpdate, t core.Turn) (core.Skill, string, bool) {
+// skillCommand returns words, the user's own, trimmed, when they start with "/<skill-id>" for an
+// existing skill that reserved doesn't hold. Claude Code runs a skill itself when the last text
+// block of a message starts with it, and takes the rest of that block as the skill's arguments,
+// as when the words are typed in its terminal. So such words go to it as the message's last
+// block, after Handful's own text. Only a skill is matched: any other "/word" (Claude Code's own
+// commands, such as /model) stays inside the message's text, where it is plain text.
+func (r *Runner) skillCommand(words string, reserved map[string]bool) (string, bool) {
+	words = strings.TrimSpace(words)
+	rest, ok := strings.CutPrefix(words, "/")
+	if !ok {
+		return "", false
+	}
+	id, _, _ := strings.Cut(strings.Join(strings.Fields(rest), " "), " ")
+	if id == "" || reserved[id] {
+		return "", false
+	}
+	if _, err := r.svc.GetSkill(id); err != nil {
+		return "", false
+	}
+	return words, true
+}
+
+// teamCommand returns the skill command of the user's post that woke turn t in a team: after
+// any @mentions, the post starts with "/<skill-id>" for a skill that no team command hides.
+// Posts of bots, and posts in plain rooms, have none.
+func (r *Runner) teamCommand(u core.RoomUpdate, t core.Turn) (string, bool) {
 	post, ok := lastUserPost(u.Messages)
 	if !u.Room.IsTeam() || !t.FromUserPost() || !ok {
-		return core.Skill{}, "", false
+		return "", false
 	}
-	skill, args, ok := r.slashSkill(withoutMentions(post, u.Room.Members))
-	if !ok || teamCommands[skill.ID] {
-		return core.Skill{}, "", false
-	}
-	return skill, args, true
+	return r.skillCommand(withoutMentions(post, u.Room.Members), teamCommands)
 }
 
 // lastUserPost returns the text of the last post of the user in entries.

@@ -4,6 +4,9 @@ const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
 const {
+  readKey,
+  keyHeaders,
+  syncKeyCookie,
   checkForUpdatesURL,
   isAppURL,
   isWebURL,
@@ -137,4 +140,62 @@ test("only the main frame of a server page may call the updater", () => {
   assert.equal(isTrustedFrame("https://example.com/", true), false)
   assert.equal(isTrustedFrame("about:blank", true), false)
   assert.equal(isTrustedFrame(undefined, true), false)
+})
+
+test("readKey reads ui-key from the data folder, and reads it again after a rotation", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "handful-key-"))
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+  fs.mkdirSync(path.join(home, ".handful"))
+  const file = path.join(home, ".handful", "ui-key")
+  fs.writeFileSync(file, "AbC-123_xyz\n")
+  assert.equal(readKey(home), "AbC-123_xyz")
+  fs.writeFileSync(file, "rotated_key")
+  assert.equal(readKey(home), "rotated_key")
+})
+
+test("readKey uses a real ~/.yargpt before the move", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "handful-key-"))
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+  fs.mkdirSync(path.join(home, ".yargpt"))
+  fs.writeFileSync(path.join(home, ".yargpt", "ui-key"), "old_folder_key")
+  assert.equal(readKey(home), "old_folder_key")
+})
+
+test("readKey without a key file, or with a broken one, gives no key", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "handful-key-"))
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+  const logged = []
+  const log = (line) => logged.push(line)
+  assert.equal(readKey(home, fs, log), null)
+  assert.deepEqual(logged, [], "a missing file is an older server, not an error")
+  fs.mkdirSync(path.join(home, ".handful"))
+  const file = path.join(home, ".handful", "ui-key")
+  for (const bad of ["", "  \n", "has space", "a\nb", "x".repeat(1025)]) {
+    fs.writeFileSync(file, bad)
+    assert.equal(readKey(home, fs, log), null, JSON.stringify(bad))
+  }
+  fs.rmSync(file)
+  fs.mkdirSync(file)
+  assert.equal(readKey(home, fs, log), null)
+  assert.equal(logged.length, 6)
+  assert.ok(logged.every((line) => !line.includes("has space")), "the file's text is never logged")
+})
+
+test("keyHeaders carries the key as X-Handful-Key, and nothing without one", () => {
+  assert.deepEqual(keyHeaders("k1"), { "X-Handful-Key": "k1" })
+  assert.deepEqual(keyHeaders(null), {})
+})
+
+test("syncKeyCookie sets an HttpOnly, SameSite=Strict cookie for the server, and removes it without a key", async () => {
+  const calls = []
+  const cookies = {
+    set: async (details) => calls.push(["set", details]),
+    remove: async (url, name) => calls.push(["remove", url, name]),
+  }
+  await syncKeyCookie({ cookies, url: "http://127.0.0.1:7777", key: "k1" })
+  await syncKeyCookie({ cookies, url: "http://127.0.0.1:7777", key: null })
+  assert.deepEqual(calls, [
+    ["set", { url: "http://127.0.0.1:7777", name: "handful_key", value: "k1", httpOnly: true, sameSite: "strict" }],
+    ["remove", "http://127.0.0.1:7777", "handful_key"],
+  ])
 })

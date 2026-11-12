@@ -4,6 +4,7 @@
 // Finder. Electron and the launch agent come in as dependencies, so the tests
 // run without them.
 const path = require("node:path")
+const { keyHeaders } = require("./app")
 
 // The methods of window.handfulSettings, in preload.js. Each one is the IPC
 // channel settings:<name>.
@@ -28,12 +29,14 @@ const restartWhens = new Set(["now", "idle"])
 // settingsAPI calls the server's /api/settings and /api/restart. Each call
 // returns {status, statusText, body}, or null when the server does not
 // answer. Unlike serverAPI, it reads the body of an error, which says what
-// went wrong.
-function settingsAPI(base, fetchImpl = fetch) {
+// went wrong. key() returns the local API's key, read at each change, or null.
+function settingsAPI(base, fetchImpl = fetch, key = () => null) {
   async function call(method, endpoint, body, timeout) {
     try {
-      // The API's CSRF guard requires a JSON content type on every change.
-      const init = method === "GET" ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      // The API's CSRF guard requires a JSON content type on every change, and
+      // a server that has a key requires it too.
+      const headers = { "Content-Type": "application/json", ...keyHeaders(key()) }
+      const init = method === "GET" ? {} : { headers, body: JSON.stringify(body) }
       const res = await fetchImpl(`${base}${endpoint}`, { method, ...init, signal: AbortSignal.timeout(timeout) })
       let parsed = null
       try {

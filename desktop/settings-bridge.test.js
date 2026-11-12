@@ -242,3 +242,21 @@ test("settingsAPI reads the settings and asks for a restart with a JSON body", a
   await new Promise((resolve) => closed.close(resolve))
   assert.equal(await settingsAPI(`http://127.0.0.1:${port}`).settings(), null)
 })
+
+test("settingsAPI sends the key with a restart, and none without a key", async (t) => {
+  const seen = []
+  const server = http.createServer((req, res) => {
+    seen.push(`${req.method} ${req.url} ${req.headers["x-handful-key"] ?? "-"}`)
+    res.writeHead(202, { "Content-Type": "application/json" }).end("{}")
+  })
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const base = `http://127.0.0.1:${server.address().port}`
+  let key = "k1"
+  const api = settingsAPI(base, fetch, () => key)
+  await api.settings()
+  await api.restart("idle")
+  key = null
+  await api.restart("idle")
+  assert.deepEqual(seen, ["GET /api/settings -", "POST /api/restart k1", "POST /api/restart -"])
+})

@@ -46,7 +46,7 @@ A bot reads files and searches the web without asking. Before it runs a command,
 - **Always allow &lt;tool&gt;** lets this bot use the tool without asking. To remove this permission, open the bot panel, then **Settings**, then **Always allowed tools**.
 - **Deny** stops the call.
 
-A card that you do not answer expires after 10 minutes, or when the bot stops working. A setup card from Builder has **Create** and **Cancel** instead (see [Builder](#builder)).
+A card that you do not answer expires after 4½ minutes, or when the bot stops working. A setup card from Builder has **Create** and **Cancel** instead (see [Builder](#builder)).
 
 In the sidebar, a shield marks a bot that waits for an approval. A question bubble marks a bot that asked you something.
 

@@ -42,6 +42,7 @@ The agent tests replace Claude Code with a fake CLI script and run a real MCP cl
 | `web-check` | `astro check` finds an error in the website, or its build fails |
 | `desktop-check` | A unit test of the macOS app, its updater or `desktop/scripts/release-feed.js` fails |
 | `workflow-check` | actionlint finds a problem in a GitHub Actions workflow |
+| `name-check` | The old name is left in a file outside `scripts/name-allow.txt` |
 
 Slower analyses have their own targets. They write their reports to `target/`.
 

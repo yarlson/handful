@@ -28,8 +28,6 @@ LastYarGPTSchema
 go back to YarGPT
 # The old MCP server name stays reserved for connectors.
 oldMCPServerName = "yargpt"|"old reserved name"
-# The README's section that points to the move page (spec §4.4, §6).
-^README\.md:[0-9]+:(## Moving from YarGPT|Handful was called YarGPT before\. .*\[Moving from YarGPT\]\(docs/moving-from-yargpt\.md\)\.)$
 # The move page and the way back (spec §4.4, §6), line by line; the data folder,
 # the update-check variable and the old binary are allowed above.
 ^docs/moving-from-yargpt\.md:[0-9]+:(# Moving from YarGPT|YarGPT is now Handful\. Your bots|- \*\*Mac app, YarGPT 0\.(9\.0 or later|8\.0 or earlier):\*\*|## Go back to YarGPT|3\. Download `YarGPT-universal-mac\.zip`|4\. Click \*\*Later\*\* in its "YarGPT is now Handful" window)

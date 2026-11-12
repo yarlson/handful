@@ -3,7 +3,6 @@ import {
   Inbox,
   LayoutDashboard,
   AlertTriangle,
-  Bot as BotIcon,
   MessageCircleQuestion,
   MessagesSquare,
   Menu,
@@ -13,8 +12,9 @@ import {
   Plus,
   Settings as SettingsIcon,
   ShieldQuestion,
-  Users,
 } from "lucide-react"
+import { BotDot } from "@/components/bot-dot"
+import { TeamDots } from "@/components/team-dots"
 import { botColor } from "@/lib/bot-color"
 import { api, type Bot, type Entry } from "@/lib/api"
 import { type Link, linkLabel } from "@/lib/connection"
@@ -333,7 +333,7 @@ function SidebarItem({
   onSelect: () => void
   onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
 }) {
-  const Icon = bot.team ? Users : bot.kind === "room" ? MessagesSquare : BotIcon
+  const Icon = bot.team ? TeamDots : bot.kind === "room" ? MessagesSquare : BotDot
   return (
     <button
       type="button"
@@ -348,7 +348,7 @@ function SidebarItem({
           : "hover:bg-sidebar-foreground/5",
       )}
     >
-      <Icon className={cn("size-4 shrink-0", bot.kind !== "room" && botColor(bot.id).text)} />
+      <Icon className={cn("size-4 shrink-0", (bot.kind !== "room" || bot.team) && botColor(bot.id).text)} />
       <span className="flex-1 truncate">{bot.name}</span>
       {bot.attention === "approval" && (
         <ShieldQuestion className="size-4 shrink-0 text-amber-500" aria-label="Needs your approval">

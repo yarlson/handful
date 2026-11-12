@@ -1,14 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import {
-  Bot as BotIcon,
-  Download,
-  Hourglass,
-  LoaderCircle,
-  Package,
-  Pause,
-  RotateCw,
-  TriangleAlert,
-} from "lucide-react"
+import { Download, Hourglass, LoaderCircle, Package, Pause, RotateCw, TriangleAlert } from "lucide-react"
 import { Popover } from "radix-ui"
 import { api, type Bot } from "@/lib/api"
 import { botColor } from "@/lib/bot-color"
@@ -29,6 +20,7 @@ import {
 } from "@/lib/updates"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { BotDot } from "@/components/bot-dot"
 import { cn } from "@/lib/utils"
 
 // The desktop app's preload exposes the updater; a browser or a source build has none.
@@ -136,10 +128,7 @@ function BotRows({ running, bots, now }: { running: RunningBot[]; bots: Bot[]; n
         const known = bots.find((b) => b.id === r.botId)
         return (
           <li key={r.botId} className="flex items-center gap-2">
-            <BotIcon
-              className={cn("size-3.5 shrink-0", known ? botColor(known.id).text : "text-muted-foreground")}
-              aria-hidden
-            />
+            <BotDot className={cn("size-3.5 shrink-0", known ? botColor(known.id).text : "text-muted-foreground")} />
             <span className="min-w-0 flex-1 truncate">{r.name}</span>
             <span className="text-muted-foreground shrink-0 tabular-nums">{doing(r, now)}</span>
             <span

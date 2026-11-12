@@ -17,7 +17,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpRight,
-  Bot as BotIcon,
   Check,
   ChevronRight,
   Copy,
@@ -69,6 +68,7 @@ import { Button, touchArea } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
+import { BotDot } from "@/components/bot-dot"
 import { cn } from "@/lib/utils"
 import { botColor, colorId } from "@/lib/bot-color"
 import { FALLBACK_ALIASES, Hint, openSettings } from "@/components/model"
@@ -681,6 +681,7 @@ type Suggestion = {
   label: string
   detail?: string
   kind: "bot" | "everyone" | "command" | "skill"
+  botId?: string // a bot's row: the bot, for its colour
 }
 
 const commands: Suggestion[] = [
@@ -723,7 +724,12 @@ function suggestionsFor(
     const names = matchNames(
       mentionables.map((m) => m.name),
       query.query,
-    ).map((name) => ({ token: `@${name}`, label: name, kind: "bot" as const }))
+    ).map((name) => ({
+      token: `@${name}`,
+      label: name,
+      kind: "bot" as const,
+      botId: mentionables.find((m) => m.name === name)?.id,
+    }))
     const here = inRoom && matchNames(["here"], query.query).length > 0
     return here
       ? [
@@ -1008,7 +1014,7 @@ function Composer({
                 }}
               >
                 {s.kind === "bot" ? (
-                  <BotIcon className="mt-0.5 size-3.5 shrink-0" />
+                  <BotDot className={cn("mt-0.5 size-3.5 shrink-0", s.botId && botColor(s.botId).text)} />
                 ) : s.kind === "everyone" ? (
                   <Users className="mt-0.5 size-3.5 shrink-0" />
                 ) : s.kind === "command" ? (

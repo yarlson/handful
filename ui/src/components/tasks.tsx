@@ -571,26 +571,33 @@ export function InboxView({
   view,
   error,
   onBack,
+  menu,
 }: {
   board: Board
   view: InboxContext
   error: string | null
   onBack: () => void
+  // menu is the phone layout's button that opens the sidebar; null above the phone width.
+  menu?: ReactNode
 }) {
   const inbox = board.inbox ?? []
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 items-center gap-2 border-b px-4">
-        <h2 className="shrink-0 font-medium">{view.team.name} · Inbox</h2>
-        <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
+      <header className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3">
+        {menu}
+        <h2 className="shrink-0 font-medium max-md:min-w-0 max-md:flex-1 max-md:truncate">{view.team.name} · Inbox</h2>
+        <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm max-md:hidden">
           {view.lead} decides what the team takes. {inbox.length} waiting.
         </span>
-        <Button size="sm" variant="outline" onClick={onBack}>
+        <Button size="sm" variant="outline" className="max-md:h-11" onClick={onBack}>
           Back to team
         </Button>
       </header>
-      <div className="flex max-w-3xl flex-col gap-3 overflow-y-auto p-4">
+      <div className="flex max-w-3xl flex-col gap-3 overflow-y-auto p-4 max-md:px-3">
         {error && <p className="text-destructive text-xs">{error}</p>}
+        <p className="text-muted-foreground text-sm md:hidden">
+          {view.lead} decides what the team takes. {inbox.length} waiting.
+        </p>
         {inbox.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             The inbox is empty. Tasks from you, from other teams and from members land here, and {view.lead} decides on
@@ -634,7 +641,7 @@ function NeedsYouRow({
         n.kind !== "approve" && n.kind !== "question" && "border-amber-500/50",
       )}
     >
-      <p className="min-w-0 flex-1">
+      <p className="min-w-0 flex-1 max-md:basis-full">
         <strong>{line.lead}</strong> {line.rest}
       </p>
       {n.kind === "approve" && id && (
@@ -690,6 +697,7 @@ export function AcrossTeams({
   onOpen,
   onNewTask,
   chatName,
+  menu,
 }: {
   needs: NeedsYouItem[]
   boards: Map<string, Board>
@@ -699,19 +707,28 @@ export function AcrossTeams({
   onOpen: (chatId: string) => void
   onNewTask: () => void
   chatName: (id: string) => string
+  // menu is the phone layout's button that opens the sidebar; null above the phone width.
+  menu?: ReactNode
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 items-center gap-2 border-b px-4">
-        <h2 className="shrink-0 font-medium">Across teams</h2>
-        <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
+      <header className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3">
+        {menu}
+        <h2 className="shrink-0 font-medium max-md:flex-1">Across teams</h2>
+        <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm max-md:hidden">
           What each team is doing, and what needs you
         </span>
-        <Button size="sm" aria-haspopup="dialog" onClick={onNewTask} disabled={teams.length === 0}>
+        <Button
+          size="sm"
+          className="max-md:h-11"
+          aria-haspopup="dialog"
+          onClick={onNewTask}
+          disabled={teams.length === 0}
+        >
           New task…
         </Button>
       </header>
-      <div className="flex max-w-5xl flex-col gap-5 overflow-y-auto p-4">
+      <div className="flex max-w-5xl flex-col gap-5 overflow-y-auto p-4 max-md:px-3">
         {error && <p className="text-destructive text-xs">{error}</p>}
         <section aria-labelledby="needs-you-heading" className="flex flex-col gap-1.5">
           <h3 id="needs-you-heading" className="text-muted-foreground text-xs font-medium uppercase">
@@ -963,6 +980,7 @@ export function InboxScreen({
   usageLimit,
   draining,
   onBack,
+  menu,
 }: {
   team: Bot
   version: string
@@ -971,6 +989,8 @@ export function InboxScreen({
   usageLimit: boolean
   draining: boolean
   onBack: () => void
+  // menu is the phone layout's button that opens the sidebar; null above the phone width.
+  menu?: ReactNode
 }) {
   const board = useLoad(() => api.board(team.id).then((b) => ({ board: b, at: Date.now() })), `${team.id}:${version}`)
   const act: Act = async (action) => {
@@ -1000,7 +1020,7 @@ export function InboxScreen({
     },
     act,
   }
-  return <InboxView board={data} view={view} error={board.error} onBack={onBack} />
+  return <InboxView board={data} view={view} error={board.error} onBack={onBack} menu={menu} />
 }
 
 // AcrossScreen loads what needs the user and every team's board, for Across teams.
@@ -1011,6 +1031,7 @@ export function AcrossScreen({
   chatName,
   onOpen,
   onChange,
+  menu,
 }: {
   needs: NeedsYouItem[]
   teams: Bot[]
@@ -1018,6 +1039,8 @@ export function AcrossScreen({
   chatName: (id: string) => string
   onOpen: (chatId: string) => void
   onChange: () => void
+  // menu is the phone layout's button that opens the sidebar; null above the phone width.
+  menu?: ReactNode
 }) {
   const [sending, setSending] = useState(false)
   const boards = useLoad(
@@ -1047,6 +1070,7 @@ export function AcrossScreen({
         onOpen={onOpen}
         onNewTask={() => setSending(true)}
         chatName={chatName}
+        menu={menu}
       />
       <SendTaskDialog
         open={sending}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { CornerDownLeft, X } from "lucide-react"
 import { api, type Bot } from "@/lib/api"
 import {
@@ -177,12 +177,15 @@ export function WaitingView({
   onOpen,
   onAnswer,
   onChange,
+  menu,
 }: {
   waiting: Waiting
   bots: Bot[]
   onOpen: (chatId: string) => void
   onAnswer: (chatId: string, q: Asked) => void
   onChange: () => void
+  // menu is the phone layout's button that opens the sidebar; null above the phone width.
+  menu?: ReactNode
 }) {
   const { dismiss, reopen, undo, error } = useDismiss(onChange)
   const name = (id: string) => bots.find((b) => b.id === id)?.name ?? "A deleted chat"
@@ -190,8 +193,11 @@ export function WaitingView({
   const paused = bots.filter((b) => b.attention === "goal")
   const groups = byChat(waiting.questions)
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 overflow-y-auto px-4 py-6">
-      <h2 className="text-lg font-medium">Waiting for you</h2>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 overflow-y-auto px-4 py-6 max-md:px-3 max-md:pt-1.5">
+      <div className="flex items-center gap-2">
+        {menu}
+        <h2 className="text-lg font-medium">Waiting for you</h2>
+      </div>
       {waitingCount(waiting) === 0 && <p className="text-muted-foreground text-sm">Nothing is waiting for you.</p>}
       {groups.map((g) => (
         <section key={g.chatId} aria-labelledby={`waiting-${g.chatId}`} className="flex flex-col gap-2">

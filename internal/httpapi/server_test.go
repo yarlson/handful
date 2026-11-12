@@ -875,3 +875,12 @@ func TestAcceptEndpointFinishesADeliveredGoal(t *testing.T) {
 		t.Fatalf("accept: %d %s; want the goal done", rec.Code, rec.Body)
 	}
 }
+
+// The computer's listener is never a paired phone, so the UI keeps every control.
+func TestTheSessionOnTheComputerIsNoPhone(t *testing.T) {
+	h, _ := newTestHandler(t)
+	rec := do(h, "GET", "/api/session", "", nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != "{\"phone\":false}\n" {
+		t.Fatalf("session = %d %q; want 200 {\"phone\":false}", rec.Code, rec.Body)
+	}
+}

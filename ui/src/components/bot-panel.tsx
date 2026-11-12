@@ -852,8 +852,8 @@ export function BotPanel({
   if (bot.kind === "room") {
     return (
       <Tabs key={key} defaultValue={first} className="flex h-full flex-col gap-0">
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
-          <TabsList className="bg-sidebar-foreground/5 w-full">
+        <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3 max-md:h-14">
+          <TabsList className="bg-sidebar-foreground/5 w-full max-md:h-12">
             {bot.team && <TabsTrigger value="board">Work</TabsTrigger>}
             <TabsTrigger value="members">Members</TabsTrigger>
             {bot.team && <TabsTrigger value="memory">Memory</TabsTrigger>}
@@ -863,7 +863,7 @@ export function BotPanel({
             <Button
               size="icon-sm"
               variant="ghost"
-              className="shrink-0 lg:hidden"
+              className="shrink-0 lg:hidden max-md:size-11"
               aria-label="Close panel"
               onClick={onClose}
             >
@@ -894,8 +894,8 @@ export function BotPanel({
   }
   return (
     <Tabs key={key} defaultValue={first} className="flex h-full flex-col gap-0">
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
-        <TabsList className="bg-sidebar-foreground/5 w-full">
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3 max-md:h-14">
+        <TabsList className="bg-sidebar-foreground/5 w-full max-md:h-12">
           {/* text-xs fits five tabs into the panel's width; below 64rem, less padding also
               fits the Close panel button beside them. */}
           <TabsTrigger value="memory" className="text-xs max-lg:px-0.5">
@@ -918,7 +918,7 @@ export function BotPanel({
           <Button
             size="icon-sm"
             variant="ghost"
-            className="shrink-0 lg:hidden"
+            className="shrink-0 lg:hidden max-md:size-11"
             aria-label="Close panel"
             onClick={onClose}
           >

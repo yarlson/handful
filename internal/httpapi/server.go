@@ -65,6 +65,7 @@ func New(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, op
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/defaults", s.defaults)
 	mux.HandleFunc("GET /api/version", s.version)
+	mux.HandleFunc("GET /api/session", s.session)
 	mux.HandleFunc("POST /api/drain", s.setDrain(true))
 	mux.HandleFunc("DELETE /api/drain", s.setDrain(false))
 	mux.HandleFunc("GET /api/move-notice", s.getMoveNotice)

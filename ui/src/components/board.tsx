@@ -80,7 +80,8 @@ function FromChip({ goal, names }: { goal: Goal; names: Names }) {
 }
 
 // NowChip stands in for the Work tab in the chat header while the panel is closed: what the team
-// does now and how many things need the user. It opens the Work tab.
+// does now and how many things need the user. It opens the Work tab. On a narrow window it fills
+// the header and shows the title and the count only.
 export function NowChip({ team, version, onOpen }: { team: Bot; version: string; onOpen: () => void }) {
   const board = useLoad(() => api.board(team.id), `${team.id}:${version}`)
   return board.data ? <NowChipView data={board.data} onOpen={onOpen} /> : null
@@ -96,7 +97,7 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
       onClick={onOpen}
       aria-label={`Work: ${now ? `now, ${now.text}` : "nothing now"}${needs > 0 ? `; ${needs} need you` : ""}. Opens the Work tab.`}
       title={now?.text}
-      className="hover:bg-muted flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+      className="hover:bg-muted flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-md:min-h-11 max-md:max-w-none max-md:flex-1"
     >
       <span
         aria-hidden
@@ -105,9 +106,16 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
           !now ? "bg-muted-foreground/40" : now.state === "paused" ? "bg-amber-500" : "bg-emerald-500",
         )}
       />
-      <span className="text-muted-foreground shrink-0">{now ? "Now" : "Nothing now"}</span>
+      <span className={cn("text-muted-foreground shrink-0", now && "max-md:hidden")}>
+        {now ? "Now" : "Nothing now"}
+      </span>
       {now && <span className="min-w-0 truncate">{now.text}</span>}
-      {needs > 0 && <ToneChip tone="attention">{needs} need you</ToneChip>}
+      {needs > 0 && (
+        <ToneChip tone="attention">
+          <span className="max-md:hidden">{needs} need you</span>
+          <span className="md:hidden">{needs}</span>
+        </ToneChip>
+      )}
     </button>
   )
 }
@@ -167,7 +175,7 @@ function StepRow({ team, item }: { team: Bot; item: Item }) {
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
-        className="hover:bg-sidebar-foreground/5 flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left"
+        className="hover:bg-sidebar-foreground/5 flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left max-md:min-h-11 max-md:py-2"
       >
         <Mark.icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", Mark.className)} />
         <span className="min-w-0 flex-1">
@@ -592,7 +600,7 @@ export function BoardView({
       </section>
       {earlier.length > 0 && (
         <details className="group/earlier">
-          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center gap-1 text-xs font-medium uppercase">
+          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center max-md:min-h-11 gap-1 text-xs font-medium uppercase">
             <ChevronRight aria-hidden className="size-3.5 transition-transform group-open/earlier:rotate-90" />
             Earlier ({earlier.length})
           </summary>

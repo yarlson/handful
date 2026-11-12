@@ -46,6 +46,12 @@ func (s *server) version(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.versionInfo(r))
 }
 
+// session tells the UI what this listener's session is. This listener serves the computer
+// only, so it is never a paired phone; a phone listener answers for its own sessions.
+func (s *server) session(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"phone": false})
+}
+
 func (s *server) versionInfo(r *http.Request) versionInfo {
 	draining, since := s.svc.Draining()
 	v := versionInfo{Version: s.updates.Version, Draining: draining, DrainingSince: since, Running: s.runner.Busy(r.Context()), SourceBuild: s.updates.SourceBuild, restartView: s.restartView()}

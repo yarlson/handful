@@ -6,6 +6,7 @@ import {
   Bot as BotIcon,
   MessageCircleQuestion,
   MessagesSquare,
+  Menu,
   PanelRight,
   PauseCircle,
   Plug,
@@ -20,6 +21,7 @@ import { type Link, linkLabel } from "@/lib/connection"
 import { useHandful } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
+import { useNarrow } from "@/lib/narrow"
 import { MoveNotice } from "@/components/move-notice"
 import { NowChip } from "@/components/board"
 import { AcrossScreen, InboxScreen } from "@/components/tasks"
@@ -333,7 +335,7 @@ function SidebarItem({
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
       aria-current={selected ? "page" : undefined}
       className={cn(
-        "relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+        "relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
         selected
           ? "bg-sidebar-foreground/10 font-medium before:absolute before:inset-y-1.5 before:left-0 before:w-0.75 before:rounded-full before:bg-pink-600"
           : "hover:bg-sidebar-foreground/5",
@@ -512,7 +514,7 @@ function SectionTitle({ title, action, onAction }: { title: string; action: stri
   return (
     <div className="text-muted-foreground mt-3 flex items-center justify-between px-2 text-xs font-medium uppercase">
       {title}
-      <Button size="icon" variant="ghost" className="size-6" aria-label={action} onClick={onAction}>
+      <Button size="icon" variant="ghost" className="size-6 max-md:size-11" aria-label={action} onClick={onAction}>
         <Plus />
       </Button>
     </div>
@@ -589,8 +591,59 @@ export function App() {
   const [connectors, setConnectors] = useState(false)
   // Below 64rem the panel covers the chat, so a narrow window starts with it closed.
   const [panel, setPanel] = useState(() => window.matchMedia("(min-width: 64rem)").matches)
-  // closesOnEscape makes Escape inside the panel close it where it covers the chat.
-  const closesOnEscape = useCallback((el: HTMLElement | null) => {
+  // drawer: on a narrow window the sidebar is a drawer over the page; above md it is always shown.
+  const [drawer, setDrawer] = useState(false)
+  const narrow = useNarrow()
+  const menuButton = useRef<HTMLButtonElement>(null)
+  const sidebar = useRef<HTMLElement | null>(null)
+  const menu = narrow ? (
+    <Button
+      ref={menuButton}
+      size="icon"
+      variant="ghost"
+      className="-ml-2 size-11 shrink-0"
+      aria-label="Open menu"
+      aria-expanded={drawer}
+      aria-controls="app-sidebar"
+      onClick={() => setDrawer(true)}
+    >
+      <Menu />
+    </Button>
+  ) : null
+  // The keyboard goes into the drawer when it opens, and back to the menu button when it closes.
+  const drawerWasOpen = useRef(false)
+  useEffect(() => {
+    if (drawer) sidebar.current?.querySelector<HTMLElement>("nav button")?.focus()
+    else if (drawerWasOpen.current) menuButton.current?.focus()
+    drawerWasOpen.current = drawer
+  }, [drawer])
+  // closesDrawerOnEscape makes Escape inside the drawer close it.
+  const closesDrawerOnEscape = useCallback((el: HTMLElement | null) => {
+    sidebar.current = el
+    if (!el) return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setDrawer(false)
+    }
+    el.addEventListener("keydown", onKey)
+    return () => el.removeEventListener("keydown", onKey)
+  }, [])
+  // The keyboard goes into the panel when it opens over the chat, or when the control that opened
+  // it left the page (the Now chip); it goes back to the panel button when the panel closes and
+  // took the keyboard with it.
+  const panelButton = useRef<HTMLButtonElement>(null)
+  const panelBox = useRef<HTMLElement | null>(null)
+  const panelWasOpen = useRef(panel)
+  useEffect(() => {
+    const lost = !document.activeElement || document.activeElement === document.body
+    const over = !window.matchMedia("(min-width: 64rem)").matches
+    if (panel && !panelWasOpen.current && (over || lost))
+      panelBox.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus()
+    if (!panel && panelWasOpen.current && lost) panelButton.current?.focus()
+    panelWasOpen.current = panel
+  }, [panel])
+  // panelKeys makes Escape inside the panel close it where it covers the chat.
+  const panelKeys = useCallback((el: HTMLElement | null) => {
+    panelBox.current = el
     if (!el) return
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape" && !window.matchMedia("(min-width: 64rem)").matches) setPanel(false)
@@ -610,10 +663,15 @@ export function App() {
   const defaults = useDefaults()
   const aliases = defaults?.modelAliases ?? FALLBACK_ALIASES
 
+  // showScreen shows a screen of the main area; in a narrow window the drawer closes on the choice.
+  const showScreen = (s: typeof screen) => {
+    setScreen(s)
+    setDrawer(false)
+  }
   const openChat = (id: string) => {
     if (location.pathname !== chatPath(id)) history.pushState(null, "", chatPath(id))
     setPath(location.pathname)
-    setScreen("chat")
+    showScreen("chat")
     setSelected(id)
   }
   // The question that each chat's next message answers, set by an Answer button.
@@ -704,7 +762,20 @@ export function App() {
 
   return (
     <div className="bg-background text-foreground relative flex h-dvh overflow-clip">
-      <aside className="bg-sidebar text-sidebar-foreground flex shrink-0 flex-col" style={{ width }}>
+      {narrow && drawer && (
+        <div aria-hidden className="fixed inset-0 z-40 bg-black/40" onClick={() => setDrawer(false)} />
+      )}
+      <aside
+        id="app-sidebar"
+        aria-label="Chats"
+        className={cn(
+          "bg-sidebar text-sidebar-foreground flex shrink-0 flex-col",
+          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[min(20rem,85vw)]! max-md:pt-[env(safe-area-inset-top)] max-md:shadow-xl",
+          narrow && !drawer && "hidden",
+        )}
+        style={{ width }}
+        ref={closesDrawerOnEscape}
+      >
         <div className="flex items-center px-3 py-3">
           <img src="/logo.svg" alt="Handful" className="size-7" />
         </div>
@@ -721,10 +792,10 @@ export function App() {
             type="button"
             aria-current={screen === "across" ? "page" : undefined}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
               screen === "across" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
             )}
-            onClick={() => setScreen("across")}
+            onClick={() => showScreen("across")}
           >
             <LayoutDashboard className="size-4 shrink-0" />
             <span className="flex-1">Across teams</span>
@@ -741,10 +812,10 @@ export function App() {
             type="button"
             aria-current={screen === "waiting" ? "page" : undefined}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
               screen === "waiting" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
             )}
-            onClick={() => setScreen("waiting")}
+            onClick={() => showScreen("waiting")}
           >
             <Inbox className="size-4 shrink-0" />
             <span className="flex-1">Waiting for you</span>
@@ -802,7 +873,7 @@ export function App() {
         aria-valuenow={width}
         tabIndex={0}
         title="Drag to resize; double-click to reset"
-        className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l outline-none"
+        className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l outline-none max-md:hidden"
         onPointerDown={(e) => {
           e.preventDefault()
           e.currentTarget.setPointerCapture(e.pointerId)
@@ -847,6 +918,7 @@ export function App() {
           )}
           {view === "across" ? (
             <AcrossScreen
+              menu={menu}
               needs={needs.data ?? []}
               teams={teams}
               version={taskKey}
@@ -856,6 +928,7 @@ export function App() {
             />
           ) : view === "inbox" && bot?.team ? (
             <InboxScreen
+              menu={menu}
               key={bot.id}
               team={bot}
               version={`${transcript?.rev ?? 0}:${taskKey}`}
@@ -867,6 +940,7 @@ export function App() {
             />
           ) : view === "waiting" && waiting.data ? (
             <WaitingView
+              menu={menu}
               waiting={waiting.data}
               bots={bots}
               onOpen={openChat}
@@ -879,13 +953,17 @@ export function App() {
             />
           ) : bot ? (
             <>
-              <header className="flex h-12 items-center gap-2 border-b px-4">
-                <span className="max-w-[60%] shrink-0 truncate font-medium" title={bot.name}>
+              <header className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3">
+                {menu}
+                <span
+                  className="max-w-[60%] shrink-0 truncate font-medium max-md:max-w-[40%] max-md:min-w-0 max-md:shrink"
+                  title={bot.name}
+                >
                   {bot.name}
                 </span>
                 <span
                   className={cn(
-                    "text-muted-foreground min-w-0 flex-1 truncate text-sm",
+                    "text-muted-foreground min-w-0 flex-1 truncate text-sm max-md:hidden",
                     bot.team && !panel && "max-xl:hidden",
                   )}
                   title={subtitle}
@@ -900,11 +978,11 @@ export function App() {
                     onOpen={() => showTab("board")}
                   />
                 )}
-                {bot.team && !panel && <span className="flex-1 xl:hidden" />}
-                {bot.effective && (
+                {bot.team && !panel && <span className="flex-1 xl:hidden max-md:hidden" />}
+                {bot.effective && !narrow && (
                   <ModelChip effective={bot.effective} aliases={aliases} onClick={() => showTab("settings")} />
                 )}
-                {bot.team && defaults && (
+                {bot.team && defaults && !narrow && (
                   <ModelChip
                     effective={teamEffective(bot.team, defaults)}
                     aliases={aliases}
@@ -917,7 +995,8 @@ export function App() {
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="shrink-0"
+                  ref={panelButton}
+                  className="shrink-0 max-md:size-11"
                   aria-label="Toggle panel"
                   onClick={() => setPanel((v) => !v)}
                 >
@@ -962,8 +1041,8 @@ export function App() {
           // light mode, takes a darker shade.
           <aside
             aria-label="Chat panel"
-            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl [&_[data-variant=destructive]]:text-red-700 dark:[&_[data-variant=destructive]]:text-destructive"
-            ref={closesOnEscape}
+            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-l-0 max-md:pt-[env(safe-area-inset-top)] [&_[data-variant=destructive]]:text-red-700 dark:[&_[data-variant=destructive]]:text-destructive"
+            ref={panelKeys}
           >
             <BotPanel
               bot={bot}

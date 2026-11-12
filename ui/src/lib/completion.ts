@@ -24,13 +24,43 @@ export function matchNames(names: string[], query: string, limit = 8): string[] 
   return [...starts, ...contains].slice(0, limit)
 }
 
-// findSlashQuery returns the command or skill being typed: a "/" at the very
-// start of the text, with the caret still in that first word.
-export function findSlashQuery(text: string, caret: number): MentionQuery | null {
-  if (!text.startsWith("/")) return null
-  const firstSpace = text.search(/\s/)
-  if (firstSpace !== -1 && caret > firstSpace) return null
-  return { start: 0, query: text.slice(1, caret) }
+// A command or skill being typed. atStart says its "/" begins the text, the one place where
+// Handful's own commands (/clear, /compact, /task) work; elsewhere only skills do.
+export type SlashQuery = MentionQuery & { atStart: boolean }
+
+// findSlashQuery returns the command or skill being typed: a "/" at the start of the text or
+// after whitespace, followed up to the caret by id characters only (a-z, 0-9 and "-"), outside
+// code. So a path (src/a, /usr/bin), a URL or "and/or" never opens the menu.
+export function findSlashQuery(text: string, caret: number): SlashQuery | null {
+  const slash = text.lastIndexOf("/", caret - 1)
+  if (slash < 0 || slash >= caret || (slash > 0 && !/\s/.test(text[slash - 1]))) return null
+  const query = text.slice(slash + 1, caret)
+  if (!/^[a-z0-9-]*$/.test(query) || inCode(text, slash)) return null
+  return { start: slash, query, atStart: slash === 0 }
+}
+
+// namedSkills returns the ids among skillIds that text names, once each, in text order: "/<id>"
+// at the start or after whitespace, ending where the id characters end, but not at a "/" (as
+// in /usr/bin), and outside code. It is the menu's rule, for a whole sent message.
+export function namedSkills(text: string, skillIds: string[]): string[] {
+  const named: string[] = []
+  for (const m of text.matchAll(/(?<=^|\s)\/([a-z0-9-]+)(?![a-z0-9/-])/g)) {
+    if (skillIds.includes(m[1]) && !named.includes(m[1]) && !inCode(text, m.index)) named.push(m[1])
+  }
+  return named
+}
+
+// inCode tells whether position at of text is inside a fenced code block (an odd number of the
+// lines before its line start with ```) or an inline code span (an odd number of backticks
+// before it on its line).
+function inCode(text: string, at: number): boolean {
+  const lineStart = text.lastIndexOf("\n", at - 1) + 1
+  const fences = text
+    .slice(0, lineStart)
+    .split("\n")
+    .filter((line) => line.trimStart().startsWith("```")).length
+  const ticks = text.slice(lineStart, at).replace(/[^`]/g, "").length
+  return fences % 2 === 1 || ticks % 2 === 1
 }
 
 // applyCompletion replaces the typed query (from its start to the caret) with

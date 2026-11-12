@@ -554,19 +554,45 @@ func (h *harness) argsLog(t *testing.T) []string {
 	// Each call is the arguments, then the prompt message from stdin, if any.
 	for i, c := range calls {
 		args, input, _ := strings.Cut(c, "<<STDIN>>")
-		var msg struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		}
-		if strings.TrimSpace(input) != "" {
-			if err := json.Unmarshal([]byte(input), &msg); err != nil {
-				t.Fatalf("call %d: stdin line %q is not a stream-json message: %v", i, input, err)
-			}
-		}
-		calls[i] = args + msg.Message.Content
+		calls[i] = args + stdinText(t, i, input)
 	}
 	return calls
+}
+
+// stdinText returns the text of stream-json message input, call i's: its content, or its text
+// blocks joined by "\n<<BLOCK>>\n".
+func stdinText(t *testing.T, i int, input string) string {
+	t.Helper()
+	if strings.TrimSpace(input) == "" {
+		return ""
+	}
+	var msg struct {
+		Message struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(input), &msg); err != nil {
+		t.Fatalf("call %d: stdin line %q is not a stream-json message: %v", i, input, err)
+	}
+	var text string
+	if json.Unmarshal(msg.Message.Content, &text) == nil {
+		return text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(msg.Message.Content, &blocks); err != nil {
+		t.Fatalf("call %d: content %s is neither text nor blocks: %v", i, msg.Message.Content, err)
+	}
+	texts := make([]string, len(blocks))
+	for j, b := range blocks {
+		if b.Type != "text" {
+			t.Fatalf("call %d: block %d is %q; want text", i, j, b.Type)
+		}
+		texts[j] = b.Text
+	}
+	return strings.Join(texts, "\n<<BLOCK>>\n")
 }
 
 func TestTurnRecordsToolActivityAndDeliversFinalTextWhenBotSentNothing(t *testing.T) {
@@ -2532,43 +2558,6 @@ func TestCompactionOfAnEmptyContextDoesNotRunClaude(t *testing.T) {
 	}
 	if fileExists(filepath.Join(h.dir, "args.log")) {
 		t.Fatal("claude ran for an empty context")
-	}
-}
-
-func TestSlashSkillPutsTheSkillIntoTheTurn(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, "reply")
-	ctx := context.Background()
-	bot := h.newBot(t)
-	if _, err := h.svc.WriteSkill("make-proof", "Use when asked for a proof file.", "1. Write the word to proof.txt."); err != nil {
-		t.Fatal(err)
-	}
-	h.start(t)
-	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "/make-proof yes", "n1"); err != nil {
-		t.Fatal(err)
-	}
-	h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot })
-	if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "/unknown thing", "n2"); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	var calls []string
-	for len(calls) < 2 && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-		if fileExists(filepath.Join(h.dir, "args.log")) {
-			calls = h.argsLog(t)
-		}
-	}
-	if len(calls) < 2 {
-		t.Fatalf("claude calls = %d; want 2", len(calls))
-	}
-	for _, want := range []string{`The user invoked your skill "make-proof". Their request: yes`, `<skill name="make-proof">`, "1. Write the word to proof.txt."} {
-		if !strings.Contains(calls[0], want) {
-			t.Errorf("skill turn lacks %q", want)
-		}
-	}
-	if strings.Contains(calls[1], "<skill") || !strings.Contains(calls[1], "/unknown thing") {
-		t.Errorf("an unknown /word should pass through as plain text: %s", calls[1])
 	}
 }
 

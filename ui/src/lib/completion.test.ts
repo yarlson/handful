@@ -1,5 +1,5 @@
 import { assert, test } from "vitest"
-import { applyCompletion, findMentionQuery, findSlashQuery, matchNames } from "./completion.ts"
+import { applyCompletion, findMentionQuery, matchNames } from "./completion.ts"
 
 test("finds the mention the caret is in", () => {
   assert.deepEqual(findMentionQuery("hi @Bo", 6), { start: 3, query: "Bo" })
@@ -31,14 +31,6 @@ test("replaces the typed mention with the full name and a space", () => {
     text: "x @Research Bot team",
     caret: 16,
   })
-})
-
-test("finds a command or skill only in the first word", () => {
-  assert.deepEqual(findSlashQuery("/", 1), { start: 0, query: "" })
-  assert.deepEqual(findSlashQuery("/comp", 5), { start: 0, query: "comp" })
-  assert.deepEqual(findSlashQuery("/make-proof yes", 3), { start: 0, query: "ma" })
-  assert.strictEqual(findSlashQuery("/make-proof yes", 15), null)
-  assert.strictEqual(findSlashQuery("see /clear", 10), null)
 })
 
 test("replaces a typed command with the full command", () => {

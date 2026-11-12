@@ -30,7 +30,10 @@ const (
 func handfulTool(name string) string { return "mcp__" + mcpServerName + "__" + name }
 
 type claudeRun struct {
-	Prompt       string
+	Prompt string
+	// Command is the user's skill command, which goes after Prompt as the message's last text
+	// block, so that Claude Code runs the skill itself (skillCommand); "" for none.
+	Command      string
 	SystemPrompt string // goes in the SystemPromptFile file, never in argv
 	// SystemPromptFile is the path of the file that holds SystemPrompt.
 	// Argv is visible to ps and matched by pkill -f, so text from a bot's
@@ -127,9 +130,14 @@ func (r claudeRun) args() ([]string, error) {
 	return args, nil
 }
 
-// userMessage encodes a prompt as a stream-json input line. Claude Code
+// userMessage encodes a prompt as a stream-json input line, with command, a skill command, as
+// its last text block when it is set (skillCommand). Claude Code
 // reports the message's progress in command_lifecycle events with this id.
-func userMessage(id, text string) ([]byte, error) {
+func userMessage(id, text, command string) ([]byte, error) {
+	var content any = text
+	if command != "" {
+		content = []map[string]string{{"type": "text", "text": text}, {"type": "text", "text": command}}
+	}
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
@@ -138,7 +146,7 @@ func userMessage(id, text string) ([]byte, error) {
 		"uuid":               id,
 		"session_id":         "",
 		"parent_tool_use_id": nil,
-		"message":            map[string]string{"role": "user", "content": text},
+		"message":            map[string]any{"role": "user", "content": content},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode prompt: %w", err)

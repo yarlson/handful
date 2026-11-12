@@ -113,8 +113,8 @@ func (a *activeTurn) turnID() string {
 // key, it starts one with startArgs, which receive the MCP token and return
 // the arguments and the MCP config file, if any. Cancelling ctx stops the
 // process and its background tasks.
-func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt string, flags runFlags, startArgs func(token string) (args []string, files []string, err error)) (outcome, error) {
-	msg, err := userMessage(t.ID, prompt)
+func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt, skill string, flags runFlags, startArgs func(token string) (args []string, files []string, err error)) (outcome, error) {
+	msg, err := userMessage(t.ID, prompt, skill)
 	if err != nil {
 		return outcome{}, err
 	}

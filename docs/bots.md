@@ -70,7 +70,13 @@ The **Routines** tab in the bot panel shows each routine and its next run. There
 
 A skill is a saved procedure that every bot can use. When you finish a process that you will repeat, a bot can save it as a skill.
 
-Skills are `SKILL.md` files in `~/.handful/skills`. The **Skills** tab lists them. To run a skill now, type `/<skill> <request>` in a bot's chat or in a team's chat. In a team the lead runs it, or each member that the message @mentions, and the skill stays in their context until `/clear`. A plain room does not run skills: there `/<skill>` is text.
+Skills are `SKILL.md` files in `~/.handful/skills`. The **Skills** tab lists them. Skills work as in Claude Code's terminal, in a bot's chat and in a team's chat:
+- A message that starts with `/<skill> <request>` runs the skill now, with the rest of the message as its request. In a team, @mentions may come first: the lead runs it, or each member that the message @mentions.
+- A `/<skill>` later in a message asks the bot to use that skill too.
+- Typing `/` at the start of a message, or after a space, opens a menu of skills; at the start it lists Handful's commands too. A path, a URL or `and/or` doesn't open it.
+- A sent message shows a label for each skill it names.
+
+Handful sends your text to Claude Code as you wrote it; Claude Code loads the skill. A plain room does not run skills: there `/<skill>` is text.
 
 ## Artifacts
 

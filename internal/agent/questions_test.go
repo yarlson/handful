@@ -103,7 +103,7 @@ func TestWorkAndReviewTurnsListEveryChangeRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		prompt, _, err := h.runner.turnPrompt(ctx, c.bot, core.Turn{ID: "t-" + c.role, BotID: c.bot.ID, RoomID: team.ID, BoardRole: c.role, ItemID: items[0].ID})
+		prompt, _, _, err := h.runner.turnPrompt(ctx, c.bot, core.Turn{ID: "t-" + c.role, BotID: c.bot.ID, RoomID: team.ID, BoardRole: c.role, ItemID: items[0].ID})
 		if err != nil {
 			t.Fatal(err)
 		}

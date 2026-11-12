@@ -36,12 +36,13 @@ export type SettingsView = {
   runtime: RuntimeValue[]
 }
 
-export type Section = "general" | "updates" | "connectors" | "runtime" | "file"
+export type Section = "general" | "updates" | "connectors" | "phones" | "runtime" | "file"
 
 export const SECTIONS: { id: Section; label: string }[] = [
   { id: "general", label: "General" },
   { id: "updates", label: "Updates" },
   { id: "connectors", label: "Connectors" },
+  { id: "phones", label: "Phones" },
   { id: "runtime", label: "Runtime" },
   { id: "file", label: "Settings file" },
 ]

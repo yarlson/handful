@@ -12,6 +12,7 @@ import {
   type Waiting,
 } from "@/lib/questions"
 import { Button } from "@/components/ui/button"
+import { useRights } from "@/lib/session"
 
 function time(ms: number) {
   return new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })
@@ -95,6 +96,8 @@ export function QuestionStrip({
 }) {
   const [expanded, setExpanded] = useState(false)
   const { dismiss, reopen, undo, error } = useDismiss(onChange)
+  // A phone paired for View only reads questions.
+  const { send } = useRights()
   if (questions.length === 0) return <UndoNote undo={undo} onUndo={() => void reopen()} error={error} />
   const collapsed = stripCollapsed(questions.length) && !expanded
   const shown = collapsed ? questions.slice(0, 1) : questions
@@ -124,22 +127,26 @@ export function QuestionStrip({
               <Button size="xs" variant="ghost" aria-label={`Go to: ${q.question}`} onClick={() => onGoTo(q.entryId)}>
                 Go to
               </Button>
-              <Button
-                size="xs"
-                variant="outline"
-                aria-label={`Answer: ${q.question}`}
-                onClick={() => onAnswer({ entryId: q.entryId, question: q.question })}
-              >
-                Answer
-              </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                aria-label={`Dismiss: ${q.question}`}
-                onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
-              >
-                Dismiss
-              </Button>
+              {send && (
+                <>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    aria-label={`Answer: ${q.question}`}
+                    onClick={() => onAnswer({ entryId: q.entryId, question: q.question })}
+                  >
+                    Answer
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    aria-label={`Dismiss: ${q.question}`}
+                    onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
+                  >
+                    Dismiss
+                  </Button>
+                </>
+              )}
             </span>
           </li>
         ))}
@@ -188,6 +195,8 @@ export function WaitingView({
   menu?: ReactNode
 }) {
   const { dismiss, reopen, undo, error } = useDismiss(onChange)
+  // A phone paired for View only reads questions.
+  const { send } = useRights()
   const name = (id: string) => bots.find((b) => b.id === id)?.name ?? "A deleted chat"
   const approvals = bots.filter((b) => b.attention === "approval")
   const paused = bots.filter((b) => b.attention === "goal")
@@ -214,23 +223,25 @@ export function WaitingView({
                 <p className="text-muted-foreground text-xs">
                   {q.askerName} · {time(q.createdAt)}
                 </p>
-                <div className="mt-1.5 flex gap-1">
-                  <Button
-                    size="xs"
-                    aria-label={`Answer: ${q.question}`}
-                    onClick={() => onAnswer(g.chatId, { entryId: q.entryId, question: q.question })}
-                  >
-                    Answer
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    aria-label={`Dismiss: ${q.question}`}
-                    onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
-                  >
-                    Dismiss
-                  </Button>
-                </div>
+                {send && (
+                  <div className="mt-1.5 flex gap-1">
+                    <Button
+                      size="xs"
+                      aria-label={`Answer: ${q.question}`}
+                      onClick={() => onAnswer(g.chatId, { entryId: q.entryId, question: q.question })}
+                    >
+                      Answer
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      aria-label={`Dismiss: ${q.question}`}
+                      onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

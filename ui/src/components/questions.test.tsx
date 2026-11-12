@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server"
-import { assert, test } from "vitest"
+import { afterEach, assert, test, vi } from "vitest"
 import type { Bot } from "@/lib/api"
 import type { OpenQuestion } from "@/lib/questions"
 import { AnswerChip, QuestionStrip, WaitingView } from "./questions.tsx"
@@ -14,6 +14,17 @@ const q = (entryId: string, chatId: string, question: string, createdAt = 1): Op
   createdAt,
 })
 const noop = () => {}
+
+// session is what the server says of this browser; a test sets it.
+const session = vi.hoisted(() => ({ phone: false, scope: "" }))
+vi.mock("@/lib/session", async () => {
+  const { rightsOf } = await import("@/lib/phones")
+  return { useRights: () => rightsOf(session) }
+})
+afterEach(() => {
+  session.phone = false
+  session.scope = ""
+})
 const bot = (id: string, name: string, attention?: Bot["attention"]): Bot => ({
   id,
   kind: "agent",
@@ -124,4 +135,32 @@ test("closed questions are counted, and Show is offered only when there are some
   // The list stays folded until Show is pressed.
   assert.notInclude(some, "Old one?")
   assert.notInclude(view([]), ">Show<")
+})
+
+test("a phone paired for View reads questions but can't answer or dismiss them", () => {
+  session.phone = true
+  session.scope = "view"
+  const strip = renderToStaticMarkup(
+    <QuestionStrip questions={[q("e1", "c", "Ship it?")]} room={false} onAnswer={noop} onChange={noop} />,
+  )
+  const waiting = renderToStaticMarkup(
+    <WaitingView
+      waiting={{ questions: [q("e1", "x", "Ship it?")], approvals: 0, pausedGoals: 0, closedRecently: 0 }}
+      bots={[bot("x", "Alpha")]}
+      onOpen={noop}
+      onAnswer={noop}
+      onChange={noop}
+    />,
+  )
+  for (const html of [strip, waiting]) {
+    assert.include(html, "Ship it?")
+    assert.notInclude(html, 'aria-label="Answer: Ship it?"')
+    assert.notInclude(html, 'aria-label="Dismiss: Ship it?"')
+  }
+  assert.include(strip, 'aria-label="Go to: Ship it?"', "Go to only reads")
+  session.scope = "chat"
+  const chat = renderToStaticMarkup(
+    <QuestionStrip questions={[q("e1", "c", "Ship it?")]} room={false} onAnswer={noop} onChange={noop} />,
+  )
+  assert.include(chat, 'aria-label="Dismiss: Ship it?"', "a Chat phone may")
 })

@@ -231,6 +231,7 @@ test("each section and setting has its name", () => {
       ["general", "General"],
       ["updates", "Updates"],
       ["connectors", "Connectors"],
+      ["phones", "Phones"],
       ["runtime", "Runtime"],
       ["file", "Settings file"],
     ],

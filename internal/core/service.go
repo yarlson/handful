@@ -154,6 +154,7 @@ type Service struct {
 	// their latest run, as the runner reports it.
 	modelAttention *modelFlags
 	drain          drain
+	pairing        *pairing
 }
 
 // Option changes a new Service.
@@ -162,6 +163,11 @@ type Option func(*Service)
 // WithDefaults sets the global model and effort of every bot.
 func WithDefaults(d Defaults) Option {
 	return func(s *Service) { s.defaults = d }
+}
+
+// WithClock reads the time from now.
+func WithClock(now func() time.Time) Option {
+	return func(s *Service) { s.now = now }
 }
 
 // New creates the service. dataDir holds bot workspaces, shared skills and
@@ -189,6 +195,7 @@ func New(sqlDB *sql.DB, dataDir string, loc *time.Location, opts ...Option) (*Se
 		tempDirs:       []string{"/tmp", os.TempDir()},
 		defaults:       NewDefaults("", "", "", "", func(string) string { return "" }),
 		modelAttention: newModelFlags(),
+		pairing:        &pairing{},
 	}
 	for _, o := range opts {
 		o(s)

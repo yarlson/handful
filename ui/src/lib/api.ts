@@ -5,6 +5,7 @@ import type { Key, Plain, SettingsView } from "./settings"
 import type { ItemEvent, OpenQuestion, QuestionState, Waiting } from "./questions"
 import type { Budget } from "./tasks"
 import type { Defaults, Effective } from "./model"
+import type { Proxy, Scope } from "./phones"
 
 export type Member = { id: string; name: string; effective?: Effective }
 
@@ -88,6 +89,7 @@ export type ApprovalBody = {
   input: unknown
   status: "pending" | "allowed" | "denied" | "expired"
   decision?: Decision
+  decidedOn?: string // the paired phone that decided; absent for the computer
 }
 export type Decision = "once" | "always" | "deny"
 
@@ -250,6 +252,7 @@ export type ServerEvent =
   | { type: "pause"; pausedUntil?: string }
   | { type: "drain"; draining: boolean }
   | { type: "restart"; state: "waiting" | "cancelled" | "expired" | "restarting" }
+  | { type: "pair" }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -271,14 +274,64 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await res.json()) as T
 }
 
-// Session is what the server knows of this browser: phone is true for a paired phone.
-export type Session = { phone: boolean }
+// Session is what the server knows of this browser: phone is true for a paired phone, with its
+// scope and name; lost is a phone whose session no longer works, which pairs again.
+export type Session = { phone: boolean; scope?: Scope; device?: string; lost?: boolean }
+
+// session asks the server for this browser's session; a 401 is a phone without one.
+async function session(): Promise<Session> {
+  const res = await fetch("/api/session")
+  if (res.status === 401) return { phone: true, lost: true }
+  if (!res.ok) throw new Error(`GET /api/session failed with ${res.status}`)
+  return (await res.json()) as Session
+}
+
+// PairRequest is a phone that typed a working code and waits for the user's decision.
+export type PairRequest = { id: string; name: string; scope: Scope; pairedBy?: string; expiresAt: number }
+
+// PhoneAccess is Settings › Phones: whether the phone address is open, its settings, the open
+// pairing code, the waiting pair request and a pause after wrong codes (all times in ms).
+export type PhoneAccess = {
+  on: boolean
+  addr: string
+  proxy: Proxy
+  hosts: string[]
+  teamDomain: string
+  aud: string
+  pairing: { codeExpiresAt?: number; scope?: Scope; request?: PairRequest; lockedUntil?: number }
+}
+
+// PhoneSession is a paired phone in the Phones list.
+export type PhoneSession = {
+  id: string
+  name: string
+  scope: Scope
+  pairedBy?: string
+  createdAt: number
+  lastSeenAt: number
+  revokedAt?: number
+}
 
 export const api = {
   listBots: () => request<Bot[]>("GET", "/api/bots"),
   version: () => request<ServerVersion>("GET", "/api/version"),
   // session says whether this browser is a paired phone.
-  session: () => request<Session>("GET", "/api/session"),
+  session,
+  phone: () => request<PhoneAccess>("GET", "/api/phone"),
+  phoneOn: (on: { proxy: Proxy; hosts: string[]; teamDomain?: string; aud?: string }) =>
+    request<PhoneAccess>("POST", "/api/phone/on", on),
+  phoneOff: () => request<void>("POST", "/api/phone/off", {}),
+  startPairing: (scope: Scope) =>
+    request<{ code: string; pairing: PhoneAccess["pairing"] }>("POST", "/api/phone/pairing", { scope }),
+  setPairingScope: (scope: Scope) => request<PhoneAccess["pairing"]>("PATCH", "/api/phone/pairing", { scope }),
+  decidePairing: (id: string, decision: "allow" | "deny") =>
+    request<void>("POST", `/api/phone/pairing/${encodeURIComponent(id)}`, { decision }),
+  phoneSessions: () => request<PhoneSession[]>("GET", "/api/phone/sessions"),
+  revokePhone: (id: string) => request<void>("DELETE", `/api/phone/sessions/${encodeURIComponent(id)}`),
+  revokeAllPhones: () => request<void>("DELETE", "/api/phone/sessions"),
+  // The phone's own pairing: it sends the typed code, then asks until the computer decides.
+  pair: (code: string, deviceName: string) => request<{ state: string }>("POST", "/pair", { code, deviceName }),
+  pairStatus: () => request<{ state: "waiting" | "approved" | "denied" }>("GET", "/pair-status"),
   settings: () => request<SettingsView>("GET", "/api/settings"),
   // The welcome notice after the data moved to ~/.handful shows until the user closes it.
   moveNotice: () => request<{ show: boolean }>("GET", "/api/move-notice"),

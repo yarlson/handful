@@ -95,7 +95,7 @@ func newPhoneFixtureWith(t *testing.T, settings config.PhoneSettings) *phoneFixt
 		defer f.mu.Unlock()
 		return f.now
 	}
-	svc, err := core.New(conn, dir, time.UTC)
+	svc, err := core.New(conn, dir, time.UTC, core.WithClock(clock))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,10 +758,11 @@ func TestTheKillSwitchClosesThePhoneListenerAtOnce(t *testing.T) {
 	}
 }
 
-// AC 1: without phone access the main listener has no phone controls.
-func TestWithoutPhoneAccessThereAreNoPhoneControls(t *testing.T) {
+// AC 1: a server built without a phone listener has no phone controls, and a phone listener
+// with phone access off opens no port.
+func TestWithPhoneAccessOffNoPortOpens(t *testing.T) {
 	h, _ := newTestHandler(t)
-	for _, target := range []string{"/api/phone/sessions", "/api/phone/off"} {
+	for _, target := range []string{"/api/phone/sessions", "/api/phone/off", "/api/phone/on", "/api/phone/pairing"} {
 		if rec := do(h, http.MethodPost, target, "{}", jsonHeader); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s: %d; want no route", target, rec.Code)
 		}
@@ -771,12 +772,128 @@ func TestWithoutPhoneAccessThereAreNoPhoneControls(t *testing.T) {
 		t.Fatalf("Start without a handler = %v; want an error and no port", err)
 	}
 	p.Stop()
-	if p.verifier != nil {
+	if p.cfg.Load().verifier != nil {
 		t.Fatal("a Tailscale phone listener checks Access tokens")
 	}
 	cf := NewPhone(config.PhoneSettings{Proxy: config.ProxyCloudflare, TeamDomain: teamHost, AUD: appAUD}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if cf.verifier == nil {
+	if cf.cfg.Load().verifier == nil {
 		t.Fatal("a tunnel phone listener doesn't check Access tokens")
+	}
+
+	off := newPhoneFixtureWith(t, config.PhoneSettings{Addr: "127.0.0.1:0", Proxy: config.ProxyCloudflare})
+	if err := off.phone.Start(t.Context()); err != nil || off.phone.Addr() != "" {
+		t.Fatalf("Start with phone access off = %v, at %q; want no port", err, off.phone.Addr())
+	}
+	var view phoneView
+	if rec := do(off.main, http.MethodGet, "/api/phone", "", nil); rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &view) != nil || view.On {
+		t.Fatalf("GET /api/phone = %d %s; want off", rec.Code, rec.Body)
+	}
+	if rec := do(off.main, http.MethodPost, "/api/phone/pairing", `{"scope":"chat"}`, jsonHeader); rec.Code != http.StatusConflict {
+		t.Fatalf("a pairing code while off: %d %s; want 409", rec.Code, rec.Body)
+	}
+}
+
+// P1 to P2: Settings turns phone access on without a restart, and stores it in config.json.
+func TestTheComputerTurnsPhoneAccessOnWithoutARestart(t *testing.T) {
+	f := newPhoneFixtureWith(t, config.PhoneSettings{Addr: "127.0.0.1:0", Proxy: config.ProxyCloudflare})
+	if rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"cloudflare","hosts":["phone.example.com"],"teamDomain":"you.cloudflareaccess.com"}`, jsonHeader); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "phone.cloudflare.aud") {
+		t.Fatalf("on without the AUD tag: %d %s; want 400 naming phone.cloudflare.aud", rec.Code, rec.Body)
+	}
+	if rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":["x.trycloudflare.com"]}`, jsonHeader); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "phone.hosts") {
+		t.Fatalf("on with a quick tunnel: %d %s; want 400 naming phone.hosts", rec.Code, rec.Body)
+	}
+	if err := os.WriteFile(f.settings, []byte(`{"model": `), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":["phone.example.com"]}`, jsonHeader); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "config.json has an error") {
+		t.Fatalf("on with a broken config.json: %d %s; want 409", rec.Code, rec.Body)
+	}
+	if err := os.WriteFile(f.settings, []byte(`{"model": "sonnet", "phone": {"addr": "`+freePhoneAddr(t)+`"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.phone.Start(t.Context()); err != nil || f.phone.Addr() != "" {
+		t.Fatalf("start while off = %v at %q", err, f.phone.Addr())
+	}
+	t.Cleanup(f.phone.Stop)
+	rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":[" Phone.Example.com "]}`, jsonHeader)
+	var view phoneView
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &view) != nil || !view.On || view.Proxy != config.ProxyTailscale || !slices.Equal(view.Hosts, []string{phoneHost}) {
+		t.Fatalf("on: %d %s; want on, tailscale, %s", rec.Code, rec.Body, phoneHost)
+	}
+	file, err := config.Load(f.settings)
+	if err != nil || !file.PhoneSettings().Enabled || !slices.Equal(file.PhoneSettings().Hosts, []string{phoneHost}) || file.Model == nil || *file.Model != "sonnet" {
+		t.Fatalf("config.json = %+v, model %v, %v; want phone access on for %s, and the model kept", file.PhoneSettings(), file.Model, err, phoneHost)
+	}
+	r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+f.phone.Addr()+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Host = phoneHost
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the phone address after Turn on: %d; want the app", resp.StatusCode)
+	}
+}
+
+// freePhoneAddr is a loopback address with a port that no one listens on now.
+func freePhoneAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return addr
+}
+
+// Turn on with a taken phone address answers why and leaves config.json off, so the next start
+// doesn't fail on it.
+func TestTurnOnWithATakenAddressLeavesPhoneAccessOff(t *testing.T) {
+	taken, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	f := newPhoneFixtureWith(t, config.PhoneSettings{Addr: "127.0.0.1:0", Proxy: config.ProxyTailscale})
+	if err := os.WriteFile(f.settings, []byte(`{"phone": {"addr": "`+taken.Addr().String()+`"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.phone.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(f.phone.Stop)
+	rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":["phone.example.com"]}`, jsonHeader)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "phone.addr") {
+		t.Fatalf("on with a taken address: %d %s; want 409 naming phone.addr", rec.Code, rec.Body)
+	}
+	if f.phone.Addr() != "" {
+		t.Fatalf("the phone listener is open at %s", f.phone.Addr())
+	}
+	file, err := config.Load(f.settings)
+	if err != nil || file.PhoneSettings().Enabled {
+		t.Fatalf("config.json = %+v, %v; want phone access still off", file.PhoneSettings(), err)
+	}
+}
+
+// Turn off voids the open pairing code and the waiting pair request.
+func TestTurnOffEndsPairing(t *testing.T) {
+	f := newPhoneFixture(t, false)
+	code := f.startCode(core.ScopeChat)
+	if rec := f.do(req{method: http.MethodPost, path: "/pair", body: `{"code":"` + code + `","deviceName":"Pixel 8"}`}); rec.Code != http.StatusAccepted {
+		t.Fatalf("pair: %d", rec.Code)
+	}
+	f.advance(time.Second)
+	f.startCode(core.ScopeView)
+	if rec := do(f.main, http.MethodPost, "/api/phone/off", "{}", jsonHeader); rec.Code != http.StatusNoContent {
+		t.Fatalf("off: %d %s", rec.Code, rec.Body)
+	}
+	if p := f.svc.Pairing(); p.CodeExpiresAt != 0 || p.Request != nil {
+		t.Fatalf("after Turn off pairing shows %+v; want no code and no request", p)
 	}
 }
 

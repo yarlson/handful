@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { budgetError, decisionError, inboxError } from "@/lib/tasks"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { cn } from "@/lib/utils"
+import { useRights } from "@/lib/session"
 import { BoardTab } from "@/components/board"
 import { SendTaskDialog } from "@/components/tasks"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
@@ -283,6 +284,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
   const { data, error, reload, setError } = useLoad(() => api.artifacts({ kind, query }), `${version}:${kind}:${query}`)
   const [open, setOpen] = useState<Artifact | null>(null)
   const [confirm, setConfirm] = useState(false)
+  const rights = useRights()
   const show = async (id: string) => {
     try {
       setConfirm(false)
@@ -379,7 +381,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
           <div className="max-h-[60vh] overflow-auto rounded-md border p-3 text-sm">
             <MarkdownText text={open?.content ?? ""} />
           </div>
-          <DialogFooter>
+          <DialogFooter className={cn(!rights.computer && "hidden")}>
             {confirm ? (
               <>
                 <Button variant="ghost" onClick={() => setConfirm(false)}>
@@ -849,6 +851,40 @@ export function BotPanel({
   // A new ask remounts the tabs on the asked tab.
   const first = show?.tab ?? (bot.kind === "room" ? (bot.team ? "board" : "members") : "memory")
   const key = `${bot.id}:${show?.n ?? 0}`
+  const rights = useRights()
+  if (!rights.computer) {
+    // A phone has the team's Work, or else the artifacts; the other tabs change settings.
+    const tab = bot.team ? "board" : "artifacts"
+    return (
+      <Tabs key={key} defaultValue={tab} className="flex h-full flex-col gap-0">
+        <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3 max-md:h-14">
+          <TabsList className="bg-sidebar-foreground/5 w-full max-md:h-12">
+            <TabsTrigger value={tab}>{bot.team ? "Work" : "Artifacts"}</TabsTrigger>
+          </TabsList>
+          {onClose && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="shrink-0 lg:hidden max-md:size-11"
+              aria-label="Close panel"
+              onClick={onClose}
+            >
+              <X />
+            </Button>
+          )}
+        </div>
+        <div className="relative min-h-0 flex-1 overflow-y-auto p-3">
+          <TabsContent value={tab}>
+            {bot.team ? (
+              <BoardTab team={bot} version={version} teams={teams} onOpenInbox={onOpenInbox} paused={paused} />
+            ) : (
+              <ArtifactsTab agents={agents} version={version} teams={teams} />
+            )}
+          </TabsContent>
+        </div>
+      </Tabs>
+    )
+  }
   if (bot.kind === "room") {
     return (
       <Tabs key={key} defaultValue={first} className="flex h-full flex-col gap-0">

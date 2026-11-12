@@ -277,12 +277,9 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	updates := startUpdateNotice(ctx, o, log)
 	restarts, settings := o.settingsOf(stop, os.Getenv, os.Getppid, svc.PublishRestart, func(on bool) { svc.HoldDrain(core.DrainRestart, on) }, log)
 	apiOpts := []httpapi.Option{httpapi.WithModelReporter(runner), httpapi.WithUpdates(updates), httpapi.WithSettings(settings), httpapi.WithMoveNotice(o.moveNotice())}
-	// Phone access is off unless config.json turns it on; then a second listener opens.
-	var phone *httpapi.Phone
-	if o.Phone.Enabled {
-		phone = httpapi.NewPhone(o.Phone, log)
-		apiOpts = append(apiOpts, httpapi.WithPhone(phone))
-	}
+	// Phone access is off unless config.json or Settings turns it on; then a second listener opens.
+	phone := httpapi.NewPhone(o.Phone, log)
+	apiOpts = append(apiOpts, httpapi.WithPhone(phone))
 	srv := &http.Server{
 		Addr:              o.addr,
 		Handler:           httpapi.New(svc, runner, assets, log, apiOpts...),
@@ -291,19 +288,16 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
+	// Before the runner: a taken phone address stops the server with nothing to wait for.
+	if err := phone.Start(ctx); err != nil {
+		return err
+	}
+	defer phone.Stop()
 	runnerDone := make(chan struct{})
 	go func() { runner.Run(ctx); close(runnerDone) }()
 	waitRestarts := restarts.watch(ctx, runner)
 	defer func() { stop(); waitRestarts() }()
 
-	if phone != nil {
-		if err := phone.Start(ctx); err != nil {
-			stop()
-			<-runnerDone
-			return err
-		}
-		defer phone.Stop()
-	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
 	log.Info("Handful is running", "url", base, "data", o.dataDir, "claude", o.claudePath)

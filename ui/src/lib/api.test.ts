@@ -147,6 +147,45 @@ test("settings and restart calls go to the server's routes with their bodies", a
   ])
 })
 
+test("phone access calls go to the server's routes with their bodies", async () => {
+  const calls = stubFetch(200)
+  await api.phone()
+  await api.phoneOn({
+    proxy: "cloudflare",
+    hosts: ["phone.example.com"],
+    teamDomain: "you.cloudflareaccess.com",
+    aud: "abc",
+  })
+  await api.phoneOff()
+  await api.startPairing("chat+approve")
+  await api.setPairingScope("view")
+  await api.decidePairing("r/1", "allow")
+  await api.decidePairing("r2", "deny")
+  await api.phoneSessions()
+  await api.revokePhone("s/1")
+  await api.revokeAllPhones()
+  await api.pair("k7qm2xpd9wtr", "Pixel 8")
+  await api.pairStatus()
+  assert.deepEqual(calls, [
+    { method: "GET", url: "/api/phone", body: undefined },
+    {
+      method: "POST",
+      url: "/api/phone/on",
+      body: { proxy: "cloudflare", hosts: ["phone.example.com"], teamDomain: "you.cloudflareaccess.com", aud: "abc" },
+    },
+    { method: "POST", url: "/api/phone/off", body: {} },
+    { method: "POST", url: "/api/phone/pairing", body: { scope: "chat+approve" } },
+    { method: "PATCH", url: "/api/phone/pairing", body: { scope: "view" } },
+    { method: "POST", url: "/api/phone/pairing/r%2F1", body: { decision: "allow" } },
+    { method: "POST", url: "/api/phone/pairing/r2", body: { decision: "deny" } },
+    { method: "GET", url: "/api/phone/sessions", body: undefined },
+    { method: "DELETE", url: "/api/phone/sessions/s%2F1", body: undefined },
+    { method: "DELETE", url: "/api/phone/sessions", body: undefined },
+    { method: "POST", url: "/pair", body: { code: "k7qm2xpd9wtr", deviceName: "Pixel 8" } },
+    { method: "GET", url: "/pair-status", body: undefined },
+  ])
+})
+
 test("a chat's entries come as a window of its newest, an older page, or the changes since a rev", async () => {
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     calls.push({ method: init.method ?? "", url, body: undefined })

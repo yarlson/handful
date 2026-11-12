@@ -49,6 +49,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { PairAgain, PairBanner, PairPage, usePairRequest } from "@/components/phones"
+import { rightsOf } from "@/lib/phones"
+import { useSession } from "@/lib/session"
+
+// NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
+const NEEDS_YOU_PATH = "/needs-you"
 
 function NewBotDialog({
   open,
@@ -510,13 +516,16 @@ function chatInLocation() {
   return /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1] ?? null
 }
 
-function SectionTitle({ title, action, onAction }: { title: string; action: string; onAction: () => void }) {
+// SectionTitle heads a sidebar section; without onAction, as on a phone, it has no add button.
+function SectionTitle({ title, action, onAction }: { title: string; action: string; onAction?: () => void }) {
   return (
-    <div className="text-muted-foreground mt-3 flex items-center justify-between px-2 text-xs font-medium uppercase">
+    <div className="text-muted-foreground mt-3 flex min-h-6 items-center justify-between px-2 text-xs font-medium uppercase">
       {title}
-      <Button size="icon" variant="ghost" className="size-6 max-md:size-11" aria-label={action} onClick={onAction}>
-        <Plus />
-      </Button>
+      {onAction && (
+        <Button size="icon" variant="ghost" className="size-6 max-md:size-11" aria-label={action} onClick={onAction}>
+          <Plus />
+        </Button>
+      )}
     </div>
   )
 }
@@ -531,27 +540,32 @@ function chatSubtitle(bot: Bot) {
   return `led by ${lead.name}, with ${others.join(", ") || "no other members"}`
 }
 
-// SidebarFooter is the connection state and the ways to Connectors and Settings. The buttons
-// are icons, so the row fits the narrowest sidebar; their names stay for screen readers.
+// SidebarFooter is the connection state and the ways to Connectors and Settings, which a phone
+// doesn't have. The buttons are icons, so the row fits the narrowest sidebar; their names stay for
+// screen readers.
 export function SidebarFooter({
   link,
   onConnectors,
   onSettings,
 }: {
   link: Link
-  onConnectors: () => void
-  onSettings: () => void
+  onConnectors?: () => void
+  onSettings?: () => void
 }) {
   return (
     <div className="text-muted-foreground flex items-center gap-1.5 px-3 py-2 text-xs" data-connection={link}>
       <span className={cn("size-1.5 shrink-0 rounded-full", link === "live" ? "bg-emerald-500" : "bg-amber-500")} />
       <span className="min-w-0 flex-1 truncate">{linkLabel(link)}</span>
-      <Button size="icon-xs" variant="ghost" aria-label="Connectors" title="Connectors" onClick={onConnectors}>
-        <Plug />
-      </Button>
-      <Button size="icon-xs" variant="ghost" aria-label="Settings" title="Settings" onClick={onSettings}>
-        <SettingsIcon />
-      </Button>
+      {onConnectors && (
+        <Button size="icon-xs" variant="ghost" aria-label="Connectors" title="Connectors" onClick={onConnectors}>
+          <Plug />
+        </Button>
+      )}
+      {onSettings && (
+        <Button size="icon-xs" variant="ghost" aria-label="Settings" title="Settings" onClick={onSettings}>
+          <SettingsIcon />
+        </Button>
+      )}
     </div>
   )
 }
@@ -572,6 +586,7 @@ export function App() {
     pausedUntil,
     draining,
     restartRev,
+    pairRev,
     select,
     loadOlder,
     reveal,
@@ -579,6 +594,10 @@ export function App() {
     reorder,
   } = useHandful()
   const update = useUpdate()
+  // A paired phone sees only what it may use; the server refuses the rest.
+  const session = useSession()
+  const rights = rightsOf(session)
+  const pair = usePairRequest(pairRev, rights.computer)
   const [width, setWidth] = useState(loadSidebarWidth)
   const resizing = useRef(false)
   useEffect(() => saveSidebarWidth(width), [width])
@@ -652,7 +671,9 @@ export function App() {
     return () => el.removeEventListener("keydown", onKey)
   }, [])
   // screen is what the main area shows: the selected chat, its team's inbox, Waiting for you or Across teams.
-  const [screen, setScreen] = useState<"chat" | "inbox" | "waiting" | "across">("chat")
+  const [screen, setScreen] = useState<"chat" | "inbox" | "waiting" | "across">(() =>
+    location.pathname === NEEDS_YOU_PATH ? "waiting" : "chat",
+  )
   const [show, setShow] = useState<{ tab: string; n: number } | undefined>()
   const showTab = (tab: string) => {
     setPanel(true)
@@ -664,9 +685,14 @@ export function App() {
   const aliases = defaults?.modelAliases ?? FALLBACK_ALIASES
 
   // showScreen shows a screen of the main area; in a narrow window the drawer closes on the choice.
+  // Waiting for you has its own address; leaving it goes back to the chat's.
   const showScreen = (s: typeof screen) => {
     setScreen(s)
     setDrawer(false)
+    const needsYou = location.pathname === NEEDS_YOU_PATH
+    if (s === "waiting" && !needsYou) history.pushState(null, "", NEEDS_YOU_PATH)
+    if (s !== "waiting" && needsYou) history.pushState(null, "", selected ? chatPath(selected) : "/")
+    setPath(location.pathname)
   }
   const openChat = (id: string) => {
     if (location.pathname !== chatPath(id)) history.pushState(null, "", chatPath(id))
@@ -698,6 +724,8 @@ export function App() {
       setPath(location.pathname)
       const id = chatInLocation()
       if (id) setSelected(id)
+      if (location.pathname === NEEDS_YOU_PATH) setScreen("waiting")
+      else setScreen((s) => (s === "waiting" ? "chat" : s))
     }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
@@ -705,7 +733,8 @@ export function App() {
   useEffect(() => {
     if (bots.length === 0 || bots.some((b) => b.id === selected)) return
     // Replace, not push: otherwise Back returns to the missing chat, which opens the first chat again.
-    if (!isSettingsPath(location.pathname)) history.replaceState(null, "", chatPath(bots[0].id))
+    if (!isSettingsPath(location.pathname) && location.pathname !== NEEDS_YOU_PATH)
+      history.replaceState(null, "", chatPath(bots[0].id))
     setSelected(bots[0].id)
   }, [bots, selected])
   useEffect(() => select(selected), [selected, select])
@@ -722,7 +751,7 @@ export function App() {
   const taskKey = tasksKey(bots)
   const needs = useLoad(() => api.needsYou(), taskKey)
   const moved = useLoad(() => api.moveNotice(), "")
-  const needsN = needs.data?.length ?? 0
+  const needsN = (needs.data?.length ?? 0) + (pair.request ? 1 : 0)
   const chatName = (id: string) => bots.find((b) => b.id === id)?.name ?? "a deleted chat"
 
   // view is what the main area shows; only a chat has the side panel.
@@ -739,10 +768,14 @@ export function App() {
   // A drain that the updater didn't start is a settings restart.
   const pause = pauseLabel(update.state?.state === "waiting" || update.state?.state === "limit")
 
-  if (isSettingsPath(path)) {
+  if (path === "/pair") return <PairPage paired={session.phone && !session.lost} />
+  if (session.lost) return <PairAgain />
+  if (isSettingsPath(path) && rights.computer) {
     return (
       <>
         <SettingsPage
+          top={<PairBanner request={pair.request} onDecided={pair.reload} />}
+          pairRev={pairRev}
           section={sectionOfPath(path)}
           onSection={(s) => {
             history.replaceState(null, "", `/settings/${s}`)
@@ -779,7 +812,7 @@ export function App() {
         <div className="flex items-center px-3 py-3">
           <img src="/logo.svg" alt="Handful" className="size-7" />
         </div>
-        {moved.data?.show && (
+        {moved.data?.show && rights.computer && (
           <MoveNotice
             teams={teams}
             error={moved.error}
@@ -828,7 +861,11 @@ export function App() {
               </span>
             )}
           </button>
-          <SectionTitle title="Bots" action="New bot" onAction={() => setCreating(true)} />
+          <SectionTitle
+            title="Bots"
+            action="New bot"
+            onAction={rights.computer ? () => setCreating(true) : undefined}
+          />
           <BotList
             items={agents}
             selected={selected}
@@ -836,7 +873,11 @@ export function App() {
             onSelect={openChat}
             onReorder={(ids) => void reorder(ids)}
           />
-          <SectionTitle title="Teams" action="New team" onAction={() => setCreatingTeam(true)} />
+          <SectionTitle
+            title="Teams"
+            action="New team"
+            onAction={rights.computer ? () => setCreatingTeam(true) : undefined}
+          />
           <BotList
             items={teams}
             selected={selected}
@@ -844,7 +885,11 @@ export function App() {
             onSelect={openChat}
             onReorder={(ids) => void reorder(ids)}
           />
-          <SectionTitle title="Rooms" action="New room" onAction={() => setCreatingRoom(true)} />
+          <SectionTitle
+            title="Rooms"
+            action="New room"
+            onAction={rights.computer ? () => setCreatingRoom(true) : undefined}
+          />
           <BotList
             items={rooms}
             selected={selected}
@@ -852,7 +897,7 @@ export function App() {
             onSelect={openChat}
             onReorder={(ids) => void reorder(ids)}
           />
-          {bots.length === 0 && (
+          {bots.length === 0 && rights.computer && (
             <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreating(true)}>
               <Plus /> Create your first bot
             </Button>
@@ -860,8 +905,8 @@ export function App() {
         </nav>
         <SidebarFooter
           link={link}
-          onConnectors={() => setConnectors(true)}
-          onSettings={() => openSettingsPage("general")}
+          onConnectors={rights.computer ? () => setConnectors(true) : undefined}
+          onSettings={rights.computer ? () => openSettingsPage("general") : undefined}
         />
       </aside>
       <div
@@ -897,6 +942,7 @@ export function App() {
 
       <main className="flex min-w-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
+          <PairBanner request={pair.request} onDecided={pair.reload} />
           {error && (
             <div className="bg-destructive/10 text-destructive flex items-center justify-between px-4 py-2 text-sm">
               {error}
@@ -920,6 +966,8 @@ export function App() {
             <AcrossScreen
               menu={menu}
               needs={needs.data ?? []}
+              pairRequest={pair.request}
+              onPairDecided={pair.reload}
               teams={teams}
               version={taskKey}
               chatName={chatName}
@@ -979,10 +1027,10 @@ export function App() {
                   />
                 )}
                 {bot.team && !panel && <span className="flex-1 xl:hidden max-md:hidden" />}
-                {bot.effective && !narrow && (
+                {bot.effective && rights.computer && (
                   <ModelChip effective={bot.effective} aliases={aliases} onClick={() => showTab("settings")} />
                 )}
-                {bot.team && defaults && !narrow && (
+                {bot.team && defaults && rights.computer && (
                   <ModelChip
                     effective={teamEffective(bot.team, defaults)}
                     aliases={aliases}

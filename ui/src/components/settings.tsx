@@ -45,6 +45,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
+import { PhonesSection } from "@/components/phones"
 
 // The desktop app's preload exposes these; a browser has none.
 type SettingsBridge = {
@@ -606,9 +607,15 @@ export function SettingsPage({
   onBack,
   onManageConnectors,
   restartRev = 0,
+  pairRev = 0,
+  top,
 }: {
   // restartRev changes with each restart event from the server; the page reloads on it.
   restartRev?: number
+  // pairRev changes with each pairing event; Phones reloads on it.
+  pairRev?: number
+  // top shows above the section, such as a phone's pair request.
+  top?: ReactNode
   section: Section
   onSection: (s: Section) => void
   onBack: () => void
@@ -737,6 +744,7 @@ export function SettingsPage({
         </nav>
       </aside>
       <main className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5 max-md:px-4">
+        {top && <div className="-mx-8 -mt-5 mb-5 max-md:-mx-4">{top}</div>}
         <div className="max-w-[680px]">
           {restart.state === "now" && (
             <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">
@@ -930,6 +938,14 @@ export function SettingsPage({
                     Manage connectors…
                   </Button>
                 </Row>
+              </>
+            )}
+            {section === "phones" && (
+              <>
+                <p className="text-muted-foreground mt-1 mb-4 text-sm">
+                  Use Handful from your phone, through a Cloudflare Tunnel or Tailscale.
+                </p>
+                <PhonesSection pairRev={pairRev} />
               </>
             )}
             {section === "runtime" && (

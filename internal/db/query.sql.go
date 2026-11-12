@@ -1139,6 +1139,46 @@ func (q *Queries) GetLatestGoal(ctx context.Context, teamID string) (Goal, error
 	return i, err
 }
 
+const getPhoneSession = `-- name: GetPhoneSession :one
+SELECT id, name, scope, token_hash, paired_by, created_at, last_seen_at, revoked_at FROM phone_sessions WHERE id = ?
+`
+
+func (q *Queries) GetPhoneSession(ctx context.Context, id string) (PhoneSession, error) {
+	row := q.db.QueryRowContext(ctx, getPhoneSession, id)
+	var i PhoneSession
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Scope,
+		&i.TokenHash,
+		&i.PairedBy,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const getPhoneSessionByHash = `-- name: GetPhoneSessionByHash :one
+SELECT id, name, scope, token_hash, paired_by, created_at, last_seen_at, revoked_at FROM phone_sessions WHERE token_hash = ?
+`
+
+func (q *Queries) GetPhoneSessionByHash(ctx context.Context, tokenHash []byte) (PhoneSession, error) {
+	row := q.db.QueryRowContext(ctx, getPhoneSessionByHash, tokenHash)
+	var i PhoneSession
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Scope,
+		&i.TokenHash,
+		&i.PairedBy,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const getRoutine = `-- name: GetRoutine :one
 SELECT id, bot_id, name, prompt, schedule, enabled, next_run_at, last_run_at, created_at, updated_at, last_run_by FROM routines WHERE id = ?
 `
@@ -1570,6 +1610,34 @@ func (q *Queries) InsertMemory(ctx context.Context, arg InsertMemoryParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const insertPhoneSession = `-- name: InsertPhoneSession :exec
+INSERT INTO phone_sessions (id, name, scope, token_hash, paired_by, created_at, last_seen_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertPhoneSessionParams struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Scope      string `json:"scope"`
+	TokenHash  []byte `json:"token_hash"`
+	PairedBy   string `json:"paired_by"`
+	CreatedAt  int64  `json:"created_at"`
+	LastSeenAt int64  `json:"last_seen_at"`
+}
+
+func (q *Queries) InsertPhoneSession(ctx context.Context, arg InsertPhoneSessionParams) error {
+	_, err := q.db.ExecContext(ctx, insertPhoneSession,
+		arg.ID,
+		arg.Name,
+		arg.Scope,
+		arg.TokenHash,
+		arg.PairedBy,
+		arg.CreatedAt,
+		arg.LastSeenAt,
+	)
+	return err
 }
 
 const insertRunningTurn = `-- name: InsertRunningTurn :one
@@ -3168,6 +3236,42 @@ func (q *Queries) ListOpenQuestionEntries(ctx context.Context, botID string) ([]
 	return items, nil
 }
 
+const listPhoneSessions = `-- name: ListPhoneSessions :many
+SELECT id, name, scope, token_hash, paired_by, created_at, last_seen_at, revoked_at FROM phone_sessions ORDER BY created_at, rowid
+`
+
+func (q *Queries) ListPhoneSessions(ctx context.Context) ([]PhoneSession, error) {
+	rows, err := q.db.QueryContext(ctx, listPhoneSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PhoneSession
+	for rows.Next() {
+		var i PhoneSession
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Scope,
+			&i.TokenHash,
+			&i.PairedBy,
+			&i.CreatedAt,
+			&i.LastSeenAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedGoals = `-- name: ListQueuedGoals :many
 SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id, decision_ms, decision_tick, missed_at FROM goals WHERE team_id = ? AND state = 'queued' ORDER BY queue_pos, rowid
 `
@@ -3863,6 +3967,35 @@ func (q *Queries) ReturnToInbox(ctx context.Context, arg ReturnToInboxParams) (i
 	return result.RowsAffected()
 }
 
+const revokeAllPhoneSessions = `-- name: RevokeAllPhoneSessions :execrows
+UPDATE phone_sessions SET revoked_at = ?1 WHERE revoked_at = 0
+`
+
+func (q *Queries) RevokeAllPhoneSessions(ctx context.Context, at int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeAllPhoneSessions, at)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokePhoneSession = `-- name: RevokePhoneSession :execrows
+UPDATE phone_sessions SET revoked_at = ?1 WHERE id = ?2 AND revoked_at = 0
+`
+
+type RevokePhoneSessionParams struct {
+	At int64  `json:"at"`
+	ID string `json:"id"`
+}
+
+func (q *Queries) RevokePhoneSession(ctx context.Context, arg RevokePhoneSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokePhoneSession, arg.At, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const searchArtifacts = `-- name: SearchArtifacts :many
 SELECT id, kind, title, links, author_id, created_at, updated_at FROM artifacts a
 WHERE (?1 IS NULL OR a.kind = ?1)
@@ -4153,6 +4286,20 @@ func (q *Queries) StartTurn(ctx context.Context, arg StartTurnParams) (int64, er
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const touchPhoneSession = `-- name: TouchPhoneSession :exec
+UPDATE phone_sessions SET last_seen_at = ?1 WHERE id = ?2 AND last_seen_at < ?1
+`
+
+type TouchPhoneSessionParams struct {
+	At int64  `json:"at"`
+	ID string `json:"id"`
+}
+
+func (q *Queries) TouchPhoneSession(ctx context.Context, arg TouchPhoneSessionParams) error {
+	_, err := q.db.ExecContext(ctx, touchPhoneSession, arg.At, arg.ID)
+	return err
 }
 
 const updateArtifact = `-- name: UpdateArtifact :one

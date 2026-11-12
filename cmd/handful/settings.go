@@ -57,6 +57,8 @@ func runningSettings(o options) map[string]any {
 	return map[string]any{
 		"model": o.Model, "effort": o.Effort, "maxParallel": o.MaxParallel, "claude": o.Claude,
 		"updates.autoCheck": o.Updates.AutoCheck, "updates.drainMinutes": o.Updates.DrainMinutes, "updateCheck": o.Updates.UpdateCheck,
+		"phone.enabled": o.Phone.Enabled, "phone.addr": o.Phone.Addr, "phone.hosts": o.Phone.Hosts, "phone.proxy": o.Phone.Proxy,
+		"phone.cloudflare.teamDomain": o.Phone.TeamDomain, "phone.cloudflare.aud": o.Phone.AUD,
 	}
 }
 

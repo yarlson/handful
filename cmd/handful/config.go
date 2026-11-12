@@ -17,6 +17,7 @@ type settings struct {
 	Effort      string
 	MaxParallel int
 	Updates     updateSettings
+	Phone       config.PhoneSettings
 }
 
 // updateSettings are the update settings of config.json.
@@ -39,6 +40,7 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 	fromFile(&s.Effort, file.Effort, set["effort"])
 	fromFile(&s.MaxParallel, file.MaxParallel, set["max-parallel"])
 	fromFile(&s.Updates.UpdateCheck, file.UpdateCheck, false)
+	s.Phone = file.PhoneSettings()
 	if u := file.Updates; u != nil {
 		fromFile(&s.Updates.AutoCheck, u.AutoCheck, false)
 		applyDrainMinutes(&s.Updates, u.DrainMinutes)
@@ -69,6 +71,12 @@ func fromFile[T any](dst, v *T, flagGiven bool) {
 // names its config key when one key is to blame (a *startupError).
 func (o *options) loadSettings(getenv func(string) string, lookPath func(string) (string, error)) error {
 	if err := applyConfigFile(filepath.Join(o.dataDir, "config.json"), o.set, &o.settings); err != nil {
+		return err
+	}
+	if err := o.Phone.Check(); err != nil {
+		if ke, ok := errors.AsType[*config.KeyError](err); ok {
+			return &startupError{key: ke.Key, err: err}
+		}
 		return err
 	}
 	var err error

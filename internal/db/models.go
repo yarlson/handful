@@ -154,6 +154,17 @@ type OffTaskDismissal struct {
 	DismissedAt int64  `json:"dismissed_at"`
 }
 
+type PhoneSession struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Scope      string `json:"scope"`
+	TokenHash  []byte `json:"token_hash"`
+	PairedBy   string `json:"paired_by"`
+	CreatedAt  int64  `json:"created_at"`
+	LastSeenAt int64  `json:"last_seen_at"`
+	RevokedAt  int64  `json:"revoked_at"`
+}
+
 type RoomMember struct {
 	RoomID          string `json:"room_id"`
 	BotID           string `json:"bot_id"`

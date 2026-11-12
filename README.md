@@ -121,6 +121,17 @@ Bots are not isolated from each other. Reading files needs no approval and has n
 
 A team keeps its members' work focused on the team, but it is not a security boundary: a member can still read any file, including other teams' folders.
 
+### Phone access
+
+Phone access lets you use Handful from your phone. It is **off by default**, and with it off Handful opens no other port.
+
+- **A second listener.** Turned on in `config.json` (`phone.enabled`), it opens a second address on this computer (`phone.addr`, loopback only, `127.0.0.1:7778` by default). A proxy on this computer forwards your phone's requests to it: a Cloudflare Tunnel with a Cloudflare Access login in front, or `tailscale serve`. Handful still never listens on your network itself.
+- **Every request needs a paired phone.** Only the web app's own files load without one. A phone is paired for one of three scopes: **View** (read only), **Chat** (also send messages and act on tasks), or **Chat and approve once** (also Allow once and Deny on approval cards).
+- **A phone never chooses Always allow**, and never allows a setup that creates bots or teams. Settings, bots, teams, routines, memory, skills, connectors and phone access itself stay on the computer.
+- **A phone can message your bots.** A bot can then use any tool you have already always-allowed for it, with no approval card.
+- **With a Cloudflare Tunnel, Cloudflare sees the traffic**: your chats, what bots print and your approvals. Handful also checks the Cloudflare Access login on every request, so the public address answers nothing without it.
+- **Turning it off** (`POST /api/phone/off` on the computer) closes the phone address and its open streams at once. Each phone can be revoked on its own (`DELETE /api/phone/sessions/<id>`), or all of them together.
+
 ## Not built yet
 
 Routines that start on events (only schedules work now), per-bot Claude Code plugins, a vault for secrets, voice, and bots that run on other machines.

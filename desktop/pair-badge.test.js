@@ -259,3 +259,30 @@ test("isPairEvent reads only a data line whose type is pair", () => {
   assert.equal(isPairEvent(": ping"), false)
   assert.equal(isPairEvent("data: not json"), false)
 })
+
+test("when two reads answer out of order, only the later read counts", async (t) => {
+  const clock = fakeClock()
+  const answers = []
+  let events = null
+  // Each /api/phone read waits until the test answers it; /api/events stays open.
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/api/phone")) return new Promise((resolve) => answers.push(resolve))
+    return new Response(new ReadableStream({ start: (controller) => (events = controller) }))
+  }
+  const told = []
+  const w = createPairWatch({ fetchImpl, base: "http://x", onWaiting: (v) => told.push(v), timers: clock.timers, now: () => clock.now, log: () => {} })
+  t.after(() => w.stop())
+  w.start()
+  await settle()
+  // A pair event starts a second read while the first still waits.
+  events.enqueue(new TextEncoder().encode('data: {"type":"pair"}\n\n'))
+  await settle()
+  assert.equal(answers.length, 2)
+  const reply = (request) => Response.json({ pairing: request ? { request } : {} })
+  // The later read says the request ended; the earlier one, answering last, still saw it.
+  answers[1](reply(null))
+  await settle()
+  answers[0](reply({ id: "r1", expiresAt: clock.now + 60_000 }))
+  await settle()
+  assert.deepEqual(told, [false])
+})

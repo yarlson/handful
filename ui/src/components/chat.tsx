@@ -794,7 +794,6 @@ function Composer({
 }) {
   const narrow = useNarrow()
   const [text, setText] = useState(() => loadDraft(bot.id))
-  useEffect(() => saveDraft(bot.id, text), [bot.id, text])
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   // The composer is keyed by chat, so each chat keeps its own draft's nonce.
@@ -806,6 +805,9 @@ function Composer({
   // browse is the walk through this chat's sent messages that ↑ and ↓ make (lib/history.ts).
   const [browse, setBrowse] = useState<Browse | null>(null)
   const [historyStatus, setHistoryStatus] = useState("")
+  // While browsing, the box shows a sent message; the draft to keep is the one the walk saved.
+  const draft = browse ? browse.draft : text
+  useEffect(() => saveDraft(bot.id, draft), [bot.id, draft])
   const input = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const isRoom = bot.kind === "room"

@@ -8,6 +8,7 @@ import Footer from "../components/Footer.astro";
 import Proofs from "../components/Proofs.astro";
 import Shot from "../components/Shot.astro";
 import { macDownloadUrl } from "../release";
+import { aboutText, needs } from "../about";
 import approvalLight from "../assets/approval-light.png";
 import approvalDark from "../assets/approval-dark.png";
 import roomLight from "../assets/room-light.png";
@@ -30,19 +31,30 @@ import needsDark from "../assets/needs-you-dark.png";
 const title = "Handful: open-source AI agents on your own computer. Runs Claude Code.";
 const description =
 	"Handful runs personal AI agents on your Mac or Linux computer. Each bot keeps its own chat, memory and routines, and a lead decides what a team does next. Handful runs Claude Code on your own subscription.";
-const softwareApplication = {
+const site = Astro.site?.origin ?? "https://handful.dev";
+const jsonLd = {
 	"@context": "https://schema.org",
-	"@type": "SoftwareApplication",
-	name: "Handful",
-	description,
-	url: Astro.site?.href,
-	applicationCategory: "DeveloperApplication",
-	operatingSystem: "macOS, Linux",
-	downloadUrl: macDownloadUrl,
-	license: "https://opensource.org/licenses/MIT",
-	sameAs: "https://github.com/yarlson/handful",
-	offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-	author: { "@type": "Person", name: "Yar Kravtsov" },
+	"@graph": [
+		{ "@type": "WebSite", "@id": `${site}/#website`, name: "Handful", alternateName: "handful.dev", url: `${site}/` },
+		{
+			"@type": "SoftwareApplication",
+			"@id": `${site}/#app`,
+			name: "Handful",
+			description: aboutText,
+			url: `${site}/`,
+			applicationCategory: "DeveloperApplication",
+			operatingSystem: "macOS, Linux",
+			softwareRequirements: needs,
+			downloadUrl: macDownloadUrl,
+			license: "https://opensource.org/licenses/MIT",
+			isAccessibleForFree: true,
+			offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+			sameAs: "https://github.com/yarlson/handful",
+			softwareHelp: { "@type": "CreativeWork", url: `${site}/docs/` },
+			author: { "@id": `${site}/#author` },
+		},
+		{ "@type": "Person", "@id": `${site}/#author`, name: "Yar Kravtsov", url: "https://github.com/yarlson" },
+	],
 };
 
 const wrap = "mx-auto w-full max-w-6xl px-6 sm:px-10 lg:px-16";
@@ -106,7 +118,7 @@ const numbers = [
 ---
 
 <Layout title={title} description={description}>
-	<script slot="head" type="application/ld+json" is:inline set:html={JSON.stringify(softwareApplication)} />
+	<script slot="head" type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />
 	<Header />
 
 	<main>

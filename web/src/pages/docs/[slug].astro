@@ -1,0 +1,14 @@
+---
+import type { GetStaticPaths } from "astro";
+import Docs from "../../layouts/Docs.astro";
+import { pages, docModule, updated } from "../../docs";
+
+export const getStaticPaths = (() => pages.map((page) => ({ params: { slug: page.slug }, props: { page } }))) satisfies GetStaticPaths;
+
+const { page } = Astro.props;
+const { Content } = docModule(page);
+---
+
+<Docs title={page.title} description={page.description} current={page.slug} updated={updated(page)}>
+	<Content />
+</Docs>

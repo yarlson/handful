@@ -1,0 +1,47 @@
+---
+import "../styles/docs.css";
+import Layout from "./Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import { pages, formatDate } from "../docs";
+
+interface Props {
+	title: string;
+	description: string;
+	current?: string;
+	updated?: string | null;
+}
+
+const { title, description, current, updated } = Astro.props;
+---
+
+<Layout title={`${title} · Handful docs`} description={description}>
+	<Header />
+	<div class="mx-auto w-full max-w-6xl px-6 pb-24 pt-[clamp(1rem,4vh,3rem)] sm:px-10 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-16 lg:px-16">
+		<nav aria-label="Docs" class="mb-10 lg:sticky lg:top-8 lg:mb-0 lg:self-start">
+			<p class="text-sm font-[550] text-ink-3"><a href="/docs/" class="hover:text-ink">Docs</a></p>
+			<ul class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-[0.9375rem] lg:flex-col lg:gap-y-1.5">
+				{
+					pages.map((page) => (
+						<li>
+							<a
+								href={`/docs/${page.slug}/`}
+								aria-current={current === page.slug ? "page" : undefined}
+								class:list={["transition-colors hover:text-ink", current === page.slug ? "font-[550] text-ink" : "text-ink-2"]}
+							>
+								{page.title}
+							</a>
+						</li>
+					))
+				}
+			</ul>
+		</nav>
+		<main class="min-w-0 max-w-3xl">
+			<article class="docs">
+				<slot />
+			</article>
+			{updated && <p class="mt-14 text-sm text-ink-3">Last updated <time datetime={updated}>{formatDate(updated)}</time></p>}
+		</main>
+	</div>
+	<Footer />
+</Layout>

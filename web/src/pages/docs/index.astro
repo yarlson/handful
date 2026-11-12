@@ -1,0 +1,21 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import { pages } from "../../docs";
+---
+
+<Docs title="Docs" description="How Handful works: bots, rooms and teams, the Mac app, settings, connectors and development.">
+	<div class="docs">
+		<h1>Handful docs</h1>
+		<p>How Handful works, page by page. Start with First steps.</p>
+		<ul class="!mt-8 !list-none !pl-0 space-y-6">
+			{
+				pages.map((page) => (
+					<li>
+						<a href={`/docs/${page.slug}/`} class="text-lg font-[560] tracking-[-0.015em]">{page.title}</a>
+						<p class="!mt-1 !text-base !text-ink-2">{page.description}</p>
+					</li>
+				))
+			}
+		</ul>
+	</div>
+</Docs>

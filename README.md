@@ -121,7 +121,7 @@ Bots are not isolated from each other. Reading files needs no approval and has n
 
 A team keeps its members' work focused on the team, but it is not a security boundary: a member can still read any file, including other teams' folders.
 
-Phone access is off by default. Turned on, it opens a second loopback address for a proxy on this computer, and every request needs a paired phone. With a Cloudflare Tunnel, Cloudflare sees your chats and approvals. [Phone access](docs/configuration.md#phone-access) has the keys and the limits.
+Phone access is off by default. Turned on, it opens a second loopback address for a proxy on this computer, and every request needs a paired phone. A phone is paired for one of three scopes: **View**, **Chat**, or **Chat and approve once**. A phone never chooses Always allow, but it can message your bots, and a bot can then use any tool you have already always-allowed for it, with no approval card. With a Cloudflare Tunnel, Cloudflare sees your chats and approvals. [Phone access](docs/configuration.md#phone-access) has the keys and the limits.
 
 ## Not built yet
 

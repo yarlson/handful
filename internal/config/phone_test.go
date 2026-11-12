@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -112,8 +113,13 @@ func TestLoadRefusesAFileWithABadPhoneKey(t *testing.T) {
 			t.Errorf("Load(%s) = nil; want an error", body)
 		}
 	}
-	f, err := Load(writeFile(t, `{"phone":{"enabled":true,"hosts":["phone.example.com"],"cloudflare":{"teamDomain":"you.cloudflareaccess.com","aud":"abcdef0123456789"}}}`))
-	if err != nil || !f.PhoneSettings().Enabled || f.PhoneSettings().AUD != "abcdef0123456789" {
-		t.Fatalf("Load = %+v, %v", f.Phone, err)
+	// A file written by hand is read as Set would store it.
+	f, err := Load(writeFile(t, `{"phone":{"enabled":true,"addr":"127.0.0.1:7900","hosts":[" Phone.Example.COM "],"proxy":"cloudflare","cloudflare":{"teamDomain":"https://You.CloudflareAccess.com/","aud":" ABCDEF0123456789 "}}}`))
+	want := PhoneSettings{Enabled: true, Addr: "127.0.0.1:7900", Hosts: []string{"phone.example.com"}, Proxy: ProxyCloudflare, TeamDomain: "you.cloudflareaccess.com", AUD: "abcdef0123456789"}
+	if err != nil || !reflect.DeepEqual(f.PhoneSettings(), want) {
+		t.Fatalf("Load = %+v, %v; want %+v", f.PhoneSettings(), err, want)
+	}
+	if bare, err := Load(writeFile(t, `{"phone":{"enabled":false}}`)); err != nil || bare.Phone.Hosts != nil || bare.PhoneSettings().Addr != DefaultPhoneAddr {
+		t.Fatalf("a file without hosts = %+v, %v", bare.Phone, err)
 	}
 }

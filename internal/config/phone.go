@@ -163,36 +163,43 @@ func setHosts(dst *[]string, raw json.RawMessage) error {
 	return nil
 }
 
-// check applies the per-key rules to a file read from disk.
+// check applies the per-key rules to a file read from disk, and keeps the values as Set would
+// store them: host names, the team domain and the AUD tag in lower case, the domain without
+// https://.
 func (p *Phone) check() error {
 	if p == nil {
 		return nil
 	}
-	if p.Addr != nil {
-		if _, err := checkPhoneAddr(*p.Addr); err != nil {
-			return err
-		}
-	}
-	if _, err := checkHosts(p.Hosts); err != nil {
+	hosts, err := checkHosts(p.Hosts)
+	if err != nil {
 		return err
 	}
-	if p.Proxy != nil {
-		if _, err := checkProxy(*p.Proxy); err != nil {
-			return err
-		}
+	p.Hosts = hosts
+	if err := normalize(p.Addr, checkPhoneAddr); err != nil {
+		return err
+	}
+	if err := normalize(p.Proxy, checkProxy); err != nil {
+		return err
 	}
 	if cf := p.Cloudflare; cf != nil {
-		if cf.TeamDomain != nil {
-			if _, err := checkTeamDomain(*cf.TeamDomain); err != nil {
-				return err
-			}
+		if err := normalize(cf.TeamDomain, checkTeamDomain); err != nil {
+			return err
 		}
-		if cf.AUD != nil {
-			if _, err := checkAUD(*cf.AUD); err != nil {
-				return err
-			}
-		}
+		return normalize(cf.AUD, checkAUD)
 	}
+	return nil
+}
+
+// normalize replaces *v, when it is set, with what check makes of it.
+func normalize(v *string, check func(string) (string, error)) error {
+	if v == nil {
+		return nil
+	}
+	s, err := check(*v)
+	if err != nil {
+		return err
+	}
+	*v = s
 	return nil
 }
 

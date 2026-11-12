@@ -276,3 +276,60 @@ test("reveal on a chat whose newest page failed finds nothing", async () => {
   await s.release(new Error("offline"))
   assert.isFalse(await found)
 })
+
+// #28: the server can publish rev 5 before rev 4, which committed first. A stream that drops
+// between the two loses rev 4; the reconnect must still fetch it.
+test("a reconnect fetches from below a rev the stream skipped, so no change is lost", async () => {
+  const s = fakeServer(range(1, 3))
+  void s.chats.select("c")
+  await s.release()
+  s.entries.push(e(4), e(5))
+  s.chats.update("c", [e(5)])
+  assert.deepEqual(seqs(s.chats), [1, 2, 3, 5])
+  s.chats.reconnected()
+  assert.equal(s.asked.at(-1), "c after=3", "rev 4 never came, so the catch-up starts below it")
+  await s.release()
+  assert.deepEqual(seqs(s.chats), [1, 2, 3, 4, 5], "rev 4 arrives, and rev 5 isn't doubled")
+  s.chats.reconnected()
+  assert.equal(s.asked.at(-1), "c after=5", "after the fetch, the catch-up starts at its highest rev")
+})
+
+test("revs that arrive out of order move the catch-up mark once the gap closes", async () => {
+  const s = fakeServer(range(1, 3))
+  void s.chats.select("c")
+  await s.release()
+  s.chats.update("c", [e(6)])
+  s.chats.update("c", [e(5)])
+  s.chats.reconnected()
+  assert.equal(s.asked.at(-1), "c after=3", "4 is still missing")
+  await s.release()
+  s.chats.update("c", [e(4)])
+  s.chats.reconnected()
+  assert.equal(s.asked.at(-1), "c after=6", "4, 5 and 6 are all in")
+})
+
+// A change replaces an entry's rev, so a fetch can bring revs with gaps: 4 and 6, where 5 was
+// the entry's version that 6 replaced.
+test("after a fetch whose revs have gaps, the catch-up starts at its highest rev", async () => {
+  const s = fakeServer(range(1, 3))
+  void s.chats.select("c")
+  await s.release()
+  s.entries.push(e(4), e(5, 6))
+  s.chats.reconnected()
+  await s.release()
+  assert.deepEqual(seqs(s.chats), [1, 2, 3, 4, 5])
+  s.chats.reconnected()
+  assert.equal(s.asked.at(-1), "c after=6")
+})
+
+test("changes that arrive after their chat unloaded are dropped quietly", async () => {
+  const s = fakeServer(range(1, 3))
+  void s.chats.select("c")
+  await s.release()
+  s.entries.push(e(4))
+  s.chats.reconnected()
+  for (const other of ["a", "b", "d", "f"]) void s.chats.select(other)
+  await s.release()
+  assert.isUndefined(s.chats.get("c"))
+  assert.deepEqual(s.calls.errors, [])
+})

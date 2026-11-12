@@ -1,7 +1,7 @@
 import type { Entry } from "./api"
 import { loadEntriesAfter } from "./entries"
 import type { TranscriptEvent } from "./transcript"
-import { keptChats, openWindow, WINDOW_PAGE, withOlderPage, withUpdates, type EntryWindow } from "./window"
+import { caughtUpTo, keptChats, openWindow, WINDOW_PAGE, withOlderPage, withUpdates, type EntryWindow } from "./window"
 
 // KEPT_CHATS is how many chats keep their loaded window: the open one and the ones opened
 // just before it. The others unload, and load their newest page again when reopened.
@@ -30,7 +30,8 @@ type Load = {
 }
 
 // ChatWindows loads the windows of the open chats: a chat loads its newest page once when it
-// opens, older pages on demand, and, after each reconnect, only the changes after its rev.
+// opens, older pages on demand, and, after each reconnect, only the changes after its
+// catch-up mark.
 export class ChatWindows {
   private loads = new Map<string, Load>()
   private recent: string[] = []
@@ -67,7 +68,7 @@ export class ChatWindows {
       const w = withUpdates(openWindow(page, WINDOW_PAGE), load.buffer)
       this.put(load, w)
       this.server.onStatus(id, "loaded")
-      if (load.refresh) await this.refresh(id, w.rev)
+      if (load.refresh) await this.refresh(id, w.caughtUp)
     } catch (e) {
       if (this.loads.get(id) !== load) return
       this.loads.delete(id)
@@ -92,13 +93,21 @@ export class ChatWindows {
     this.put(load, withUpdates(w, entries))
   }
 
-  // reconnected fetches, for each loaded chat, the changes after its rev; a chat whose newest
-  // page is on its way does it once the page arrives.
+  // reconnected fetches, for each loaded chat, the changes after its catch-up mark; a chat whose
+  // newest page is on its way does it once the page arrives.
   reconnected() {
     for (const [id, load] of this.loads) {
-      if (load.window) void this.refresh(id, load.window.rev)
+      if (load.window) void this.refresh(id, load.window.caughtUp)
       else load.refresh = true
     }
+  }
+
+  // changes applies a page of the changes after a rev, which holds every change up to its
+  // highest rev.
+  private changes(id: string, entries: Entry[]) {
+    this.update(id, entries)
+    const load = this.loads.get(id)
+    if (load?.window) this.put(load, caughtUpTo(load.window, Math.max(...entries.map((e) => e.rev))))
   }
 
   private async refresh(id: string, after: number) {
@@ -106,7 +115,7 @@ export class ChatWindows {
       await loadEntriesAfter(
         (rev) => this.server.changes(id, rev),
         after,
-        (entries) => this.update(id, entries),
+        (entries) => this.changes(id, entries),
       )
     } catch (e) {
       this.server.onError((e as Error).message)

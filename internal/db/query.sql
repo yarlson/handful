@@ -84,6 +84,27 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (bot_id, client_nonce) DO NOTHING
 RETURNING *;
 
+-- name: HasQueuedRoutineTurn :one
+SELECT EXISTS (
+  SELECT 1 FROM routine_turns rt JOIN turns t ON t.id = rt.turn_id
+  WHERE rt.routine_id = ? AND t.status = 'queued'
+) AS queued;
+
+-- name: LinkRoutineTurn :exec
+INSERT INTO routine_turns (turn_id, routine_id) VALUES (?, ?);
+
+-- name: CancelQueuedRoutineTurns :exec
+UPDATE turns SET status = 'interrupted', error = sqlc.arg(reason), finished_at = sqlc.arg(at)
+WHERE status = 'queued' AND id IN (SELECT turn_id FROM routine_turns WHERE routine_id = sqlc.arg(routine_id));
+
+-- name: ListQueuedTurnsPage :many
+-- One page of the queued turns in queue order: the leads' board turns when leads is 1, the
+-- others when it is 0.
+SELECT * FROM turns
+WHERE status = 'queued' AND (board_role IN ('lead', 'retro')) = CAST(sqlc.arg(leads) AS INTEGER)
+ORDER BY created_at, rowid
+LIMIT sqlc.arg(page) OFFSET sqlc.arg(skip);
+
 -- name: GetTurnByNonce :one
 SELECT * FROM turns WHERE bot_id = ? AND client_nonce = ?;
 
@@ -155,6 +176,9 @@ SELECT * FROM routines WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_ru
 
 -- name: MarkRoutineFired :exec
 UPDATE routines SET last_run_at = ?, last_run_by = ?, next_run_at = ? WHERE id = ?;
+
+-- name: SetRoutineNextRun :exec
+UPDATE routines SET next_run_at = ? WHERE id = ?;
 
 -- name: SetRoutineLastRun :exec
 UPDATE routines SET last_run_at = ?, last_run_by = ? WHERE id = ?;

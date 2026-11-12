@@ -131,24 +131,6 @@ func TestBoardTurnsAreGoalWorkAndLeadDecisions(t *testing.T) {
 	}
 }
 
-func TestDispatchOrderPutsLeadsBoardTurnsFirstAndKeepsTheRest(t *testing.T) {
-	t.Parallel()
-	turns := []core.Turn{
-		{ID: "chat1"},
-		{ID: "retro", BoardRole: core.RoleRetro},
-		{ID: "work", BoardRole: core.RoleWork, GoalID: "g"},
-		{ID: "plan", BoardRole: core.RoleLead},
-		{ID: "chat2"},
-	}
-	var got []string
-	for _, t := range dispatchOrder(turns) {
-		got = append(got, t.ID)
-	}
-	if want := []string{"retro", "plan", "chat1", "work", "chat2"}; !slices.Equal(got, want) {
-		t.Fatalf("order = %v; want %v", got, want)
-	}
-}
-
 // Accepting a goal queues its retro before the next goal's planning. With a
 // member's chat turn running in the team, the retro still runs first.
 func TestTheRetroRunsBeforeTheNextGoalsPlanningWhileTheRoomsChatRuns(t *testing.T) {

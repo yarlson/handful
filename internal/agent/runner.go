@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -100,25 +99,10 @@ func stepTurn(t core.Turn) bool {
 }
 
 // leadsTurn reports whether t is one of a lead's board turns, which dispatch
-// tries first: a decision, or the retro of an accepted goal. The retro
-// stays among them, so that it keeps its place before the planning of the
-// next goal, which is queued after it.
+// tries first (core.Service.QueuedTurnsPage): a decision, or the retro of an
+// accepted goal. The retro stays among them, so that it keeps its place
+// before the planning of the next goal, which is queued after it.
 func leadsTurn(t core.Turn) bool { return leadDecision(t) || t.BoardRole == core.RoleRetro }
-
-// dispatchOrder puts the leads' board turns first and keeps the queue order
-// otherwise.
-func dispatchOrder(turns []core.Turn) []core.Turn {
-	slices.SortStableFunc(turns, func(a, b core.Turn) int {
-		if leadsTurn(a) == leadsTurn(b) {
-			return 0
-		}
-		if leadsTurn(a) {
-			return -1
-		}
-		return 1
-	})
-	return turns
-}
 
 func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 	if cfg.MaxParallel <= 0 {
@@ -379,53 +363,93 @@ func (r *Runner) signalDone() {
 	}
 }
 
-// dispatch starts the queued turns that may start. It starts none after a
-// usage limit, or while the server drains for an update; the turns stay
-// queued, and leaving drain mode signals TurnsReady.
+// dispatchPage is how many queued turns dispatch reads at a time.
+const dispatchPage = 100
+
+// dispatch starts the queued turns that may start, until MaxParallel runs are active. It reads
+// the whole queue a page at a time, the leads' board turns first, so a busy bot's many turns
+// never hide an idle bot's. It starts none after a usage limit, or while the server drains for
+// an update; the turns stay queued, and leaving drain mode signals TurnsReady.
 func (r *Runner) dispatch(ctx context.Context) {
 	if draining, _ := r.svc.Draining(); draining || ctx.Err() != nil || !r.PausedUntil().IsZero() {
 		return
 	}
-	turns, err := r.svc.QueuedTurns(ctx, 100)
-	if err != nil {
-		r.log.Error("list queued turns", "err", err)
-		return
+	for _, leads := range []bool{true, false} {
+		// The turns this pass starts leave the queue, so the next page starts that many earlier.
+		for skip := 0; ; {
+			turns, err := r.svc.QueuedTurnsPage(ctx, leads, skip, dispatchPage)
+			if err != nil {
+				r.log.Error("list queued turns", "err", err)
+				return
+			}
+			started, full := r.startTurns(ctx, turns)
+			if full {
+				return
+			}
+			if len(turns) < dispatchPage {
+				break
+			}
+			skip += len(turns) - started
+		}
 	}
+}
+
+// startTurns starts the turns that may start now, in order, until MaxParallel runs are active.
+// It returns how many it started, and true when it stopped at MaxParallel.
+func (r *Runner) startTurns(ctx context.Context, turns []core.Turn) (int, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, t := range dispatchOrder(turns) {
-		if len(r.running) >= r.cfg.MaxParallel {
-			return
+	started := 0
+	for _, t := range turns {
+		if r.activeLocked() >= r.cfg.MaxParallel {
+			return started, true
 		}
 		if !r.mayStartLocked(ctx, t) {
 			continue
 		}
-		started, err := r.svc.StartTurn(ctx, t.ID)
+		ok, err := r.svc.StartTurn(ctx, t.ID)
 		if err != nil {
 			r.log.Error("start turn", "turn", t.ID, "err", err)
 		}
 		// A turn that a board change cancelled after the list was read does not start.
-		if !started {
+		if !ok {
 			continue
 		}
-		turnCtx, cancel := context.WithCancel(ctx)
-		r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, work: stepTurn(t), goalID: t.GoalID, board: boardTurn(t), since: time.Now()}
-		r.publish(t.BotID, true)
-		if t.RoomID != "" {
-			r.publish(t.RoomID, true)
-		}
-		r.wg.Add(1)
-		go func(t core.Turn) {
-			defer r.wg.Done()
-			defer cancel()
-			r.execute(turnCtx, t)
-			r.mu.Lock()
-			delete(r.running, t.BotID)
-			r.mu.Unlock()
-			r.publishState(t.BotID, t.RoomID)
-			r.signalDone()
-		}(t)
+		started++
+		r.startLocked(ctx, t)
 	}
+	return started, false
+}
+
+// activeLocked counts the claude runs going on: the turns dispatch started, and the task
+// turns that Claude Code started on its own. r.mu is held.
+func (r *Runner) activeLocked() int {
+	n := len(r.running)
+	for _, s := range r.sessions {
+		if s.waking {
+			n++
+		}
+	}
+	return n
+}
+
+// startLocked runs turn t, which StartTurn marked running. r.mu is held.
+func (r *Runner) startLocked(ctx context.Context, t core.Turn) {
+	turnCtx, cancel := context.WithCancel(ctx)
+	r.running[t.BotID] = runningTurn{cancel: cancel, roomID: t.RoomID, work: stepTurn(t), goalID: t.GoalID, board: boardTurn(t), since: time.Now()}
+	r.publish(t.BotID, true)
+	if t.RoomID != "" {
+		r.publish(t.RoomID, true)
+	}
+	r.wg.Go(func() {
+		defer cancel()
+		r.execute(turnCtx, t)
+		r.mu.Lock()
+		delete(r.running, t.BotID)
+		r.mu.Unlock()
+		r.publishState(t.BotID, t.RoomID)
+		r.signalDone()
+	})
 }
 
 // mayStartLocked reports whether turn t may start now. r.mu is held.

@@ -808,6 +808,10 @@ func (s *Service) QueuedTurns(ctx context.Context, limit int) ([]Turn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list queued turns: %w", err)
 	}
+	return queuedTurns(rows), nil
+}
+
+func queuedTurns(rows []db.Turn) []Turn {
 	turns := make([]Turn, 0, len(rows))
 	for _, r := range rows {
 		turns = append(turns, Turn{
@@ -815,7 +819,17 @@ func (s *Service) QueuedTurns(ctx context.Context, limit int) ([]Turn, error) {
 			GoalID: r.GoalID, ItemID: r.ItemID, BoardRole: r.BoardRole, Decision: r.Decision == 1,
 		})
 	}
-	return turns, nil
+	return turns
+}
+
+// QueuedTurnsPage returns up to page queued turns, oldest first, after the first skip: the
+// leads' board turns (a decision or a retro) when leads is true, the other turns when it is false.
+func (s *Service) QueuedTurnsPage(ctx context.Context, leads bool, skip, page int) ([]Turn, error) {
+	rows, err := s.q.ListQueuedTurnsPage(ctx, db.ListQueuedTurnsPageParams{Leads: boolInt(leads), Skip: int64(skip), Page: int64(page)})
+	if err != nil {
+		return nil, fmt.Errorf("list queued turns: %w", err)
+	}
+	return queuedTurns(rows), nil
 }
 
 // StartTurn marks a queued turn as running. It returns false when the turn

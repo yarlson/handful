@@ -11,6 +11,7 @@ const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ens
 const { contextMenuTemplate } = require("./context-menu")
 const { appMenuTemplate } = require("./menu")
 const { createOldServerGate, launchctlRunner } = require("./manual-move")
+const { createPairBadge, createPairWatch } = require("./pair-badge")
 const { lastStartupErrorIn, runServerErrorAction, serverErrorDialog } = require("./server-log")
 const { createSettingsBridge, registerSettingsIPC, settingsAPI } = require("./settings-bridge")
 const { createUpdater } = require("./updater")
@@ -52,6 +53,11 @@ const updater = createUpdater({
   },
   getWindow: () => window,
 })
+
+// The Dock badge while a phone waits to pair and the window is not in front.
+const pairBadge = createPairBadge({ dock: app.dock ?? null, isFocused: () => !!window?.isFocused() })
+// While the window is closed, no page runs, so the app asks the server.
+const pairWatch = createPairWatch({ base: serverURL, onWaiting: (waiting) => pairBadge.change(waiting) })
 
 // The manual path of the move: before Handful registers its agent, the old
 // app's server, if it still holds the port, is stopped with the user's
@@ -115,6 +121,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(buildMenu())
     registerSettingsIPC(ipcMain, settingsBridge, isTrusted)
+    ipcMain.on("pair:change", (event, waiting) => {
+      if (isTrusted(event)) pairBadge.change(waiting)
+    })
     void updater.start().catch((err) => console.error("start the updater:", err))
     session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
       callback(pagePermissions.has(permission) && isAppURL(details.requestingUrl)),
@@ -337,6 +346,7 @@ async function openWindow() {
   }
   // Hidden until the page paints, so a dark-mode window does not flash white.
   // The preload script gives the page window.handfulUpdater and window.handfulSettings.
+  pairWatch.stop()
   window = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -345,8 +355,14 @@ async function openWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, sandbox: true },
   })
   window.once("ready-to-show", () => window?.show())
+  window.on("focus", () => pairBadge.focus())
+  // A new page tells the request's state afresh, so the badge forgets the old one.
+  window.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) pairBadge.reset()
+  })
   window.on("closed", () => {
     window = null
+    pairWatch.start()
   })
   routeLinks(window.webContents)
   showContextMenus(window)

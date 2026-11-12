@@ -676,12 +676,20 @@ const Row = memo(function Row(props: Parameters<typeof EntryView>[0]) {
   )
 })
 
-type Suggestion = {
+export type Suggestion = {
   token: string
   label: string
   detail?: string
   kind: "bot" | "everyone" | "command" | "skill"
   botId?: string // a bot's row: the bot, for its colour
+}
+
+// SuggestionIcon is the icon of a menu row: a bot in its own colour, everyone, a command or a skill.
+export function SuggestionIcon({ s }: { s: Suggestion }) {
+  if (s.kind === "bot") return <BotDot className={cn("mt-0.5 size-3.5 shrink-0", s.botId && botColor(s.botId).text)} />
+  if (s.kind === "everyone") return <Users className="mt-0.5 size-3.5 shrink-0" />
+  if (s.kind === "command") return <TerminalSquare className="mt-0.5 size-3.5 shrink-0" />
+  return <Sparkles className="mt-0.5 size-3.5 shrink-0" />
 }
 
 const commands: Suggestion[] = [
@@ -713,7 +721,7 @@ const teamCommands: Suggestion[] = [
 // for everyone in a room); after "/", commands and skills at the start of the text, and skills
 // only elsewhere, since Handful's commands work only at the start. A team's chat also offers
 // the team commands.
-function suggestionsFor(
+export function suggestionsFor(
   query: (MentionQuery & { mode: "mention" }) | (SlashQuery & { mode: "slash" }),
   mentionables: Member[],
   skills: Skill[],
@@ -1013,15 +1021,7 @@ function Composer({
                   accept(s)
                 }}
               >
-                {s.kind === "bot" ? (
-                  <BotDot className={cn("mt-0.5 size-3.5 shrink-0", s.botId && botColor(s.botId).text)} />
-                ) : s.kind === "everyone" ? (
-                  <Users className="mt-0.5 size-3.5 shrink-0" />
-                ) : s.kind === "command" ? (
-                  <TerminalSquare className="mt-0.5 size-3.5 shrink-0" />
-                ) : (
-                  <Sparkles className="mt-0.5 size-3.5 shrink-0" />
-                )}
+                <SuggestionIcon s={s} />
                 <span className="min-w-0">
                   <span className={cn((s.kind === "command" || s.kind === "skill") && "font-mono")}>{s.label}</span>
                   {s.detail && <span className="text-muted-foreground block truncate text-xs">{s.detail}</span>}

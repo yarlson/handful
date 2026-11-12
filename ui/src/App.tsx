@@ -320,7 +320,7 @@ function NewTeamDialog({
   )
 }
 
-function SidebarItem({
+export function SidebarItem({
   bot,
   selected,
   unread,

@@ -16,7 +16,8 @@ const http = goFiles("internal/httpapi").join("\n");
 const keyPath = http.match(/keyPath\s*=\s*"([^"]+)"/)?.[1];
 const registered = new Set([...http.matchAll(/"(GET|POST|PUT|PATCH|DELETE) (\/[^"]*)"/g)].map((m) => normal(`${m[1]} ${m[2]}`)));
 if (keyPath) registered.add(`POST ${keyPath}`);
-const named = [...llms.matchAll(/`(GET|POST|PUT|PATCH|DELETE) (\/[^`\s]*?)(?:\?[^`\s]*)?`/g)].map((m) => normal(`${m[1]} ${m[2]}`));
+// A parameter may have a space inside its braces, such as {entry id}.
+const named = [...llms.matchAll(/`(GET|POST|PUT|PATCH|DELETE) (\/(?:[^`\s{?]|\{[^}]*\})*)(?:\?[^`\s]*)?`/g)].map((m) => normal(`${m[1]} ${m[2]}`));
 // A route with a sub-path after a slash, such as "`/reopen`", is written as the full route elsewhere.
 for (const route of new Set(named)) if (!registered.has(route)) errors.push(`route not in the code: ${route}`);
 

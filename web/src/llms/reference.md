@@ -53,7 +53,7 @@ Each `claude` process connects to Handful's MCP endpoint, `/mcp`, with a bearer 
   - `rooms`: each with `name`, `purpose` and `members`.
 - `update_board`: work on the team's board, only in a turn in the team. See the Teams part of the docs above.
   - `action`, for tasks: `send_task`, `take`, `order`, `ask`, `answer_task`, `later`, `pass_on`, `push_back`, `propose`, `make_task`, `close`, `approve`, `stop` and `withdraw`. For steps: `create`, `assign`, `submit`, `block`, `unblock`, `drop`, `pass` and `changes`. Also `list`.
-  - `goal_id`: the task, for every task action except `send_task`, `propose` and `make_task`.
+  - `goal_id`: the task, for `take`, `ask`, `answer_task`, `later`, `pass_on`, `push_back`, `close`, `approve`, `stop` and `withdraw`, and for `changes` on a done task. `order` takes no `goal_id`: its `order` field lists the ids of every task in the plan.
   - `item_id`: the step, for every step action except `create`.
   - `team_id`: for `send_task` and `pass_on`, the other team.
   - `text`: the task in a line, the result, a question, an answer, a reason or a note. `brief`, `title`, `acceptance` and `depends_on` are for `send_task`, `propose`, `make_task` and `create`.
@@ -90,7 +90,7 @@ Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `ro
 
 Bots:
 
-- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `members` (rooms), `team` (teams: `leadId`, `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval` or `question`; the UI also uses `goal` for a paused task and `model` for a model that needs a look), `running`, `tasks`, `createdAt` and `updatedAt`.
+- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `members` (rooms), `team` (teams: `leadId`, `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval`, `question`, `goal` for a team with a paused task, or `model` for a model that needs a look), `running`, `tasks`, `createdAt` and `updatedAt`.
 - `POST /api/bots` with `{"name", "instructions"}`: create a bot. Returns 201 and the bot.
 - `GET /api/bots/{id}`: one bot or room.
 - `PATCH /api/bots/{id}` with `{"name"?, "instructions"?}`: change a bot.
@@ -130,15 +130,15 @@ Rooms:
 
 Teams and tasks:
 
-- `POST /api/teams` with `{"name", "instructions", "memberIds", "leadId"?, "agreement"?}`: create a team. `instructions` is its purpose. Without `leadId`, the first member leads.
+- `POST /api/teams` with `{"name", "instructions", "memberIds", "leadId"?, "agreement"?, "defaultModel"?, "defaultEffort"?}`: create a team. Returns 201 and the team. `instructions` is its purpose. Without `leadId`, the first member leads.
 - `PATCH /api/teams/{id}` with any of `{"leadId", "agreement", "defaultModel", "defaultEffort", "decisionMinutes", "dailyBudget", "inboxMax", "inboxPerSender"}`: change a team. The lead must be a member. `dailyBudget` is the turns the team may start in a day; 0 is no limit.
 - Set the members with `PUT /api/rooms/{team id}/members`, and change the name or the purpose with `PATCH /api/bots/{team id}`.
-- `GET /api/teams/{id}/board`: the team's work: `goal` (the Now task, or the latest one; null when there is none), `items` (its steps), `inbox`, `plan`, `done`, `stopped`, `handedOver` (tasks the team sent to other teams), `offTask` (turns on no task in the last hour), `budget` (the team's turns today) and `teams` (names of the teams that appear).
+- `GET /api/teams/{id}/board`: the team's work: `goal` (the Now task, or the latest one; null when there is none), `items` (its steps), `inbox`, `plan`, `done`, `stopped`, `sent`, `handedOver` (tasks the team sent to other teams), `offTask` (turns on no task in the last hour), `budget` (the team's turns today) and `teams` (names of the teams that appear).
 - `POST /api/teams/{id}/tasks` with `{"text", "brief"?, "artifactIds"?, "startNow"?}`: send the team a task as the user. It lands in the team's inbox, or at the top of the plan with `startNow`.
 - `POST /api/teams/{id}/tasks/from-turns` with `{"text", "brief"?, "turnIds"}`: make a task of 1 to 50 of the team's turns that were on no task.
 - `GET /api/teams/{id}/off-task`: the team's turns on no task. `POST /api/teams/{id}/off-task/dismiss` puts them away.
 - `POST /api/teams/{id}/plan` with `{"order"}`: set the order of the plan.
-- `POST /api/teams/{id}/budget/wait`: wait until midnight at the team's daily limit.
+- `POST /api/teams/{id}/budget/wait`: mark the team's pause at its daily limit as seen, so that Needs you stops asking about it until midnight.
 - `POST /api/tasks/{id}/take` with `{"position"?}`: take a task from the inbox into the plan.
 - `POST /api/tasks/{id}/push-back` with `{"text"}`, `POST /api/tasks/{id}/answer` with `{"text"}` and `POST /api/tasks/{id}/changes` with `{"text"}`: push a task back with a reason, answer a lead's question, or ask for changes to a done task.
 - `POST /api/tasks/{id}/pin` and `DELETE /api/tasks/{id}/pin`: pin a task to its place in the plan, or release it.

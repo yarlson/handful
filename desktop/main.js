@@ -7,7 +7,7 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { setTimeout: sleep } = require("node:timers/promises")
-const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFileIn, settingsFile } = require("./app")
+const { serverURL, isAppURL, isWebURL, isCheckForUpdatesURL, isTrustedFrame, ensureSettingsFileIn, settingsFile, readKey, syncKeyCookie } = require("./app")
 const { contextMenuTemplate } = require("./context-menu")
 const { appMenuTemplate } = require("./menu")
 const { createOldServerGate, launchctlRunner } = require("./manual-move")
@@ -32,7 +32,19 @@ const logFile = path.join(os.homedir(), "Library", "Logs", "Handful", "server.lo
 // Electron grants every other permission too, unless a handler refuses it.
 const pagePermissions = new Set(["clipboard-sanitized-write", "fullscreen"])
 
-const api = serverAPI(serverURL)
+// The local API's key, read from the data folder at each use (issue #9).
+const apiKey = () => readKey(home)
+const api = serverAPI(serverURL, fetch, apiKey)
+
+// setKeyCookie gives the page the key as its cookie, before each load and
+// after the server answers again, since a restarted server may have a new key.
+async function setKeyCookie() {
+  try {
+    await syncKeyCookie({ cookies: session.defaultSession.cookies, url: serverURL, key: apiKey() })
+  } catch (err) {
+    console.error("set the key cookie:", err)
+  }
+}
 
 let window = null
 let opening = null
@@ -52,6 +64,7 @@ const updater = createUpdater({
     if (app.isReady()) Menu.setApplicationMenu(buildMenu())
   },
   getWindow: () => window,
+  apiKey,
 })
 
 // The Dock badge while a phone waits to pair and the window is not in front.
@@ -85,7 +98,7 @@ const oldServerGate = createOldServerGate(
 // The Settings page's window.handfulSettings. Restart now registers the agent
 // again, as a new server does, and waits for the server to answer.
 const settingsBridge = createSettingsBridge({
-  api: settingsAPI(serverURL),
+  api: settingsAPI(serverURL, fetch, apiKey),
   registerAgent,
   startServer: async () => agentStatus() === "enabled" && startServer(serverDigest(), true),
   dialog: {
@@ -305,6 +318,7 @@ async function startServer(digest, registerAgain) {
     await launchctl("kickstart")
     if (await waitForServer(2_000)) {
       saveRegisteredDigest(digest)
+      await setKeyCookie()
       return true
     }
     // A registration can keep the requirement of the old server. Then launchd
@@ -367,6 +381,7 @@ async function openWindow() {
   routeLinks(window.webContents)
   showContextMenus(window)
   try {
+    await setKeyCookie()
     await window.loadURL(serverURL)
   } catch (err) {
     // The next activation creates the window again.
@@ -472,6 +487,7 @@ async function openSettings() {
 async function openSettingsPage() {
   if (!(await showWindow()) || !window) return
   try {
+    await setKeyCookie()
     await window.loadURL(`${serverURL}/settings`)
   } catch (err) {
     console.error("open the Settings page:", err)

@@ -240,3 +240,22 @@ test("serverAPI calls /api/version and /api/drain, and tolerates an old or stopp
   assert.equal(none, null)
   assert.deepEqual(runningOf(none), [])
 })
+
+test("serverAPI sends the key with drain and undrain, reads it at each call, and sends none without a key", async (t) => {
+  const seen = []
+  const { base } = await serve(t, (req, res) => {
+    seen.push(`${req.method} ${req.headers["x-handful-key"] ?? "-"}`)
+    res.writeHead(200, { "Content-Type": "application/json" }).end("{}")
+  })
+  let key = "first"
+  const api = serverAPI(base, fetch, () => key)
+  await api.version()
+  await api.drain()
+  key = "rotated"
+  await api.undrain()
+  key = null
+  await api.drain()
+  assert.deepEqual(seen, ["GET -", "POST first", "DELETE rotated", "POST -"])
+  await serverAPI(base).drain()
+  assert.equal(seen.at(-1), "POST -")
+})

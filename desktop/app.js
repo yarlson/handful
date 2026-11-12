@@ -91,7 +91,52 @@ function ensureSettingsFileIn(home, fsys = fs) {
   return ensureSettingsFile(settingsDir(home, fsys))
 }
 
+// The key that writes to the local API need (issue #9): the server keeps it
+// in ui-key in its data folder, and the app sends it as a header from the
+// main process and as a cookie for the page.
+const keyHeader = "X-Handful-Key"
+const keyCookieName = "handful_key"
+const maxKeyBytes = 1024
+
+// readKey returns the key in settingsDir(home)/ui-key, or null when there is
+// none: an older server makes no key file and needs no key. The file is read
+// each time, because it is replaced when the key is rotated. A file that
+// can't be read is logged and counts as none.
+function readKey(home, fsys = fs, log = console.error) {
+  const file = path.join(settingsDir(home, fsys), "ui-key")
+  let text
+  try {
+    text = fsys.readFileSync(file, "utf8")
+  } catch (err) {
+    if (err.code !== "ENOENT") log(`read ${file}: ${err.code ?? err.message}`)
+    return null
+  }
+  const key = text.trim()
+  if (key === "" || Buffer.byteLength(key) > maxKeyBytes || /[^A-Za-z0-9_-]/.test(key)) {
+    log(`${file} does not hold a key`)
+    return null
+  }
+  return key
+}
+
+// keyHeaders gives the header that carries key, or none without a key.
+function keyHeaders(key) {
+  return key ? { [keyHeader]: key } : {}
+}
+
+// syncKeyCookie sets the page's key cookie for url to the current key, or
+// removes it when there is no key. cookies is Electron's session.cookies.
+async function syncKeyCookie({ cookies, url, key }) {
+  if (!key) return cookies.remove(url, keyCookieName)
+  return cookies.set({ url, name: keyCookieName, value: key, httpOnly: true, sameSite: "strict" })
+}
+
 module.exports = {
+  readKey,
+  keyHeaders,
+  syncKeyCookie,
+  keyHeader,
+  keyCookieName,
   serverURL,
   checkForUpdatesURL,
   isAppURL,

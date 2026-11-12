@@ -4,6 +4,7 @@
 
 const fs = require("node:fs")
 const path = require("node:path")
+const { keyHeaders } = require("./app")
 const { HOUR, feedFile, feedVersion, readSettings } = require("./updater-state")
 
 const firstCheckDelay = 60_000
@@ -83,12 +84,14 @@ async function fetchFeedVersion(feed, fetchImpl = fetch) {
 }
 
 // serverAPI calls the server's /api/version and /api/drain. Each call returns
-// {status, body}, or null when the server does not answer.
-function serverAPI(base, fetchImpl = fetch) {
+// {status, body}, or null when the server does not answer. key() returns the
+// local API's key, read at each change, or null.
+function serverAPI(base, fetchImpl = fetch, key = () => null) {
   async function call(method, endpoint, timeout) {
     try {
-      // The API's CSRF guard requires a JSON content type on every change.
-      const init = method === "GET" ? {} : { headers: { "Content-Type": "application/json" }, body: "{}" }
+      // The API's CSRF guard requires a JSON content type on every change, and
+      // a server that has a key requires it too.
+      const init = method === "GET" ? {} : { headers: { "Content-Type": "application/json", ...keyHeaders(key()) }, body: "{}" }
       const res = await fetchImpl(`${base}${endpoint}`, { method, ...init, signal: AbortSignal.timeout(timeout) })
       let body = null
       try {

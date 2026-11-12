@@ -49,9 +49,10 @@ function signatureMode() {
 // createUpdater makes the updater. isTrusted(event) reports whether an IPC
 // call comes from the main frame of the app's page; onStateChange runs after
 // each change, for example to rebuild the menu. configFile() returns the
-// path of config.json, which can change while the app runs.
-function createUpdater({ serverURL, configFile, isTrusted, isAppURL, onStateChange, getWindow }) {
-  const api = serverAPI(serverURL)
+// path of config.json, which can change while the app runs. apiKey() returns
+// the local API's key or null.
+function createUpdater({ serverURL, configFile, isTrusted, isAppURL, onStateChange, getWindow, apiKey }) {
+  const api = serverAPI(serverURL, fetch, apiKey)
   const model = new UpdaterModel({
     current: app.getVersion(),
     store: fileStore(path.join(app.getPath("userData"), "update-state.json")),

@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict")
 const { test } = require("node:test")
-const { createPairBadge } = require("./pair-badge")
+const { createPairBadge, createPairWatch, isPairEvent, retryDelay } = require("./pair-badge")
 
 function setup({ focused = false } = {}) {
   const calls = []
@@ -36,10 +36,10 @@ test("focus clears the badge while the request still waits", () => {
   assert.deepEqual(calls.at(-1), ["setBadge", ""])
 })
 
-test("closing the window clears the badge, and a later request sets it again", () => {
+test("a new page resets the badge, so a later request sets it again", () => {
   const { badge, calls } = setup()
   badge.change(true)
-  badge.closed()
+  badge.reset()
   assert.deepEqual(calls.at(-1), ["setBadge", ""])
   badge.change(true)
   assert.deepEqual(calls.slice(-2), [
@@ -76,5 +76,186 @@ test("with no Dock nothing fails", () => {
   badge.change(true)
   badge.focus()
   badge.change(false)
-  badge.closed()
+  badge.reset()
+})
+
+// fakeServer answers /api/phone with the current request, and keeps
+// /api/events open, sending each event that send() pushes.
+function fakeServer() {
+  const server = { request: null, phoneOff: false, reads: 0, streams: 0, controllers: [] }
+  server.fetchImpl = async (url, init) => {
+    if (url.endsWith("/api/phone")) {
+      server.reads++
+      if (server.phoneOff) return new Response("404 page not found", { status: 404 })
+      return Response.json({ pairing: server.request ? { request: server.request } : {} })
+    }
+    if (url.endsWith("/api/events")) {
+      server.streams++
+      const body = new ReadableStream({
+        start(controller) {
+          server.controllers.push(controller)
+          controller.enqueue(new TextEncoder().encode("event: hello\ndata: {}\n\n"))
+          init?.signal?.addEventListener("abort", () => controller.error(new Error("aborted")))
+        },
+      })
+      return new Response(body)
+    }
+    return new Response("", { status: 404 })
+  }
+  server.send = (event) => server.controllers.at(-1).enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
+  server.end = () => server.controllers.at(-1).close()
+  return server
+}
+
+function fakeClock() {
+  const clock = { now: 1_000_000, pending: [] }
+  clock.timers = {
+    setTimeout(fn, ms) {
+      const timer = { fn, at: clock.now + ms }
+      clock.pending.push(timer)
+      return timer
+    },
+    clearTimeout(timer) {
+      clock.pending = clock.pending.filter((t) => t !== timer)
+    },
+  }
+  clock.advance = async (ms) => {
+    clock.now += ms
+    for (const timer of clock.pending.filter((t) => t.at <= clock.now)) {
+      clock.pending = clock.pending.filter((t) => t !== timer)
+      timer.fn()
+    }
+    await settle()
+  }
+  return clock
+}
+
+// settle lets the fake streams and reads run; it waits for no clock.
+const settle = async () => {
+  for (let i = 0; i < 50; i++) await new Promise((resolve) => setImmediate(resolve))
+}
+
+function watch(server, clock) {
+  const told = []
+  const w = createPairWatch({ fetchImpl: server.fetchImpl, base: "http://x", onWaiting: (v) => told.push(v), timers: clock.timers, now: () => clock.now, log: () => {} })
+  return { w, told }
+}
+
+test("with the window closed, a request that already waits is found at start", async (t) => {
+  const server = fakeServer()
+  const clock = fakeClock()
+  server.request = { id: "r1", expiresAt: clock.now + 60_000 }
+  const { w, told } = watch(server, clock)
+  t.after(() => w.stop())
+  w.start()
+  await settle()
+  assert.deepEqual(told, [true])
+})
+
+test("with the window closed, a pair event is read, and its end clears it", async (t) => {
+  const server = fakeServer()
+  const clock = fakeClock()
+  const { w, told } = watch(server, clock)
+  t.after(() => w.stop())
+  w.start()
+  await settle()
+  assert.deepEqual(told, [false])
+  server.request = { id: "r1", expiresAt: clock.now + 60_000 }
+  server.send({ type: "bots" })
+  await settle()
+  assert.deepEqual(told, [false], "another event reads nothing")
+  server.send({ type: "pair" })
+  await settle()
+  assert.deepEqual(told, [false, true])
+  server.request = null
+  server.send({ type: "pair" })
+  await settle()
+  assert.deepEqual(told, [false, true, false])
+})
+
+test("with the window closed, a request that runs out is cleared with no event", async (t) => {
+  const server = fakeServer()
+  const clock = fakeClock()
+  server.request = { id: "r1", expiresAt: clock.now + 60_000 }
+  const { w, told } = watch(server, clock)
+  t.after(() => w.stop())
+  w.start()
+  await settle()
+  assert.deepEqual(told, [true])
+  server.request = { id: "r1", expiresAt: clock.now + 60_000 }
+  await clock.advance(60_100)
+  assert.deepEqual(told, [true, false])
+})
+
+test("the badge follows the watch: set while a request waits with the window closed, cleared when it ends", async (t) => {
+  const { badge, calls } = setup()
+  const server = fakeServer()
+  const clock = fakeClock()
+  const w = createPairWatch({ fetchImpl: server.fetchImpl, base: "http://x", onWaiting: (v) => badge.change(v), timers: clock.timers, now: () => clock.now, log: () => {} })
+  t.after(() => w.stop())
+  w.start()
+  await settle()
+  server.request = { id: "r1", expiresAt: clock.now + 60_000 }
+  server.send({ type: "pair" })
+  await settle()
+  assert.deepEqual(calls, [
+    ["setBadge", "1"],
+    ["bounce", "informational"],
+  ])
+  server.request = null
+  server.send({ type: "pair" })
+  await settle()
+  assert.deepEqual(calls.at(-1), ["setBadge", ""])
+})
+
+test("with phone access off, the watch never reports a request", async (t) => {
+  const server = fakeServer()
+  const clock = fakeClock()
+  server.phoneOff = true
+  const { w, told } = watch(server, clock)
+  t.after(() => w.stop())
+  w.start()
+  await settle()
+  server.send({ type: "pair" })
+  await settle()
+  assert.ok(told.every((v) => v === false), JSON.stringify(told))
+})
+
+test("a dropped event stream is read again and reopened", async (t) => {
+  const server = fakeServer()
+  const clock = fakeClock()
+  const { w, told } = watch(server, clock)
+  t.after(() => w.stop())
+  w.start()
+  await settle()
+  server.request = { id: "r1", expiresAt: clock.now + 600_000 }
+  server.end()
+  await settle()
+  assert.equal(server.streams, 1)
+  await clock.advance(retryDelay)
+  assert.equal(server.streams, 2)
+  assert.deepEqual(told, [false, true], "the request that came while the stream was down is found")
+})
+
+test("a stopped watch reads and reports nothing more", async () => {
+  const server = fakeServer()
+  const clock = fakeClock()
+  server.request = { id: "r1", expiresAt: clock.now + 60_000 }
+  const { w, told } = watch(server, clock)
+  w.start()
+  await settle()
+  w.stop()
+  const reads = server.reads
+  await clock.advance(120_000)
+  assert.equal(server.reads, reads)
+  assert.deepEqual(told, [true])
+  assert.deepEqual(clock.pending, [])
+})
+
+test("isPairEvent reads only a data line whose type is pair", () => {
+  assert.equal(isPairEvent('data: {"type":"pair"}'), true)
+  assert.equal(isPairEvent('data: {"type":"bots"}'), false)
+  assert.equal(isPairEvent("event: hello\ndata: {}"), false)
+  assert.equal(isPairEvent(": ping"), false)
+  assert.equal(isPairEvent("data: not json"), false)
 })

@@ -1,5 +1,5 @@
 import { assert, test } from "vitest"
-import { answers, EMPTY_TASK, TASK_WITH_FILES, sendPlan, type SendPlan } from "./send.ts"
+import { answers, draftNonce, EMPTY_TASK, TASK_WITH_FILES, sendPlan, type SendPlan } from "./send.ts"
 
 test("an empty draft without files sends nothing", () => {
   assert.deepEqual(sendPlan("", 0, false), { kind: "skip" })
@@ -69,4 +69,25 @@ test("only a message answers the Answer chip's question", () => {
     [{ kind: "invalid", error: "x" }, false],
   ]
   for (const [plan, want] of plans) assert.equal(answers(plan), want, plan.kind)
+})
+
+test("a draft keeps its nonce until it is sent or changed, so a retry is the same message", () => {
+  let n = 0
+  const nonces = draftNonce(() => `n${++n}`)
+  assert.equal(nonces.of("hello"), "n1")
+  assert.equal(nonces.of("hello"), "n1", "a send again after an error keeps the nonce")
+  assert.equal(nonces.of("hello, edited"), "n2", "a changed draft is a new message")
+  assert.equal(nonces.of("hello"), "n3", "going back to the old text is a new draft too")
+  nonces.sent()
+  assert.equal(nonces.of("hello"), "n4", "after a send, the same text is the next message")
+  assert.equal(nonces.of("hello"), "n4")
+})
+
+test("by default a nonce is a random UUID", () => {
+  const nonces = draftNonce()
+  const a = nonces.of("x")
+  nonces.sent()
+  const b = nonces.of("x")
+  assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  assert.notEqual(a, b)
 })

@@ -664,46 +664,44 @@ func (s *Service) SubmitAnswer(ctx context.Context, botID, text, clientNonce str
 	if err != nil {
 		return "", false, err
 	}
-	nonce := sql.NullString{String: clientNonce, Valid: true}
-	if existing, err := s.q.GetTurnByNonce(ctx, db.GetTurnByNonceParams{BotID: botID, ClientNonce: nonce}); err == nil {
-		return existing.ID, true, nil
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return "", false, fmt.Errorf("look up turn by nonce for bot %s: %w", botID, err)
+	var wake roomWake
+	if bot.IsRoom() {
+		if wake, err = s.roomWake(ctx, bot, text); err != nil {
+			return "", false, err
+		}
 	}
 	names, err := s.saveMedia(uploadedMedia(media))
 	if err != nil {
 		return "", false, err
 	}
-	msg, err := s.insertUserMessage(ctx, bot, text, nonce, names, answers)
-	if err != nil {
-		// Until the entry that refers to the files is committed, a failure must remove them.
-		return "", false, errors.Join(err, s.removeMedia(names))
+	msg, err := s.insertUserMessage(ctx, bot, text, sql.NullString{String: clientNonce, Valid: true}, names, answers, wake)
+	if err != nil || msg.duplicate {
+		// Until the entry that refers to the files is committed, a failure must remove them;
+		// a duplicate's files are the first message's.
+		return msg.turnID, msg.duplicate, errors.Join(err, s.removeMedia(names))
 	}
 	s.hub.Publish(Event{Type: "entry", BotID: botID, Entry: &msg.entry})
 	s.publishQuestions(msg.closed)
-	if bot.IsRoom() {
-		if err := s.wakeRoomMembers(ctx, bot, text, msg.askers...); err != nil {
-			return "", false, err
-		}
-	}
-	turnID = msg.turnID
 	s.signalTurns()
-	return turnID, false, nil
+	return msg.turnID, false, nil
 }
 
-// userMessage is a stored user message: its turn and entry, the questions
-// it closed and the members who asked them.
+// userMessage is a stored user message: its turn and entry, and the questions
+// it closed. A duplicate is a message whose client nonce the bot already had:
+// turnID is then the first message's turn, and nothing else is set.
 type userMessage struct {
-	turnID string
-	entry  Entry
-	closed []Entry
-	askers []string
+	turnID    string
+	duplicate bool
+	entry     Entry
+	closed    []Entry
 }
 
 // insertUserMessage stores the user's message to bot and its turn in one
-// transaction, and closes the questions it answers. In a room the turn row
-// only anchors the nonce; members get their own turns.
-func (s *Service) insertUserMessage(ctx context.Context, bot Bot, text string, nonce sql.NullString, media, answers []string) (userMessage, error) {
+// transaction, closes the questions it answers and, in a room, queues the
+// turns of the members it wakes. In a room the turn row only anchors the
+// nonce; members get their own turns. A nonce the bot already has stores
+// nothing and returns the first message's turn as a duplicate.
+func (s *Service) insertUserMessage(ctx context.Context, bot Bot, text string, nonce sql.NullString, media, answers []string, wake roomWake) (userMessage, error) {
 	var msg userMessage
 	err := s.inTx(ctx, func(q *db.Queries) error {
 		a, err := answersOf(ctx, q, bot, answers)
@@ -715,7 +713,11 @@ func (s *Service) insertUserMessage(ctx context.Context, bot Bot, text string, n
 		if bot.IsRoom() {
 			source, status, roomID = SourceRoom, "done", bot.ID
 		}
-		turn, err := q.InsertTurn(ctx, db.InsertTurnParams{ID: uuid.NewString(), BotID: bot.ID, Source: source, ClientNonce: nonce, Prompt: text, Status: status, RoomID: roomID, CreatedAt: now})
+		turn, err := q.InsertUserTurn(ctx, db.InsertUserTurnParams{ID: uuid.NewString(), BotID: bot.ID, Source: source, ClientNonce: nonce, Prompt: text, Status: status, RoomID: roomID, CreatedAt: now})
+		if errors.Is(err, sql.ErrNoRows) {
+			msg, err = duplicateMessage(ctx, q, bot.ID, text, nonce)
+			return err
+		}
 		if err != nil {
 			return fmt.Errorf("insert turn for bot %s: %w", bot.ID, err)
 		}
@@ -727,14 +729,32 @@ func (s *Service) insertUserMessage(ctx context.Context, bot Bot, text string, n
 		if err != nil {
 			return fmt.Errorf("append user entry to bot %s: %w", bot.ID, err)
 		}
-		msg = userMessage{turnID: turn.ID, entry: toEntry(row), askers: a.askers}
-		msg.closed, err = s.closeAnswered(ctx, q, a, row.ID)
-		return err
+		msg = userMessage{turnID: turn.ID, entry: toEntry(row)}
+		if msg.closed, err = s.closeAnswered(ctx, q, a, row.ID); err != nil {
+			return err
+		}
+		if bot.IsRoom() {
+			return s.wakeRoomMembers(ctx, q, bot, wake, a.askers)
+		}
+		return nil
 	})
 	if err != nil {
 		return userMessage{}, err
 	}
 	return msg, nil
+}
+
+// duplicateMessage is the message whose turn has nonce: the same send again. A
+// nonce sent again with other text is refused, so an edited draft is never lost.
+func duplicateMessage(ctx context.Context, q *db.Queries, botID, text string, nonce sql.NullString) (userMessage, error) {
+	first, err := q.GetTurnByNonce(ctx, db.GetTurnByNonceParams{BotID: botID, ClientNonce: nonce})
+	if err != nil {
+		return userMessage{}, fmt.Errorf("look up turn by nonce for bot %s: %w", botID, err)
+	}
+	if first.Prompt != text {
+		return userMessage{}, fmt.Errorf("%w: client nonce %q was already sent to bot %s with another text", ErrConflict, nonce.String, botID)
+	}
+	return userMessage{turnID: first.ID, duplicate: true}, nil
 }
 
 // EnqueueTurn queues a hidden turn (a routine run or a system cue) for the bot.

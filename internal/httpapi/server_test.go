@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -883,5 +884,58 @@ func TestTheSessionOnTheComputerIsNoPhone(t *testing.T) {
 	rec := do(h, "GET", "/api/session", "", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "{\"phone\":false}\n" {
 		t.Fatalf("session = %d %q; want 200 {\"phone\":false}", rec.Code, rec.Body)
+	}
+}
+
+// #21: two sends of the same draft at once get one 202 and one 200 duplicate, in either
+// order, and never a 500; the same nonce with other text gets 409. A trigger makes the
+// second send lose the race for its nonce after its own nonce check, every time.
+func TestTwoSendsOfOneDraftGiveOneMessage(t *testing.T) {
+	dir := t.TempDir()
+	conn, err := dbtest.Open(context.Background(), filepath.Join(dir, "yargpt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	svc, err := core.New(conn, dir, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := New(svc, agent.NewRunner(svc, agent.Config{ClaudePath: "/nonexistent"}, log), nil, log)
+	bot, err := svc.CreateBot(context.Background(), "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(text string) *httptest.ResponseRecorder {
+		return do(h, "POST", "/api/bots/"+bot.ID+"/messages", `{"text":"`+text+`","clientNonce":"n1"}`, jsonHeader)
+	}
+	if _, err := conn.ExecContext(t.Context(), `CREATE TRIGGER first_send BEFORE INSERT ON turns
+		WHEN NEW.client_nonce = 'n1' AND NEW.id != 'first'
+		BEGIN
+			INSERT INTO turns (id, bot_id, source, client_nonce, prompt, status, room_id, created_at)
+			VALUES ('first', NEW.bot_id, 'user', 'n1', NEW.prompt, 'queued', '', NEW.created_at);
+		END`); err != nil {
+		t.Fatal(err)
+	}
+	if rec := send("hi"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"turnId":"first"`) || !strings.Contains(rec.Body.String(), `"duplicate":true`) {
+		t.Fatalf("the send that lost the race = %d %s; want 200, the first send's turn, duplicate", rec.Code, rec.Body)
+	}
+	if _, err := conn.ExecContext(t.Context(), `DROP TRIGGER first_send`); err != nil {
+		t.Fatal(err)
+	}
+	codes := make(chan int, 2)
+	for range 2 {
+		go func() {
+			codes <- do(h, "POST", "/api/bots/"+bot.ID+"/messages", `{"text":"ho","clientNonce":"n2"}`, jsonHeader).Code
+		}()
+	}
+	got := []int{<-codes, <-codes}
+	slices.Sort(got)
+	if !slices.Equal(got, []int{http.StatusOK, http.StatusAccepted}) {
+		t.Fatalf("two sends at once = %v; want one 200 and one 202", got)
+	}
+	if rec := send("hi, edited"); rec.Code != http.StatusConflict {
+		t.Fatalf("the nonce with other text = %d %s; want 409", rec.Code, rec.Body)
 	}
 }

@@ -453,3 +453,39 @@ func TestCancelQueuedTurnsOfStopsABotsOrARoomsQueuedTurnsOnly(t *testing.T) {
 		t.Fatalf("queued after cancelling the room's turns = %v; want Cy's two", got)
 	}
 }
+
+// #21: a post whose room wake fails stores nothing and fails, so the same send again stores
+// it once and wakes the members; a post is never saved without its wake.
+func TestARoomPostAndItsWakeAreOneChange(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bots := newAgents(t, svc, "Ana", "Bo")
+	room, err := svc.CreateRoom(ctx, "Plan", "", []string{bots["Ana"].ID, bots["Bo"].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainQueue(t, svc)
+	if _, err := svc.sqlDB.ExecContext(ctx, `CREATE TRIGGER wake_fails BEFORE INSERT ON turns
+		WHEN NEW.source = 'room' AND NEW.status = 'queued'
+		BEGIN SELECT RAISE(ABORT, 'wake failed'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.SubmitUserMessage(ctx, room.ID, "Hello team", "n1"); err == nil || !strings.Contains(err.Error(), "wake failed") {
+		t.Fatalf("post while the wake fails: err = %v; want the wake's error", err)
+	}
+	if n := userEntries(t, svc, room.ID); n != 0 {
+		t.Fatalf("user entries after the failed post = %d; want 0", n)
+	}
+	if _, err := svc.sqlDB.ExecContext(ctx, `DROP TRIGGER wake_fails`); err != nil {
+		t.Fatal(err)
+	}
+	if _, dup, err := svc.SubmitUserMessage(ctx, room.ID, "Hello team", "n1"); err != nil || dup {
+		t.Fatalf("the same send again = %v, %v; want a new post", dup, err)
+	}
+	if n := userEntries(t, svc, room.ID); n != 1 {
+		t.Fatalf("user entries = %d; want 1", n)
+	}
+	if got := queued(t, svc, bots); !equal(got, []string{"Ana@room", "Bo@room"}) {
+		t.Fatalf("queued = %v; want both members woken", got)
+	}
+}

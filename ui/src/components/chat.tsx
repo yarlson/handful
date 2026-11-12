@@ -43,7 +43,7 @@ import { ALWAYS_ON_COMPUTER, decidedOn, VIEW_ONLY } from "@/lib/phones"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { imageHost, isExternalLink, isLocalImage } from "@/lib/links"
 import { taskCommand } from "@/lib/task-command"
-import { answers, sendPlan } from "@/lib/send"
+import { answers, draftNonce, sendPlan } from "@/lib/send"
 import { offeredSkills, teamSkillOf } from "@/lib/skills"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
@@ -787,6 +787,8 @@ function Composer({
   useEffect(() => saveDraft(bot.id, text), [bot.id, text])
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  // The composer is keyed by chat, so each chat keeps its own draft's nonce.
+  const [nonces] = useState(() => draftNonce())
   const [query, setQuery] = useState<(MentionQuery & { mode: "mention" | "slash" }) | null>(null)
   const [active, setActive] = useState(0)
   const [dismissedAt, setDismissedAt] = useState<number | null>(null)
@@ -847,13 +849,18 @@ function Composer({
       if (plan.kind === "task") await api.userTask(bot.id, { text: plan.task })
       else if (plan.kind === "clear") await api.clearContext(bot.id)
       else if (plan.kind === "compact") await api.compactContext(bot.id)
-      else
+      else {
+        const answered = answersFor(answering, false)
+        const key = JSON.stringify([plan.text, media.map((m) => m.key), answered])
         await api.send(
           bot.id,
           plan.text,
+          nonces.of(key),
           await Promise.all(media.map((m) => readBase64(m.file))),
-          answersFor(answering, false),
+          answered,
         )
+        nonces.sent()
+      }
       if (answers(plan)) onAnswer(null)
       setText("")
       onSent(bot.id)

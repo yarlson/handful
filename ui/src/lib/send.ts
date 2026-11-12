@@ -43,3 +43,25 @@ export function sendPlan(draft: string, files: number, team: boolean): SendPlan 
 export function answers(plan: SendPlan): boolean {
   return plan.kind === "message"
 }
+
+// DraftNonce is the clientNonce of a chat's sends. A send of the same draft again, after an
+// error, keeps its nonce, so the server stores the message once; a changed draft, or the
+// next one after a send went through, gets a new nonce. key names the draft: its text, its
+// files and the questions it answers.
+export type DraftNonce = { of: (key: string) => string; sent: () => void }
+
+export function draftNonce(make: () => string = () => crypto.randomUUID()): DraftNonce {
+  let draft: string | null = null
+  let nonce = make()
+  return {
+    of(key) {
+      if (draft !== null && key !== draft) nonce = make()
+      draft = key
+      return nonce
+    },
+    sent() {
+      draft = null
+      nonce = make()
+    },
+  }
+}

@@ -381,7 +381,7 @@ Chats:
 - `POST /api/bots/{id}/messages` with `{"text", "clientNonce", "media"?}`: send a message to a bot or a room.
   - `clientNonce` is required, 1 to 100 characters, and unique for each message.
   - `media` is a list of base64-encoded files.
-  - The response is 202 with `{"turnId", "duplicate": false}`. A repeated `clientNonce` starts no second turn: it returns 200 with the first turn's id and `"duplicate": true`.
+  - The response is 202 with `{"turnId", "duplicate": false}`. A repeated `clientNonce` starts no second turn: it returns 200 with the first turn's id and `"duplicate": true`. The same `clientNonce` with other text returns 409.
 - `GET /api/media/{name}`: a file of a message.
 - `POST /api/entries/{entry id}/reactions` with `{"emoji", "on"}`: put a reaction on a `user`, `bot` or `agent` entry (`"on": true`) or take it off (`"on": false`). `emoji` is one of 👍 👎 ❤️ 😂 👀 ✅. Returns 200 and the entry. Setting a reaction that is already on, or removing one that is off, changes nothing. Returns 400 for another emoji or another kind of entry, and 404 for an unknown entry. A reaction wakes no bot.
 - `POST /api/bots/{id}/interrupt`: stop the running turn. Returns `{"stopped": true|false}`.

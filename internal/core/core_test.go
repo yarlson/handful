@@ -471,7 +471,6 @@ func TestRoutineKeepsItsNextRunAcrossASpringForwardChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.loc = ny
 	// Accepted in January: 01:58 and 03:00 are an hour apart on most days.
 	svc.now = func() time.Time { return time.Date(2027, 1, 10, 12, 0, 0, 0, ny) }
 	bot := newTestBot(t, svc)
@@ -495,6 +494,118 @@ func TestRoutineKeepsItsNextRunAcrossASpringForwardChange(t *testing.T) {
 	}
 	if want := time.Date(2027, 3, 14, 1, 58, 0, 0, ny).UnixMilli(); got.NextRunAt == nil || *got.NextRunAt != want {
 		t.Fatalf("next run after the 01:00 run = %v; want 01:58 EST (%d)", got.NextRunAt, want)
+	}
+}
+
+func TestEditingARoutineNearASpringForwardChangeLeavesItsScheduleUnchecked(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Accepted in January: 01:58 and 03:00 are an hour apart on most days.
+	svc.now = func() time.Time { return time.Date(2027, 1, 10, 12, 0, 0, 0, ny) }
+	bot := newTestBot(t, svc)
+	night, err := svc.CreateRoutine(ctx, bot.ID, "Night", "Check the backups.", "0,58 1,3 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	morning, err := svc.CreateRoutine(ctx, bot.ID, "Morning", "Read the news.", "0 9 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// On March 14, 2027, 03:00 EDT comes 2 real minutes after 01:58 EST, so the spacing
+	// check refuses the schedule on the day before.
+	svc.now = func() time.Time { return time.Date(2027, 3, 13, 12, 0, 0, 0, ny) }
+	const tooClose = "runs more often than every 5m0s"
+	if _, err := svc.CreateRoutine(ctx, bot.ID, "Night 2", "Check the backups.", night.Schedule); err == nil || !strings.Contains(err.Error(), tooClose) {
+		t.Fatalf("a new routine with %q = %v; want the spacing check's error", night.Schedule, err)
+	}
+	name, prompt, off, on := "Night check", "Check the backups twice.", false, true
+	for what, p := range map[string]RoutinePatch{
+		"rename": {Name: &name},
+		"prompt": {Prompt: &prompt},
+		"pause":  {Enabled: &off},
+		"resume": {Enabled: &on},
+		"same":   {Schedule: &night.Schedule},
+	} {
+		if _, err := svc.UpdateRoutine(ctx, night.ID, p, ""); err != nil {
+			t.Errorf("%s: %v; want the edit saved without the spacing check", what, err)
+		}
+	}
+	if _, err := svc.UpdateRoutine(ctx, morning.ID, RoutinePatch{Schedule: &night.Schedule}, ""); err == nil || !strings.Contains(err.Error(), tooClose) {
+		t.Fatalf("a schedule changed to %q = %v; want the spacing check's error", night.Schedule, err)
+	}
+}
+
+func TestTheDayAndTheRoutinesFollowTheClocksZone(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	riga, err := time.LoadLocation("Europe/Riga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 23:30 UTC on January 14 is 01:30 on the 15th in Riga and 18:30 on the 14th in New York.
+	instant, zone := time.Date(2027, 1, 14, 23, 30, 0, 0, time.UTC), riga
+	svc.now = func() time.Time { return instant.In(zone) }
+	bot := newTestBot(t, svc)
+	daily, err := svc.CreateRoutine(ctx, bot.ID, "Morning", "Read the news.", "0 9 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	every, err := svc.CreateRoutine(ctx, bot.ID, "Often", "Check the build.", "@every 2h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.FireDueRoutines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	nextRun := func(id string) time.Time {
+		t.Helper()
+		r, err := svc.GetRoutine(ctx, id)
+		if err != nil || r.NextRunAt == nil {
+			t.Fatalf("routine %s = %+v, %v", id, r, err)
+		}
+		return time.UnixMilli(*r.NextRunAt)
+	}
+	if got, want := nextRun(daily.ID), time.Date(2027, 1, 15, 9, 0, 0, 0, riga); !got.Equal(want) || svc.dayKey(svc.now()) != "2027-01-15" {
+		t.Fatalf("in Riga: next run %v, day %s; want %v and 2027-01-15", got, svc.dayKey(svc.now()), want)
+	}
+
+	// The same zone on the next tick moves nothing: a run set by hand stays where it is.
+	moved := time.Date(2027, 1, 15, 10, 0, 0, 0, riga).UnixMilli()
+	if _, err := svc.sqlDB.ExecContext(ctx, `UPDATE routines SET next_run_at = ? WHERE id = ?`, moved, daily.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.FireDueRoutines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := nextRun(daily.ID); got.UnixMilli() != moved {
+		t.Fatalf("next run after a tick in the same zone = %v; want it left at 10:00 in Riga", got)
+	}
+
+	// Half an hour later, the zone changes: an @every run is due 2h after the last, in no zone.
+	instant, zone = instant.Add(30*time.Minute), ny
+	if n, err := svc.FireDueRoutines(ctx); err != nil || n != 0 {
+		t.Fatalf("fire after the change = %d, %v; want nothing due", n, err)
+	}
+	if got, want := nextRun(daily.ID), time.Date(2027, 1, 15, 9, 0, 0, 0, ny); !got.Equal(want) {
+		t.Fatalf("next run after the zone changed = %v; want %v, 09:00 in New York", got, want)
+	}
+	if got, want := nextRun(every.ID), instant.Add(90*time.Minute); !got.Equal(want) {
+		t.Fatalf("@every 2h next run after the zone changed = %v; want %v, unmoved", got, want)
+	}
+	if got := svc.dayKey(svc.now()); got != "2027-01-14" || svc.Location() != ny || !svc.dayStart(svc.now()).Equal(time.Date(2027, 1, 14, 0, 0, 0, 0, ny)) {
+		t.Fatalf("day after the zone changed = %s, zone %v; want 2027-01-14 in New York", got, svc.Location())
+	}
+	added, err := svc.CreateRoutine(ctx, bot.ID, "Morning 2", "Read the news.", "0 9 * * *")
+	if err != nil || added.NextRunAt == nil || *added.NextRunAt != time.Date(2027, 1, 15, 9, 0, 0, 0, ny).UnixMilli() {
+		t.Fatalf("a routine made after the change = %+v, %v; want its next run at 09:00 in New York", added, err)
 	}
 }
 
@@ -821,6 +932,42 @@ func TestRecoverAfterRestartClosesOpenCardsAndToolCalls(t *testing.T) {
 		_ = json.Unmarshal(e.Body, &body)
 		if body["status"] != want {
 			t.Errorf("entry %s status = %v; want %s", e.Kind, body["status"], want)
+		}
+	}
+}
+
+func TestTheRestartNoticeOfATurnGoesToItsOwnChat(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	room, err := svc.CreateRoom(ctx, "Plan", "", []string{bot.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inRoom, err := svc.StartTaskTurn(ctx, bot.ID, room.ID, "in the room", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alone, err := svc.StartTaskTurn(ctx, bot.ID, "", "in the bot's chat", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecoverAfterRestart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for chat, want := range map[string]string{room.ID: inRoom.ID, bot.ID: alone.ID} {
+		var notices []string
+		entries, err := svc.Entries(ctx, chat, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if e.Kind == KindEvent && strings.Contains(string(e.Body), "The server restarted while this turn was running.") {
+				notices = append(notices, e.TurnID)
+			}
+		}
+		if !slices.Equal(notices, []string{want}) {
+			t.Errorf("restart notices in chat %s = %v; want only turn %s's", chat, notices, want)
 		}
 	}
 }

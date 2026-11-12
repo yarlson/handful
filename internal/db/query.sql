@@ -174,6 +174,9 @@ DELETE FROM routines WHERE id = ?;
 -- name: ListDueRoutines :many
 SELECT * FROM routines WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?;
 
+-- name: ListUpcomingRoutines :many
+SELECT * FROM routines WHERE enabled = 1 AND next_run_at > ?;
+
 -- name: MarkRoutineFired :exec
 UPDATE routines SET last_run_at = ?, last_run_by = ?, next_run_at = ? WHERE id = ?;
 

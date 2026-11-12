@@ -65,7 +65,7 @@ func (s *Service) parseSchedule(expr string) (cron.Schedule, error) {
 	if err != nil {
 		return nil, invalid("schedule %q: %v", expr, err)
 	}
-	first := sched.Next(s.now().In(s.loc))
+	first := sched.Next(s.now())
 	if first.IsZero() {
 		return nil, invalid("schedule %q never fires", expr)
 	}
@@ -80,6 +80,15 @@ func (s *Service) parseSchedule(expr string) (cron.Schedule, error) {
 			return nil, invalid("schedule %q runs more often than every %s", expr, minRoutineInterval)
 		}
 		prev = next
+	}
+	return sched, nil
+}
+
+// parseSavedSchedule parses a schedule that parseSchedule accepted when it was saved.
+func parseSavedSchedule(expr string) (cron.Schedule, error) {
+	sched, err := cronParser.Parse(strings.TrimSpace(expr))
+	if err != nil {
+		return nil, fmt.Errorf("saved schedule %q: %w", expr, err)
 	}
 	return sched, nil
 }
@@ -113,7 +122,7 @@ func (s *Service) CreateRoutine(ctx context.Context, botID, name, prompt, schedu
 		return Routine{}, err
 	}
 	now := s.nowMs()
-	next := sched.Next(s.now().In(s.loc)).UnixMilli()
+	next := sched.Next(s.now()).UnixMilli()
 	row, err := s.q.CreateRoutine(ctx, db.CreateRoutineParams{
 		ID: uuid.NewString(), BotID: botID, Name: name, Prompt: prompt, Schedule: strings.TrimSpace(schedule),
 		Enabled: 1, NextRunAt: sql.NullInt64{Int64: next, Valid: true}, CreatedAt: now, UpdatedAt: now, MaxRoutines: maxRoutinesPerBot,
@@ -166,7 +175,13 @@ func (s *Service) UpdateRoutine(ctx context.Context, id string, p RoutinePatch, 
 	if err != nil {
 		return Routine{}, err
 	}
-	sched, err := s.parseSchedule(schedule)
+	// The spacing check ran when the schedule was saved. Running it again for another change
+	// can fail near a clock change, which would refuse a rename or a pause.
+	check := s.parseSchedule
+	if schedule == cur.Schedule {
+		check = parseSavedSchedule
+	}
+	sched, err := check(schedule)
 	if err != nil {
 		return Routine{}, err
 	}
@@ -174,7 +189,7 @@ func (s *Service) UpdateRoutine(ctx context.Context, id string, p RoutinePatch, 
 	enabledInt := int64(0)
 	if enabled {
 		enabledInt = 1
-		next = sql.NullInt64{Int64: sched.Next(s.now().In(s.loc)).UnixMilli(), Valid: true}
+		next = sql.NullInt64{Int64: sched.Next(s.now()).UnixMilli(), Valid: true}
 	}
 	row, err := s.storeRoutine(ctx, db.UpdateRoutineParams{Name: name, Prompt: prompt, Schedule: schedule, Enabled: enabledInt, NextRunAt: next, UpdatedAt: s.nowMs(), ID: id})
 	if err != nil {
@@ -299,7 +314,7 @@ func (s *Service) RunRoutineNow(ctx context.Context, id, byBot string, hops int6
 	if turnHops > maxAgentHops {
 		return "", invalid("routine %s was not run: this turn comes from a chain of %d bot-to-bot steps, the most allowed", r.ID, maxAgentHops)
 	}
-	now := s.now().In(s.loc)
+	now := s.now()
 	by, trigger := "the user", "the user"
 	if byBot != "" {
 		by, trigger = byBot, fmt.Sprintf("bot %q", byBot)
@@ -346,7 +361,10 @@ func (s *Service) cancelRoutineRuns(ctx context.Context, q *db.Queries, id, reas
 // queue, behind a busy bot or a usage limit, only moves its next run forward:
 // one waiting run does its work. It returns the number of routines fired.
 func (s *Service) FireDueRoutines(ctx context.Context) (int, error) {
-	now := s.now().In(s.loc)
+	now := s.now()
+	if err := s.followZone(ctx, now); err != nil {
+		return 0, err
+	}
 	rows, err := s.q.ListDueRoutines(ctx, sql.NullInt64{Int64: now.UnixMilli(), Valid: true})
 	if err != nil {
 		return 0, fmt.Errorf("list due routines: %w", err)
@@ -367,13 +385,45 @@ func (s *Service) FireDueRoutines(ctx context.Context) (int, error) {
 	return fired, nil
 }
 
+// followZone sets the upcoming runs of the routines again in now's time zone, when it is not
+// the zone they were set in: the computer's zone, or its rules, changed, or the server
+// started, maybe after such a change. A run that is due keeps its time and fires.
+func (s *Service) followZone(ctx context.Context, now time.Time) error {
+	if s.routineZone.Load() == now.Location() {
+		return nil
+	}
+	rows, err := s.q.ListUpcomingRoutines(ctx, sql.NullInt64{Int64: now.UnixMilli(), Valid: true})
+	if err != nil {
+		return fmt.Errorf("list upcoming routines: %w", err)
+	}
+	for _, r := range rows {
+		sched, err := parseSavedSchedule(r.Schedule)
+		if err != nil {
+			return fmt.Errorf("routine %s: %w", r.ID, err)
+		}
+		// "@every" runs a fixed time after the last run, in no time zone.
+		if _, ok := sched.(*cron.SpecSchedule); !ok {
+			continue
+		}
+		next := sched.Next(now).UnixMilli()
+		if next == r.NextRunAt.Int64 {
+			continue
+		}
+		if err := s.q.SetRoutineNextRun(ctx, db.SetRoutineNextRunParams{NextRunAt: sql.NullInt64{Int64: next, Valid: true}, ID: r.ID}); err != nil {
+			return fmt.Errorf("move routine %s to the time zone: %w", r.ID, err)
+		}
+	}
+	s.routineZone.Store(now.Location())
+	return nil
+}
+
 // fireRoutine moves routine r's next run forward from now and, unless a run of r waits in the
 // queue, records this run and queues it, in one transaction. It reports whether it queued one.
 func (s *Service) fireRoutine(ctx context.Context, r Routine, now time.Time) (bool, error) {
 	next := sql.NullInt64{}
 	// The spacing check ran when the schedule was saved. Running it again
 	// here can fail near a clock change, which would stop the routine.
-	if sched, err := cronParser.Parse(strings.TrimSpace(r.Schedule)); err == nil {
+	if sched, err := parseSavedSchedule(r.Schedule); err == nil {
 		next = sql.NullInt64{Int64: sched.Next(now).UnixMilli(), Valid: true}
 	}
 	fired := false

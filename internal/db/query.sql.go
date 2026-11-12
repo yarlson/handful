@@ -3948,6 +3948,19 @@ func (q *Queries) RemoveRoomMember(ctx context.Context, arg RemoveRoomMemberPara
 	return err
 }
 
+const requeueTurn = `-- name: RequeueTurn :execrows
+UPDATE turns SET status = 'queued', error = '', started_at = NULL, finished_at = NULL
+WHERE id = ? AND status = 'running'
+`
+
+func (q *Queries) RequeueTurn(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueTurn, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const returnToInbox = `-- name: ReturnToInbox :execrows
 UPDATE goals SET state = 'incoming', later_until = 0, queue_pos = 0, pinned = 0, decision_ms = 0, decision_tick = 0, missed_at = 0
 WHERE id = ?1 AND state = ?2

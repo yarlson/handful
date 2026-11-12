@@ -541,11 +541,7 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 	// Bookkeeping after the turn uses its own context: an interrupt cancels ctx.
 	bg := context.WithoutCancel(ctx)
 	status, errText := "done", ""
-	defer func() {
-		if err := r.svc.FinishTurn(bg, t.ID, status, errText); err != nil {
-			r.log.Error("finish turn", "turn", t.ID, "err", err)
-		}
-	}()
+	defer func() { r.endTurn(bg, t.ID, status, errText) }()
 	transcript := turnTranscript(t)
 	fail := func(err error) {
 		status, errText = "failed", err.Error()
@@ -575,10 +571,28 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 		status, errText = r.recordInterrupt(bg, t, transcript)
 	case err != nil:
 		fail(err)
+	case out.hitUsageLimit():
+		// The pause has started (session.go); the turn runs again after it, with its inbox
+		// and room messages still unread.
+		status = turnQueued
 	case out.failed():
 		status, errText = r.turnFailed(bg, bot, t, run.Flags, out, fail)
 	default:
 		r.finishDelivery(bg, bot, t, run, delivered, out)
+	}
+}
+
+// turnQueued is the status of a turn that goes back to the queue, after a usage limit.
+const turnQueued = "queued"
+
+// endTurn records how turn id ended: its final status, or, for turnQueued, back in the queue.
+func (r *Runner) endTurn(ctx context.Context, id, status, errText string) {
+	end := func() error { return r.svc.FinishTurn(ctx, id, status, errText) }
+	if status == turnQueued {
+		end = func() error { return r.svc.RequeueTurn(ctx, id) }
+	}
+	if err := end(); err != nil {
+		r.log.Error("finish turn", "turn", id, "status", status, "err", err)
 	}
 }
 

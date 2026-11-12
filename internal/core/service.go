@@ -816,6 +816,15 @@ func (s *Service) FinishTurn(ctx context.Context, id, status, errText string) er
 	return nil
 }
 
+// RequeueTurn puts a running turn back in the queue, to run again from its start; its start
+// time is cleared, so it counts once when it runs. It does nothing to a turn that isn't running.
+func (s *Service) RequeueTurn(ctx context.Context, id string) error {
+	if _, err := s.q.RequeueTurn(ctx, id); err != nil {
+		return fmt.Errorf("requeue turn %s: %w", id, err)
+	}
+	return nil
+}
+
 // RecoverAfterRestart cleans up after a server stop: turns that were running
 // become interrupted, pending approval cards expire and tool calls without a
 // result are closed. At startup no turn runs, so none of these can still change.

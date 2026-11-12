@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -950,5 +951,49 @@ func TestEntryWindowPagesFromTheNewestToTheFirstEntry(t *testing.T) {
 	}
 	if got, err := svc.EntryWindow(ctx, bot.ID, 0, MaxEntryWindow); err != nil || len(got) != n {
 		t.Fatalf("limit %d = %d entries, %v; want all %d", MaxEntryWindow, len(got), err, n)
+	}
+}
+
+func TestARequeuedTurnIsQueuedAgainWithNoStartAndOnlyARunningOne(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	bot, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := svc.SubmitUserMessage(ctx, bot.ID, "hi", "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := func() (string, bool) {
+		t.Helper()
+		var s string
+		var started sql.NullInt64
+		if err := svc.sqlDB.QueryRowContext(ctx, `SELECT status, started_at FROM turns WHERE id = ?`, id).Scan(&s, &started); err != nil {
+			t.Fatal(err)
+		}
+		return s, started.Valid
+	}
+	if ok, err := svc.StartTurn(ctx, id); !ok || err != nil {
+		t.Fatalf("start = %v, %v", ok, err)
+	}
+	if err := svc.RequeueTurn(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if s, started := status(); s != "queued" || started {
+		t.Fatalf("after requeue: status %q, started %v; want queued with no start", s, started)
+	}
+	if err := svc.FinishTurn(ctx, id, "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RequeueTurn(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := status(); s != "done" {
+		t.Fatalf("requeue of a finished turn: status %q; want done", s)
+	}
+	svc.sqlDB.Close()
+	if err := svc.RequeueTurn(ctx, id); err == nil || !strings.Contains(err.Error(), id) {
+		t.Fatalf("requeue on a closed database: err = %v; want an error naming %s", err, id)
 	}
 }

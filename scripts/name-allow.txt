@@ -34,7 +34,7 @@ oldMCPServerName = "yargpt"|"old reserved name"
 # The configuration page's link to the move page. The site build leaves this paragraph out (web/src/rehype-docs.mjs).
 ^docs/configuration\.md:[0-9]+:Moving from YarGPT\? See \[Moving from YarGPT\]\(moving-from-yargpt\.md\)\.$
 # The site build's list of pages it never shows.
-^web/src/rehype-docs\.mjs:[0-9]+:const hidden = new Set\(\["docs/moving-from-yargpt\.md"\]\);$
+^web/src/docs-links\.mjs:[0-9]+:export const hidden = new Set\(\["docs/moving-from-yargpt\.md"\]\);$
 # The move page's line in .gitignore, which keeps docs/ ignored but for its pages.
 ^\.gitignore:[0-9]+:!/docs/moving-from-yargpt\.md$
 

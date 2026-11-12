@@ -6,7 +6,6 @@ import {
   ArtifactPicker,
   InboxView,
   SendTaskDialog,
-  SentSection,
   TaskHistory,
   TaskHistoryList,
   type InboxContext,
@@ -128,46 +127,6 @@ test("the clock says why it stands, and a deferred task says until when", () => 
 test("an empty inbox says who decides", () => {
   assert.include(inbox([]), "The inbox is empty.")
   assert.include(inbox([]), "and Dee decides on each.")
-})
-
-test("no sent tasks hide the section", () => {
-  assert.equal(renderToStaticMarkup(<SentSection goals={[]} names={names} act={act} />), "")
-})
-
-test("the sender follows each task it sent, answers questions and withdraws those that haven't started", () => {
-  const html = renderToStaticMarkup(
-    <SentSection
-      goals={[
-        goal({ id: "h1", text: "Asked one", askedAt: 1, askRounds: 1, intakeNote: "Which build?" }),
-        goal({
-          id: "h2",
-          text: "Planned one",
-          state: "queued",
-          queuePos: 2,
-          passedBy: "Passed to Dev by Sam",
-        }),
-        goal({ id: "h3", text: "Active one", state: "active", used: 4 }),
-        goal({ id: "h4", text: "Declined one", state: "declined", intakeNote: "Out of scope." }),
-      ]}
-      names={names}
-      act={act}
-    />,
-  )
-  assert.include(html, 'aria-labelledby="sent-heading"')
-  assert.include(html, "Sent to other teams (4)")
-  assert.include(html, "Dev asked")
-  assert.include(html, "Dev asked:</strong> Which build?")
-  assert.include(html, "#2 in Dev&#x27;s plan")
-  assert.include(html, "To Dev · Passed to Dev by Sam")
-  assert.include(html, "Dev is on it")
-  assert.include(html, "To Dev · 4 turns, paid by Dev")
-  assert.include(html, "Pushed back")
-  assert.include(html, "Dev:</strong> Out of scope.")
-  assert.include(html, 'aria-label="Answer: Asked one"')
-  assert.include(html, 'aria-label="Withdraw: Asked one"')
-  assert.include(html, 'aria-label="Withdraw: Planned one"')
-  assert.notInclude(html, 'aria-label="Withdraw: Active one"')
-  assert.notInclude(html, 'aria-label="Withdraw: Declined one"')
 })
 
 const need = (x: Partial<NeedsYouItem>): NeedsYouItem => ({
@@ -372,12 +331,8 @@ test("an empty history says so, and the history opens from a named button", () =
   assert.include(button, 'aria-controls="task-history-g1"')
 })
 
-test("inbox and sent cards open each task's history", () => {
+test("inbox cards open each task's history", () => {
   assert.include(inbox([goal({})]), 'aria-label="History: Fix the scroll"')
-  assert.include(
-    renderToStaticMarkup(<SentSection goals={[goal({ state: "queued" })]} names={names} act={act} />),
-    'aria-label="History: Fix the scroll"',
-  )
 })
 
 test("a budget item offers Raise, and Wait until midnight once the budget is reached", () => {

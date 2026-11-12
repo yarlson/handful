@@ -153,46 +153,6 @@ export function awaitsAnswer(g: TaskLike): boolean {
   return (g.askedAt ?? 0) > 0 && !g.needsUser
 }
 
-// TaskAction is a button of the task bar:
-//   approve: approve a done task; its team doesn't wait for this.
-//   changes: ask for changes to a done task, which comes back as Now.
-//   resume:  let a task the user paused go on.
-//   stop:    stop it after a confirm; running turns finish and its steps stay.
-export type TaskAction = "approve" | "changes" | "resume" | "stop"
-
-const TASK_ACTIONS: Partial<Record<TaskState, TaskAction[]>> = {
-  active: ["stop"],
-  paused: ["resume", "stop"],
-  delivered: ["approve", "changes"],
-}
-
-// TaskBarView is what the task bar shows:
-//   now:     the Now task, or a done one that waits for approval, with its buttons.
-//   stopped: the latest task was stopped; the user can reopen it.
-//   hold:    nothing is Now and a task is planned; the user can start it.
-//   idle:    nothing is Now or planned; the bar says how to send a task.
-export type TaskBarView =
-  | { mode: "now"; actions: TaskAction[] }
-  | { mode: "stopped" }
-  | { mode: "hold" }
-  | { mode: "idle" }
-
-// taskBar decides the task bar's view from the team's latest task and the number of
-// tasks planned after it.
-export function taskBar(goal: { state: string } | null | undefined, planned: number): TaskBarView {
-  const actions = goal ? TASK_ACTIONS[goal.state as TaskState] : undefined
-  if (goal && actions) return { mode: "now", actions }
-  if (goal?.state === "stopped") return { mode: "stopped" }
-  return { mode: planned > 0 ? "hold" : "idle" }
-}
-
-// nextUp names the first planned task and how many follow it.
-export function nextUp(plan: { text: string }[]): string | null {
-  if (plan.length === 0) return null
-  const more = plan.length > 1 ? ` (+${plan.length - 1})` : ""
-  return `Next: ${plan[0].text}${more}`
-}
-
 // NeedsYou is the part of a Needs you item that its line reads.
 export type NeedsYou = {
   kind: "approve" | "missed" | "stuck" | "question" | "budget_warning" | "budget_reached"

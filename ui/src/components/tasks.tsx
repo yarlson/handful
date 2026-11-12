@@ -16,7 +16,6 @@ import {
   budgetError,
   budgetLine,
   budgetShare,
-  canWithdraw,
   clockLine,
   clockStop,
   countsLine,
@@ -24,7 +23,6 @@ import {
   fromUser,
   leadName,
   needsYouLine,
-  sentState,
   sourceLabel,
   historyKey,
   taskError,
@@ -32,7 +30,6 @@ import {
   taskEventLabel,
   teamOption,
   teamSummary,
-  turnsLine,
   type Budget,
   type ClockStop,
   type Names,
@@ -171,14 +168,11 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
   const turns = offTask.count === 1 ? "1 turn" : `${offTask.count} turns`
   const picked = taskTurns(offTask.turns)
   return (
-    <section aria-labelledby="off-task-heading" className="flex flex-col gap-1.5">
-      <h3 id="off-task-heading" className="text-muted-foreground text-xs font-medium uppercase">
-        Not on a task
-      </h3>
-      <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
+    <section aria-label="Not on a task" className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5 rounded-md border border-dashed p-2 text-xs">
         <p>
           <strong>{`${turns} in the last hour`}</strong>
-          {` weren't on any task: ${who}.`}
+          {` ${offTask.count === 1 ? "wasn't" : "weren't"} on any task: ${who}.`}
         </p>
         <div className="flex flex-wrap gap-1.5">
           <Button
@@ -201,6 +195,15 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
             submit="Make a task"
             onSubmit={(text) => act(() => api.makeTask(team.id, { text, turnIds: picked.take.map((t) => t.turnId) }))}
           />
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-label={`Dismiss: ${turns} on no task`}
+            title="They stay in the chat; they only leave this count."
+            onClick={() => void act(() => api.dismissOffTask(team.id))}
+          >
+            Dismiss
+          </Button>
         </div>
         {shown && (
           <ul id="off-task-turns" className="flex flex-col gap-1">
@@ -223,7 +226,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
 }
 
 // LimitAction sets a team's turns per day: Raise… on a budget, or the suggested limit.
-function LimitAction({ team, open, value, act }: { team: Bot; open: string; value: number; act: Act }) {
+export function LimitAction({ team, open, value, act }: { team: Bot; open: string; value: number; act: Act }) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const id = `limit-${team.id}`
@@ -602,80 +605,6 @@ export function InboxView({
         )}
       </div>
     </div>
-  )
-}
-
-// SentCard is a task this team sent another team, as the sender follows it.
-function SentCard({ g, names, act, version }: { g: Goal; names: Names; act: Act; version: number }) {
-  const to = names.team(g.teamId)
-  const state = sentState(g, to, when)
-  return (
-    <li
-      className={cn(
-        "flex flex-col gap-1 rounded-md border p-2 text-sm",
-        state.tone === "attention" && "border-amber-500/50",
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <span className="flex-1 font-medium">{g.text}</span>
-        <ToneChip tone={state.tone}>{state.label}</ToneChip>
-      </div>
-      <p className="text-muted-foreground text-xs">
-        {[`To ${to}`, g.passedBy, turnsLine(g.used, to)].filter(Boolean).join(" · ")}
-      </p>
-      {g.state === "declined" && g.intakeNote && (
-        <p className="text-xs">
-          <strong>{to}:</strong> {g.intakeNote}
-        </p>
-      )}
-      {awaitsAnswer(g) && g.intakeNote && (
-        <p className="text-xs">
-          <strong>{to} asked:</strong> {g.intakeNote}
-        </p>
-      )}
-      {g.state === "later" && g.intakeNote && <p className="text-xs">Note: {g.intakeNote}</p>}
-      <div className="flex flex-wrap gap-1.5">
-        {awaitsAnswer(g) && (
-          <TextAction
-            id={`answer-${g.id}`}
-            label={`Your answer to ${to}: ${g.intakeNote ?? ""}`}
-            open={`Answer: ${g.text}`}
-            submit="Send answer"
-            onSubmit={(text) => act(() => api.answerTask(g.id, text))}
-          />
-        )}
-        {canWithdraw(g) && <WithdrawAction g={g} to={to} act={act} />}
-      </div>
-      <TaskHistory goal={g} version={version} />
-    </li>
-  )
-}
-
-// SentSection lists the tasks this team sent in the last 30 days, newest first.
-export function SentSection({
-  goals,
-  names,
-  act,
-  version = 0,
-}: {
-  goals: Goal[]
-  names: Names
-  act: Act
-  // version is the rev of the board the section is on; it reloads open histories.
-  version?: number
-}) {
-  if (goals.length === 0) return null
-  return (
-    <section aria-labelledby="sent-heading" className="flex flex-col gap-1.5">
-      <h3 id="sent-heading" className="text-muted-foreground text-xs font-medium uppercase">
-        Sent to other teams ({goals.length})
-      </h3>
-      <ul className="flex flex-col gap-1.5">
-        {goals.map((g) => (
-          <SentCard key={g.id} g={g} names={names} act={act} version={version} />
-        ))}
-      </ul>
-    </section>
   )
 }
 

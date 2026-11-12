@@ -63,7 +63,19 @@ Put instructions for every bot in `~/.handful/AGENTS.md`, for example:
 
 ## Phone access
 
-Phone access lets you use Handful from your phone. It is **off by default**, and with it off Handful opens no other port. Turn it on in `config.json`, then restart Handful:
+Phone access lets you use Handful from your phone. It is **off by default**, and with it off Handful opens no other port.
+
+Turn it on in **Settings › Phones**: pick the way in (a Cloudflare Tunnel or Tailscale), follow its setup text, fill in the phone address (and, for a tunnel, the Access team domain and AUD tag), and choose **Turn on**. The phone address opens at once, without a restart, and the settings are saved in `config.json`. **Turn off phone access** on the same page closes it again.
+
+To pair a phone:
+
+1. On the computer, choose **Pair a phone**, and what the phone may do. Settings shows a QR code and the same code as text, such as `K7QM-2XPD-9WTR`. The code works once and ends after 5 minutes.
+2. On the phone, open the phone address, scan the QR code or type the code (in any case, with or without dashes), and name the phone.
+3. On the computer, choose **Allow** in the request that shows at the top of every screen, within 2 minutes. The phone is paired.
+
+After 5 wrong codes in 10 minutes, pairing pauses for 10 minutes. The Phones list on the same page shows each paired phone, with **Revoke**, and **Revoke all**.
+
+The settings can also be written in `config.json` by hand; then they apply after a restart:
 
 ```json
 {
@@ -88,8 +100,10 @@ Phone access lets you use Handful from your phone. It is **off by default**, and
 If a phone key is invalid, or phone access is on and a key it needs is missing, Handful does not start, and the error names the key.
 
 - **A second listener.** A proxy on this computer forwards your phone's requests to the phone address. Handful still never listens on your network itself.
-- **Every request needs a paired phone.** Only the web app's own files load without one. A phone is paired for one of three scopes: **View** (read only), **Chat** (also send messages and act on tasks), or **Chat and approve once** (also Allow once and Deny on approval cards).
+- **Every request needs a paired phone.** Only the web app's own files and pairing work without one. A phone is paired for one of three scopes: **View** (read only), **Chat** (also send messages and act on tasks), or **Chat and approve once** (also Allow once and Deny on approval cards). A phone shows only the controls its scope may use.
 - **A phone never chooses Always allow**, and never allows a setup that creates bots or teams. Settings, bots, teams, routines, memory, skills, connectors and phone access itself stay on the computer.
-- **A phone can message your bots.** A bot can then use any tool you have already always-allowed for it, with no approval card.
+- **A phone paired for Chat can message your bots.** A bot can then use any tool you have already always-allowed for it, with no approval card.
 - **With a Cloudflare Tunnel, Cloudflare sees the traffic**: your chats, what bots print and your approvals. Handful also checks the Cloudflare Access login on every request, so the public address answers nothing without it.
-- **Turning it off** (`POST /api/phone/off` on the computer) closes the phone address and its open streams at once. Each phone can be revoked on its own (`DELETE /api/phone/sessions/<id>`), or all of them together.
+- **A decision from a phone** shows on the approval card with the phone's name, such as "Approved once from Pixel 8."
+- **Revoking a phone** makes its next request fail and ends its open streams within 15 seconds. **Turning phone access off** closes the phone address and its streams at once; paired phones stay paired.
+- **The desktop app** hears of a waiting pair request through the page's `handful:pair-request` event, whose detail is 1 while a request waits and 0 after.

@@ -7,10 +7,13 @@ import {
   type Goal,
   type Item,
   type NeedsYouItem,
+  type PairRequest,
   type OffTask,
 } from "@/lib/api"
 import { actorOf, eventTone, type ItemEvent } from "@/lib/questions"
 import { useLoad } from "@/components/bot-panel"
+import { PairRequestLine } from "@/components/phones"
+import { useRights } from "@/lib/session"
 import {
   awaitsAnswer,
   budgetError,
@@ -163,6 +166,7 @@ export function TextAction({
 // first line. Make a task… turns them into a task the team takes at once, so the count drops.
 export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask; act: Act }) {
   const [shown, setShown] = useState(false)
+  const rights = useRights()
   if (offTask.count === 0) return null
   const who = [...new Set(offTask.turns.map((t) => t.botName))].join(", ")
   const turns = offTask.count === 1 ? "1 turn" : `${offTask.count} turns`
@@ -184,26 +188,30 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
           >
             {shown ? "Hide them" : "Show them"}
           </Button>
-          <TextAction
-            id={`make-task-${team.id}`}
-            label={
-              picked.left > 0
-                ? `What is the task? ${team.name} takes it at once, with the oldest ${picked.take.length} of these ${turns}; make another for the other ${picked.left}.`
-                : `What is the task? ${team.name} takes it at once, with these ${turns}.`
-            }
-            open={`Make a task: ${turns} on no task`}
-            submit="Make a task"
-            onSubmit={(text) => act(() => api.makeTask(team.id, { text, turnIds: picked.take.map((t) => t.turnId) }))}
-          />
-          <Button
-            size="xs"
-            variant="ghost"
-            aria-label={`Dismiss: ${turns} on no task`}
-            title="They stay in the chat; they only leave this count."
-            onClick={() => void act(() => api.dismissOffTask(team.id))}
-          >
-            Dismiss
-          </Button>
+          {rights.computer && (
+            <TextAction
+              id={`make-task-${team.id}`}
+              label={
+                picked.left > 0
+                  ? `What is the task? ${team.name} takes it at once, with the oldest ${picked.take.length} of these ${turns}; make another for the other ${picked.left}.`
+                  : `What is the task? ${team.name} takes it at once, with these ${turns}.`
+              }
+              open={`Make a task: ${turns} on no task`}
+              submit="Make a task"
+              onSubmit={(text) => act(() => api.makeTask(team.id, { text, turnIds: picked.take.map((t) => t.turnId) }))}
+            />
+          )}
+          {rights.send && (
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label={`Dismiss: ${turns} on no task`}
+              title="They stay in the chat; they only leave this count."
+              onClick={() => void act(() => api.dismissOffTask(team.id))}
+            >
+              Dismiss
+            </Button>
+          )}
         </div>
         {shown && (
           <ul id="off-task-turns" className="flex flex-col gap-1">
@@ -229,7 +237,9 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
 export function LimitAction({ team, open, value, act }: { team: Bot; open: string; value: number; act: Act }) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const rights = useRights()
   const id = `limit-${team.id}`
+  if (!rights.computer) return null
   if (text === null)
     return (
       <Button size="xs" variant="outline" aria-label={open} onClick={() => setText(String(value))}>
@@ -274,6 +284,7 @@ export function LimitAction({ team, open, value, act }: { team: Bot; open: strin
 // paused state, and the suggested limit once the first week of watching is over.
 export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget; act: Act }) {
   const share = budgetShare(budget)
+  const rights = useRights()
   return (
     <section aria-labelledby="budget-heading" className="flex flex-col gap-1.5 text-xs">
       <h3 id="budget-heading" className="text-muted-foreground font-medium uppercase">
@@ -298,7 +309,7 @@ export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        {budget.suggested > 0 && budget.limit === 0 && (
+        {budget.suggested > 0 && budget.limit === 0 && rights.computer && (
           <>
             <span className="text-muted-foreground">{`Suggested limit: ${budget.suggested} turns a day.`}</span>
             <Button
@@ -420,6 +431,8 @@ function LoadedHistory({
 // WithdrawAction takes back a task that hasn't started, after a confirm.
 export function WithdrawAction({ g, to, act }: { g: Goal; to: string; act: Act }) {
   const [confirm, setConfirm] = useState(false)
+  const rights = useRights()
+  if (!rights.computer) return null
   if (!confirm) {
     return (
       <Button size="xs" variant="ghost" aria-label={`Withdraw: ${g.text}`} onClick={() => setConfirm(true)}>
@@ -461,6 +474,7 @@ export type InboxContext = {
 function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
   const [typing, setTyping] = useState(false)
   const [place, setPlace] = useState(view.planned + 1)
+  const rights = useRights()
   const sender = g.fromTeamId ? view.names.team(g.fromTeamId) : "you"
   const titleId = `inbox-${g.id}`
   const asked = (g.askedAt ?? 0) > 0
@@ -514,7 +528,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        {g.needsUser && !typing && (
+        {g.needsUser && !typing && rights.computer && (
           <>
             <select
               aria-label={`Place in the plan: ${g.text}`}
@@ -537,7 +551,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
             </Button>
           </>
         )}
-        {g.needsUser && (
+        {g.needsUser && rights.computer && (
           <TextAction
             id={`push-back-${g.id}`}
             label={`Reason ${sender === "you" ? "you keep" : `${sender} will see`} (required)`}
@@ -548,7 +562,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
             onSubmit={(text) => view.act(() => api.pushBack(g.id, text))}
           />
         )}
-        {awaitsAnswer(g) && fromUser(g) && (
+        {awaitsAnswer(g) && fromUser(g) && rights.send && (
           <TextAction
             id={`answer-${g.id}`}
             label={`Your answer to ${view.lead}: ${g.intakeNote ?? ""}`}
@@ -634,6 +648,7 @@ function NeedsYouRow({
 }) {
   const line = needsYouLine(n, chat)
   const id = n.goalId
+  const rights = useRights()
   return (
     <li
       className={cn(
@@ -644,7 +659,7 @@ function NeedsYouRow({
       <p className="min-w-0 flex-1 max-md:basis-full">
         <strong>{line.lead}</strong> {line.rest}
       </p>
-      {n.kind === "approve" && id && (
+      {n.kind === "approve" && id && rights.send && (
         <>
           <Button size="xs" aria-label={`Approve: ${n.text}`} onClick={() => void act(() => api.approveTask(id))}>
             Approve
@@ -658,7 +673,7 @@ function NeedsYouRow({
           />
         </>
       )}
-      {(n.kind === "missed" || n.kind === "stuck") && id && (
+      {(n.kind === "missed" || n.kind === "stuck") && id && rights.computer && (
         <>
           <Button size="xs" aria-label={`Take: ${n.text}`} onClick={() => void act(() => api.takeTask(id))}>
             Take
@@ -675,7 +690,7 @@ function NeedsYouRow({
       {(n.kind === "budget_warning" || n.kind === "budget_reached") && team && (
         <LimitAction team={team} open={`Raise: ${team.name}`} value={(limit ?? 0) + 50} act={act} />
       )}
-      {n.kind === "budget_reached" && (
+      {n.kind === "budget_reached" && rights.send && (
         <Button size="xs" variant="outline" onClick={() => void act(() => api.waitForBudget(n.chatId))}>
           Wait until midnight
         </Button>
@@ -690,6 +705,8 @@ function NeedsYouRow({
 // AcrossTeams is the user's view across teams: what needs the user, and what each team does.
 export function AcrossTeams({
   needs,
+  pairRequest = null,
+  onPairDecided = () => {},
   boards,
   teams,
   error,
@@ -700,6 +717,9 @@ export function AcrossTeams({
   menu,
 }: {
   needs: NeedsYouItem[]
+  // pairRequest is a phone that waits for the user's decision, shown first in Needs you.
+  pairRequest?: PairRequest | null
+  onPairDecided?: () => void
   boards: Map<string, Board>
   teams: Bot[]
   error: string | null
@@ -710,6 +730,8 @@ export function AcrossTeams({
   // menu is the phone layout's button that opens the sidebar; null above the phone width.
   menu?: ReactNode
 }) {
+  const rights = useRights()
+  const count = needs.length + (pairRequest ? 1 : 0)
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3">
@@ -718,26 +740,33 @@ export function AcrossTeams({
         <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm max-md:hidden">
           What each team is doing, and what needs you
         </span>
-        <Button
-          size="sm"
-          className="max-md:h-11"
-          aria-haspopup="dialog"
-          onClick={onNewTask}
-          disabled={teams.length === 0}
-        >
-          New task…
-        </Button>
+        {rights.computer && (
+          <Button
+            size="sm"
+            className="max-md:h-11"
+            aria-haspopup="dialog"
+            onClick={onNewTask}
+            disabled={teams.length === 0}
+          >
+            New task…
+          </Button>
+        )}
       </header>
       <div className="flex max-w-5xl flex-col gap-5 overflow-y-auto p-4 max-md:px-3">
         {error && <p className="text-destructive text-xs">{error}</p>}
         <section aria-labelledby="needs-you-heading" className="flex flex-col gap-1.5">
           <h3 id="needs-you-heading" className="text-muted-foreground text-xs font-medium uppercase">
-            Needs you ({needs.length})
+            Needs you ({count})
           </h3>
-          {needs.length === 0 ? (
+          {count === 0 ? (
             <p className="text-muted-foreground text-sm">Nothing needs you.</p>
           ) : (
             <ul className="flex flex-col gap-1.5">
+              {pairRequest && (
+                <li className="rounded-md border border-amber-500/50 px-3 py-2">
+                  <PairRequestLine request={pairRequest} onDecided={onPairDecided} />
+                </li>
+              )}
               {needs.map((n) => (
                 <NeedsYouRow
                   key={`${n.kind}:${n.goalId ?? n.entryId}`}
@@ -1026,6 +1055,8 @@ export function InboxScreen({
 // AcrossScreen loads what needs the user and every team's board, for Across teams.
 export function AcrossScreen({
   needs,
+  pairRequest,
+  onPairDecided,
   teams,
   version,
   chatName,
@@ -1034,6 +1065,8 @@ export function AcrossScreen({
   menu,
 }: {
   needs: NeedsYouItem[]
+  pairRequest?: PairRequest | null
+  onPairDecided?: () => void
   teams: Bot[]
   version: string
   chatName: (id: string) => string
@@ -1063,6 +1096,8 @@ export function AcrossScreen({
     <>
       <AcrossTeams
         needs={needs}
+        pairRequest={pairRequest}
+        onPairDecided={onPairDecided}
         boards={boards.data ?? new Map()}
         teams={teams}
         error={boards.error}

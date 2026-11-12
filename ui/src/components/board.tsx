@@ -48,6 +48,7 @@ import {
 } from "@/lib/tasks"
 import { moved, placeNote } from "@/lib/queue"
 import { cn } from "@/lib/utils"
+import { useRights } from "@/lib/session"
 
 export type { Act }
 
@@ -334,6 +335,7 @@ function PlanList({
   rev: number
 }) {
   const [note, setNote] = useState("")
+  const rights = useRights()
   // focus is the task whose move button keeps the keyboard once the list shows the new order.
   const focus = useRef<{ id: string; step: -1 | 1; to: number } | null>(null)
   const ids = plan.map((g) => g.id)
@@ -373,36 +375,40 @@ function PlanList({
             <div className={cn("flex flex-wrap items-center gap-1", reveal)}>
               <TaskHistory goal={g} version={rev} />
               <span className="flex-1" />
-              <Button
-                id={`plan-${g.id}-up`}
-                size="icon-xs"
-                variant="ghost"
-                aria-label={`Move ${g.text} up`}
-                disabled={i === 0}
-                onClick={() => void move(g, i, -1)}
-              >
-                <ArrowUp />
-              </Button>
-              <Button
-                id={`plan-${g.id}-down`}
-                size="icon-xs"
-                variant="ghost"
-                aria-label={`Move ${g.text} down`}
-                disabled={i === plan.length - 1}
-                onClick={() => void move(g, i, 1)}
-              >
-                <ArrowDown />
-              </Button>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label={g.pinned ? `Unpin ${g.text}` : `Pin ${g.text} at #${i + 1}`}
-                aria-pressed={g.pinned === true}
-                title={g.pinned ? "Unpin: the lead can move it again" : "Pin: the lead can't move it"}
-                onClick={() => void act(() => api.pinTask(g.id, !g.pinned))}
-              >
-                {g.pinned ? <PinOff /> : <Pin />}
-              </Button>
+              {rights.computer && (
+                <>
+                  <Button
+                    id={`plan-${g.id}-up`}
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Move ${g.text} up`}
+                    disabled={i === 0}
+                    onClick={() => void move(g, i, -1)}
+                  >
+                    <ArrowUp />
+                  </Button>
+                  <Button
+                    id={`plan-${g.id}-down`}
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Move ${g.text} down`}
+                    disabled={i === plan.length - 1}
+                    onClick={() => void move(g, i, 1)}
+                  >
+                    <ArrowDown />
+                  </Button>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={g.pinned ? `Unpin ${g.text}` : `Pin ${g.text} at #${i + 1}`}
+                    aria-pressed={g.pinned === true}
+                    title={g.pinned ? "Unpin: the lead can move it again" : "Pin: the lead can't move it"}
+                    onClick={() => void act(() => api.pinTask(g.id, !g.pinned))}
+                  >
+                    {g.pinned ? <PinOff /> : <Pin />}
+                  </Button>
+                </>
+              )}
               <WithdrawAction g={g} to={team.name} act={act} />
             </div>
           </li>
@@ -411,9 +417,11 @@ function PlanList({
       {held ? (
         <div className="flex items-center gap-2 text-xs">
           <span className="text-muted-foreground flex-1">On hold.</span>
-          <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
-            Start now
-          </Button>
+          {rights.computer && (
+            <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
+              Start now
+            </Button>
+          )}
         </div>
       ) : (
         <p className="text-muted-foreground text-xs">The first one starts when the Now task is done.</p>
@@ -512,6 +520,7 @@ export function BoardView({
   paused?: string | null
 }) {
   const [sending, setSending] = useState(false)
+  const rights = useRights()
   const names = boardNames(data, allTeams, team)
   const plan = data.plan ?? []
   const inbox = data.inbox ?? []
@@ -579,7 +588,8 @@ export function BoardView({
           id="sent-heading"
           count={waiting.length}
           action={
-            allTeams.length > 1 && (
+            allTeams.length > 1 &&
+            rights.computer && (
               <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
                 <Send /> Send a task…
               </Button>
@@ -651,6 +661,7 @@ function NowSection({
   paused: string | null
 }) {
   const [stopping, setStopping] = useState(false)
+  const rights = useRights()
   const items = [...data.items].sort((a, b) => stateOrder.indexOf(a.state) - stateOrder.indexOf(b.state))
   const done = data.items.filter((i) => i.state === "done").length
   const plan = data.plan ?? []
@@ -684,7 +695,7 @@ function NowSection({
           <div className="flex flex-wrap items-center gap-2 border-t pt-2">
             <TaskHistory goal={goal} steps={data.items} version={rev} />
             <span className="flex-1" />
-            {goal.state === "paused" && !stopping && (
+            {goal.state === "paused" && !stopping && rights.computer && (
               <Button
                 size="xs"
                 aria-label={`Resume: ${goal.text}`}
@@ -693,7 +704,7 @@ function NowSection({
                 <Play /> Resume
               </Button>
             )}
-            {stopping ? (
+            {!rights.computer ? null : stopping ? (
               <span className="flex flex-wrap items-center gap-1.5 text-xs">
                 Stop the task? Running turns finish, and its steps stay.
                 <Button
@@ -741,6 +752,7 @@ function NeedRow({
   onOpenInbox?: () => void
   budget?: Board["budget"]
 }) {
+  const rights = useRights()
   if (n.kind === "budget") {
     return (
       <li className="flex flex-col gap-1.5 py-2 text-sm first:pt-0 last:pb-0">
@@ -755,6 +767,7 @@ function NeedRow({
   }
   const g = n.goal
   const to = names.team(g.teamId)
+  const send = rights.send
   const lead =
     n.kind === "approve"
       ? "Done, approve it:"
@@ -776,7 +789,7 @@ function NeedRow({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        {(n.kind === "approve" || n.kind === "sent-done") && (
+        {(n.kind === "approve" || n.kind === "sent-done") && send && (
           <>
             <Button size="xs" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
               Approve
@@ -790,7 +803,7 @@ function NeedRow({
             />
           </>
         )}
-        {n.kind === "answer" && (
+        {n.kind === "answer" && send && (
           <TextAction
             id={`answer-${g.id}`}
             label={`Your answer to ${to}: ${g.intakeNote ?? ""}`}
@@ -799,7 +812,7 @@ function NeedRow({
             onSubmit={(text) => act(() => api.answerTask(g.id, text))}
           />
         )}
-        {n.kind === "pushed" && (
+        {n.kind === "pushed" && send && (
           <Button
             size="xs"
             variant="outline"
@@ -854,6 +867,7 @@ function SentRow({ g, names, act, rev }: { g: Goal; names: Names; act: Act; rev:
 // StoppedRow is a team's own stopped task under Earlier: its steps stay, and Reopen puts it back
 // in the inbox for the lead to decide on again.
 function StoppedRow({ g, names, act, rev }: { g: Goal; names: Names; act: Act; rev: number }) {
+  const rights = useRights()
   return (
     <li className="flex flex-col gap-1 rounded-md border p-2 text-sm">
       <div className="flex flex-wrap items-start gap-2">
@@ -863,14 +877,16 @@ function StoppedRow({ g, names, act, rev }: { g: Goal; names: Names; act: Act; r
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <TaskHistory goal={g} version={rev} />
-        <Button
-          size="xs"
-          variant="outline"
-          aria-label={`Reopen: ${g.text}`}
-          onClick={() => void act(() => api.reopenTask(g.id))}
-        >
-          Reopen
-        </Button>
+        {rights.computer && (
+          <Button
+            size="xs"
+            variant="outline"
+            aria-label={`Reopen: ${g.text}`}
+            onClick={() => void act(() => api.reopenTask(g.id))}
+          >
+            Reopen
+          </Button>
+        )}
       </div>
     </li>
   )

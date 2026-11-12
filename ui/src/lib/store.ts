@@ -11,6 +11,7 @@ import {
   type LinkEvent,
 } from "./connection"
 import { ChatWindows } from "./chat-windows"
+import { phoneSession } from "./session"
 import { transcriptStep, type TranscriptEvent, type TranscriptStatus } from "./transcript"
 import type { EntryWindow } from "./window"
 
@@ -29,6 +30,8 @@ export function useHandful() {
   const [draining, setDraining] = useState(false)
   // restartRev counts the server's settings-restart events, so the Settings page reloads.
   const [restartRev, setRestartRev] = useState(0)
+  // pairRev counts the server's pairing events, and each reconnect, so pairing shows its state.
+  const [pairRev, setPairRev] = useState(0)
   const drain = useRef<Drain>(NO_DRAIN)
   const setDrain = useCallback((d: Drain) => {
     drain.current = d
@@ -116,6 +119,7 @@ export function useHandful() {
       )
       void refreshBots()
       chats.reconnected()
+      setPairRev((n) => n + 1)
     })
     source.onmessage = (msg) => {
       const ev = JSON.parse(msg.data as string) as ServerEvent
@@ -127,6 +131,8 @@ export function useHandful() {
         setPausedUntil(ev.pausedUntil ?? null)
       } else if (ev.type === "restart") {
         setRestartRev((n) => n + 1)
+      } else if (ev.type === "pair") {
+        setPairRev((n) => n + 1)
       } else if (ev.type === "drain") {
         setDrain(drainChanged(drain.current, ev.draining))
       } else if (ev.type === "tasks") {
@@ -140,7 +146,11 @@ export function useHandful() {
         }
       }
     }
-    source.onerror = () => onLink("error")
+    source.onerror = () => {
+      onLink("error")
+      // A phone's stream ends when its session is revoked; then the page offers to pair again.
+      phoneSession.recheck()
+    }
     return () => source.close()
   }, [chats, refreshBots, scheduleBotsRefresh, onLink, setDrain])
 
@@ -175,6 +185,7 @@ export function useHandful() {
     pausedUntil,
     draining,
     restartRev,
+    pairRev,
     select,
     loadOlder,
     reveal,

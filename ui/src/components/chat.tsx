@@ -38,7 +38,8 @@ import { api, type BackgroundTask, type Bot, type Decision, type Entry, type Mem
 import { applyCompletion, findMentionQuery, findSlashQuery, matchNames, type MentionQuery } from "@/lib/completion"
 import { Popover } from "radix-ui"
 import { useNarrow } from "@/lib/narrow"
-import { usePhoneSession } from "@/lib/session"
+import { usePhoneSession, useRights } from "@/lib/session"
+import { ALWAYS_ON_COMPUTER, decidedOn, VIEW_ONLY } from "@/lib/phones"
 import { REACTIONS, toggled } from "@/lib/reactions"
 import { imageHost, isExternalLink, isLocalImage } from "@/lib/links"
 import { taskCommand } from "@/lib/task-command"
@@ -156,8 +157,10 @@ const phoneButton = (phone: boolean) => (phone ? "h-11 flex-1" : "max-md:h-11 ma
 
 function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }) {
   const [busy, setBusy] = useState(false)
-  // A paired phone may allow one call or deny it, never widen what a bot may do.
+  // A paired phone may allow one call or deny it, never widen what a bot may do; one paired for
+  // View or Chat only reads the card.
   const phone = usePhoneSession()
+  const rights = useRights()
   const [error, setError] = useState<string | null>(null)
   const b = entry.body
   const decide = async (d: Decision) => {
@@ -188,12 +191,15 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
         <CardContent>
           <SetupSummary setup={setup} />
           {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
+          {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
         </CardContent>
-        {b.status === "pending" && (
+        {b.status === "pending" && rights.approve && (
           <CardFooter className="gap-2">
-            <Button size="sm" disabled={busy} aria-label="Create this setup" onClick={() => void decide("once")}>
-              <Check /> Create
-            </Button>
+            {rights.computer && (
+              <Button size="sm" disabled={busy} aria-label="Create this setup" onClick={() => void decide("once")}>
+                <Check /> Create
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -227,8 +233,9 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
           {command}
         </pre>
         {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
+        {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
       </CardContent>
-      {b.status === "pending" && (
+      {b.status === "pending" && rights.approve && (
         <CardFooter className="gap-2 max-md:flex-wrap">
           <Button size="sm" className={phoneButton(phone)} disabled={busy} onClick={() => void decide("once")}>
             <Check /> Allow once
@@ -250,7 +257,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
           {phone && (
             <p className="text-muted-foreground flex w-full items-center gap-1.5 text-xs">
               <Lock className="size-3.5 shrink-0" aria-hidden />
-              Always allow {b.tool} works only on your computer.
+              {ALWAYS_ON_COMPUTER}
             </p>
           )}
         </CardFooter>
@@ -415,6 +422,7 @@ function CopyButton({ text }: { text: string }) {
 function Reactions({ entryId, reactions, copyText }: { entryId: string; reactions?: string[]; copyText?: string }) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const rights = useRights()
   const set = async (emoji: string) => {
     setOpen(false)
     setError(null)
@@ -426,61 +434,69 @@ function Reactions({ entryId, reactions, copyText }: { entryId: string; reaction
   }
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {reactions?.map((emoji) => (
-        <Button
-          key={emoji}
-          size="xs"
-          variant="outline"
-          aria-pressed
-          aria-label={`Remove ${emoji} reaction`}
-          title={`Remove ${emoji} reaction`}
-          className="rounded-full"
-          onClick={() => void set(emoji)}
-        >
-          <span>{emoji}</span> <span className="text-muted-foreground">1</span>
-        </Button>
-      ))}
-      {copyText && <CopyButton text={copyText} />}
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger asChild>
+      {reactions?.map((emoji) =>
+        rights.send ? (
           <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Add reaction"
-            title="Add reaction"
-            className={cn(
-              "text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100",
-              open && "opacity-100",
-            )}
+            key={emoji}
+            size="xs"
+            variant="outline"
+            aria-pressed
+            aria-label={`Remove ${emoji} reaction`}
+            title={`Remove ${emoji} reaction`}
+            className="rounded-full"
+            onClick={() => void set(emoji)}
           >
-            <SmilePlus />
+            <span>{emoji}</span> <span className="text-muted-foreground">1</span>
           </Button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            sideOffset={4}
-            aria-label="Reactions"
-            className="bg-popover text-popover-foreground z-50 flex gap-0.5 rounded-lg border p-1 shadow-md"
-          >
-            {REACTIONS.map((emoji) => {
-              const on = reactions?.includes(emoji) ?? false
-              return (
-                <Button
-                  key={emoji}
-                  size="icon-sm"
-                  variant={on ? "secondary" : "ghost"}
-                  aria-pressed={on}
-                  aria-label={on ? `Remove ${emoji} reaction` : `React with ${emoji}`}
-                  className="text-base"
-                  onClick={() => void set(emoji)}
-                >
-                  {emoji}
-                </Button>
-              )
-            })}
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+        ) : (
+          <span key={emoji} className="rounded-full border px-2 text-xs leading-6">
+            {emoji}
+          </span>
+        ),
+      )}
+      {copyText && <CopyButton text={copyText} />}
+      {rights.send && (
+        <Popover.Root open={open} onOpenChange={setOpen}>
+          <Popover.Trigger asChild>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Add reaction"
+              title="Add reaction"
+              className={cn(
+                "text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100",
+                open && "opacity-100",
+              )}
+            >
+              <SmilePlus />
+            </Button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              sideOffset={4}
+              aria-label="Reactions"
+              className="bg-popover text-popover-foreground z-50 flex gap-0.5 rounded-lg border p-1 shadow-md"
+            >
+              {REACTIONS.map((emoji) => {
+                const on = reactions?.includes(emoji) ?? false
+                return (
+                  <Button
+                    key={emoji}
+                    size="icon-sm"
+                    variant={on ? "secondary" : "ghost"}
+                    aria-pressed={on}
+                    aria-label={on ? `Remove ${emoji} reaction` : `React with ${emoji}`}
+                    className="text-base"
+                    onClick={() => void set(emoji)}
+                  >
+                    {emoji}
+                  </Button>
+                )
+              })}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
       {error && <span className="text-destructive text-xs">{error}</span>}
     </div>
   )
@@ -1104,6 +1120,7 @@ export function Chat({
   // The chat's open questions, for the strip; reloaded as the transcript changes.
   const [questions, setQuestions] = useState<OpenQuestion[]>([])
   const [questionsAt, setQuestionsAt] = useState(0)
+  const rights = useRights()
   const transcriptRev = rev ?? entries.reduce((max, e) => Math.max(max, e.rev), 0)
   useEffect(() => {
     let live = true
@@ -1441,18 +1458,22 @@ export function Chat({
           onAnswer={answer}
           onChange={() => setQuestionsAt((n) => n + 1)}
         />
-        <Composer
-          key={bot.id}
-          answering={answering}
-          onAnswer={onAnswer}
-          bot={bot}
-          mentionables={mentionables}
-          media={pending.get(bot.id) ?? []}
-          attachError={attachError}
-          onAttach={attach}
-          onMediaChange={(update) => updateMedia(bot.id, update)}
-          onSent={pin}
-        />
+        {!rights.send ? (
+          <p className="text-muted-foreground border-t px-4 py-3 text-center text-sm">{VIEW_ONLY}</p>
+        ) : (
+          <Composer
+            key={bot.id}
+            answering={answering}
+            onAnswer={onAnswer}
+            bot={bot}
+            mentionables={mentionables}
+            media={pending.get(bot.id) ?? []}
+            attachError={attachError}
+            onAttach={attach}
+            onMediaChange={(update) => updateMedia(bot.id, update)}
+            onSent={pin}
+          />
+        )}
       </div>
     </div>
   )

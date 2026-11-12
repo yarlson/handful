@@ -808,7 +808,7 @@ func TestTheComputerTurnsPhoneAccessOnWithoutARestart(t *testing.T) {
 	if rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":["phone.example.com"]}`, jsonHeader); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "config.json has an error") {
 		t.Fatalf("on with a broken config.json: %d %s; want 409", rec.Code, rec.Body)
 	}
-	if err := os.WriteFile(f.settings, []byte(`{"model": "sonnet"}`), 0o600); err != nil {
+	if err := os.WriteFile(f.settings, []byte(`{"model": "sonnet", "phone": {"addr": "`+freePhoneAddr(t)+`"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.phone.Start(t.Context()); err != nil || f.phone.Addr() != "" {
@@ -836,6 +836,64 @@ func TestTheComputerTurnsPhoneAccessOnWithoutARestart(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("the phone address after Turn on: %d; want the app", resp.StatusCode)
+	}
+}
+
+// freePhoneAddr is a loopback address with a port that no one listens on now.
+func freePhoneAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return addr
+}
+
+// Turn on with a taken phone address answers why and leaves config.json off, so the next start
+// doesn't fail on it.
+func TestTurnOnWithATakenAddressLeavesPhoneAccessOff(t *testing.T) {
+	taken, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	f := newPhoneFixtureWith(t, config.PhoneSettings{Addr: "127.0.0.1:0", Proxy: config.ProxyTailscale})
+	if err := os.WriteFile(f.settings, []byte(`{"phone": {"addr": "`+taken.Addr().String()+`"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.phone.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(f.phone.Stop)
+	rec := do(f.main, http.MethodPost, "/api/phone/on", `{"proxy":"tailscale","hosts":["phone.example.com"]}`, jsonHeader)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "phone.addr") {
+		t.Fatalf("on with a taken address: %d %s; want 409 naming phone.addr", rec.Code, rec.Body)
+	}
+	if f.phone.Addr() != "" {
+		t.Fatalf("the phone listener is open at %s", f.phone.Addr())
+	}
+	file, err := config.Load(f.settings)
+	if err != nil || file.PhoneSettings().Enabled {
+		t.Fatalf("config.json = %+v, %v; want phone access still off", file.PhoneSettings(), err)
+	}
+}
+
+// Turn off voids the open pairing code and the waiting pair request.
+func TestTurnOffEndsPairing(t *testing.T) {
+	f := newPhoneFixture(t, false)
+	code := f.startCode(core.ScopeChat)
+	if rec := f.do(req{method: http.MethodPost, path: "/pair", body: `{"code":"` + code + `","deviceName":"Pixel 8"}`}); rec.Code != http.StatusAccepted {
+		t.Fatalf("pair: %d", rec.Code)
+	}
+	f.advance(time.Second)
+	f.startCode(core.ScopeView)
+	if rec := do(f.main, http.MethodPost, "/api/phone/off", "{}", jsonHeader); rec.Code != http.StatusNoContent {
+		t.Fatalf("off: %d %s", rec.Code, rec.Body)
+	}
+	if p := f.svc.Pairing(); p.CodeExpiresAt != 0 || p.Request != nil {
+		t.Fatalf("after Turn off pairing shows %+v; want no code and no request", p)
 	}
 }
 

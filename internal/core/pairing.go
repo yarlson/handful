@@ -131,6 +131,16 @@ func (s *Service) StartPairing(scope string) (string, Pairing, error) {
 	return string(code), view, nil
 }
 
+// EndPairing voids the open code and the waiting pair request, when phone access turns off. A
+// pause after wrong codes stays.
+func (s *Service) EndPairing() {
+	p := s.pairing
+	p.mu.Lock()
+	p.code, p.request = nil, nil
+	p.mu.Unlock()
+	s.hub.Publish(Event{Type: "pair"})
+}
+
 // SetPairingScope changes what the phone that uses the open code may do.
 func (s *Service) SetPairingScope(scope string) (Pairing, error) {
 	if !validScope(scope) {

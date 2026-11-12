@@ -36,8 +36,9 @@ func (s *server) getPhone(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.phoneView())
 }
 
-// phoneOn turns phone access on with the way in and the names the body gives: it stores them in
-// config.json and opens the phone listener, without a restart.
+// phoneOn turns phone access on with the way in and the names the body gives: it opens the phone
+// listener, without a restart, and then stores them in config.json. A file that says on always has
+// an address that opened, so the next start doesn't fail on it.
 func (s *server) phoneOn(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Proxy      string   `json:"proxy"`
@@ -69,15 +70,16 @@ func (s *server) phoneOn(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if err := s.phone.TurnOn(settings); err != nil {
+		writeProblem(w, http.StatusConflict, "phone.addr", err.Error())
+		return
+	}
 	if s.settings.Path != "" {
 		if err := config.Write(s.settings.Path, *f); err != nil {
+			s.phone.Stop()
 			s.fail(w, r, err)
 			return
 		}
-	}
-	if err := s.phone.TurnOn(settings); err != nil {
-		s.fail(w, r, err)
-		return
 	}
 	writeJSON(w, http.StatusOK, s.phoneView())
 }

@@ -251,10 +251,11 @@ export function Pairing({ phone, onChange }: { phone: PhoneAccess; onChange: () 
   const [scope, setScope] = useState<Scope>(phone.pairing.scope ?? DEFAULT_SCOPE)
   const [code, setCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // The code shows until it is used or ends; then Pair a phone makes a new one.
-  const now = useNow(code !== null)
+  // The code shows until it is used or ends, and P6 until the pause ends; the clock ticks for both.
+  const locked = phone.pairing.lockedUntil ?? 0
+  const now = useNow(code !== null || locked > 0)
   const open = code !== null && now < (phone.pairing.codeExpiresAt ?? 0)
-  if (phone.pairing.lockedUntil) {
+  if (now < locked) {
     return (
       <div className="flex flex-col items-start gap-2 text-sm">
         <output>{LOCKED_TEXT}</output>

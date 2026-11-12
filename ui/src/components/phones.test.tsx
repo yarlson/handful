@@ -84,7 +84,9 @@ test("P3: the scopes, with Chat and approve once chosen, and what a phone can do
 
 test("P6: while pairing is paused, the computer says why and offers no code", () => {
   const t = text(
-    renderToStaticMarkup(<Pairing phone={{ ...off, on: true, pairing: { lockedUntil: 1 } }} onChange={() => {}} />),
+    renderToStaticMarkup(
+      <Pairing phone={{ ...off, on: true, pairing: { lockedUntil: Date.now() + 60_000 } }} onChange={() => {}} />,
+    ),
   )
   assert.include(t, "5 wrong pairing codes were tried. Pairing is paused for 10 minutes.")
   assert.include(t, "Pair again later")
@@ -113,4 +115,14 @@ test("P4b: the pair page asks for the code, filled from the link or empty, and t
   assert.match(html, /id="pair-code"[^>]*value=""/)
   assert.notInclude(text(html), "This phone is paired.")
   assert.include(text(renderToStaticMarkup(<PairPage paired />)), "This phone is paired.")
+})
+
+test("P6 goes once the pause has ended", () => {
+  const t = text(
+    renderToStaticMarkup(
+      <Pairing phone={{ ...off, on: true, pairing: { lockedUntil: Date.now() - 1 } }} onChange={() => {}} />,
+    ),
+  )
+  assert.notInclude(t, "Pairing is paused")
+  assert.include(t, "Pair a phone")
 })

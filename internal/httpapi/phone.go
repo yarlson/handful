@@ -400,13 +400,16 @@ func (s *server) session(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"phone": true, "scope": dev.Scope, "device": dev.Name})
 }
 
-// phoneOff is the kill switch: it closes the phone listener and its streams at once, and turns
-// phone access off in the settings file, so it stays off. Paired phones stay paired.
+// phoneOff is the kill switch: it closes the phone listener and its streams at once, voids the
+// open pairing code and pair request, and turns phone access off in the settings file, so it
+// stays off. Paired phones stay paired.
 func (s *server) phoneOff(w http.ResponseWriter, r *http.Request) {
+	// Under settingsMu, so a Turn on that is in flight can't open the address again after this.
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
 	s.phone.Stop()
+	s.svc.EndPairing()
 	if s.settings.Path != "" {
-		s.settingsMu.Lock()
-		defer s.settingsMu.Unlock()
 		f, err := config.Load(s.settings.Path)
 		if err == nil {
 			err = f.Set("phone.enabled", []byte("false"))

@@ -323,3 +323,24 @@ func TestPairingTellsTheComputerAtEachChange(t *testing.T) {
 	_, _ = svc.RequestPairing("AAAABBBBCCCC", "Pixel 8", "")
 	next("pause")
 }
+
+func TestEndPairingVoidsTheCodeAndTheRequestAndKeepsAPause(t *testing.T) {
+	svc, now := phoneFixture(t)
+	code, _, _ := svc.StartPairing(ScopeChat)
+	if _, err := svc.RequestPairing(code, "Pixel 8", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _ = svc.StartPairing(ScopeView)
+	svc.EndPairing()
+	if v := svc.Pairing(); v.CodeExpiresAt != 0 || v.Request != nil {
+		t.Fatalf("after EndPairing: %+v; want no code and no request", v)
+	}
+	for range 5 {
+		*now = now.Add(time.Second)
+		_, _ = svc.RequestPairing("AAAABBBBCCCC", "x", "")
+	}
+	svc.EndPairing()
+	if svc.Pairing().LockedUntil == 0 {
+		t.Fatal("EndPairing ended the pause")
+	}
+}

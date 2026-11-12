@@ -64,12 +64,13 @@ const sendPattern = "POST /api/bots/{id}/messages"
 // a loopback address that a proxy on this computer forwards to, and every request to it needs
 // a session.
 type Phone struct {
-	settings config.PhoneSettings
-	verifier *access.Verifier // nil unless the proxy is a Cloudflare Tunnel
-	now      func() time.Time
-	recheck  time.Duration // how often an open event stream checks its session
-	log      *slog.Logger
-	limits   *phoneLimits
+	settings   config.PhoneSettings
+	verifier   *access.Verifier // nil unless the proxy is a Cloudflare Tunnel
+	accessOpts []access.Option
+	now        func() time.Time
+	recheck    time.Duration // how often an open event stream checks its session
+	log        *slog.Logger
+	limits     *phoneLimits
 
 	mu      sync.Mutex
 	handler http.Handler
@@ -82,8 +83,10 @@ type Phone struct {
 // PhoneOption changes the Phone that NewPhone returns.
 type PhoneOption func(*Phone)
 
-// WithPhoneVerifier checks the Access tokens with v instead of the team domain's own keys.
-func WithPhoneVerifier(v *access.Verifier) PhoneOption { return func(p *Phone) { p.verifier = v } }
+// WithAccessOptions builds the Access token check with opts, for example a test's own keys.
+func WithAccessOptions(opts ...access.Option) PhoneOption {
+	return func(p *Phone) { p.accessOpts = opts }
+}
 
 // WithPhoneClock reads the time from now, and has open streams check their session every
 // recheck.
@@ -95,11 +98,11 @@ func WithPhoneClock(now func() time.Time, recheck time.Duration) PhoneOption {
 // when Start runs, after New has given it its handler.
 func NewPhone(settings config.PhoneSettings, log *slog.Logger, opts ...PhoneOption) *Phone {
 	p := &Phone{settings: settings, now: time.Now, recheck: 15 * time.Second, log: log}
-	if settings.Proxy == config.ProxyCloudflare {
-		p.verifier = access.New(settings.TeamDomain, settings.AUD)
-	}
 	for _, o := range opts {
 		o(p)
+	}
+	if settings.Proxy == config.ProxyCloudflare {
+		p.verifier = access.New(settings.TeamDomain, settings.AUD, p.accessOpts...)
 	}
 	p.limits = newPhoneLimits(p.now)
 	return p

@@ -71,6 +71,17 @@ type phoneFixture struct {
 
 func newPhoneFixture(t *testing.T, tunnel bool) *phoneFixture {
 	t.Helper()
+	settings := config.PhoneSettings{Enabled: true, Addr: "127.0.0.1:0", Hosts: []string{phoneHost}, Proxy: config.ProxyTailscale}
+	if tunnel {
+		settings.Proxy, settings.TeamDomain, settings.AUD = config.ProxyCloudflare, teamHost, appAUD
+	}
+	return newPhoneFixtureWith(t, settings)
+}
+
+// newPhoneFixtureWith is the fixture with phone settings as config.json gives them.
+func newPhoneFixtureWith(t *testing.T, settings config.PhoneSettings) *phoneFixture {
+	t.Helper()
+	tunnel := settings.Proxy == config.ProxyCloudflare
 	dir := t.TempDir()
 	conn, err := db.Open(context.Background(), filepath.Join(dir, "handful.db"))
 	if err != nil {
@@ -91,7 +102,6 @@ func newPhoneFixture(t *testing.T, tunnel bool) *phoneFixture {
 	f.svc = svc
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: "/nonexistent"}, log)
-	settings := config.PhoneSettings{Enabled: true, Addr: "127.0.0.1:0", Hosts: []string{phoneHost}, Proxy: config.ProxyTailscale}
 	opts := []PhoneOption{WithPhoneClock(clock, 20*time.Millisecond)}
 	if tunnel {
 		key, _ := phoneKeys()
@@ -107,8 +117,7 @@ func newPhoneFixture(t *testing.T, tunnel bool) *phoneFixture {
 			}}})
 		}))
 		t.Cleanup(certs.Close)
-		settings.Proxy, settings.TeamDomain, settings.AUD = config.ProxyCloudflare, teamHost, appAUD
-		opts = append(opts, WithPhoneVerifier(access.New(teamHost, appAUD, access.WithCertsURL(certs.URL), access.WithClock(clock))))
+		opts = append(opts, WithAccessOptions(access.WithCertsURL(certs.URL), access.WithClock(clock)))
 	}
 	if err := config.Write(f.settings, config.File{}); err != nil {
 		t.Fatal(err)
@@ -843,3 +852,23 @@ func TestThePhoneListenerStartsAndStopsCleanly(t *testing.T) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(b []byte) (int, error) { return f(b) }
+
+// A config.json written by hand, with names in capitals and the team domain as a URL, gives a
+// phone listener that works.
+func TestAHandWrittenConfigFileGivesAWorkingPhoneListener(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	body := `{"phone":{"enabled":true,"hosts":[" PHONE.Example.com "],"proxy":"cloudflare",` +
+		`"cloudflare":{"teamDomain":"https://YOU.cloudflareaccess.com/","aud":" ABCDEF0123456789 "}}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newPhoneFixtureWith(t, file.PhoneSettings())
+	token, _ := f.pair(core.ScopeView)
+	if rec := f.do(req{path: "/api/session", session: token}); rec.Code != http.StatusOK {
+		t.Fatalf("a request to the hand-written settings: %d %q; want 200", rec.Code, rec.Body)
+	}
+}

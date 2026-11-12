@@ -570,7 +570,7 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 	bg := context.WithoutCancel(ctx)
 	status, errText := "done", ""
 	defer func() { r.endTurn(bg, t.ID, status, errText) }()
-	transcript := turnTranscript(t)
+	transcript := t.Transcript()
 	// An error after the turn was stopped, for example while its prompt was built, is the
 	// stop's doing: the turn is interrupted, not failed.
 	fail := func(err error) {
@@ -630,15 +630,6 @@ func (r *Runner) endTurn(ctx context.Context, id, status, errText string) {
 	}
 }
 
-// turnTranscript is where a turn shows its activity, approvals and
-// failures: its room, or the bot's chat.
-func turnTranscript(t core.Turn) string {
-	if t.RoomID != "" {
-		return t.RoomID
-	}
-	return t.BotID
-}
-
 // recordFailure logs a failed turn and writes its turn-failed entry.
 func (r *Runner) recordFailure(ctx context.Context, t core.Turn, transcript string, err error) {
 	r.log.Error("turn failed", "bot", t.BotID, "turn", t.ID, "err", err)
@@ -683,7 +674,7 @@ func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run
 	if err := r.saveSession(ctx, bot.ID, t.RoomID, run.SessionID); err != nil {
 		return out, err
 	}
-	if _, err := r.svc.AppendEntry(ctx, turnTranscript(t), core.KindEvent, t.ID, map[string]string{"type": "fresh-session", "text": "Started a fresh session after the move."}); err != nil {
+	if _, err := r.svc.AppendEntry(ctx, t.Transcript(), core.KindEvent, t.ID, map[string]string{"type": "fresh-session", "text": "Started a fresh session after the move."}); err != nil {
 		return out, err
 	}
 	return r.runTurn(ctx, bot, t, run)
@@ -876,7 +867,7 @@ func (r *Runner) itemChanges(ctx context.Context, t core.Turn) ([]core.ItemEvent
 // chat of turn t: what the user's message answers (in a direct chat), what
 // the user dismissed since its previous turn there, and what is still open.
 func (r *Runner) questionNotes(ctx context.Context, bot core.Bot, t core.Turn) (string, error) {
-	chat := turnTranscript(t)
+	chat := t.Transcript()
 	var answered []core.OpenQuestion
 	if t.RoomID == "" && t.Source == core.SourceUser {
 		var err error

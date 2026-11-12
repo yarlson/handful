@@ -102,6 +102,15 @@ type Turn struct {
 	Decision bool
 }
 
+// Transcript is where the turn shows its activity, approvals and failures: its room, or the
+// bot's own chat.
+func (t Turn) Transcript() string {
+	if t.RoomID != "" {
+		return t.RoomID
+	}
+	return t.BotID
+}
+
 // FromUserPost reports whether a post of the user woke the turn in its room:
 // only such a turn has no hops and no board role there.
 func (t Turn) FromUserPost() bool {
@@ -808,10 +817,10 @@ func (s *Service) QueuedTurns(ctx context.Context, limit int) ([]Turn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list queued turns: %w", err)
 	}
-	return queuedTurns(rows), nil
+	return toTurns(rows), nil
 }
 
-func queuedTurns(rows []db.Turn) []Turn {
+func toTurns(rows []db.Turn) []Turn {
 	turns := make([]Turn, 0, len(rows))
 	for _, r := range rows {
 		turns = append(turns, Turn{
@@ -829,7 +838,7 @@ func (s *Service) QueuedTurnsPage(ctx context.Context, leads bool, skip, page in
 	if err != nil {
 		return nil, fmt.Errorf("list queued turns: %w", err)
 	}
-	return queuedTurns(rows), nil
+	return toTurns(rows), nil
 }
 
 // StartTurn marks a queued turn as running. It returns false when the turn

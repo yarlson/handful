@@ -28,8 +28,15 @@ LastYarGPTSchema
 go back to YarGPT
 # The old MCP server name stays reserved for connectors.
 oldMCPServerName = "yargpt"|"old reserved name"
-# The README's lines about moving from YarGPT and going back to it (spec §4.4, §6).
-^README\.md:[0-9]+:.*(Moving from YarGPT|Go back to YarGPT|called YarGPT before|YarGPT is now Handful|Mac app, YarGPT [0-9]|YarGPT-universal-mac\.zip)
+# The README's section that points to the move page (spec §4.4, §6).
+^README\.md:[0-9]+:(## Moving from YarGPT|Handful was called YarGPT before\. .*\[Moving from YarGPT\]\(docs/moving-from-yargpt\.md\)\.)$
+# The move page and the way back (spec §4.4, §6), line by line; the data folder,
+# the update-check variable and the old binary are allowed above.
+^docs/moving-from-yargpt\.md:[0-9]+:(# Moving from YarGPT|YarGPT is now Handful\. Your bots|- \*\*Mac app, YarGPT 0\.(9\.0 or later|8\.0 or earlier):\*\*|## Go back to YarGPT|3\. Download `YarGPT-universal-mac\.zip`|4\. Click \*\*Later\*\* in its "YarGPT is now Handful" window)
+# The -move-back flag's row in the configuration page, which links to the way back.
+^docs/configuration\.md:[0-9]+:\| `-move-back` \| off \| Go back to YarGPT: .*\(moving-from-yargpt\.md#go-back-to-yargpt\)\. \|$
+# The move page's line in .gitignore, which keeps docs/ ignored but for its pages.
+^\.gitignore:[0-9]+:!/docs/moving-from-yargpt\.md$
 
 # The bridge files that every Handful release carries for 12 months, for the
 # apps from before the rename (spec §3, §7; docs/releasing.md, Bridge files).

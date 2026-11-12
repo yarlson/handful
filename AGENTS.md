@@ -1,7 +1,7 @@
 # Instructions for coding agents
 
 - Run `mise install` once. The Makefile runs every tool that `mise.toml` pins through `mise exec`, so it uses those versions. To add or update a tool, change `mise.toml`. The macOS app targets also use `lipo`, `sips` and `rsvg-convert`, which mise does not install.
-- The section "Tests and checks" in README.md lists the make targets.
+- The section "Checks" in docs/development.md lists the make targets.
 - Run `make check` before you finish a change. CI runs the same target.
 - Never stop a process by a pattern: no `pkill -f`, `pkill <pattern>` or `killall`. A pattern can match other processes, such as the claude processes of Handful's bots, and stop them too. Stop a process by its PID (save `$!` when you start it) or by its port (`lsof -ti tcp:PORT`, then `kill` that PID).
 

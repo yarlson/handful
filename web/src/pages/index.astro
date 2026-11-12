@@ -1,6 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import Mark from "../components/Mark.astro";
+import HeroMarkMotion from "../components/HeroMarkMotion.astro";
 import Install from "../components/Install.astro";
 import Header from "../components/Header.astro";
 import Footer from "../components/Footer.astro";
@@ -112,6 +113,7 @@ const numbers = [
 		<!-- 1. Hero -->
 		<section class={`${wrap} flex flex-col items-center pb-[clamp(3.5rem,11vh,7rem)] pt-[clamp(1.5rem,6vh,4.5rem)] text-center`}>
 			<Mark id="hero-mark" size="clamp(6rem, 14vmin, 7rem)" variant="tile" />
+			<HeroMarkMotion />
 			<h1 class="mt-[clamp(1.25rem,3vh,1.75rem)] max-w-[16ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
 				A handful of bots that stay.
 			</h1>

@@ -60,3 +60,36 @@ Put instructions for every bot in `~/.handful/AGENTS.md`, for example:
 - A change reaches a bot when it next starts a Claude Code process.
 - Every bot can read the file, so keep tokens out of it.
 - A file over 32 KiB stops every bot's turns until you shorten it.
+
+## Phone access
+
+Phone access lets you use Handful from your phone. It is **off by default**, and with it off Handful opens no other port. Turn it on in `config.json`, then restart Handful:
+
+```json
+{
+  "phone": {
+    "enabled": true,
+    "hosts": ["phone.example.com"],
+    "proxy": "cloudflare",
+    "cloudflare": {"teamDomain": "you.cloudflareaccess.com", "aud": "<the application's AUD tag>"}
+  }
+}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `phone.enabled` | `false` | Open the phone address |
+| `phone.addr` | `127.0.0.1:7778` | The phone address. It must be loopback. |
+| `phone.hosts` | none | The names your phone opens, 1 to 10. Not `localhost`, and not a quick tunnel (`trycloudflare.com`), which has no login in front. |
+| `phone.proxy` | `cloudflare` | `cloudflare` for a Cloudflare Tunnel with a Cloudflare Access login in front, or `tailscale` for `tailscale serve` |
+| `phone.cloudflare.teamDomain` | none | The team domain of the Access login. Needed for `cloudflare`. |
+| `phone.cloudflare.aud` | none | The AUD tag of the Access application, from its Overview page. Needed for `cloudflare`. |
+
+If a phone key is invalid, or phone access is on and a key it needs is missing, Handful does not start, and the error names the key.
+
+- **A second listener.** A proxy on this computer forwards your phone's requests to the phone address. Handful still never listens on your network itself.
+- **Every request needs a paired phone.** Only the web app's own files load without one. A phone is paired for one of three scopes: **View** (read only), **Chat** (also send messages and act on tasks), or **Chat and approve once** (also Allow once and Deny on approval cards).
+- **A phone never chooses Always allow**, and never allows a setup that creates bots or teams. Settings, bots, teams, routines, memory, skills, connectors and phone access itself stay on the computer.
+- **A phone can message your bots.** A bot can then use any tool you have already always-allowed for it, with no approval card.
+- **With a Cloudflare Tunnel, Cloudflare sees the traffic**: your chats, what bots print and your approvals. Handful also checks the Cloudflare Access login on every request, so the public address answers nothing without it.
+- **Turning it off** (`POST /api/phone/off` on the computer) closes the phone address and its open streams at once. Each phone can be revoked on its own (`DELETE /api/phone/sessions/<id>`), or all of them together.

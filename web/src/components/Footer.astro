@@ -1,18 +1,43 @@
 ---
-import GithubMark from "./GithubMark.astro";
+import { aboutText, facts, linkGroups } from "../about";
 ---
 
 <div class="mx-auto w-full max-w-6xl px-6 sm:px-10 lg:px-16">
-	<footer class="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-line pb-12 pt-8 text-sm text-ink-3">
-		<span>© 2026 Yar Kravtsov · Not affiliated with or endorsed by Anthropic.</span>
-		<nav aria-label="Footer" class="flex flex-wrap gap-x-6 gap-y-2">
-			<a href="https://github.com/yarlson/handful" class="inline-flex items-center gap-2 text-ink-2 transition-colors hover:text-ink">
-				<GithubMark />
-				GitHub
-			</a>
-			<a href="https://github.com/yarlson/handful/releases" class="text-ink-2 transition-colors hover:text-ink">Releases</a>
-			<a href="/security/" class="text-ink-2 transition-colors hover:text-ink">Security</a>
-			<a href="/llms.txt" class="text-ink-2 transition-colors hover:text-ink">llms.txt</a>
-		</nav>
+	<footer class="border-t border-line pb-12 pt-10 text-sm text-ink-3">
+		<div class="grid gap-12 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-20">
+			<section aria-labelledby="about-heading">
+				<h2 id="about-heading" class="text-base font-[560] text-ink">What Handful is</h2>
+				<p id="about-text" class="mt-3 max-w-[62ch] text-pretty text-[0.9375rem] leading-relaxed text-ink-2">{aboutText}</p>
+				<dl class="mt-6 grid max-w-[62ch] gap-x-6 gap-y-3 sm:grid-cols-[7rem_minmax(0,1fr)]">
+					{
+						facts.map((fact) => (
+							<>
+								<dt class="font-[550] text-ink">{fact.label}</dt>
+								<dd class="text-pretty text-ink-2">{fact.value}</dd>
+							</>
+						))
+					}
+				</dl>
+			</section>
+			<div class="grid grid-cols-1 gap-x-10 gap-y-8 sm:grid-cols-3">
+				{
+					linkGroups.map((group) => (
+						<nav aria-label={group.title}>
+							<h2 class="text-base font-[560] text-ink">{group.title}</h2>
+							<ul class="mt-3 space-y-2">
+								{group.links.map((link) => (
+									<li>
+										<a href={link.href} class="text-ink-2 transition-colors hover:text-ink">
+											{link.label}
+										</a>
+									</li>
+								))}
+							</ul>
+						</nav>
+					))
+				}
+			</div>
+		</div>
+		<p class="mt-12 border-t border-line pt-6">© 2026 Yar Kravtsov · Not affiliated with or endorsed by Anthropic.</p>
 	</footer>
 </div>

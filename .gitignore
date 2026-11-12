@@ -4,6 +4,13 @@
 !/ui/dist/.keep
 /docs/*
 !/docs/releasing.md
+!/docs/bots.md
+!/docs/teams.md
+!/docs/mac-app.md
+!/docs/moving-from-yargpt.md
+!/docs/connectors.md
+!/docs/configuration.md
+!/docs/development.md
 !/docs/measures/
 /target/
 /ui/.stryker-tmp/

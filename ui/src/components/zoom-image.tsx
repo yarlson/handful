@@ -324,6 +324,7 @@ export function ZoomImage({
 
   const fit = ready ? frame.fit : 1
   const atFit = !zoomed
+  const level = `${percent(ready ? view.scale : fit)} %`
   return (
     <>
       <div
@@ -372,6 +373,11 @@ export function ZoomImage({
         onFocus={(e) => {
           focusedTool.current = e.target instanceof HTMLButtonElement ? e.target : null
         }}
+        // Focus that moves to another control leaves the toolbar. A button that turns itself off
+        // loses focus with no new target, so that case keeps focusedTool for the move above.
+        onBlur={(e) => {
+          if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) focusedTool.current = null
+        }}
         className="absolute bottom-[calc(12px+env(safe-area-inset-bottom))] left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/60 p-1 ring-1 ring-white/10"
       >
         <button
@@ -387,13 +393,13 @@ export function ZoomImage({
         <button
           ref={readout}
           type="button"
-          aria-label="Zoom level"
+          aria-label={`Zoom level ${level}`}
           title="Zoom level"
           className={cn("grid h-10 w-15 text-sm tabular-nums max-md:h-11", viewerLook)}
           disabled={!ready}
           onClick={() => frame && toggle(centre(frame.stage))}
         >
-          {`${percent(ready ? view.scale : fit)} %`}
+          {level}
         </button>
         <button
           type="button"

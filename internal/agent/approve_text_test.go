@@ -81,7 +81,7 @@ func TestTheSendersBoardSaysToApproveAClosedTask(t *testing.T) {
 	}
 	board := core.Board{Sent: []core.Goal{sent("a", core.GoalDelivered, "dl"), sent("b", core.GoalDelivered, ""), sent("c", core.GoalActive, "dl")}, Teams: map[string]string{"docs": "Docs"}}
 	got := boardPrompt(core.Bot{ID: "dl"}, dev, board, core.Turn{}, nil, time.Time{})
-	approve := " — you approve it: update_board approve with its goal_id, or changes"
+	approve := " — your team's lead approves it in a lead turn: update_board approve with its goal_id, or changes"
 	for _, want := range []string{
 		`- "Task a." (task id a) to team "Docs" [done, waiting for approval]` + approve + "\n",
 		`- "Task b." (task id b) to team "Docs" [done, waiting for approval]` + "\n",
@@ -90,5 +90,12 @@ func TestTheSendersBoardSaysToApproveAClosedTask(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("the sender's board lacks %q:\n%s", want, got)
 		}
+	}
+	// A member's work turn shows the same board: the line names the lead, not the reader.
+	dev.Members = append(dev.Members, core.Member{ID: "mo", Name: "Mo"})
+	board.Items = []core.Item{{ID: "i1", Title: "Docs", State: core.ItemDoing, OwnerID: "mo"}}
+	member := boardPrompt(core.Bot{ID: "mo"}, dev, board, core.Turn{BoardRole: core.RoleWork, ItemID: "i1"}, nil, time.Time{})
+	if !strings.Contains(member, `[done, waiting for approval]`+approve) || strings.Contains(member, "you approve it") {
+		t.Errorf("a member's work turn tells the reader to approve, or lacks the lead's approval:\n%s", member)
 	}
 }

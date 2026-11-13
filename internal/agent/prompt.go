@@ -633,13 +633,14 @@ func approverOf(board core.Board, g core.Goal) string {
 	return fmt.Sprintf("team %q's lead approves it", board.Teams[g.FromTeamID])
 }
 
-// sentApproval tells the sending lead to approve a task it sent once the other team closed it:
-// the wake on the delivery can be skipped while the lead has another turn queued.
+// sentApproval says that the team's lead approves a task the team sent, once the other team closed
+// it: the wake on the delivery can be skipped while the lead has another turn queued. Every turn
+// in the team shows the board, so it names the lead, who approves in a turn as lead.
 func sentApproval(g core.Goal) string {
 	if g.State != core.GoalDelivered || g.UserApproves() {
 		return ""
 	}
-	return " — you approve it: update_board approve with its goal_id, or changes"
+	return " — your team's lead approves it in a lead turn: update_board approve with its goal_id, or changes"
 }
 
 func pinned(g core.Goal) string {

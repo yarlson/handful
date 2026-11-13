@@ -524,12 +524,12 @@ func (t tools) approve(ctx context.Context, rc runContext, in map[string]any) (*
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode tool input: %w", err)
 	}
-	allowed, reason := false, "A reviewer checks the work and does not change it. Ask for changes with update_board changes."
 	// Before the grants: a reviewer may not edit the work, even with a tool that is always allowed.
-	reviewing, err := t.reviewerEdits(ctx, rc, tool)
+	reviewing, reason, err := t.reviewerEdits(ctx, rc, tool)
 	if err != nil {
 		return nil, nil, err
 	}
+	allowed := false
 	if !reviewing {
 		allowed, reason, err = t.svc.RequestApproval(ctx, core.ApprovalRequest{BotID: rc.BotID, BotName: rc.BotName, TranscriptID: rc.transcript(), TurnID: rc.TurnID, Tool: tool, Input: input})
 		if err != nil {
@@ -820,17 +820,29 @@ func updateArtifact(ctx context.Context, svc *core.Service, rc runContext, in ar
 // reviewerEdits reports whether a call of tool would edit the work as its
 // reviewer: Edit or Write in a review turn, or by a bot that reviews an item
 // in review in the turn's team, in any turn. Bash can still change files.
-func (t tools) reviewerEdits(ctx context.Context, rc runContext, tool string) (bool, error) {
-	if tool != "Edit" && tool != "Write" {
-		return false, nil
+// When it does, it also returns the denial, which names the steps in review.
+func (t tools) reviewerEdits(ctx context.Context, rc runContext, tool string) (bool, string, error) {
+	if (tool != "Edit" && tool != "Write") || rc.RoomID == "" {
+		return false, "", nil
 	}
-	if rc.BoardRole == core.RoleReview {
-		return true, nil
+	titles, err := t.svc.ReviewedItems(ctx, rc.RoomID, rc.BotID)
+	if err != nil || (len(titles) == 0 && rc.BoardRole != core.RoleReview) {
+		return false, "", err
 	}
-	if rc.RoomID == "" {
-		return false, nil
+	const reviewer = "A reviewer checks the work and does not change it. Ask for changes with update_board changes."
+	if len(titles) == 0 {
+		return true, reviewer, nil
 	}
-	return t.svc.ReviewsItem(ctx, rc.RoomID, rc.BotID)
+	return true, fmt.Sprintf("You review %s, in review in this team: Edit and Write are denied in every turn of yours in the team until it leaves review. %s", quotedList(titles), reviewer), nil
+}
+
+// quotedList quotes each of titles and joins them with commas.
+func quotedList(titles []string) string {
+	quoted := make([]string, len(titles))
+	for i, title := range titles {
+		quoted[i] = strconv.Quote(title)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // boardAction carries out one action of update_board and says what it did.

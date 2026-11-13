@@ -1371,7 +1371,7 @@ func TestBoardTurnsTellEachRoleWhatToDo(t *testing.T) {
 	for _, want := range []string{
 		"Review \"Parse\" (id " + items[0].ID + ") of Bo (id " + bo.ID + ").",
 		"Result: Parsed in parse.go.",
-		"Edit and Write are denied in a review",
+		"Edit and Write are denied to you in every turn in this team while this step is in review",
 	} {
 		if !strings.Contains(byRole["review"], want) {
 			t.Errorf("Cy's review turn lacks %q", want)

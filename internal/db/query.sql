@@ -595,9 +595,10 @@ WHERE i.team_id = sqlc.arg(team_id) AND (i.owner_id = sqlc.arg(bot_id) OR i.revi
   AND i.state NOT IN ('done', 'dropped') AND g.state IN ('active', 'delivered', 'paused')
 ORDER BY i.created_at, i.rowid;
 
--- name: CountReviewsBy :one
-SELECT COUNT(*) FROM items i JOIN goals g ON g.id = i.goal_id
-WHERE i.team_id = ? AND i.reviewer_id = ? AND i.state = 'review' AND g.state IN ('active', 'delivered', 'paused');
+-- name: ListReviewsBy :many
+SELECT i.title FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = ? AND i.reviewer_id = ? AND i.state = 'review' AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.rowid;
 
 -- name: CancelQueuedTurnsOfBotInRoom :exec
 UPDATE turns SET status = 'interrupted', error = 'the bot left the team', finished_at = ?

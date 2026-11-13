@@ -497,8 +497,22 @@ func workBrief(board core.Board, itemID string, changes []core.ItemEvent) string
 	if it.ReviewRounds > 0 {
 		fmt.Fprintf(&b, "Your last result: %s\n", it.Result)
 	}
+	if reviews := reviewing(board, it.OwnerID); len(reviews) > 0 {
+		fmt.Fprintf(&b, "You review %s, which is in review: Edit and Write are denied in every turn of yours in this team until it leaves review. Review it first, or block this step and say why.\n", quotedList(reviews))
+	}
 	fmt.Fprintf(&b, "Do this item now, in this turn, and only this item. When it meets its acceptance criteria and the working agreement, call update_board submit with item_id %s and text: the result, what you did and where it is. If you cannot go on without an answer, call update_board block with item_id %s and your question, and end the turn.\n", it.ID, it.ID)
 	return b.String()
+}
+
+// reviewing returns the titles of the board's items in review that botID reviews.
+func reviewing(board core.Board, botID string) []string {
+	var titles []string
+	for _, it := range board.Items {
+		if it.State == core.ItemReview && it.ReviewerID == botID {
+			titles = append(titles, it.Title)
+		}
+	}
+	return titles
 }
 
 // reviewBrief tells the reviewer of an item what to check in its review turn.
@@ -509,7 +523,7 @@ func reviewBrief(team core.Bot, board core.Board, itemID string, changes []core.
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nReview %q (id %s) of %s.\n%s%sResult: %s\n", it.Title, it.ID, memberLabel(team, it.OwnerID), itemDetails(board, it), changeHistory(changes), it.Result)
-	fmt.Fprintf(&b, "Check the result against the acceptance criteria and the working agreement: read the files and run the checks. You check the work and do not change it: Edit and Write are denied in a review. Then call update_board pass with item_id %s, or changes with item_id %s and text: what must change and why. If you cannot judge it, call update_board block with your question.\n", it.ID, it.ID)
+	fmt.Fprintf(&b, "Check the result against the acceptance criteria and the working agreement: read the files and run the checks. You check the work and do not change it: Edit and Write are denied to you in every turn in this team while this step is in review. Then call update_board pass with item_id %s, or changes with item_id %s and text: what must change and why. If you cannot judge it, call update_board block with your question.\n", it.ID, it.ID)
 	return b.String()
 }
 
@@ -667,6 +681,7 @@ You lead this goal. Keep the board moving with update_board:
 - Use the fewest items and members that fit. Give work that changes the same files to one owner, or make one item depend on the other with depends_on. Only independent items run at the same time.
 - Answer a blocked item with unblock and a note, or ask the user in the channel with needs_reply when only they can decide. Assign an item that a member proposes only when the goal needs it; drop the other proposals and the items that are no longer needed, with a note.
 - You can own small items yourself.
+- A member who reviews a step that is in review can't use Edit or Write in any turn in this team until that step leaves review. Give it file work only after that, or give the review to another member.
 - When a step of this task waits on work that another team does, send that team a task with send_task and name the step in waits_for; that team pays for the work, and you hear back in this channel.
 - When every item is done or dropped, call close with goal_id and text: the result, what was done and where it is, and one line for each thing found but left out of scope. Your next planned task starts at once. The task then waits for approval: the user approves a task from the user, and the sending team's lead one from another team. A task your team proposed, with propose or make_task, you approve yourself.
 The members' turns start on their own when their items are ready; never wait or poll for them.

@@ -1522,14 +1522,14 @@ func (s *Service) leadGaveUp(ctx context.Context, team Bot, lead Member, g Goal)
 	return true, err
 }
 
-// ReviewsItem reports whether the bot reviews an item in review in the team,
-// so that it may not change the work there.
-func (s *Service) ReviewsItem(ctx context.Context, teamID, botID string) (bool, error) {
-	n, err := s.q.CountReviewsBy(ctx, db.CountReviewsByParams{TeamID: teamID, ReviewerID: botID})
+// ReviewedItems returns the titles of the items in review in the team that the bot reviews, in an
+// open goal: while there is one, the bot may not edit in the team.
+func (s *Service) ReviewedItems(ctx context.Context, teamID, botID string) ([]string, error) {
+	titles, err := s.q.ListReviewsBy(ctx, db.ListReviewsByParams{TeamID: teamID, ReviewerID: botID})
 	if err != nil {
-		return false, fmt.Errorf("look for the reviews of bot %s: %w", botID, err)
+		return nil, fmt.Errorf("look for the reviews of bot %s: %w", botID, err)
 	}
-	return n > 0, nil
+	return titles, nil
 }
 
 // GoalBoard returns a goal and its items, whatever its state.

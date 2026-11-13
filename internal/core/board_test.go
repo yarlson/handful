@@ -1194,22 +1194,22 @@ func TestOnlyTheLeadReopensADeliveredGoalAndDroppedItemsLeaveRoom(t *testing.T) 
 	}
 }
 
-func TestReviewsItemFindsAnOpenReview(t *testing.T) {
+func TestReviewedItemsFindsTheOpenReviews(t *testing.T) {
 	f := newBoardFixture(t, 30)
 	ctx := context.Background()
 	parse := f.create(t, f.lead, item("Parse", f.ana.ID, f.cy.ID))
 	f.start(t, parse, f.ana)
-	if got, err := f.svc.ReviewsItem(ctx, f.team.ID, f.cy.ID); err != nil || got {
-		t.Fatalf("ReviewsItem before the submit = %v, %v; want false", got, err)
+	if got, err := f.svc.ReviewedItems(ctx, f.team.ID, f.cy.ID); err != nil || len(got) != 0 {
+		t.Fatalf("ReviewedItems before the submit = %q, %v; want none", got, err)
 	}
 	if _, err := f.svc.SubmitItem(ctx, f.as(f.ana, RoleWork), parse.ID, "Parsed."); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := f.svc.ReviewsItem(ctx, f.team.ID, f.cy.ID); err != nil || !got {
-		t.Fatalf("ReviewsItem in the review = %v, %v; want true", got, err)
+	if got, err := f.svc.ReviewedItems(ctx, f.team.ID, f.cy.ID); err != nil || !slices.Equal(got, []string{"Parse"}) {
+		t.Fatalf("ReviewedItems in the review = %q, %v; want Parse", got, err)
 	}
-	if got, _ := f.svc.ReviewsItem(ctx, f.team.ID, f.ana.ID); got {
-		t.Fatal("ReviewsItem of the owner = true; want false")
+	if got, _ := f.svc.ReviewedItems(ctx, f.team.ID, f.ana.ID); len(got) != 0 {
+		t.Fatalf("ReviewedItems of the owner = %q; want none", got)
 	}
 }
 

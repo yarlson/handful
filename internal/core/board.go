@@ -1190,7 +1190,7 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 // so the user is not asked.
 func deliveryBody(g Goal, lead Member, summary string) map[string]any {
 	body := map[string]any{"text": summary, "fallback": false, "needsReply": false, "speakerId": lead.ID, "speakerName": lead.Name, "goalId": g.ID}
-	if g.userApproves() {
+	if g.UserApproves() {
 		body["needsReply"], body["questionState"] = true, QuestionOpen
 	}
 	return body
@@ -1487,7 +1487,9 @@ func (s *Service) wakeStalledLead(ctx context.Context, g Goal, items []Item) err
 	if err != nil || busy > 0 {
 		return err
 	}
-	err = s.inTx(ctx, func(q *db.Queries) error { return s.wakeLead(ctx, q, team, g, "The goal has no work in flight.") })
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		return s.wakeLead(ctx, q, team, g, "The Now task has no step in work or review.")
+	})
 	if err != nil {
 		return err
 	}

@@ -59,7 +59,7 @@ func TestTheBoardShowsThePlanTheInboxDoneAndSentTasks(t *testing.T) {
 			task("g3", "Tidy docs.", core.GoalIncoming, core.Handoff{AskRounds: 3, NeedsUser: true}),
 			task("g4", "Refactor.", core.GoalLater, core.Handoff{Origin: core.OriginProposal, IntakeNote: "After the release"}),
 		},
-		Done:  []core.Goal{task("d1", "Ship it.", core.GoalDelivered, core.Handoff{FromTeamID: "sup"})},
+		Done:  []core.Goal{task("d1", "Ship it.", core.GoalDelivered, core.Handoff{Origin: core.OriginHandoff, FromTeamID: "sup", FromBotID: "sl"})},
 		Sent:  []core.Goal{{ID: "s9", Text: "Write the guide.", TeamID: "docs", State: core.GoalQueued}},
 		Teams: map[string]string{"sup": "Support", "prod": "Product", "docs": "Docs"},
 	}

@@ -405,10 +405,10 @@ func (s *Service) CloseTask(ctx context.Context, a Actor, goalID, result string)
 	return s.DeliverGoal(ctx, a, result)
 }
 
-// userApproves reports whether the user, not a lead, approves done task g:
+// UserApproves reports whether the user, not a lead, approves done task g:
 // the user's own task, or one the user handed over from a team's board,
 // which has no sending lead. ListDeliveredUserGoals holds the same rule.
-func (g Goal) userApproves() bool {
+func (g Goal) UserApproves() bool {
 	return g.Origin == OriginUser || (g.Origin == OriginHandoff && g.FromBotID == "")
 }
 

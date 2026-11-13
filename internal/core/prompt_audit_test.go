@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -98,5 +99,53 @@ func TestTheUsersApprovalStartsTheRetroThenTheNextTask(t *testing.T) {
 	}
 	if board, err := f.svc.Board(ctx, f.team.ID); err != nil || board.Goal == nil || board.Goal.ID != third.ID || board.Goal.State != GoalActive {
 		t.Fatalf("Now task after the approval = %+v, %v; want %q in progress", board.Goal, err, third.Text)
+	}
+}
+
+// Audit finding 9: the lead's wakes for a task that started from the plan, and for a Now task
+// nobody works on, say task and step.
+func TestTheLeadsWakesSayTaskAndStep(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	ctx := context.Background()
+	prompts := func() []string {
+		t.Helper()
+		turns, err := f.svc.QueuedTurns(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, tr := range turns {
+			out = append(out, tr.Prompt)
+		}
+		return out
+	}
+	// A turn of the Now task that ended badly, and no step: the scan wakes the lead.
+	stopped, err := f.svc.queueTurn(ctx, f.svc.q, Turn{BotID: f.bo.ID, Source: SourceRoom, RoomID: f.team.ID, GoalID: f.goal.ID, BoardRole: RoleLead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.StartTurn(ctx, stopped); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.FinishTurn(ctx, stopped, "interrupted", "server restarted"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.SettleItems(ctx, func(string, string) bool { return false }, LeadState{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := prompts(); !slices.Contains(got, "The Now task has no step in work or review.") {
+		t.Fatalf("queued prompts after the scan = %q; want the stall wake", got)
+	}
+	finishQueued(t, f.svc)
+	// A task first in the plan starts when the Now task is closed.
+	if _, err := f.svc.UserTask(ctx, f.team.ID, NewTask{Text: "Next."}, true); err != nil {
+		t.Fatal(err)
+	}
+	f.finish(t, f.create(t, f.lead, item("Parse", f.ana.ID, "")), f.ana)
+	if _, err := f.svc.DeliverGoal(ctx, f.lead, "Done."); err != nil {
+		t.Fatal(err)
+	}
+	if got := prompts(); !slices.Contains(got, "The next task of the plan started: split it into steps.") {
+		t.Fatalf("queued prompts after the close = %q; want the next task's wake", got)
 	}
 }

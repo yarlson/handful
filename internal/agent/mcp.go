@@ -385,9 +385,11 @@ func (t tools) sendToAgent(ctx context.Context, rc runContext, in agentMessageIn
 		return textResult("Posted in the room. Woke %s.", strings.Join(res.Woken, ", ")), nil, nil
 	}
 	// In a team turn a message to a bot is refused, so the hint to message one is wrong there.
+	// The post is saved: when the turn's team can't be read, the result leaves the hint out.
 	if rc.RoomID != "" {
-		if teamID, err := t.svc.TurnTeam(ctx, rc.RoomID); err != nil || teamID != "" {
-			return textResult("Posted in the room; no one was woken."), nil, err
+		teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
+		if maybeTeam := err != nil || teamID != ""; maybeTeam {
+			return textResult("Posted in the room; no one was woken."), nil, nil
 		}
 	}
 	return textResult("Posted in the room; no one was woken. To ask a teammate to act, message them directly."), nil, nil

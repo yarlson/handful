@@ -219,6 +219,6 @@ func TestTheExecutorIsToldNotToMessageTheUser(t *testing.T) {
 	t.Parallel()
 	prompt, _ := executorAgents("Ana")["executor"].(map[string]any)["prompt"].(string)
 	wantText(t, "the executor's prompt", prompt,
-		[]string{"Do not message the user or other bots, and do not ask questions: send_to_user and send_to_agent are the parent's to use."},
+		[]string{"Do not message the user or other bots, and do not ask questions: send_to_user and send_to_agent are the parent's to use.", claudeMDLine},
 		[]string{"You cannot talk to the user"})
 }

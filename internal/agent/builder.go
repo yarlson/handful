@@ -27,12 +27,14 @@ type setupBotInput struct {
 }
 
 type setupTeamInput struct {
-	Name       string   `json:"name" jsonschema:"a short name that no bot, team or room of the user has"`
-	Purpose    string   `json:"purpose,omitempty" jsonschema:"what the team is for, with the facts every member needs, such as the folder of the code"`
-	Members    []string `json:"members" jsonschema:"the names of 1 to 8 bots: new bots of this setup or bots the user has"`
-	Lead       string   `json:"lead,omitempty" jsonschema:"the name of the member who leads; the first member when empty"`
-	Agreement  string   `json:"agreement,omitempty" jsonschema:"the working agreement: how the team works and when work is done"`
-	GoalBudget int64    `json:"goal_budget,omitempty" jsonschema:"the turns that a goal may use; 30 when empty"`
+	Name      string   `json:"name" jsonschema:"a short name that no bot, team or room of the user has"`
+	Purpose   string   `json:"purpose,omitempty" jsonschema:"what the team is for, with the facts every member needs, such as the folder of the code"`
+	Members   []string `json:"members" jsonschema:"the names of 1 to 8 bots: new bots of this setup or bots the user has"`
+	Lead      string   `json:"lead,omitempty" jsonschema:"the name of the member who leads; the first member when empty"`
+	Agreement string   `json:"agreement,omitempty" jsonschema:"the working agreement: how the team works and when work is done"`
+	// GoalBudget was a task's turn limit. A task has none now; the field stays so that a call that
+	// still sends it is valid, and its value is dropped.
+	GoalBudget int64 `json:"goal_budget,omitempty" jsonschema:"ignored: a task has no turn limit; leave it out"`
 	// The defaults of members without their own model or effort, in this team.
 	DefaultModel  string `json:"default_model,omitempty" jsonschema:"the model of members without their own, in this team, only when the user asked for one; empty inherits"`
 	DefaultEffort string `json:"default_effort,omitempty" jsonschema:"the effort of members without their own, in this team, only when the user asked for one; empty inherits"`
@@ -51,7 +53,7 @@ func inputOf(s core.Setup) setupInput {
 		in.Bots = append(in.Bots, setupBotInput{Name: b.Name, Instructions: b.Instructions, Model: b.Model, Effort: b.Effort})
 	}
 	for _, t := range s.Teams {
-		in.Teams = append(in.Teams, setupTeamInput{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, GoalBudget: t.GoalBudget, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort})
+		in.Teams = append(in.Teams, setupTeamInput{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort})
 	}
 	for _, r := range s.Rooms {
 		in.Rooms = append(in.Rooms, setupRoomInput{Name: r.Name, Purpose: r.Purpose, Members: r.Members})
@@ -65,7 +67,7 @@ func (in setupInput) setup() core.Setup {
 		s.Bots = append(s.Bots, core.SetupBot{Name: b.Name, Instructions: b.Instructions, Model: b.Model, Effort: b.Effort})
 	}
 	for _, t := range in.Teams {
-		s.Teams = append(s.Teams, core.SetupTeam{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, GoalBudget: t.GoalBudget, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort})
+		s.Teams = append(s.Teams, core.SetupTeam{Name: t.Name, Purpose: t.Purpose, Members: t.Members, Lead: t.Lead, Agreement: t.Agreement, DefaultModel: t.DefaultModel, DefaultEffort: t.DefaultEffort})
 	}
 	for _, r := range in.Rooms {
 		s.Rooms = append(s.Rooms, core.SetupRoom{Name: r.Name, Purpose: r.Purpose, Members: r.Members})
@@ -178,7 +180,7 @@ Your chat opened with this message from you. It is not in your conversation hist
 What Handful offers:
 - A bot is a persistent agent with its own chat, memory, routines (prompts that run on a schedule) and folder. It fits one ongoing need: an assistant, a specialist.
 - A room is a group chat of the user and some bots. A post wakes the bots it @mentions, or every member when it mentions none. It fits discussions and hand-offs that the user steers.
-- A team is a room with a lead, a working agreement and a shared folder. The user gives it a goal; the lead splits the goal into items on the team's board, members do them, another member reviews an item when the agreement asks for it, and the lead delivers the result. A goal can use 30 turns unless the team sets another number. It fits work with several steps and a clear result.
+- A team is a room with a lead, a working agreement and a shared folder. The user gives it a goal; the lead splits the goal into items on the team's board, members do them, another member reviews an item when the agreement asks for it, and the lead delivers the result. A team has no turn limit until the user sets a daily budget in the team's settings. It fits work with several steps and a clear result.
 - All of the user's bots share skills, artifacts and memory facts of scope "user". The user runs a skill with /<skill> <request> in a bot's chat or a team's chat, where the lead runs it, or the members that the message @mentions; a plain room does not run skills.
 - A bot reaches mail, calendars or chat apps only through a connector that the user adds under Connectors; say so when a setup needs one.
 - Instructions do not run on their own: a bot works when the user, a routine, a teammate or its team's board starts a turn. For scheduled work, tell the user to ask the new bot for it, for example "every weekday at 8:10, brief me"; the bot then saves its own routine.
@@ -192,7 +194,7 @@ Starter setups; adapt their names, instructions and size to the user:
 
 How to work:
 1. Learn what the user wants in at most three short questions, and skip a question whose answer does not change the setup.
-2. Propose one concrete setup in the chat, in plain words: each new bot with its name and its role in one line, and each team or room with its members and lead. Keep it small: one bot when one is enough, teams of 2 to 5 bots. A setup has at most 8 new bots, 3 teams and 3 rooms, and a team or room has 1 to 8 members. Give each new bot, team and room a name that no bot, room or team of the user has, ignoring case. Reuse a bot from your Teammates list only when its instructions fit the role, because you cannot change them. Never add yourself to a team or room. Mention that every turn of a bot uses the user's Claude plan, and that a team's goal can use up to its budget of turns.
+2. Propose one concrete setup in the chat, in plain words: each new bot with its name and its role in one line, and each team or room with its members and lead. Keep it small: one bot when one is enough, teams of 2 to 5 bots. A setup has at most 8 new bots, 3 teams and 3 rooms, and a team or room has 1 to 8 members. Give each new bot, team and room a name that no bot, room or team of the user has, ignoring case. Reuse a bot from your Teammates list only when its instructions fit the role, because you cannot change them. Never add yourself to a team or room. Mention that every turn of a bot uses the user's Claude plan, and that a team has no turn limit until the user sets a daily budget in the team's settings.
 3. When the user agrees, or already asked for an exact setup, call create_setup yourself, never through a subagent, with the whole setup. Start each new bot's instructions with one sentence that names its role, because its teammates see only that start; then say what it does and how. For a member of a team, leave hand-offs and reviews to the board and the working agreement; for a member of a room, say whom it @mentions next. Never put passwords, keys or other secrets in a setup.
 4. The user sees the setup on a card and creates it or cancels it. Create bots, teams and rooms only with create_setup, never with commands or the Handful API. When the user cancels, ask in one short question what to change. When the card expires, say that nothing was created and offer to show it again. When create_setup reports a problem, fix a name that is in use and tell the user the new name; propose any other change in the chat first. Call create_setup again only after the user agrees again.
 5. When the setup is created, tell the user where to start: which bot to write to, or which team to open and give a goal with /goal <what the team should do> in its chat. Do not message the new bots yourself.

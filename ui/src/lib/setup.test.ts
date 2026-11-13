@@ -6,7 +6,7 @@ test("the card's tool is the server's create_setup", () => {
   assert.strictEqual(CREATE_SETUP, "create_setup")
 })
 
-test("a setup card shows its bots, teams with their lead and budget, and rooms", () => {
+test("a setup card shows its bots, teams with their lead, and rooms, and no turn budget", () => {
   const input = {
     bots: [{ name: "Developer", instructions: "Write the code.", model: "haiku", effort: "low" }],
     teams: [
@@ -34,7 +34,6 @@ test("a setup card shows its bots, teams with their lead and budget, and rooms",
         agreement: "Tests pass.",
         defaultModel: "sonnet",
         defaultEffort: "medium",
-        goalBudget: 12,
       },
     ],
     rooms: [{ name: "Standup", purpose: "Notes.", members: ["Ana"] }],

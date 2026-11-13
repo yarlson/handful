@@ -320,7 +320,7 @@ func (s *Service) CheckTeamTurnTarget(ctx context.Context, roomID, fromID, targe
 	if err != nil || teamID == "" {
 		return err
 	}
-	const howTo = "in a turn in your team, talk to the team in its channel: post with send_to_user and write @Name to wake a member; a lead gives another team work with update_board request or hand_over"
+	const howTo = "in a turn in your team, talk to the team in its channel: post with send_to_user and write @Name to wake a member; a lead gives another team a task with update_board send_task"
 	target, err := s.GetBot(ctx, targetID)
 	if err != nil {
 		return err

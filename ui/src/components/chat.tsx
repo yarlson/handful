@@ -323,9 +323,6 @@ function SetupSummary({ setup }: { setup: SetupProposal }) {
                     {teamSetupLine(team.defaultModel, team.defaultEffort, FALLBACK_ALIASES)}
                   </p>
                 )}
-                {team.goalBudget !== undefined && (
-                  <p className="text-muted-foreground text-xs">{team.goalBudget} turns per task</p>
-                )}
               </li>
             ))}
           </ul>

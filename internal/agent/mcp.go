@@ -176,8 +176,8 @@ type sendInput struct {
 type agentMessageInput struct {
 	TargetID string   `json:"target_id" jsonschema:"id of a teammate bot, or of a room you are in"`
 	Message  string   `json:"message" jsonschema:"the message, self-contained and to the point"`
-	Files    []string `json:"files,omitempty" jsonschema:"room posts only: paths of images or videos to attach, at most 4, as for send_to_user"`
-	Priority bool     `json:"priority" jsonschema:"true wakes a teammate now (they must act or answer); false delivers it at their next turn (updates, FYIs). Room posts always land at once."`
+	Files    []string `json:"files,omitempty" jsonschema:"room posts only: paths of images or videos to attach, at most 4, as for send_to_user; a relative path is in the team's shared folder when the room is a team, else in your own folder"`
+	Priority bool     `json:"priority" jsonschema:"true wakes a teammate now (they must act or answer); false delivers it at their next turn outside a team (updates, FYIs). Room posts always land at once."`
 }
 
 type readRoomInput struct {
@@ -251,11 +251,11 @@ type boardInput struct {
 	TurnIDs    []string `json:"turn_ids,omitempty" jsonschema:"make_task, lead only: ids of your team's turns on no task, from your board, 1 to 50"`
 	Text       string   `json:"text,omitempty" jsonschema:"send_task, propose and make_task: the task in a line; ask: your question; answer_task: your answer; later: why it waits; pass_on: a note for the next team; push_back: the reason the sender reads; close: the result, what was done and where it is, and one line for each thing left out of scope; changes on a done task: what must change; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes on a step: what must change and why; assign: an optional note; drop: a note on why; pass: an optional note"`
 	Title      string   `json:"title,omitempty" jsonschema:"create: a short title, unique in the task"`
-	Brief      string   `json:"brief,omitempty" jsonschema:"send_task, propose, make_task and create: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
+	Brief      string   `json:"brief,omitempty" jsonschema:"send_task, propose, make_task and create: a self-contained brief: what to achieve, the inputs, the constraints and where to put the result"`
 	Acceptance string   `json:"acceptance,omitempty" jsonschema:"create: how a reviewer can tell that the step is done"`
-	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the item"`
-	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the item; optional"`
-	DependsOn  []string `json:"depends_on,omitempty" jsonschema:"create: ids of items of the goal that must be done first"`
+	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the step"`
+	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the step; optional"`
+	DependsOn  []string `json:"depends_on,omitempty" jsonschema:"create: ids of steps of the task that must be done first"`
 }
 
 type profileInput struct {
@@ -276,11 +276,24 @@ func addRunTool[In any](s *mcp.Server, current func() (runContext, bool), tool *
 	})
 }
 
+// sendToAgentDescription describes send_to_agent: outside a team it messages a bot or posts to a
+// room; in a team turn it only posts, waking no one, to a room the bot is in.
+func sendToAgentDescription(team bool) string {
+	if team {
+		return fmt.Sprintf("Post into a room you are in, at most %d characters, when the post @mentions no one, so that it wakes no one (for example a report). In a team turn you cannot message a bot: to ask a teammate to act, post in the team's channel with send_to_user and write @Name.", core.MaxAgentMessage)
+	}
+	return fmt.Sprintf("Message one of the user's other bots, or post into a room you are in; at most %d characters. Asynchronous like texting: the reply, if any, arrives later as its own turn, so do not wait or poll for it. To ask a teammate to act, message them directly. A room post wakes only the members it names with @Name; use that only when the room should see the request.", core.MaxAgentMessage)
+}
+
+// updateBoardDescription is the update_board tool's description: what each action does, and who
+// approves a done task, as core's approver rule decides.
+const updateBoardDescription = "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team arrives in the team's inbox, except a task the user starts at once: it becomes the Now task, or the first of the plan. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close). Whoever asked then approves it (approve) or asks for changes: the user for the user's tasks, the sending team's lead for a task from another team, and the team's own lead for a task the team proposed (propose or make_task). stop stops a task, keeping its steps."
+
 func newToolServer(svc *core.Service, current func() (runContext, bool), meta func(runContext) core.PostMeta) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: "1"}, nil)
 	h := tools{svc: svc, meta: meta}
 	addRunTool(s, current, &mcp.Tool{Name: "send_to_user", Description: "Send a message to the user, with images or videos if you attach files. This is the only output the user sees. During a turn in a room, it posts into the room for everyone."}, h.sendToUser)
-	addRunTool(s, current, &mcp.Tool{Name: "send_to_agent", Description: fmt.Sprintf("Message one of the user's other bots, or post into a room you are in; at most %d characters. Asynchronous like texting: the reply, if any, arrives later as its own turn, so do not wait or poll for it. To ask a teammate to act, message them directly. A room post wakes only the members it names with @Name; use that only when the room should see the request.", core.MaxAgentMessage)}, h.sendToAgent)
+	addRunTool(s, current, &mcp.Tool{Name: "send_to_agent", Description: sendToAgentDescription(inTeam(svc, current))}, h.sendToAgent)
 	addRunTool(s, current, &mcp.Tool{Name: "read_room", Description: "Read the latest messages of a room you are in, oldest first, with the files they carry. Each line starts with the message's #seq; pass the oldest one as before_seq to read further back. Reading does not change what your next room turn shows as new."}, h.readRoom)
 	addRunTool(s, current, &mcp.Tool{Name: "recall_memory", Description: "Search your durable memory and the shared user memory for facts that are not in your prompt."}, h.recallMemory)
 	addRunTool(s, current, &mcp.Tool{Name: "update_memory", Description: fmt.Sprintf("Save a durable fact (write), replace one (write with replaces) or drop one by its exact text (forget). A fact is one sentence of at most %d characters; keep long lists in a file in your working directory. Save without asking and mention it only in passing.", core.MaxFactLen)}, h.updateMemory)
@@ -288,7 +301,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
 	if inTeam(svc, current) {
-		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team, the user's too, arrives in the team's inbox. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close); whoever asked approves it or asks for changes, and stop stops a task, keeping its steps."}, h.updateBoard)
+		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: updateBoardDescription}, h.updateBoard)
 	}
 	if isBuilder(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: core.ToolCreateSetup, Description: createSetupDescription}, h.createSetup)
@@ -366,10 +379,18 @@ func (t tools) sendToAgent(ctx context.Context, rc runContext, in agentMessageIn
 	case "woke":
 		return textResult("Sent; the recipient is reading it now. Their reply, if any, arrives later as its own turn."), nil, nil
 	case "held":
-		return textResult("Sent; the recipient reads it at the start of their next turn."), nil, nil
+		return textResult("Sent; the recipient reads it at the start of their next turn outside a team."), nil, nil
 	}
 	if len(res.Woken) > 0 {
 		return textResult("Posted in the room. Woke %s.", strings.Join(res.Woken, ", ")), nil, nil
+	}
+	// In a team turn a message to a bot is refused, so the hint to message one is wrong there.
+	// The post is saved: when the turn's team can't be read, the result leaves the hint out.
+	if rc.RoomID != "" {
+		teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
+		if maybeTeam := err != nil || teamID != ""; maybeTeam {
+			return textResult("Posted in the room; no one was woken."), nil, nil
+		}
 	}
 	return textResult("Posted in the room; no one was woken. To ask a teammate to act, message them directly."), nil, nil
 }
@@ -505,12 +526,12 @@ func (t tools) approve(ctx context.Context, rc runContext, in map[string]any) (*
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode tool input: %w", err)
 	}
-	allowed, reason := false, "A reviewer checks the work and does not change it. Ask for changes with update_board changes."
 	// Before the grants: a reviewer may not edit the work, even with a tool that is always allowed.
-	reviewing, err := t.reviewerEdits(ctx, rc, tool)
+	reviewing, reason, err := t.reviewerEdits(ctx, rc, tool)
 	if err != nil {
 		return nil, nil, err
 	}
+	allowed := false
 	if !reviewing {
 		allowed, reason, err = t.svc.RequestApproval(ctx, core.ApprovalRequest{BotID: rc.BotID, BotName: rc.BotName, TranscriptID: rc.transcript(), TurnID: rc.TurnID, Tool: tool, Input: input})
 		if err != nil {
@@ -801,17 +822,29 @@ func updateArtifact(ctx context.Context, svc *core.Service, rc runContext, in ar
 // reviewerEdits reports whether a call of tool would edit the work as its
 // reviewer: Edit or Write in a review turn, or by a bot that reviews an item
 // in review in the turn's team, in any turn. Bash can still change files.
-func (t tools) reviewerEdits(ctx context.Context, rc runContext, tool string) (bool, error) {
-	if tool != "Edit" && tool != "Write" {
-		return false, nil
+// When it does, it also returns the denial, which names the steps in review.
+func (t tools) reviewerEdits(ctx context.Context, rc runContext, tool string) (bool, string, error) {
+	if (tool != "Edit" && tool != "Write") || rc.RoomID == "" {
+		return false, "", nil
 	}
-	if rc.BoardRole == core.RoleReview {
-		return true, nil
+	titles, err := t.svc.ReviewedItems(ctx, rc.RoomID, rc.BotID)
+	if err != nil || (len(titles) == 0 && rc.BoardRole != core.RoleReview) {
+		return false, "", err
 	}
-	if rc.RoomID == "" {
-		return false, nil
+	const reviewer = "A reviewer checks the work and does not change it. Ask for changes with update_board changes."
+	if len(titles) == 0 {
+		return true, reviewer, nil
 	}
-	return t.svc.ReviewsItem(ctx, rc.RoomID, rc.BotID)
+	return true, fmt.Sprintf("You review %s, in review in this team: Edit and Write are denied in every turn of yours in the team until it leaves review. %s", quotedList(titles), reviewer), nil
+}
+
+// quotedList quotes each of titles and joins them with commas.
+func quotedList(titles []string) string {
+	quoted := make([]string, len(titles))
+	for i, title := range titles {
+		quoted[i] = strconv.Quote(title)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // boardAction carries out one action of update_board and says what it did.
@@ -929,7 +962,7 @@ func (t tools) boardSendTask(ctx context.Context, a core.Actor, in boardInput) (
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Sent %q (task id %s) to that team's inbox. Its lead takes it, asks you, defers it, passes it on or pushes it back; you hear back in this channel. That team pays for the work.", g.Text, g.ID), nil
+	return fmt.Sprintf("Sent %q (task id %s) to that team's inbox. Its lead takes it, asks you, defers it, passes it on or pushes it back; you are woken when that team asks you, pushes back or delivers; your board shows its state under \"Sent to other teams\" meanwhile. That team pays for the work.", g.Text, g.ID), nil
 }
 
 // boardPropose puts a task for the member's own team into its inbox.
@@ -1011,7 +1044,7 @@ func goalAction(change func(*core.Service, context.Context, core.Actor, string, 
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%q is %s now.", g.Text, g.State), nil
+		return fmt.Sprintf("%q is %s now.", g.Text, taskState(g.State)), nil
 	}
 }
 

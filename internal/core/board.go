@@ -398,7 +398,7 @@ func (s *Service) boardOf(ctx context.Context, a Actor, teamID, goalID string) (
 		return Bot{}, Goal{}, err
 	}
 	if !g.Open() {
-		return Bot{}, Goal{}, invalid("the goal is over")
+		return Bot{}, Goal{}, invalid("the task is over")
 	}
 	return team, g, nil
 }
@@ -441,7 +441,7 @@ func checkAssignees(team Bot, ownerID, reviewerID string) error {
 		return invalid("the reviewer must be another member than the owner")
 	}
 	if reviewerID != "" && ownerID == "" {
-		return invalid("give the item an owner before a reviewer")
+		return invalid("give the step an owner before a reviewer")
 	}
 	return nil
 }
@@ -460,17 +460,17 @@ func validNewItem(n NewItem, team Bot, items []Item) (NewItem, error) {
 	}
 	open := slices.DeleteFunc(slices.Clone(items), func(it Item) bool { return it.State == ItemDropped })
 	if len(open) >= maxGoalItems {
-		return NewItem{}, invalid("a goal has at most %d items that are not dropped", maxGoalItems)
+		return NewItem{}, invalid("a task has at most %d steps that are not dropped", maxGoalItems)
 	}
 	if slices.ContainsFunc(items, func(it Item) bool { return it.Title == n.Title }) {
-		return NewItem{}, invalid("the goal already has an item %q", n.Title)
+		return NewItem{}, invalid("the task already has a step %q", n.Title)
 	}
 	if err := checkAssignees(team, n.OwnerID, n.ReviewerID); err != nil {
 		return NewItem{}, err
 	}
 	for _, dep := range n.DependsOn {
 		if !slices.ContainsFunc(items, func(it Item) bool { return it.ID == dep }) {
-			return NewItem{}, invalid("%s is not an item of this goal", dep)
+			return NewItem{}, invalid("%s is not a step of this task", dep)
 		}
 	}
 	n.DependsOn = slices.Compact(slices.Sorted(slices.Values(n.DependsOn)))
@@ -486,7 +486,7 @@ func (s *Service) CreateItem(ctx context.Context, a Actor, n NewItem) (Item, err
 		return Item{}, err
 	}
 	if !ok {
-		return Item{}, invalid("the team has no goal; the lead starts one with start_goal")
+		return Item{}, invalid("the team has no Now task; propose one with update_board propose, and the lead takes it")
 	}
 	team, g, err := s.boardOf(ctx, a, a.TeamID, g.ID)
 	if err != nil {
@@ -560,10 +560,10 @@ func checkCreator(a Actor, team Bot, g Goal, n NewItem) error {
 		return nil
 	}
 	if n.OwnerID != "" || n.ReviewerID != "" {
-		return invalid("only the lead assigns items; leave owner_id and reviewer_id empty to propose one")
+		return invalid("only the lead assigns steps; leave owner_id and reviewer_id empty to propose one")
 	}
 	if g.State == GoalDelivered {
-		return invalid("the goal is delivered; the lead adds items when the user asks for changes")
+		return invalid("the task is closed; the lead adds steps when whoever asked asks for changes")
 	}
 	return nil
 }
@@ -615,7 +615,7 @@ func (s *Service) moveItem(ctx context.Context, a Actor, itemID string, change f
 			return err
 		}
 		if n == 0 {
-			return invalid("item %q changed meanwhile; list the board and try again", it.Title)
+			return invalid("step %q changed meanwhile; list the board and try again", it.Title)
 		}
 		if err := s.recordEvent(ctx, q, a, it, event); err != nil {
 			return err
@@ -742,17 +742,17 @@ func itemTurns(g Goal, it Item, items []Item) []Turn {
 	switch it.State {
 	case ItemTodo:
 		if it.OwnerID != "" && ready(it, items) {
-			return []Turn{itemTurn(g, it, it.OwnerID, RoleWork, "Work on your item.")}
+			return []Turn{itemTurn(g, it, it.OwnerID, RoleWork, "Work on your step.")}
 		}
 	case ItemDoing:
-		return []Turn{itemTurn(g, it, it.OwnerID, RoleWork, "Work on your item again.")}
+		return []Turn{itemTurn(g, it, it.OwnerID, RoleWork, "Work on your step again.")}
 	case ItemReview:
-		return []Turn{itemTurn(g, it, it.ReviewerID, RoleReview, "Review an item.")}
+		return []Turn{itemTurn(g, it, it.ReviewerID, RoleReview, "Review a step.")}
 	case ItemDone, ItemDropped:
 		var turns []Turn
 		for _, next := range items {
 			if next.State == ItemTodo && next.OwnerID != "" && slices.Contains(next.DependsOn, it.ID) && ready(next, items) {
-				turns = append(turns, itemTurn(g, next, next.OwnerID, RoleWork, "Work on your item."))
+				turns = append(turns, itemTurn(g, next, next.OwnerID, RoleWork, "Work on your step."))
 			}
 		}
 		return turns
@@ -830,7 +830,7 @@ func (s *Service) AssignItem(ctx context.Context, a Actor, itemID, ownerID, revi
 			return err
 		}
 		if it.State != ItemTodo && it.State != ItemBlocked {
-			return invalid("only an item that waits to start, or a blocked one, can be assigned; %q is %s", it.Title, it.State)
+			return invalid("only a step that waits to start, or a blocked one, can be assigned; %q is %s", it.Title, it.State)
 		}
 		if ownerID == "" {
 			return invalid("owner_id is required")
@@ -848,7 +848,7 @@ func (s *Service) AssignItem(ctx context.Context, a Actor, itemID, ownerID, revi
 func (s *Service) SubmitItem(ctx context.Context, a Actor, itemID, result string) (Item, error) {
 	return s.moveItem(ctx, a, itemID, leaving(EventSubmitted, func(it Item) string { return cut(it.Result, maxResultInEvent) }, func(team Bot, it *Item) error {
 		if a.BotID != it.OwnerID || it.State != ItemDoing {
-			return invalid("only the owner submits an item that is being done")
+			return invalid("only the owner submits a step that is being done")
 		}
 		text, err := textOf("the result", result, maxItemText, true)
 		if err != nil {
@@ -869,7 +869,7 @@ func (s *Service) BlockItem(ctx context.Context, a Actor, itemID, note string) (
 		owner := a.BotID == it.OwnerID && it.State == ItemDoing
 		reviewer := a.BotID == it.ReviewerID && it.State == ItemReview
 		if !owner && !reviewer {
-			return invalid("only the owner of an item that is being done, or its reviewer during a review, blocks it")
+			return invalid("only the owner of a step that is being done, or its reviewer during a review, blocks it")
 		}
 		return block(it, note)
 	}))
@@ -940,7 +940,7 @@ func (s *Service) DropItem(ctx context.Context, a Actor, itemID, note string) (I
 func (s *Service) PassItem(ctx context.Context, a Actor, itemID, note string) (Item, error) {
 	return s.moveItem(ctx, a, itemID, leaving(EventPassed, fixed(note), func(team Bot, it *Item) error {
 		if a.BotID != it.ReviewerID || it.State != ItemReview {
-			return invalid("only the reviewer passes an item in review")
+			return invalid("only the reviewer passes a step in review")
 		}
 		text, err := textOf("the note", note, maxItemNote, false)
 		if err != nil {
@@ -957,7 +957,7 @@ func (s *Service) PassItem(ctx context.Context, a Actor, itemID, note string) (I
 func (s *Service) RequestChanges(ctx context.Context, a Actor, itemID, note string) (Item, error) {
 	return s.moveItem(ctx, a, itemID, leaving(EventChanges, fixed(note), func(team Bot, it *Item) error {
 		if a.BotID != it.ReviewerID || it.State != ItemReview {
-			return invalid("only the reviewer asks for changes to an item in review")
+			return invalid("only the reviewer asks for changes to a step in review")
 		}
 		text, err := textOf("the note", note, maxItemNote, true)
 		if err != nil {
@@ -980,7 +980,7 @@ func (s *Service) StartItemWork(ctx context.Context, itemID, botID string) error
 		return fmt.Errorf("start item %s: %w", itemID, err)
 	}
 	if n == 0 {
-		return invalid("item %s is no longer yours to work on", itemID)
+		return invalid("step %s is no longer yours to work on", itemID)
 	}
 	return nil
 }
@@ -1023,7 +1023,7 @@ func (s *Service) setGoalState(ctx context.Context, q *db.Queries, g Goal, state
 		return fmt.Errorf("set goal %s %s: %w", g.ID, state, err)
 	}
 	if n == 0 {
-		return invalid("the goal changed meanwhile; look at the board again")
+		return invalid("the task changed meanwhile; look at the board again")
 	}
 	if state != GoalActive {
 		if err := s.cancelGoalTurns(ctx, q, g.ID); err != nil {
@@ -1109,7 +1109,7 @@ func (s *Service) resume(ctx context.Context, q *db.Queries, g Goal) error {
 	if err != nil {
 		return err
 	}
-	return s.wakeLead(ctx, q, team, g, "The user resumed the goal.")
+	return s.wakeLead(ctx, q, team, g, "The user resumed the task.")
 }
 
 // requeue queues the turn of the member that it waits on, unless one is
@@ -1190,7 +1190,7 @@ func (s *Service) DeliverGoal(ctx context.Context, a Actor, summary string) (Goa
 // so the user is not asked.
 func deliveryBody(g Goal, lead Member, summary string) map[string]any {
 	body := map[string]any{"text": summary, "fallback": false, "needsReply": false, "speakerId": lead.ID, "speakerName": lead.Name, "goalId": g.ID}
-	if g.userApproves() {
+	if g.UserApproves() {
 		body["needsReply"], body["questionState"] = true, QuestionOpen
 	}
 	return body
@@ -1204,7 +1204,7 @@ func (s *Service) deliverable(ctx context.Context, a Actor, summary string) (Bot
 		return Bot{}, Goal{}, "", err
 	}
 	if !ok || g.State != GoalActive {
-		return Bot{}, Goal{}, "", invalid("only an active goal is delivered")
+		return Bot{}, Goal{}, "", invalid("only the Now task is closed")
 	}
 	team, g, err := s.boardOf(ctx, a, a.TeamID, g.ID)
 	if err != nil {
@@ -1233,7 +1233,7 @@ func checkDelivery(items []Item) error {
 		done = done || it.State == ItemDone
 	}
 	if !done {
-		return invalid("no item is done; drop the goal's work with the user, or add items")
+		return invalid("no step is done; stop the task with the user, or add steps")
 	}
 	return nil
 }
@@ -1264,7 +1264,7 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool)
 		}
 		if lead, ok := team.Lead(); ok {
 			// The retro turn comes first, so the lead looks back before it plans the next goal.
-			if _, err := s.queueTurn(ctx, q, Turn{BotID: lead.ID, Source: SourceRoom, RoomID: team.ID, GoalID: g.ID, BoardRole: RoleRetro, Prompt: "The user accepted the goal."}); err != nil {
+			if _, err := s.queueTurn(ctx, q, Turn{BotID: lead.ID, Source: SourceRoom, RoomID: team.ID, GoalID: g.ID, BoardRole: RoleRetro, Prompt: "The user approved the task."}); err != nil {
 				return err
 			}
 		}
@@ -1281,7 +1281,7 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool)
 	if err := s.closeTaskQuestions(ctx, g.TeamID, g.ID); err != nil {
 		return Goal{}, err
 	}
-	if _, err = s.AppendEntry(ctx, team.ID, KindUser, "", userBody{Text: "Accepted the goal."}); err != nil {
+	if _, err = s.AppendEntry(ctx, team.ID, KindUser, "", userBody{Text: "Approved the task."}); err != nil {
 		return Goal{}, err
 	}
 	if err := s.handoffResult(ctx, g, "finished, and the user accepted,", false); err != nil {
@@ -1487,7 +1487,9 @@ func (s *Service) wakeStalledLead(ctx context.Context, g Goal, items []Item) err
 	if err != nil || busy > 0 {
 		return err
 	}
-	err = s.inTx(ctx, func(q *db.Queries) error { return s.wakeLead(ctx, q, team, g, "The goal has no work in flight.") })
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		return s.wakeLead(ctx, q, team, g, "The Now task has no step in work or review.")
+	})
 	if err != nil {
 		return err
 	}
@@ -1522,14 +1524,14 @@ func (s *Service) leadGaveUp(ctx context.Context, team Bot, lead Member, g Goal)
 	return true, err
 }
 
-// ReviewsItem reports whether the bot reviews an item in review in the team,
-// so that it may not change the work there.
-func (s *Service) ReviewsItem(ctx context.Context, teamID, botID string) (bool, error) {
-	n, err := s.q.CountReviewsBy(ctx, db.CountReviewsByParams{TeamID: teamID, ReviewerID: botID})
+// ReviewedItems returns the titles of the items in review in the team that the bot reviews, in an
+// open goal: while there is one, the bot may not edit in the team.
+func (s *Service) ReviewedItems(ctx context.Context, teamID, botID string) ([]string, error) {
+	titles, err := s.q.ListReviewsBy(ctx, db.ListReviewsByParams{TeamID: teamID, ReviewerID: botID})
 	if err != nil {
-		return false, fmt.Errorf("look for the reviews of bot %s: %w", botID, err)
+		return nil, fmt.Errorf("look for the reviews of bot %s: %w", botID, err)
 	}
-	return n > 0, nil
+	return titles, nil
 }
 
 // GoalBoard returns a goal and its items, whatever its state.

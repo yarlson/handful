@@ -36,7 +36,7 @@ func TestTeamPromptsCarryTheGatekeeperAndMemberTexts(t *testing.T) {
 	if !strings.Contains(leadGatekeeper, "Never ask the user to relay work to another team") {
 		t.Error("the gatekeeper text lacks the relay rule")
 	}
-	if !strings.HasPrefix(leadGatekeeper, "You are the gatekeeper of this team's work. Every task from outside your team, the user's too, arrives in your inbox.") ||
+	if !strings.HasPrefix(leadGatekeeper, "You are the gatekeeper of this team's work. Every task from outside your team arrives in your inbox, except a task the user starts at once: it becomes the Now task, or the first of your plan, and you are told.") ||
 		!strings.HasSuffix(memberWork, "Don't start other work on your own.") {
 		t.Error("the §8 texts changed")
 	}
@@ -59,7 +59,7 @@ func TestTheBoardShowsThePlanTheInboxDoneAndSentTasks(t *testing.T) {
 			task("g3", "Tidy docs.", core.GoalIncoming, core.Handoff{AskRounds: 3, NeedsUser: true}),
 			task("g4", "Refactor.", core.GoalLater, core.Handoff{Origin: core.OriginProposal, IntakeNote: "After the release"}),
 		},
-		Done:  []core.Goal{task("d1", "Ship it.", core.GoalDelivered, core.Handoff{FromTeamID: "sup"})},
+		Done:  []core.Goal{task("d1", "Ship it.", core.GoalDelivered, core.Handoff{Origin: core.OriginHandoff, FromTeamID: "sup", FromBotID: "sl"})},
 		Sent:  []core.Goal{{ID: "s9", Text: "Write the guide.", TeamID: "docs", State: core.GoalQueued}},
 		Teams: map[string]string{"sup": "Support", "prod": "Product", "docs": "Docs"},
 	}
@@ -71,8 +71,8 @@ func TestTheBoardShowsThePlanTheInboxDoneAndSentTasks(t *testing.T) {
 		`- "Build the queue." (task id g2), from team "Product" — you asked (2 of 3): Which spec rev?; wait for the answer; clock paused: waiting for the sender's answer` + "\n",
 		`- "Tidy docs." (task id g3), from the user — the leads couldn't settle it; only the user decides now` + "\n",
 		`- "Refactor." (task id g4), from a proposal of your team — deferred: After the release; it comes back when due` + "\n",
-		"Done, waiting for approval by whoever asked:\n" + `- "Ship it." (task id d1), from team "Support"` + "\n",
-		"Sent to other teams:\n" + `- "Write the guide." (task id s9) to team "Docs" [queued]` + "\n",
+		"Done, waiting for approval:\n" + `- "Ship it." (task id d1), from team "Support" — team "Support"'s lead approves it` + "\n",
+		"Sent to other teams:\n" + `- "Write the guide." (task id s9) to team "Docs" [in the plan]` + "\n",
 		inboxBrief,
 	} {
 		if !strings.Contains(got, want) {
@@ -146,7 +146,7 @@ func TestTheBoardShowsTheTeamsDailyBudgetAndATasksTurnsSoFar(t *testing.T) {
 		{"used up", core.BudgetView{Today: 100, Limit: 100, Paused: true}, "Team's daily budget: 100 of 100 turns used today; it is used up, so only the lead's decisions start until midnight or until the user raises it.\n"},
 	} {
 		got := boardTable(dev, core.Board{Goal: task, Budget: c.budget}, time.Time{})
-		if want := "<board>\n" + c.want + "Goal (id g1, active, 42 turns so far): Ship.\n"; !strings.HasPrefix(got, want) {
+		if want := "<board>\n" + c.want + "Now task (id g1, in progress, 42 turns so far): Ship.\n"; !strings.HasPrefix(got, want) {
 			t.Errorf("%s: board = %q; want it to start with %q", c.name, got, want)
 		}
 		if strings.Contains(got, "of 30") {
@@ -362,7 +362,7 @@ func TestEveryTaskActionWorksThroughUpdateBoard(t *testing.T) {
 	}
 
 	guide := send("Write the guide.", map[string]any{"waits_for": items[0].ID})
-	if got := call("docs", map[string]any{"action": "ask", "goal_id": guide, "text": "For which release?"}); got != `"Write the guide." is incoming now.` {
+	if got := call("docs", map[string]any{"action": "ask", "goal_id": guide, "text": "For which release?"}); got != `"Write the guide." is in the inbox now.` {
 		t.Fatalf("ask = %q", got)
 	}
 	wakeOfAna("Team Docs asked about your task \"Write the guide.\": For which release? Answer a question with answer_task. If a task of yours waits on it, re-plan when it is pushed back.")
@@ -393,13 +393,13 @@ func TestEveryTaskActionWorksThroughUpdateBoard(t *testing.T) {
 
 	logo := send("Draw a logo.", map[string]any{"waits_for": items[0].ID})
 	finishQueuedTurns(t, h) // a lead has one queued wake at a time; clear the earlier ones
-	if got := call("docs", map[string]any{"action": "push_back", "goal_id": logo, "text": "We don't draw"}); got != `"Draw a logo." is declined now.` {
+	if got := call("docs", map[string]any{"action": "push_back", "goal_id": logo, "text": "We don't draw"}); got != `"Draw a logo." is pushed back now.` {
 		t.Fatalf("push_back = %q", got)
 	}
 	wakeOfAna("Team Docs pushed back your task \"Draw a logo.\": We don't draw. Answer a question with answer_task. If a task of yours waits on it, re-plan when it is pushed back.")
 
 	notes := send("Write release notes.", nil)
-	if got := call("ship", map[string]any{"action": "withdraw", "goal_id": notes}); got != `"Write release notes." is ended now.` {
+	if got := call("ship", map[string]any{"action": "withdraw", "goal_id": notes}); got != `"Write release notes." is withdrawn now.` {
 		t.Fatalf("withdraw = %q", got)
 	}
 
@@ -430,7 +430,7 @@ func TestEveryTaskActionWorksThroughUpdateBoard(t *testing.T) {
 
 	// Docs closes the guide once its step is done; Ship's lead, who asked, approves it.
 	doStep(t, h, docs, cy)
-	if got := call("docs", map[string]any{"action": "close", "goal_id": guide, "text": "guide.md is written."}); got != `"Write the guide." is delivered now.` {
+	if got := call("docs", map[string]any{"action": "close", "goal_id": guide, "text": "guide.md is written."}); got != `"Write the guide." is done, waiting for approval now.` {
 		t.Fatalf("close = %q", got)
 	}
 	if got := call("ship", map[string]any{"action": "approve", "goal_id": guide}); got != `"Write the guide." is done now.` {
@@ -471,7 +471,7 @@ func TestChangesGoToATaskOrAStepAndWithdrawToATask(t *testing.T) {
 	if got, isErr := callText(t, docsLead, "update_board", map[string]any{"action": "close", "goal_id": g.ID, "text": "Done."}); isErr {
 		t.Fatal(got)
 	}
-	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "changes", "goal_id": g.ID, "text": "Add examples."}); isErr || got != `"Guide." is active now.` {
+	if got, isErr := callText(t, shipLead, "update_board", map[string]any{"action": "changes", "goal_id": g.ID, "text": "Add examples."}); isErr || got != `"Guide." is in progress now.` {
 		t.Fatalf("changes to a done task = %q (error %v)", got, isErr)
 	}
 	// Without goal_id, changes acts on a step.

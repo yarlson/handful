@@ -535,23 +535,6 @@ func (q *Queries) CountQueuedLeadTurns(ctx context.Context, arg CountQueuedLeadT
 	return count, err
 }
 
-const countReviewsBy = `-- name: CountReviewsBy :one
-SELECT COUNT(*) FROM items i JOIN goals g ON g.id = i.goal_id
-WHERE i.team_id = ? AND i.reviewer_id = ? AND i.state = 'review' AND g.state IN ('active', 'delivered', 'paused')
-`
-
-type CountReviewsByParams struct {
-	TeamID     string `json:"team_id"`
-	ReviewerID string `json:"reviewer_id"`
-}
-
-func (q *Queries) CountReviewsBy(ctx context.Context, arg CountReviewsByParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countReviewsBy, arg.TeamID, arg.ReviewerID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countRoutinesChangedSince = `-- name: CountRoutinesChangedSince :one
 SELECT count(*) FROM routines WHERE updated_at > ?
 `
@@ -3511,6 +3494,40 @@ func (q *Queries) ListQueuedTurnsPage(ctx context.Context, arg ListQueuedTurnsPa
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReviewsBy = `-- name: ListReviewsBy :many
+SELECT i.title FROM items i JOIN goals g ON g.id = i.goal_id
+WHERE i.team_id = ? AND i.reviewer_id = ? AND i.state = 'review' AND g.state IN ('active', 'delivered', 'paused')
+ORDER BY i.rowid
+`
+
+type ListReviewsByParams struct {
+	TeamID     string `json:"team_id"`
+	ReviewerID string `json:"reviewer_id"`
+}
+
+func (q *Queries) ListReviewsBy(ctx context.Context, arg ListReviewsByParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listReviewsBy, arg.TeamID, arg.ReviewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var title string
+		if err := rows.Scan(&title); err != nil {
+			return nil, err
+		}
+		items = append(items, title)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

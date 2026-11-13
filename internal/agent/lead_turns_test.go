@@ -181,7 +181,7 @@ func TestTheRetroRunsBeforeTheNextGoalsPlanningWhileTheRoomsChatRuns(t *testing.
 		}
 		return -1
 	}
-	chat, retro, plan := at("@Bo LONG review the parser", "You are Bo"), at("The user accepted this goal."), at("Next: JSON export.", "You lead this goal.")
+	chat, retro, plan := at("@Bo LONG review the parser", "You are Bo"), at("This task was approved."), at("Next: JSON export.", "You lead this task.")
 	if chat != 0 || retro != 1 || plan != 2 {
 		t.Fatalf("calls: Bo's chat at %d, the retro at %d, the planning at %d; want 0, 1, 2", chat, retro, plan)
 	}

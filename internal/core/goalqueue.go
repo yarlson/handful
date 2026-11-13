@@ -107,7 +107,7 @@ func (s *Service) nextGoal(ctx context.Context, q *db.Queries, teamID string) (G
 	if err := renumber(ctx, q, queue[1:]); err != nil {
 		return Goal{}, false, err
 	}
-	return g, true, s.wakeLead(ctx, q, team, g, "The next goal from the queue started: plan it.")
+	return g, true, s.wakeLead(ctx, q, team, g, "The next task of the plan started: split it into steps.")
 }
 
 // nextGoalNote shows a goal that the queue started.

@@ -1108,8 +1108,9 @@ func TestMCPInATeamTurnTalksOnlyToTheTeamAndSharesTeamMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": reports.ID, "message": "PR #100 is merged.", "priority": false}); isErr || !strings.Contains(text, "no one was woken") {
-		t.Fatalf("send_to_agent to Ana's room from a team turn = %q (error %v); want a post that wakes no one", text, isErr)
+	// Audit finding 8: a team turn can't message a bot, so the result doesn't say to.
+	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": reports.ID, "message": "PR #100 is merged.", "priority": false}); isErr || text != "Posted in the room; no one was woken." {
+		t.Fatalf("send_to_agent to Ana's room from a team turn = %q (error %v); want a post that wakes no one, with no hint to message a bot", text, isErr)
 	}
 	if turns, _ := h.svc.QueuedTurns(ctx, 10); len(turns) != 0 {
 		t.Fatalf("queued after the report = %+v; want no turn", turns)
@@ -1302,7 +1303,7 @@ func TestAnItemThatNobodyWorksOnIsBlockedAndTheLeadWakes(t *testing.T) {
 	if board.Items[0].State != core.ItemBlocked {
 		t.Fatalf("Parse = %+v; want it blocked", board.Items[0])
 	}
-	if !strings.Contains(calls[0], "Blocked: Bo stopped before handing it on") || !strings.Contains(calls[0], "You lead this goal.") || !strings.Contains(calls[0], "- you ("+ana.Name+", the lead)") {
+	if !strings.Contains(calls[0], "Blocked: Bo stopped before handing it on") || !strings.Contains(calls[0], "You lead this task.") || !strings.Contains(calls[0], "- you ("+ana.Name+", the lead)") {
 		t.Fatalf("the first call = %q; want the lead's turn with the blocked item", calls[0])
 	}
 }
@@ -1347,7 +1348,7 @@ func TestBoardTurnsTellEachRoleWhatToDo(t *testing.T) {
 	byRole := map[string]string{}
 	for _, c := range calls {
 		switch {
-		case strings.Contains(c, "Your item:"):
+		case strings.Contains(c, "Your step:"):
 			byRole["work"] = c
 		case strings.Contains(c, "Review \"Parse\""):
 			byRole["review"] = c
@@ -1355,12 +1356,12 @@ func TestBoardTurnsTellEachRoleWhatToDo(t *testing.T) {
 	}
 	board, _ := h.svc.Board(ctx, team.ID)
 	// Both board turns start at once, so the work turn sees 1 or 2 turns used.
-	if goalLine := regexp.MustCompile(`Goal \(id ` + board.Goal.ID + `, active, [12] turns so far\): Ship CSV export\.`); !goalLine.MatchString(byRole["work"]) {
-		t.Errorf("Ana's work turn lacks the goal line %s", goalLine)
+	if goalLine := regexp.MustCompile(`Now task \(id ` + board.Goal.ID + `, in progress, [12] turns so far\): Ship CSV export\.`); !goalLine.MatchString(byRole["work"]) {
+		t.Errorf("Ana's work turn lacks the Now task line %s", goalLine)
 	}
 	for _, want := range []string{
 		"- \"Parse\" (id " + items[0].ID + ") [review] owner Bo (id " + bo.ID + "), reviewer Cy (id " + cy.ID + ")",
-		"Your item: \"Docs\" (id " + items[1].ID + ").\nBrief: Write docs.md.\nAcceptance criteria: Docs works.",
+		"Your step: \"Docs\" (id " + items[1].ID + ").\nBrief: Write docs.md.\nAcceptance criteria: Docs works.",
 		"call update_board submit with item_id " + items[1].ID,
 	} {
 		if !strings.Contains(byRole["work"], want) {
@@ -1370,7 +1371,7 @@ func TestBoardTurnsTellEachRoleWhatToDo(t *testing.T) {
 	for _, want := range []string{
 		"Review \"Parse\" (id " + items[0].ID + ") of Bo (id " + bo.ID + ").",
 		"Result: Parsed in parse.go.",
-		"Edit and Write are denied in a review",
+		"Edit and Write are denied to you in every turn in this team while this step is in review",
 	} {
 		if !strings.Contains(byRole["review"], want) {
 			t.Errorf("Cy's review turn lacks %q", want)
@@ -1546,7 +1547,7 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 
 	table := boardTable(team, board, time.Time{})
 	for _, want := range []string{
-		"<board>\nTeam's turns today: 0 (no daily limit).\nGoal (id g1, active, 3 turns so far): Ship CSV.",
+		"<board>\nTeam's turns today: 0 (no daily limit).\nNow task (id g1, in progress, 3 turns so far): Ship CSV.",
 		"- \"Parse\" (id i1) [doing] owner Ana (id a1), reviewer Bo (id b1)\n",
 		`- "Old" (id i2) [blocked] owner a former member (id gone), after "Parse". Blocked: Who owns this?`,
 	} {
@@ -1554,7 +1555,7 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 			t.Errorf("board table lacks %q:\n%s", want, table)
 		}
 	}
-	if got := boardTable(team, core.Board{Goal: board.Goal}, time.Time{}); !strings.Contains(got, "Items:\n(none yet)\n</board>") {
+	if got := boardTable(team, core.Board{Goal: board.Goal}, time.Time{}); !strings.Contains(got, "Steps:\n(none yet)\n</board>") {
 		t.Errorf("board table without items or requests = %q; want (none yet) and nothing more", got)
 	}
 
@@ -1565,10 +1566,10 @@ func TestBoardPromptShowsTheBoardAndWhatTheRoleDoes(t *testing.T) {
 		want string
 		not  string
 	}{
-		{"work", ana, core.Turn{BoardRole: core.RoleWork, ItemID: "i1"}, "Your item: \"Parse\" (id i1).", "You lead this goal."},
-		{"review", bo, core.Turn{BoardRole: core.RoleReview, ItemID: "i1"}, "The item is no longer in review.", "You lead this goal."},
-		{"lead", bo, core.Turn{}, "You lead this goal.", "Assign each request"},
-		{"member", ana, core.Turn{}, "</board>\n", "You lead this goal."},
+		{"work", ana, core.Turn{BoardRole: core.RoleWork, ItemID: "i1"}, "Your step: \"Parse\" (id i1).", "You lead this task."},
+		{"review", bo, core.Turn{BoardRole: core.RoleReview, ItemID: "i1"}, "The step is no longer in review.", "You lead this task."},
+		{"lead", bo, core.Turn{}, "You lead this task.", "Assign each request"},
+		{"member", ana, core.Turn{}, "</board>\n", "You lead this task."},
 	}
 	for _, r := range roles {
 		got := boardPrompt(core.Bot{ID: r.bot.ID}, team, board, r.turn, nil, time.Time{})
@@ -1698,7 +1699,7 @@ func TestTheLeadClosesATaskAndAnAcceptedOneGetsARetroTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	text, isErr := callText(t, lead, "update_board", map[string]any{"action": "close", "goal_id": now.Goal.ID, "text": "CSV export works."})
-	if isErr || text != `"Ship CSV export." is delivered now.` {
+	if isErr || text != `"Ship CSV export." is done, waiting for approval now.` {
 		t.Fatalf("close = %q (error %v)", text, isErr)
 	}
 	board, _ := h.svc.Board(ctx, team.ID)
@@ -1715,8 +1716,8 @@ func TestTheLeadClosesATaskAndAnAcceptedOneGetsARetroTurn(t *testing.T) {
 
 	calls := h.waitCalls(t, 1)
 	for _, want := range []string{
-		"The user accepted this goal. Look back on it in this turn, and start no new work:",
-		"Goal (id " + board.Goal.ID + ", done, ",
+		"This task was approved. Look back on it in this turn, and start no new work:",
+		"Task (id " + board.Goal.ID + ", done, ",
 		"- \"Parse\" (id " + items[0].ID + ") [done] owner Bo",
 	} {
 		if !strings.Contains(calls[0], want) {
@@ -1854,10 +1855,10 @@ func TestARetroTurnLooksBackOnItsOwnGoal(t *testing.T) {
 	}
 	h.start(t)
 	calls := h.waitCalls(t, 2)
-	if !strings.Contains(calls[0], "The user accepted this goal.") || !strings.Contains(calls[0], "Ship CSV export.") || strings.Contains(calls[0], "Next: JSON export.") {
+	if !strings.Contains(calls[0], "This task was approved.") || !strings.Contains(calls[0], "Ship CSV export.") || strings.Contains(calls[0], "Next: JSON export.") {
 		t.Fatalf("the retro turn = %q; want the accepted goal and not the next one", calls[0])
 	}
-	if !strings.Contains(calls[1], "Next: JSON export.") || !strings.Contains(calls[1], "You lead this goal.") {
+	if !strings.Contains(calls[1], "Next: JSON export.") || !strings.Contains(calls[1], "You lead this task.") {
 		t.Fatalf("the next turn = %q; want the lead to plan the next goal", calls[1])
 	}
 }
@@ -3030,7 +3031,8 @@ func TestNoGlobalAgentsFileAddsNoSection(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot })
-			if call := h.argsLog(t)[0]; strings.Contains(call, "AGENTS.md") {
+			// Every prompt names a repository's AGENTS.md in claudeMDLine; the data folder's file is another.
+			if call := strings.ReplaceAll(h.argsLog(t)[0], claudeMDLine, ""); strings.Contains(call, "AGENTS.md") {
 				t.Fatalf("claude call mentions AGENTS.md without a usable file: %s", call)
 			}
 		})

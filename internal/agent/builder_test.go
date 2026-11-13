@@ -19,7 +19,8 @@ var webAppSetup = map[string]any{
 		{"name": "Developer", "instructions": "Write the code with tests."},
 		{"name": "Checker", "instructions": "Review each change."},
 	},
-	"teams": []map[string]any{{"name": "Web app", "purpose": "Build the web app.", "members": []string{"Developer", "Checker", "ana"}, "agreement": "Tests pass."}},
+	// goal_budget is what an older Builder still sends: it is valid, and dropped.
+	"teams": []map[string]any{{"name": "Web app", "purpose": "Build the web app.", "members": []string{"Developer", "Checker", "ana"}, "agreement": "Tests pass.", "goal_budget": 7}},
 	"rooms": []map[string]any{{"name": "Standup", "members": []string{"Developer", "Ana"}}},
 }
 
@@ -104,8 +105,8 @@ func TestCreateSetupIsOnlyBuildersAndCreatesNothingWithoutTheUsersCreate(t *test
 		if err := json.Unmarshal(card.Body, &body); err != nil || body.Tool != "create_setup" || len(body.Input.Bots) != 2 || body.Input.Rooms[0].Name != "Standup" {
 			t.Fatalf("card = %s, %v; want the whole setup", card.Body, err)
 		}
-		if team := body.Input.Teams[0]; team.Lead != "Developer" || team.GoalBudget != core.DefaultGoalBudget || !slices.Equal(team.Members, []string{"Developer", "Checker", "Ana"}) {
-			t.Fatalf("card team = %+v; want the checked team: Ana by her name, the first member as lead and the default budget", team)
+		if team := body.Input.Teams[0]; team.Lead != "Developer" || team.GoalBudget != 0 || !slices.Equal(team.Members, []string{"Developer", "Checker", "Ana"}) {
+			t.Fatalf("card team = %+v; want the checked team: Ana by her name and the first member as lead, with no turn budget", team)
 		}
 		if err := h.svc.ResolveApproval(ctx, card.ID, decision); err != nil {
 			t.Fatal(err)
@@ -139,6 +140,9 @@ func TestCreateSetupIsOnlyBuildersAndCreatesNothingWithoutTheUsersCreate(t *test
 		"The new bots have not started yet. Do not message them; tell the user where to start."
 	if text != want {
 		t.Fatalf("create_setup after Create = %q; want %q", text, want)
+	}
+	if team, err := h.svc.GetBot(ctx, idOf("Web app")); err != nil || team.Team.GoalBudget != core.DefaultGoalBudget {
+		t.Fatalf("created team = %+v, %v; want goal_budget 7 dropped, for the default %d", team.Team, err, core.DefaultGoalBudget)
 	}
 	turns, err := h.svc.QueuedTurns(ctx, 10)
 	if err != nil {

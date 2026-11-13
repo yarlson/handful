@@ -12,7 +12,6 @@ export type SetupProposal = {
     agreement: string
     defaultModel: string
     defaultEffort: string
-    goalBudget?: number
   }[]
   rooms: { name: string; purpose: string; members: string[] }[]
 }
@@ -41,9 +40,10 @@ export function setupProposal(input: unknown): SetupProposal | null {
     model: text(b.model),
     effort: text(b.effort),
   }))
+  // A task has no turn limit, so a goal_budget that an older card still holds is not shown.
   const teams = list(input.teams, (t) => {
     const members = names(t.members)
-    const team = {
+    return {
       name: text(t.name),
       purpose: text(t.purpose),
       members,
@@ -52,7 +52,6 @@ export function setupProposal(input: unknown): SetupProposal | null {
       defaultModel: text(t.default_model),
       defaultEffort: text(t.default_effort),
     }
-    return typeof t.goal_budget === "number" ? { ...team, goalBudget: t.goal_budget } : team
   })
   const rooms = list(input.rooms, (r) => ({ name: text(r.name), purpose: text(r.purpose), members: names(r.members) }))
   if (!bots || !teams || !rooms) return null

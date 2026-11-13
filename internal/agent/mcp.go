@@ -276,6 +276,9 @@ func addRunTool[In any](s *mcp.Server, current func() (runContext, bool), tool *
 	})
 }
 
+// updateBoardDescription is the update_board tool's description: what each action does.
+const updateBoardDescription = "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team, the user's too, arrives in the team's inbox. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close); whoever asked approves it or asks for changes, and stop stops a task, keeping its steps."
+
 func newToolServer(svc *core.Service, current func() (runContext, bool), meta func(runContext) core.PostMeta) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: "1"}, nil)
 	h := tools{svc: svc, meta: meta}
@@ -288,7 +291,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
 	if inTeam(svc, current) {
-		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team, the user's too, arrives in the team's inbox. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close); whoever asked approves it or asks for changes, and stop stops a task, keeping its steps."}, h.updateBoard)
+		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: updateBoardDescription}, h.updateBoard)
 	}
 	if isBuilder(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: core.ToolCreateSetup, Description: createSetupDescription}, h.createSetup)

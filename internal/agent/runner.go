@@ -928,7 +928,7 @@ func (r *Runner) teamBoard(ctx context.Context, room core.Bot, t core.Turn) (cor
 // room of a turn in a room, else the zero Bot; in a team the bot works in the
 // team's folder and sees the team's memory.
 func (r *Runner) loadPromptContext(ctx context.Context, bot, room core.Bot, now time.Time) (promptContext, error) {
-	pc := promptContext{Bot: bot, Workspace: r.svc.Workspace(bot.ID), Now: now}
+	pc := promptContext{Bot: bot, Workspace: r.svc.Workspace(bot.ID), Now: now, InRoom: room.ID != ""}
 	teamID := ""
 	if room.IsTeam() {
 		pc.Team, pc.OwnWorkspace, pc.Workspace = &room, pc.Workspace, r.svc.TeamWorkspace(room.ID)

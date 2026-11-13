@@ -118,7 +118,7 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 	if err != nil {
 		return outcome{}, err
 	}
-	c := &command{turn: t, rc: runContext{BotID: bot.ID, BotName: bot.Name, TurnID: t.ID, RoomID: key.roomID, Hops: t.Hops, BoardRole: t.BoardRole, UserPost: t.FromUserPost(), Post: flags.post}, flags: flags, done: make(chan outcome, 1)}
+	c := &command{turn: t, rc: runContext{BotID: bot.ID, BotName: bot.Name, TurnID: t.ID, RoomID: key.roomID, Hops: t.Hops, BoardRole: t.BoardRole, UserPost: t.FromUserPost(), UserChat: fromUserChat(t, key.roomID), Post: flags.post}, flags: flags, done: make(chan outcome, 1)}
 	s, err := r.claimSession(ctx, key, bot, c, startArgs)
 	if err != nil {
 		return outcome{}, err
@@ -684,4 +684,11 @@ func startsTask(before, next []core.BackgroundTask) bool {
 		}
 	}
 	return false
+}
+
+// fromUserChat reports whether turn t, in room roomID ("" for the bot's own chat), is the user's
+// own message in the bot's own chat. A routine, a first run, a message from another bot, a
+// compaction and a room or team turn are not.
+func fromUserChat(t core.Turn, roomID string) bool {
+	return t.Source == core.SourceUser && roomID == ""
 }

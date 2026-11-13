@@ -485,17 +485,19 @@ func TestChangesGoToATaskOrAStepAndWithdrawToATask(t *testing.T) {
 }
 
 // update_board, with send_task, is in every team turn, the lead's and a
-// member's, and not outside a team.
+// member's, and in the own chat of a team's member (where it does less), but not
+// for a bot in no team.
 func TestSendTaskIsInEveryTeamTurn(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
-	team, ana, bo, _ := h.newTeam(t)
+	team, ana, bo, cy := h.newTeam(t)
 	srv := httptest.NewServer(h.runner.MCPHandler())
 	t.Cleanup(srv.Close)
 	for _, rc := range []runContext{
 		{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: team.ID, BoardRole: core.RoleLead},
 		{BotID: bo.ID, BotName: "Bo", TurnID: "t2", RoomID: team.ID},
 		{BotID: bo.ID, BotName: "Bo", TurnID: "t3"},
+		{BotID: cy.ID, BotName: "Cy", TurnID: "t4"},
 	} {
 		token, err := h.runner.tokens.issue(rc)
 		if err != nil {
@@ -517,7 +519,7 @@ func TestSendTaskIsInEveryTeamTurn(t *testing.T) {
 				has = strings.Contains(string(schema), "send_task")
 			}
 		}
-		if inTeam := rc.RoomID != ""; has != inTeam {
+		if inTeam := rc.BotID != cy.ID; has != inTeam {
 			t.Errorf("turn %+v has update_board with send_task = %v; want %v", rc, has, inTeam)
 		}
 	}

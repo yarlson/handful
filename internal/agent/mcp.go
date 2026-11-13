@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,8 +31,10 @@ type runContext struct {
 	// BoardRole is the board role of a turn in a team: core.RoleLead,
 	// core.RoleWork, core.RoleReview, core.RoleRetro, or "".
 	BoardRole string
-	UserPost  bool          // a post of the user woke the turn
-	Post      core.PostMeta // the model and effort of the run, for its posts
+	UserPost  bool // a post of the user woke the turn
+	// UserChat says the user's own message to the bot, in its own chat, started the turn.
+	UserChat bool
+	Post     core.PostMeta // the model and effort of the run, for its posts
 }
 
 // actor is who acts on a team's board in this run.
@@ -239,9 +242,10 @@ type skillInput struct {
 }
 
 type boardInput struct {
-	Action     string   `json:"action" jsonschema:"tasks: send_task, take, order, ask, answer_task, later, pass_on, push_back, propose, make_task, close, approve, stop, withdraw; steps: create, assign, submit, block, unblock, drop, pass, changes; list shows the board"`
+	Action     string   `json:"action" jsonschema:"tasks: send_task, take, order, ask, answer_task, later, pass_on, push_back, propose, make_task, close, approve, stop, withdraw; steps: create, assign, submit, block, unblock, drop, pass, changes; list shows the board; user_task, from a lead's own chat, adds a task the user asked for"`
+	StartNow   bool     `json:"start_now,omitempty" jsonschema:"user_task: start the task now, or put it first in the plan, instead of the inbox; only when the user asked for that"`
 	ItemID     string   `json:"item_id,omitempty" jsonschema:"the step to act on, for assign, submit, block, unblock, drop, pass and changes on a step"`
-	TeamID     string   `json:"team_id,omitempty" jsonschema:"send_task and pass_on: the other team"`
+	TeamID     string   `json:"team_id,omitempty" jsonschema:"send_task and pass_on: the other team; list and user_task from your own chat: the team you lead, needed when you lead several"`
 	GoalID     string   `json:"goal_id,omitempty" jsonschema:"the task to act on, for take, ask, answer_task, later, pass_on, push_back, close, approve, stop and withdraw (and changes on a done task)"`
 	Position   int64    `json:"position,omitempty" jsonschema:"take: the task's place in your plan, from 1; empty puts it at the end"`
 	Order      []string `json:"order,omitempty" jsonschema:"order: the ids of every task in your plan, in the new order"`
@@ -249,9 +253,9 @@ type boardInput struct {
 	WaitsFor   string   `json:"waits_for,omitempty" jsonschema:"send_task: the id of your own step that waits on the task"`
 	Artifacts  []string `json:"artifact_ids,omitempty" jsonschema:"send_task: ids of artifacts the other team needs"`
 	TurnIDs    []string `json:"turn_ids,omitempty" jsonschema:"make_task, lead only: ids of your team's turns on no task, from your board, 1 to 50"`
-	Text       string   `json:"text,omitempty" jsonschema:"send_task, propose and make_task: the task in a line; ask: your question; answer_task: your answer; later: why it waits; pass_on: a note for the next team; push_back: the reason the sender reads; close: the result, what was done and where it is, and one line for each thing left out of scope; changes on a done task: what must change; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes on a step: what must change and why; assign: an optional note; drop: a note on why; pass: an optional note"`
+	Text       string   `json:"text,omitempty" jsonschema:"send_task, propose, make_task and user_task: the task in a line; ask: your question; answer_task: your answer; later: why it waits; pass_on: a note for the next team; push_back: the reason the sender reads; close: the result, what was done and where it is, and one line for each thing left out of scope; changes on a done task: what must change; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes on a step: what must change and why; assign: an optional note; drop: a note on why; pass: an optional note"`
 	Title      string   `json:"title,omitempty" jsonschema:"create: a short title, unique in the task"`
-	Brief      string   `json:"brief,omitempty" jsonschema:"send_task, propose, make_task and create: a self-contained brief: what to achieve, the inputs, the constraints and where to put the result"`
+	Brief      string   `json:"brief,omitempty" jsonschema:"send_task, propose, make_task, user_task and create: a self-contained brief: what to achieve, the inputs, the constraints and where to put the result"`
 	Acceptance string   `json:"acceptance,omitempty" jsonschema:"create: how a reviewer can tell that the step is done"`
 	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the step"`
 	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the step; optional"`
@@ -287,7 +291,7 @@ func sendToAgentDescription(team bool) string {
 
 // updateBoardDescription is the update_board tool's description: what each action does, and who
 // approves a done task, as core's approver rule decides.
-const updateBoardDescription = "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team arrives in the team's inbox, except a task the user starts at once: it becomes the Now task, or the first of the plan. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close). Whoever asked then approves it (approve) or asks for changes: the user for the user's tasks, the sending team's lead for a task from another team, and the team's own lead for a task the team proposed (propose or make_task). stop stops a task, keeping its steps."
+const updateBoardDescription = "Work on your team's board in a turn in your team: its tasks and their steps. From your own chat with the user, a team's lead can only list the board and add a task the user asked for with user_task (text, an optional brief, start_now, and team_id when you lead several teams); the task is the user's own, and you decide on it in your next turn in the team. list shows the board. Every task from outside the team arrives in the team's inbox, except a task the user starts at once: it becomes the Now task, or the first of the plan. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close). Whoever asked then approves it (approve) or asks for changes: the user for the user's tasks, the sending team's lead for a task from another team, and the team's own lead for a task the team proposed (propose or make_task). stop stops a task, keeping its steps."
 
 func newToolServer(svc *core.Service, current func() (runContext, bool), meta func(runContext) core.PostMeta) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: "1"}, nil)
@@ -300,7 +304,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "update_routine", Description: "Create, change, pause, resume, delete, run or list your routines: saved prompts that run on a schedule, even while the user is away."}, h.updateRoutine)
 	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
-	if inTeam(svc, current) {
+	if inTeam(svc, current) || inAnyTeam(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: updateBoardDescription}, h.updateBoard)
 	}
 	if isBuilder(svc, current) {
@@ -320,6 +324,17 @@ func inTeam(svc *core.Service, current func() (runContext, bool)) bool {
 	}
 	teamID, err := svc.TurnTeam(context.Background(), rc.RoomID)
 	return err != nil || teamID != ""
+}
+
+// inAnyTeam reports whether the bot of a tool server's run is a member of a team: then its own
+// chat may use update_board, as its team's lead.
+func inAnyTeam(svc *core.Service, current func() (runContext, bool)) bool {
+	rc, ok := current()
+	if !ok {
+		return false
+	}
+	rooms, err := svc.RoomsOf(context.Background(), rc.BotID)
+	return err != nil || slices.ContainsFunc(rooms, core.Bot.IsTeam)
 }
 
 // tools holds the handlers of the MCP tools. Each acts on the run of the
@@ -898,21 +913,53 @@ func (t tools) updateBoard(ctx context.Context, rc runContext, in boardInput) (*
 		return nil, nil, fmt.Errorf("%s is gone: %s", in.Action, instead)
 	}
 	act, ok := boardActions[in.Action]
-	if !ok {
-		return nil, nil, errors.New("action must be one of: send_task, take, order, ask, answer_task, later, pass_on, push_back, propose, make_task, close, approve, stop, withdraw, create, assign, submit, block, unblock, drop, pass, changes, list")
+	if !ok && in.Action != "user_task" {
+		return nil, nil, errors.New("action must be one of: send_task, take, order, ask, answer_task, later, pass_on, push_back, propose, make_task, close, approve, stop, withdraw, create, assign, submit, block, unblock, drop, pass, changes, list, user_task")
 	}
 	teamID, err := t.svc.TurnTeam(ctx, rc.RoomID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if teamID == "" {
-		return nil, nil, errors.New("update_board works only in a turn in your team")
+		text, err := t.leadChatAction(ctx, rc, in)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult("%s", text), nil, nil
+	}
+	if in.Action == "user_task" {
+		return nil, nil, errors.New("user_task works only in your own chat with the user; in a team turn, propose a task with propose")
 	}
 	text, err := act(t, ctx, rc.actor(), in)
 	if err != nil {
 		return nil, nil, err
 	}
 	return textResult("%s", text), nil, nil
+}
+
+// leadChatAction carries out an update_board action outside a team turn: from its own chat, the
+// user's message can have a team's lead list the board or add the user's task. core checks who
+// may (LedTeam).
+func (t tools) leadChatAction(ctx context.Context, rc runContext, in boardInput) (string, error) {
+	c := core.LeadChat{BotID: rc.BotID, FromUser: rc.UserChat}
+	switch in.Action {
+	case "list":
+		team, err := t.svc.LedTeam(ctx, c, in.TeamID)
+		if err != nil {
+			return "", err
+		}
+		return t.boardList(ctx, core.Actor{BotID: rc.BotID, TeamID: team.ID}, in)
+	case "user_task":
+		g, team, err := t.svc.LeadUserTask(ctx, c, in.TeamID, core.NewTask{Text: in.Text, Brief: in.Brief, ArtifactIDs: in.Artifacts}, in.StartNow)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Added %q (task id %s) to team %s's board as the user's task; it is %s. You decide on it in your next turn in the team.", g.Text, g.ID, team.Name, taskState(g.State)), nil
+	}
+	if _, err := t.svc.LedTeam(ctx, c, in.TeamID); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("from your own chat, update_board does only list and user_task; %s works in a turn in your team", in.Action)
 }
 
 func (t tools) boardList(ctx context.Context, a core.Actor, _ boardInput) (string, error) {

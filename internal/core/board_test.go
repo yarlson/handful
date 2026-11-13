@@ -828,7 +828,7 @@ func TestAcceptMakesTheGoalDoneAndGivesTheLeadOneRetroTurn(t *testing.T) {
 		t.Fatalf("accept = %+v, %v; want a done goal", g, err)
 	}
 	f.wantQueued(t, "the user accepted", "Bo retro")
-	if e := lastEntry(t, f.svc, f.team.ID); e.Kind != KindUser || !strings.Contains(string(e.Body), `"text":"Accepted the goal."`) {
+	if e := lastEntry(t, f.svc, f.team.ID); e.Kind != KindUser || !strings.Contains(string(e.Body), `"text":"Approved the task."`) {
 		t.Fatalf("last entry = %s %s; want the user's acceptance", e.Kind, e.Body)
 	}
 	if got := attentionOf(t, f.svc, f.team.ID); got != "" {

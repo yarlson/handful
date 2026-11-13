@@ -251,11 +251,11 @@ type boardInput struct {
 	TurnIDs    []string `json:"turn_ids,omitempty" jsonschema:"make_task, lead only: ids of your team's turns on no task, from your board, 1 to 50"`
 	Text       string   `json:"text,omitempty" jsonschema:"send_task, propose and make_task: the task in a line; ask: your question; answer_task: your answer; later: why it waits; pass_on: a note for the next team; push_back: the reason the sender reads; close: the result, what was done and where it is, and one line for each thing left out of scope; changes on a done task: what must change; submit: the result, what you did and where it is; block: your question or problem; unblock: the answer for the owner; changes on a step: what must change and why; assign: an optional note; drop: a note on why; pass: an optional note"`
 	Title      string   `json:"title,omitempty" jsonschema:"create: a short title, unique in the task"`
-	Brief      string   `json:"brief,omitempty" jsonschema:"send_task, propose, make_task and create: a self-contained brief: the goal, the inputs, the constraints and where to put the result"`
+	Brief      string   `json:"brief,omitempty" jsonschema:"send_task, propose, make_task and create: a self-contained brief: what to achieve, the inputs, the constraints and where to put the result"`
 	Acceptance string   `json:"acceptance,omitempty" jsonschema:"create: how a reviewer can tell that the step is done"`
-	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the item"`
-	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the item; optional"`
-	DependsOn  []string `json:"depends_on,omitempty" jsonschema:"create: ids of items of the goal that must be done first"`
+	OwnerID    string   `json:"owner_id,omitempty" jsonschema:"create and assign, lead only: the member who does the step"`
+	ReviewerID string   `json:"reviewer_id,omitempty" jsonschema:"create and assign, lead only: another member who must pass the step; optional"`
+	DependsOn  []string `json:"depends_on,omitempty" jsonschema:"create: ids of steps of the task that must be done first"`
 }
 
 type profileInput struct {
@@ -1042,7 +1042,7 @@ func goalAction(change func(*core.Service, context.Context, core.Actor, string, 
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%q is %s now.", g.Text, g.State), nil
+		return fmt.Sprintf("%q is %s now.", g.Text, taskState(g.State)), nil
 	}
 }
 

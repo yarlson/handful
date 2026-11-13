@@ -40,3 +40,27 @@ func TestErrorsNameTheBoardActionsThatExist(t *testing.T) {
 	_, err = svc.SendTask(ctx, Actor{BotID: ana.ID, TeamID: team.ID, Role: RoleLead}, docs.ID, NewTask{Text: "Write the guide.", WaitsOn: "step-1"})
 	check("waits_for without a task", err, "waits_for names a step", "waits_on")
 }
+
+// Audit finding 9: the board's turn prompts and errors say task and step.
+func TestBoardTurnsAndErrorsSayTaskAndStep(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	ctx := context.Background()
+	parse := f.create(t, f.lead, item("Parse", f.ana.ID, f.cy.ID))
+	turns, err := f.svc.QueuedTurns(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tr := range turns {
+		found = found || (tr.ItemID == parse.ID && tr.Prompt == "Work on your step.")
+	}
+	if !found {
+		t.Fatalf("queued turns = %+v; want Ana's work turn with \"Work on your step.\"", turns)
+	}
+	if _, err := f.svc.SubmitItem(ctx, f.as(f.cy, RoleWork), parse.ID, "x"); err == nil || err.Error() != "invalid input: only the owner submits a step that is being done" {
+		t.Fatalf("a submit by someone else = %v; want the step error", err)
+	}
+	if _, err := f.svc.CreateItem(ctx, f.lead, NewItem{Title: "Parse", Brief: "b", Acceptance: "a"}); err == nil || !strings.Contains(err.Error(), `the task already has a step "Parse"`) {
+		t.Fatalf("a second Parse = %v; want the step error", err)
+	}
+}

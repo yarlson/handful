@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -140,4 +141,54 @@ func agentMessageFields(t *testing.T) map[string]string {
 		out[name] = f.Tag.Get("jsonschema")
 	}
 	return out
+}
+
+// boardWord finds "goal" and "item" as words; the schema names goal_id and item_id are not words.
+var boardWord = regexp.MustCompile(`(?i)\b(goals?|items?)\b`)
+
+// Audit finding 9: the texts about the board say task and step, as the app does, and /task.
+func TestTheBoardTextsSayTaskAndStep(t *testing.T) {
+	t.Parallel()
+	builder := systemPrompt(promptContext{Bot: core.Bot{ID: "b", Name: "Builder", Role: core.RoleBuilder}, Now: time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)})
+	setup := builder[strings.Index(builder, "## Setting up the user's bots"):]
+	texts := map[string]string{
+		"lead brief": leadBrief, "retro brief": retroBrief, "approve brief": approveBrief, "inbox brief": inboxBrief,
+		"gatekeeper": leadGatekeeper, "member text": memberWork, "update_board": updateBoardDescription,
+		"Builder's guide": strings.ReplaceAll(setup, "goal_budget", ""),
+	}
+	typ := reflect.TypeFor[boardInput]()
+	for i := range typ.NumField() {
+		texts["update_board field "+typ.Field(i).Name] = typ.Field(i).Tag.Get("jsonschema")
+	}
+	for what, text := range texts {
+		if word := boardWord.FindString(strings.NewReplacer("goal_id", "", "item_id", "").Replace(text)); word != "" {
+			t.Errorf("%s says %q: %s", what, word, text)
+		}
+	}
+	wantText(t, "Builder's guide", setup, []string{"send a task with /task <what the team should do>"}, []string{"/goal"})
+	solo := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, Now: time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)})
+	wantText(t, "a bot's prompt", solo, []string{"(a request, a task or a step)", "for example with the id of a task or a step"}, []string{"a board item", "work-item"})
+	board := core.Board{Goal: &core.Goal{ID: "g1", Text: "Ship.", State: core.GoalActive}, Items: []core.Item{{ID: "i1", Title: "Parse", State: core.ItemDoing, OwnerID: "a"}}}
+	wantText(t, "a work brief", workBrief(board, "i1", nil), []string{`Your step: "Parse" (id i1).`, "Do this step now, in this turn, and only this step."}, []string{"item now", "Your item"})
+}
+
+// Audit finding 10: bots read a task's state in the app's words, not as it is stored.
+func TestBotsReadATasksStateInTheAppsWords(t *testing.T) {
+	t.Parallel()
+	for stored, want := range map[string]string{
+		core.GoalActive: "in progress", core.GoalDelivered: "done, waiting for approval", core.GoalIncoming: "in the inbox",
+		core.GoalQueued: "in the plan", core.GoalDeclined: "pushed back", core.GoalEnded: "withdrawn",
+		core.GoalPaused: "paused", core.GoalDone: "done", core.GoalLater: "later", core.GoalStopped: "stopped",
+	} {
+		if got := taskState(stored); got != want {
+			t.Errorf("taskState(%q) = %q; want %q", stored, got, want)
+		}
+	}
+	team := core.Bot{ID: "t", Team: &core.Team{}}
+	now := boardTable(team, core.Board{Goal: &core.Goal{ID: "g1", Text: "Ship.", State: core.GoalActive, Used: 2}}, time.Time{})
+	wantText(t, "the board", now, []string{"Now task (id g1, in progress, 2 turns so far): Ship.\nSteps:\n"}, []string{"Goal (id", "Items:", "active"})
+	over := boardTable(team, core.Board{Goal: &core.Goal{ID: "g1", Text: "Ship.", State: core.GoalDone}}, time.Time{})
+	wantText(t, "a retro's board", over, []string{"Task (id g1, done, 0 turns so far): Ship."}, []string{"Now task"})
+	sent := boardTable(team, core.Board{Sent: []core.Goal{{ID: "s", Text: "Guide.", TeamID: "d", State: core.GoalIncoming}}, Teams: map[string]string{"d": "Docs"}}, time.Time{})
+	wantText(t, "the sent tasks", sent, []string{`to team "Docs" [in the inbox]`}, []string{"[incoming]"})
 }

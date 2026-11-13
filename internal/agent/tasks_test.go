@@ -36,7 +36,7 @@ func TestTeamPromptsCarryTheGatekeeperAndMemberTexts(t *testing.T) {
 	if !strings.Contains(leadGatekeeper, "Never ask the user to relay work to another team") {
 		t.Error("the gatekeeper text lacks the relay rule")
 	}
-	if !strings.HasPrefix(leadGatekeeper, "You are the gatekeeper of this team's work. Every task from outside your team, the user's too, arrives in your inbox.") ||
+	if !strings.HasPrefix(leadGatekeeper, "You are the gatekeeper of this team's work. Every task from outside your team arrives in your inbox, except a task the user starts at once: it becomes the Now task, or the first of your plan, and you are told.") ||
 		!strings.HasSuffix(memberWork, "Don't start other work on your own.") {
 		t.Error("the §8 texts changed")
 	}

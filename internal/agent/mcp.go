@@ -176,8 +176,8 @@ type sendInput struct {
 type agentMessageInput struct {
 	TargetID string   `json:"target_id" jsonschema:"id of a teammate bot, or of a room you are in"`
 	Message  string   `json:"message" jsonschema:"the message, self-contained and to the point"`
-	Files    []string `json:"files,omitempty" jsonschema:"room posts only: paths of images or videos to attach, at most 4, as for send_to_user"`
-	Priority bool     `json:"priority" jsonschema:"true wakes a teammate now (they must act or answer); false delivers it at their next turn (updates, FYIs). Room posts always land at once."`
+	Files    []string `json:"files,omitempty" jsonschema:"room posts only: paths of images or videos to attach, at most 4, as for send_to_user; a relative path is in the team's shared folder when the room is a team, else in your own folder"`
+	Priority bool     `json:"priority" jsonschema:"true wakes a teammate now (they must act or answer); false delivers it at their next turn outside a team (updates, FYIs). Room posts always land at once."`
 }
 
 type readRoomInput struct {
@@ -287,7 +287,7 @@ func sendToAgentDescription(team bool) string {
 
 // updateBoardDescription is the update_board tool's description: what each action does, and who
 // approves a done task, as core's approver rule decides.
-const updateBoardDescription = "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team, the user's too, arrives in the team's inbox. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close). Whoever asked then approves it (approve) or asks for changes: the user for the user's tasks, the sending team's lead for a task from another team, and the team's own lead for a task the team proposed (propose or make_task). stop stops a task, keeping its steps."
+const updateBoardDescription = "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team arrives in the team's inbox, except a task the user starts at once: it becomes the Now task, or the first of the plan. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close). Whoever asked then approves it (approve) or asks for changes: the user for the user's tasks, the sending team's lead for a task from another team, and the team's own lead for a task the team proposed (propose or make_task). stop stops a task, keeping its steps."
 
 func newToolServer(svc *core.Service, current func() (runContext, bool), meta func(runContext) core.PostMeta) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: "1"}, nil)
@@ -379,7 +379,7 @@ func (t tools) sendToAgent(ctx context.Context, rc runContext, in agentMessageIn
 	case "woke":
 		return textResult("Sent; the recipient is reading it now. Their reply, if any, arrives later as its own turn."), nil, nil
 	case "held":
-		return textResult("Sent; the recipient reads it at the start of their next turn."), nil, nil
+		return textResult("Sent; the recipient reads it at the start of their next turn outside a team."), nil, nil
 	}
 	if len(res.Woken) > 0 {
 		return textResult("Posted in the room. Woke %s.", strings.Join(res.Woken, ", ")), nil, nil
@@ -960,7 +960,7 @@ func (t tools) boardSendTask(ctx context.Context, a core.Actor, in boardInput) (
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Sent %q (task id %s) to that team's inbox. Its lead takes it, asks you, defers it, passes it on or pushes it back; you hear back in this channel. That team pays for the work.", g.Text, g.ID), nil
+	return fmt.Sprintf("Sent %q (task id %s) to that team's inbox. Its lead takes it, asks you, defers it, passes it on or pushes it back; you are woken when that team asks you, pushes back or delivers; your board shows its state under \"Sent to other teams\" meanwhile. That team pays for the work.", g.Text, g.ID), nil
 }
 
 // boardPropose puts a task for the member's own team into its inbox.

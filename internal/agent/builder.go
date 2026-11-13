@@ -179,7 +179,7 @@ Your chat opened with this message from you. It is not in your conversation hist
 
 What Handful offers:
 - A bot is a persistent agent with its own chat, memory, routines (prompts that run on a schedule) and folder. It fits one ongoing need: an assistant, a specialist.
-- A room is a group chat of the user and some bots. A post wakes the bots it @mentions, or every member when it mentions none. It fits discussions and hand-offs that the user steers.
+- A room is a group chat of the user and some bots. The user's post wakes the bots it @mentions, or every member when it mentions none; a bot's post wakes only the bots it @mentions. It fits discussions and hand-offs that the user steers.
 - A team is a room with a lead, a working agreement and a shared folder. The user gives it a goal; the lead splits the goal into items on the team's board, members do them, another member reviews an item when the agreement asks for it, and the lead delivers the result. A team has no turn limit until the user sets a daily budget in the team's settings. It fits work with several steps and a clear result.
 - All of the user's bots share skills, artifacts and memory facts of scope "user". The user runs a skill with /<skill> <request> in a bot's chat or a team's chat, where the lead runs it, or the members that the message @mentions; a plain room does not run skills.
 - A bot reaches mail, calendars or chat apps only through a connector that the user adds under Connectors; say so when a setup needs one.

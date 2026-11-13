@@ -1716,7 +1716,7 @@ func TestTheLeadClosesATaskAndAnAcceptedOneGetsARetroTurn(t *testing.T) {
 
 	calls := h.waitCalls(t, 1)
 	for _, want := range []string{
-		"The user accepted this goal. Look back on it in this turn, and start no new work:",
+		"This task was approved. Look back on it in this turn, and start no new work:",
 		"Goal (id " + board.Goal.ID + ", done, ",
 		"- \"Parse\" (id " + items[0].ID + ") [done] owner Bo",
 	} {
@@ -1855,7 +1855,7 @@ func TestARetroTurnLooksBackOnItsOwnGoal(t *testing.T) {
 	}
 	h.start(t)
 	calls := h.waitCalls(t, 2)
-	if !strings.Contains(calls[0], "The user accepted this goal.") || !strings.Contains(calls[0], "Ship CSV export.") || strings.Contains(calls[0], "Next: JSON export.") {
+	if !strings.Contains(calls[0], "This task was approved.") || !strings.Contains(calls[0], "Ship CSV export.") || strings.Contains(calls[0], "Next: JSON export.") {
 		t.Fatalf("the retro turn = %q; want the accepted goal and not the next one", calls[0])
 	}
 	if !strings.Contains(calls[1], "Next: JSON export.") || !strings.Contains(calls[1], "You lead this goal.") {

@@ -1264,7 +1264,7 @@ func (s *Service) AcceptGoal(ctx context.Context, goalID string, startNext bool)
 		}
 		if lead, ok := team.Lead(); ok {
 			// The retro turn comes first, so the lead looks back before it plans the next goal.
-			if _, err := s.queueTurn(ctx, q, Turn{BotID: lead.ID, Source: SourceRoom, RoomID: team.ID, GoalID: g.ID, BoardRole: RoleRetro, Prompt: "The user accepted the goal."}); err != nil {
+			if _, err := s.queueTurn(ctx, q, Turn{BotID: lead.ID, Source: SourceRoom, RoomID: team.ID, GoalID: g.ID, BoardRole: RoleRetro, Prompt: "The user approved the task."}); err != nil {
 				return err
 			}
 		}

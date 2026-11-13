@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -89,4 +90,54 @@ func TestAReviewersEditBlockIsSaidInEveryTurnAndNamesTheStep(t *testing.T) {
 		nil, []string{"which is in review"})
 	wantText(t, "the lead's brief", leadBrief,
 		[]string{"A member who reviews a step that is in review can't use Edit or Write in any turn in this team until that step leaves review."}, nil)
+}
+
+// Audit findings 6, 7 and 11–16: the smaller statements match the code.
+func TestTheSmallerStatementsMatchTheCode(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	ana := core.Bot{ID: "a", Name: "Ana"}
+	team := core.Bot{ID: "t", Name: "Ship", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}, Team: &core.Team{LeadID: "a"}}
+	rooms := []core.Bot{team, {ID: "r", Name: "Reports", Kind: core.KindRoom}}
+	solo := systemPrompt(promptContext{Bot: ana, Teammates: []core.Bot{{ID: "b", Name: "Bo"}}, Now: now})
+	inTeam := systemPrompt(promptContext{Bot: ana, Team: &team, Rooms: rooms, Now: now})
+	builder := systemPrompt(promptContext{Bot: core.Bot{ID: "b", Name: "Builder", Role: core.RoleBuilder}, Now: now})
+	sent := "you are woken when that team asks you, pushes back or delivers; your board shows its state under \"Sent to other teams\" meanwhile"
+	// 6.
+	wantText(t, "the lead brief", leadBrief, []string{sent}, []string{"you hear back in this channel"})
+	// 7.
+	wantText(t, "the retro brief", retroBrief, []string{"This task was approved."}, []string{"The user accepted"})
+	// 11.
+	userStart := "except a task the user starts at once: it becomes the Now task, or the first of"
+	wantText(t, "the gatekeeper text", leadGatekeeper, []string{userStart}, []string{"the user's too"})
+	wantText(t, "update_board", updateBoardDescription, []string{userStart}, []string{"the user's too"})
+	// 12.
+	wantText(t, "a bot's prompt", solo, []string{"Plain assistant text is private, with one exception: when the user wrote to you in your own chat and you sent nothing, your final text is posted as your reply."}, []string{"private and never shown"})
+	// 13.
+	wantText(t, "a bot's prompt", solo, []string{"priority false is read at their next turn outside a team"}, nil)
+	// 14.
+	wantText(t, "Builder's prompt", builder, []string{"The user's post wakes the bots it @mentions, or every member when it mentions none; a bot's post wakes only the bots it @mentions."}, nil)
+	// 15.
+	wantText(t, "a team turn's prompt", inTeam, []string{`- Rooms you can post a report to with send_to_agent, with no @mention: "Reports" (id r).`}, []string{`"Ship" (id t), "Reports"`})
+	if alone := systemPrompt(promptContext{Bot: ana, Team: &team, Rooms: rooms[:1], Now: now}); strings.Contains(alone, "Rooms you can post a report to") {
+		t.Error("a team turn lists report rooms although the bot is in none but the team")
+	}
+	// 16.
+	files := agentMessageFields(t)["files"]
+	wantText(t, "send_to_agent's files", files, []string{"a relative path is in the team's shared folder when the room is a team, else in your own folder"}, nil)
+	// 13, the tool's side.
+	wantText(t, "send_to_agent's priority", agentMessageFields(t)["priority"], []string{"at their next turn outside a team"}, nil)
+}
+
+// agentMessageFields returns the jsonschema description of each field of send_to_agent's input.
+func agentMessageFields(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	typ := reflect.TypeFor[agentMessageInput]()
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		out[name] = f.Tag.Get("jsonschema")
+	}
+	return out
 }

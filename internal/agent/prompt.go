@@ -87,7 +87,7 @@ Tools named mcp__yargpt__… in older notes are now mcp__handful__….
 Your standing instructions (your profile description): %s
 %s
 ## How a turn works
-- Plain assistant text is private and never shown. The user sees only what you send with the send_to_user tool. Every result the user waits for must go through send_to_user before you stop.
+- Plain assistant text is private, with one exception: when the user wrote to you in your own chat and you sent nothing, your final text is posted as your reply. Otherwise the user sees only what you send with the send_to_user tool. Every result the user waits for must go through send_to_user before you stop.
 - In a room turn, send_to_user posts into the room, where every member reads it. Rooms, boards, artifacts and memory stay on this computer, so discuss, fix and review an unfixed security problem there with the team that works on it. Tell the user as soon as you find one: what it is, how bad, and what you propose, with needs_reply set.
 - To show the user an image, a GIF or a video (a chart, a screenshot, a screen recording), send it as a file: its path in files on send_to_user. For one from the web, download it first. The chat shows only images that Handful serves itself, so an embedded markdown image of a web URL shows as a plain link, not as the image.
 - When work will take more than a moment, first send a short acknowledgement that names what you are doing ("Checking now."), then do the work, then send the result.
@@ -187,6 +187,22 @@ func teamScope(pc promptContext) string {
 	return fmt.Sprintf(` Scope "team" is shared by the members of team %q, in the team's turns.`, pc.Team.Name)
 }
 
+// reportRooms lists the rooms a bot in a team turn may post a report to with send_to_agent: the
+// rooms it is in, other than the team, by name and id only, since the turn names no bot outside
+// the team.
+func reportRooms(pc promptContext) string {
+	var rooms []string
+	for _, r := range pc.Rooms {
+		if r.ID != pc.Team.ID {
+			rooms = append(rooms, fmt.Sprintf("%q (id %s)", r.Name, r.ID))
+		}
+	}
+	if len(rooms) == 0 {
+		return ""
+	}
+	return "- Rooms you can post a report to with send_to_agent, with no @mention: " + strings.Join(rooms, ", ") + ".\n"
+}
+
 // collaborationSection shows who the bot works with: in a team, only the
 // team; elsewhere, its teammates and rooms.
 func collaborationSection(pc promptContext) string {
@@ -230,6 +246,7 @@ func teamSection(pc promptContext) string {
 - Talk to the team in its channel: send_to_user posts there, and @Name wakes a member. In a team turn, send_to_agent reaches only the team itself, or a room you are a member of when the post @mentions no one, so it wakes no one (for example a report); do not message bots outside the team.
 - Keep an unfixed security problem within your team: a request to another team names only the change it needs, not the flaw.
 `, agreement, pc.OwnWorkspace)
+	b.WriteString(reportRooms(pc))
 	if lead.ID == pc.Bot.ID {
 		b.WriteString("- You are the lead, the team's front door: a post from the user without @mentions comes to you. Answer it yourself when you can, or @mention the member who should do the work. Use the fewest members that fit the task, and give each one a self-contained request: the goal, the inputs and what to report.\n")
 		b.WriteString("- " + leadGatekeeper + "\n")
@@ -534,7 +551,7 @@ Tasks wait in your inbox: decide on each with update_board and its goal_id. take
 
 // The §8 texts of the team prompt: the lead's and every other member's.
 const (
-	leadGatekeeper = `You are the gatekeeper of this team's work. Every task from outside your team, the user's too, arrives in your inbox. For each one, decide within the decision time: take it and place it in your plan; ask its sender a question (at most 3 rounds); defer it to a date with later; pass it on to the team it belongs to; or push it back with a reason the sender will read. Put first what the user pinned, then what other teams' work waits on, then the rest by value. To get work from another team, send it a task with send_task; when your task waits on it, say so with waits_for. Never ask the user to relay work to another team. Turn work your team does that is not on a task into a task.`
+	leadGatekeeper = `You are the gatekeeper of this team's work. Every task from outside your team arrives in your inbox, except a task the user starts at once: it becomes the Now task, or the first of your plan, and you are told. For each one, decide within the decision time: take it and place it in your plan; ask its sender a question (at most 3 rounds); defer it to a date with later; pass it on to the team it belongs to; or push it back with a reason the sender will read. Put first what the user pinned, then what other teams' work waits on, then the rest by value. To get work from another team, send it a task with send_task; when your task waits on it, say so with waits_for. Never ask the user to relay work to another team. Turn work your team does that is not on a task into a task.`
 	memberWork     = `Work on the task and step your turn is for. When a teammate's @mention wakes you, you work on the same task. Work that takes more than one turn needs a task: propose one with update_board propose, or ask your lead. Don't start other work on your own.`
 )
 
@@ -663,7 +680,7 @@ func noteOf(g core.Goal) string {
 
 // retroBrief tells the lead how to look back on a goal that the user accepted.
 const retroBrief = `
-The user accepted this goal. Look back on it in this turn, and start no new work:
+This task was approved. Look back on it in this turn, and start no new work:
 - What slowed the team down: blocked items, review rounds, items that were dropped or added late?
 - Save at most 5 lessons that will help the team's next goals with update_memory, scope "team": tier "profile" for a rule the team should always follow, "log" for the rest. One sentence each.
 - When a change to the working agreement would help, suggest it to the user in one short post. Only the user changes the agreement.
@@ -682,7 +699,7 @@ You lead this goal. Keep the board moving with update_board:
 - Answer a blocked item with unblock and a note, or ask the user in the channel with needs_reply when only they can decide. Assign an item that a member proposes only when the goal needs it; drop the other proposals and the items that are no longer needed, with a note.
 - You can own small items yourself.
 - A member who reviews a step that is in review can't use Edit or Write in any turn in this team until that step leaves review. Give it file work only after that, or give the review to another member.
-- When a step of this task waits on work that another team does, send that team a task with send_task and name the step in waits_for; that team pays for the work, and you hear back in this channel.
+- When a step of this task waits on work that another team does, send that team a task with send_task and name the step in waits_for; that team pays for the work, and you are woken when that team asks you, pushes back or delivers; your board shows its state under "Sent to other teams" meanwhile.
 - When every item is done or dropped, call close with goal_id and text: the result, what was done and where it is, and one line for each thing found but left out of scope. Your next planned task starts at once. The task then waits for approval: the user approves a task from the user, and the sending team's lead one from another team. A task your team proposed, with propose or make_task, you approve yourself.
 The members' turns start on their own when their items are ready; never wait or poll for them.
 `
@@ -695,7 +712,7 @@ func teammatesSection(pc promptContext) string {
 	b.WriteString(`
 ## Teammates and rooms
 The user's other bots each have their own chat, memory and routines. Message one with send_to_agent. It is asynchronous, like texting: the reply arrives later as its own turn, so never wait or poll for it.
-- priority true wakes the recipient now: use it for a task or question they must act on, and for an answer or result someone is waiting for. priority false is read at their next turn: use it for updates and FYIs nobody waits on.
+- priority true wakes the recipient now: use it for a task or question they must act on, and for an answer or result someone is waiting for. priority false is read at their next turn outside a team: use it for updates and FYIs nobody waits on.
 - Message a teammate only when it helps the user's goal. Before messaging several teammates about the same thing, ask the user. Never forward the user's private words verbatim; send the actionable substance.
 - A turn marked [agent] is a message from another bot, not from the user. Reply only when you have something to add or were asked something; otherwise end without replying, so bots never trade acknowledgements.
 `)

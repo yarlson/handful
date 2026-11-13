@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 )
 
@@ -100,6 +101,22 @@ func (s *Service) DeleteSkill(id string) error {
 	return nil
 }
 
+// isFolder reports whether entry d of dir is a folder, or a link to one. A link that leads
+// nowhere, broken or pointing at itself, is no folder.
+func isFolder(dir string, d fs.DirEntry) (bool, error) {
+	if d.Type()&fs.ModeSymlink == 0 {
+		return d.IsDir(), nil
+	}
+	info, err := os.Stat(filepath.Join(dir, d.Name()))
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ELOOP) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read skill link %s: %w", d.Name(), err)
+	}
+	return info.IsDir(), nil
+}
+
 func (s *Service) GetSkill(id string) (Skill, error) {
 	path, err := s.skillPath(id)
 	if err != nil {
@@ -115,7 +132,8 @@ func (s *Service) GetSkill(id string) (Skill, error) {
 	return parseSkill(id, string(raw)), nil
 }
 
-// ListSkills returns every skill without its body, sorted by id.
+// ListSkills returns every skill without its body, sorted by id. A skill's folder may be a link
+// to a folder elsewhere, as Claude Code allows.
 func (s *Service) ListSkills() ([]Skill, error) {
 	dirs, err := os.ReadDir(s.SkillsDir())
 	if err != nil {
@@ -123,7 +141,11 @@ func (s *Service) ListSkills() ([]Skill, error) {
 	}
 	var out []Skill
 	for _, d := range dirs {
-		if !d.IsDir() {
+		folder, err := isFolder(s.SkillsDir(), d)
+		if err != nil {
+			return nil, err
+		}
+		if !folder {
 			continue
 		}
 		sk, err := s.GetSkill(d.Name())

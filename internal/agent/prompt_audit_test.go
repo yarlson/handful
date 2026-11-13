@@ -215,3 +215,13 @@ func TestEveryPromptVariantSaysToReadARepositorysClaudeMD(t *testing.T) {
 		}
 	}
 }
+
+// Audit finding 17: a real run shows the executor subagent gets Handful's MCP tools, send_to_user
+// among them, so its prompt forbids messaging instead of saying it can't.
+func TestTheExecutorIsToldNotToMessageTheUser(t *testing.T) {
+	t.Parallel()
+	prompt, _ := executorAgents("Ana")["executor"].(map[string]any)["prompt"].(string)
+	wantText(t, "the executor's prompt", prompt,
+		[]string{"Do not message the user or other bots, and do not ask questions: send_to_user and send_to_agent are the parent's to use."},
+		[]string{"You cannot talk to the user"})
+}

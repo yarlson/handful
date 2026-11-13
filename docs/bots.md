@@ -35,7 +35,7 @@ Each bot works in its own folder, `~/.handful/bots/<bot id>`. The bot id is the 
 - A bot can start a long command in the background and keep talking to you. The chat lists the running tasks above the message box. **Stop** ends them.
 - Type `/` at the start of a message for commands:
   - `/clear` starts a fresh conversation context. The chat stays visible.
-  - `/compact` shortens the context and shows the token counts before and after. A bot also compacts its context on its own when it reaches 200k tokens.
+  - `/compact` shortens the context and shows the token counts before and after. A bot also compacts its context on its own before it reaches 200k tokens, at about 160k.
   - `/<skill> <request>` runs a skill now (see [Skills](#skills)).
 
 ## Approve what a bot does

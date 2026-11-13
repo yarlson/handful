@@ -365,7 +365,8 @@ background)
   # The first message starts a background task. Later messages come on
   # stdin (logged to stdin.log) until one says "finish": then the task ends,
   # and Claude Code reports it and wakes the model on its own. A message that
-  # says "auto-compact" is compacted on its way, as when the context is full.
+  # says "auto-compact" is compacted on its way, as when the context is full;
+  # one that says "task-compacts" waits for a task turn that compacts.
   echo $$ > "$dir/pid"
   trap 'echo "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"t1\",\"status\":\"stopped\",\"summary\":\"Build the site\"}"; exit 143' TERM
   echo '{"type":"system","subtype":"task_notification","task_id":"t0","status":"stopped","summary":"A task of the previous process"}'
@@ -378,6 +379,11 @@ background)
   lifecycle completed
   while IFS= read -r input; do
     printf '%s\n' "$input" >> "$dir/stdin.log"
+    case "$input" in *task-compacts*)
+      # Claude Code wakes the model for a background task before it takes this message, and
+      # that run compacts the session.
+      init; compacted; result "woke" ;;
+    esac
     lifecycle started
     case "$input" in
     *'"content":"/compact"'*) compacted; result "" ;;

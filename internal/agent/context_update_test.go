@@ -255,6 +255,30 @@ func TestAfterCompactInItsOwnProcessTheNextTurnCarriesNoUpdate(t *testing.T) {
 	}
 }
 
+// liveMessages returns the messages that the running "background" process got on stdin, in order.
+func (h *harness) liveMessages(t *testing.T) []string {
+	t.Helper()
+	raw, _ := os.ReadFile(filepath.Join(h.dir, "stdin.log"))
+	lines := strings.SplitAfter(string(raw), "\n")
+	lines = lines[:len(lines)-1]
+	texts := make([]string, len(lines))
+	for i, l := range lines {
+		texts[i] = stdinText(t, i, l)
+	}
+	return texts
+}
+
+// sendLive sends text to the bot's chat, whose "background" process stays, and waits until the
+// process got it as its nth message and the turn ended. It returns that message.
+func (h *harness) sendLive(t *testing.T, botID, text string, n int) string {
+	t.Helper()
+	if _, _, err := h.svc.SubmitUserMessage(context.Background(), botID, text, "n-"+text); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "message "+strconv.Itoa(n), func() bool { return len(h.liveMessages(t)) >= n && !h.runner.Running(botID) })
+	return h.liveMessages(t)[n-1]
+}
+
 // When Claude Code compacts a session in a turn, it records the prompt its process started with
 // again. An update delivered since then goes again, and sections that did not change do not.
 func TestACompactionBringsBackTheUpdatesSinceTheProcessStarted(t *testing.T) {
@@ -267,24 +291,7 @@ func TestACompactionBringsBackTheUpdatesSinceTheProcessStarted(t *testing.T) {
 	if _, err := h.svc.WriteFact(ctx, bot.ID, "", "agent", "profile", "The user deploys on Mondays."); err != nil {
 		t.Fatal(err)
 	}
-	stdin := func() []string {
-		raw, _ := os.ReadFile(filepath.Join(h.dir, "stdin.log"))
-		lines := strings.SplitAfter(string(raw), "\n")
-		lines = lines[:len(lines)-1]
-		texts := make([]string, len(lines))
-		for i, l := range lines {
-			texts[i] = stdinText(t, i, l)
-		}
-		return texts
-	}
-	send := func(text string, n int) string {
-		t.Helper()
-		if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, text, "n-"+text); err != nil {
-			t.Fatal(err)
-		}
-		waitFor(t, "message "+strconv.Itoa(n), func() bool { return len(stdin()) >= n && !h.runner.Running(bot.ID) })
-		return stdin()[n-1]
-	}
+	send := func(text string, n int) string { return h.sendLive(t, bot.ID, text, n) }
 	first := contextBlock(send("ping", 1))
 	if !strings.Contains(first, "The user deploys on Mondays.") {
 		t.Fatalf("the update in the live process = %q; want the Memory section", first)
@@ -329,5 +336,51 @@ func TestAFreshSessionAfterAMissingOneKnowsItsPrompt(t *testing.T) {
 	h.setMode(t, "reply")
 	if block := contextBlock(h.say(t, bot.ID, "two")); block != "" {
 		t.Fatalf("the turn after a fresh session gets\n%s\nwant no update", block)
+	}
+}
+
+// A task turn that compacts the session runs between the preparing of a user turn and its start.
+// The compaction brings back the record of the process's launch prompt, so the user turn, which
+// was prepared against the delivered update, must not store that update as known.
+func TestACompactionInATaskTurnBringsBackTheUpdateForTheNextTurn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "background")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	h.startBackgroundTask(t, bot)
+	if _, err := h.svc.WriteFact(ctx, bot.ID, "", "agent", "profile", "The user deploys on Mondays."); err != nil {
+		t.Fatal(err)
+	}
+	first := contextBlock(h.sendLive(t, bot.ID, "ping", 1))
+	if !strings.Contains(first, "The user deploys on Mondays.") {
+		t.Fatalf("the update in the live process = %q; want the Memory section", first)
+	}
+	if block := contextBlock(h.sendLive(t, bot.ID, "task-compacts first", 2)); block != "" {
+		t.Fatalf("a delivered update goes again before the compaction:\n%s", block)
+	}
+	if again := contextBlock(h.sendLive(t, bot.ID, "ping last", 3)); again != first {
+		t.Fatalf("the update after a task turn's compaction =\n%s\nwant the first one again\n%s", again, first)
+	}
+}
+
+// A turn that brings an update and is compacted on its way leaves the record of the process's
+// launch prompt, the same as before the turn, so the update goes again with the next turn.
+func TestAnUpdateCompactedAwayInItsOwnTurnGoesAgain(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "background")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	h.startBackgroundTask(t, bot)
+	if _, err := h.svc.WriteFact(ctx, bot.ID, "", "agent", "profile", "The user deploys on Mondays."); err != nil {
+		t.Fatal(err)
+	}
+	first := contextBlock(h.sendLive(t, bot.ID, "auto-compact ping", 1))
+	if !strings.Contains(first, "The user deploys on Mondays.") {
+		t.Fatalf("the update = %q; want the Memory section", first)
+	}
+	if again := contextBlock(h.sendLive(t, bot.ID, "ping", 2)); again != first {
+		t.Fatalf("the update after its turn compacted =\n%s\nwant it again\n%s", again, first)
 	}
 }

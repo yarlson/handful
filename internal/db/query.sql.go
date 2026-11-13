@@ -115,6 +115,31 @@ func (q *Queries) AddRoomMember(ctx context.Context, arg AddRoomMemberParams) er
 	return err
 }
 
+const addSessionPrompt = `-- name: AddSessionPrompt :execrows
+INSERT INTO session_prompts (bot_id, chat_id, session_id, prompt) VALUES (?, ?, ?, ?)
+ON CONFLICT (bot_id, chat_id) DO NOTHING
+`
+
+type AddSessionPromptParams struct {
+	BotID     string `json:"bot_id"`
+	ChatID    string `json:"chat_id"`
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
+func (q *Queries) AddSessionPrompt(ctx context.Context, arg AddSessionPromptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addSessionPrompt,
+		arg.BotID,
+		arg.ChatID,
+		arg.SessionID,
+		arg.Prompt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addToolGrant = `-- name: AddToolGrant :exec
 INSERT INTO tool_grants (bot_id, tool_name, created_at) VALUES (?, ?, ?)
 ON CONFLICT (bot_id, tool_name) DO NOTHING
@@ -4175,6 +4200,35 @@ type RemoveRoomMemberParams struct {
 func (q *Queries) RemoveRoomMember(ctx context.Context, arg RemoveRoomMemberParams) error {
 	_, err := q.db.ExecContext(ctx, removeRoomMember, arg.RoomID, arg.BotID)
 	return err
+}
+
+const replaceSessionPrompt = `-- name: ReplaceSessionPrompt :execrows
+UPDATE session_prompts SET session_id = ?1, prompt = ?2
+WHERE bot_id = ?3 AND chat_id = ?4 AND session_id = ?5 AND prompt = ?6
+`
+
+type ReplaceSessionPromptParams struct {
+	SessionID    string `json:"session_id"`
+	Prompt       string `json:"prompt"`
+	BotID        string `json:"bot_id"`
+	ChatID       string `json:"chat_id"`
+	WasSessionID string `json:"was_session_id"`
+	WasPrompt    string `json:"was_prompt"`
+}
+
+func (q *Queries) ReplaceSessionPrompt(ctx context.Context, arg ReplaceSessionPromptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, replaceSessionPrompt,
+		arg.SessionID,
+		arg.Prompt,
+		arg.BotID,
+		arg.ChatID,
+		arg.WasSessionID,
+		arg.WasPrompt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const requeueTurn = `-- name: RequeueTurn :execrows

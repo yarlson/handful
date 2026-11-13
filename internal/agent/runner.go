@@ -686,14 +686,15 @@ func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run
 // finishDelivery marks what a successful turn delivered as handled, and
 // delivers the final text when a user wrote and the bot sent nothing.
 // The session then knows the turn's system prompt, from Claude Code's record
-// or the turn's context update, unless a compaction made the record anew.
+// or the turn's context update, unless a compaction made the record anew: in
+// this turn, or in a task turn after this one was prepared.
 func (r *Runner) finishDelivery(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun, delivered delivery, out outcome) {
 	if err := r.svc.AckInbox(ctx, delivered.inbox); err != nil {
 		r.log.Error("acknowledge inbox", "turn", t.ID, "err", err)
 	}
 	if !out.recorded {
 		key := sessionKey{bot.ID, t.RoomID}
-		if err := r.svc.SetKnownPrompt(ctx, bot.ID, key.transcript(), run.SessionID, run.SystemPrompt); err != nil {
+		if _, err := r.svc.ReplaceKnownPrompt(ctx, bot.ID, key.transcript(), delivered.known, run.SessionID, run.SystemPrompt); err != nil {
 			r.log.Error("record the known prompt", "turn", t.ID, "err", err)
 		}
 	}
@@ -729,6 +730,7 @@ func (r *Runner) deliverFinalText(ctx context.Context, bot core.Bot, t core.Turn
 type delivery struct {
 	inbox   []core.InboxMessage // held direct messages
 	roomSeq int64               // seq of the last room message, for a room turn
+	known   core.KnownPrompt    // what was stored for the session when the turn was prepared
 }
 
 // prepare builds the claude invocation for the turn. It starts a new Claude
@@ -763,16 +765,18 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 	if err != nil {
 		return claudeRun{}, delivery{}, err
 	}
-	delivered := delivery{inbox: inbox, roomSeq: update.LastSeq}
+	key := sessionKey{bot.ID, t.RoomID}
+	known, err := r.svc.KnownPrompt(ctx, bot.ID, key.transcript())
+	if err != nil {
+		return claudeRun{}, delivery{}, err
+	}
+	delivered := delivery{inbox: inbox, roomSeq: update.LastSeq, known: known}
 	sessionID := bot.ClaudeSessionID
 	if t.RoomID != "" {
 		sessionID = update.Seat.ClaudeSessionID
 	}
 	system := systemPrompt(pc)
-	changes, err := r.contextUpdate(ctx, sessionKey{bot.ID, t.RoomID}, sessionID, system)
-	if err != nil {
-		return claudeRun{}, delivery{}, err
-	}
+	changes := contextUpdate(known, sessionID, system)
 	run := claudeRun{
 		Prompt:       timestampLine(now) + changes + questions + inboxBlock(inbox) + heldOverflow(more) + prompt,
 		Command:      command,
@@ -792,22 +796,20 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 	return run, delivered, nil
 }
 
-// contextUpdate returns the block of the turn message that brings the Claude session sessionID
-// of key up to date with prompt, the turn's system prompt. A new session ("") records prompt
-// itself, and so does a session that holds no Handful prompt, after /compact in a process of its
-// own. When Handful does not know what the session holds, every section goes once.
-func (r *Runner) contextUpdate(ctx context.Context, key sessionKey, sessionID, prompt string) (string, error) {
+// contextUpdate returns the block of the turn message that brings the Claude session sessionID,
+// for which stored is what Handful stored, up to date with prompt, the turn's system prompt. A
+// new session ("") records prompt itself, and so does a session that holds no Handful prompt,
+// after /compact in a process of its own. When Handful does not know what the session holds,
+// every section goes once.
+func contextUpdate(stored core.KnownPrompt, sessionID, prompt string) string {
 	if sessionID == "" {
-		return "", nil
+		return ""
 	}
-	known, ok, err := r.svc.KnownPrompt(ctx, key.botID, key.transcript(), sessionID)
-	if err != nil {
-		return "", err
-	}
+	known, ok := stored.For(sessionID)
 	if ok && known == "" {
-		return "", nil
+		return ""
 	}
-	return promptChanges(known, prompt), nil
+	return promptChanges(known, prompt)
 }
 
 // onCompacted handles Claude Code's compaction of session s: the active turn cur, if any, reports

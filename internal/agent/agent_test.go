@@ -3031,7 +3031,8 @@ func TestNoGlobalAgentsFileAddsNoSection(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot })
-			if call := h.argsLog(t)[0]; strings.Contains(call, "AGENTS.md") {
+			// Every prompt names a repository's AGENTS.md in claudeMDLine; the data folder's file is another.
+			if call := strings.ReplaceAll(h.argsLog(t)[0], claudeMDLine, ""); strings.Contains(call, "AGENTS.md") {
 				t.Fatalf("claude call mentions AGENTS.md without a usable file: %s", call)
 			}
 		})

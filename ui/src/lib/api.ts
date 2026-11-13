@@ -6,6 +6,7 @@ import type { ItemEvent, OpenQuestion, QuestionState, Waiting } from "./question
 import type { Budget } from "./tasks"
 import type { Defaults, Effective } from "./model"
 import type { Proxy, Scope } from "./phones"
+import type { Usage } from "./usage"
 
 export type Member = { id: string; name: string; effective?: Effective }
 
@@ -445,6 +446,7 @@ export const api = {
   artifact: (id: string) => request<Artifact>("GET", `/api/artifacts/${encodeURIComponent(id)}`),
   deleteArtifact: (id: string) => request<void>("DELETE", `/api/artifacts/${encodeURIComponent(id)}`),
   grants: (id: string) => request<string[]>("GET", `/api/bots/${id}/grants`),
+  usage: (id: string) => request<Usage>("GET", `/api/bots/${id}/usage`),
   revokeGrant: (id: string, tool: string) =>
     request<void>("DELETE", `/api/bots/${id}/grants/${encodeURIComponent(tool)}`),
   connectors: () => request<Connector[]>("GET", "/api/connectors"),

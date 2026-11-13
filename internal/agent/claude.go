@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"handful/internal/core"
@@ -85,9 +86,9 @@ func turnSettings(dataDir string) (string, error) {
 	return string(raw), nil
 }
 
-// autocompactWindow is the context size, in tokens, at which Claude Code compacts a session's
+// AutocompactWindow is the context size, in tokens, at which Claude Code compacts a session's
 // conversation (--autocompact). Without it, Claude Code waits until the model's window is nearly full.
-const autocompactWindow = "200000"
+const AutocompactWindow = 200000
 
 // args builds the claude CLI arguments; the prompt goes to stdin as a
 // userMessage. --setting-sources project keeps the
@@ -119,7 +120,7 @@ func (r claudeRun) args() ([]string, error) {
 		"--mcp-config", r.MCPConfig,
 		"--settings", settings,
 		"--system-prompt-snapshot", "on",
-		"--autocompact", autocompactWindow,
+		"--autocompact", strconv.Itoa(AutocompactWindow),
 		"--append-system-prompt-file", r.SystemPromptFile,
 		"--agents", string(agents),
 		"--tools", strings.Join(builtinTools, ","),
@@ -208,6 +209,7 @@ type streamEvent struct {
 	SessionID       string           `json:"session_id"`
 	ParentToolUseID *string          `json:"parent_tool_use_id"`
 	Message         *streamMessage   `json:"message"`
+	Usage           *tokenUsage      `json:"usage"` // result: the turn's tokens
 	Result          string           `json:"result"`
 	IsError         bool             `json:"is_error"`
 	Errors          json.RawMessage  `json:"errors"`
@@ -228,7 +230,22 @@ type streamTask struct {
 }
 
 type streamMessage struct {
+	ID      string         `json:"id"`    // assistant: one per model call; a call's blocks come in several events
+	Usage   *tokenUsage    `json:"usage"` // assistant: the call's tokens
 	Content []contentBlock `json:"content"`
+}
+
+// tokenUsage is the tokens of a model call, or of a turn's calls in a result event. The call's
+// context is all three input counts.
+type tokenUsage struct {
+	InputTokens              int64 `json:"input_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+}
+
+func (u tokenUsage) context() int64 {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
 type contentBlock struct {
@@ -245,11 +262,14 @@ type contentBlock struct {
 // UnmarshalJSON accepts message content as a string or as a list of blocks.
 func (m *streamMessage) UnmarshalJSON(data []byte) error {
 	var raw struct {
+		ID      string          `json:"id"`
+		Usage   *tokenUsage     `json:"usage"`
 		Content json.RawMessage `json:"content"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	m.ID, m.Usage = raw.ID, raw.Usage
 	if len(raw.Content) == 0 || raw.Content[0] == '"' {
 		return nil
 	}

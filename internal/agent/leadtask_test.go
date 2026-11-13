@@ -59,6 +59,10 @@ func TestUpdateBoardInALeadsOwnChat(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	team, ana, bo, _ := h.newTeam(t)
+	room, err := h.svc.CreateRoom(ctx, "Plan", "", []string{ana.ID, bo.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(h.runner.MCPHandler())
 	t.Cleanup(srv.Close)
 	session := func(rc runContext) func(map[string]any) (string, bool) {
@@ -102,10 +106,11 @@ func TestUpdateBoardInALeadsOwnChat(t *testing.T) {
 		want string
 	}{
 		"a member's user_task":  {session(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t2", UserChat: true}), map[string]any{"action": "user_task", "text": "X."}, "you lead no team; Ana leads Ship and adds its tasks"},
-		"a member's list":       {session(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t3", UserChat: true}), map[string]any{"action": "list", "team_id": team.ID}, "only Ana, the lead of Ship, adds tasks to its board"},
-		"a routine's user_task": {session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t4"}), map[string]any{"action": "user_task", "text": "X."}, "only when the user's own message to you started the turn"},
+		"a member's list":       {session(runContext{BotID: bo.ID, BotName: "Bo", TurnID: "t3", UserChat: true}), map[string]any{"action": "list", "team_id": team.ID}, "only Ana, the lead of Ship, uses its board from its own chat"},
+		"a routine's user_task": {session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t4"}), map[string]any{"action": "user_task", "text": "X."}, "works only in your own chat, in a turn that the user's own message to you started"},
 		"a step from the chat":  {lead, map[string]any{"action": "create", "title": "Parse", "brief": "b", "acceptance": "a"}, "from your own chat, update_board does only list and user_task; create works in a turn in your team"},
 		"a task from the chat":  {lead, map[string]any{"action": "propose", "text": "X."}, "propose works in a turn in your team"},
+		"user_task in a room":   {session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t6", RoomID: room.ID, UserPost: true}), map[string]any{"action": "user_task", "text": "X."}, "works only in your own chat, in a turn that the user's own message to you started"},
 		"user_task in the team": {session(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t5", RoomID: team.ID, BoardRole: core.RoleLead}), map[string]any{"action": "user_task", "text": "X."}, "user_task works only in your own chat with the user"},
 	} {
 		if text, isErr := c.call(c.args); !isErr || !strings.Contains(text, c.want) {
@@ -130,10 +135,42 @@ func TestALeadIsToldItAddsTheUsersTaskFromItsChat(t *testing.T) {
 	if member := systemPrompt(promptContext{Bot: core.Bot{ID: "b", Name: "Bo"}, Rooms: []core.Bot{team}, Now: now}); strings.Contains(member, "user_task") {
 		t.Error("a member's prompt tells it to add tasks")
 	}
-	if inTeam := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, Team: &team, Rooms: []core.Bot{team}, Now: now}); strings.Contains(inTeam, "You lead team \"Ship\" (id t). When the user asks you here") {
+	if inTeam := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, Team: &team, InRoom: true, Rooms: []core.Bot{team}, Now: now}); strings.Contains(inTeam, "You lead team \"Ship\" (id t). When the user asks you here") {
 		t.Error("a team turn carries the own-chat line")
+	}
+	plain := core.Bot{ID: "r", Name: "Plan", Kind: core.KindRoom, Members: team.Members}
+	if inRoom := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, InRoom: true, Rooms: []core.Bot{team, plain}, Now: now}); strings.Contains(inRoom, "user_task") {
+		t.Error("a plain room turn tells the lead to add tasks with user_task, which is refused there")
 	}
 	if want := "From your own chat with the user, a team's lead can only list the board and add a task the user asked for with user_task"; !strings.Contains(updateBoardDescription, want) {
 		t.Errorf("update_board lacks %q", want)
+	}
+}
+
+// A lead's turn in a plain room carries no own-chat line: user_task is refused there.
+func TestALeadsRoomTurnHasNoOwnChatLine(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "reply")
+	ctx := context.Background()
+	_, ana, bo, _ := h.newTeam(t)
+	room, err := h.svc.CreateRoom(ctx, "Plan", "", []string{ana.ID, bo.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, ana.ID, "hi", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitCalls(t, 1)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, room.ID, "@Ana what next?", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.waitCalls(t, 2)
+	const line = "When the user asks you here to give work to your team"
+	if !strings.Contains(calls[0], line) {
+		t.Errorf("Ana's own chat lacks the own-chat line")
+	}
+	if strings.Contains(calls[1], line) {
+		t.Errorf("Ana's room turn carries the own-chat line")
 	}
 }

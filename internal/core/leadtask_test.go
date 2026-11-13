@@ -67,7 +67,7 @@ func TestALeadNamesTheTeamWhenItLeadsSeveral(t *testing.T) {
 		t.Fatalf("Ana's team without team_id = %+v, %v; want Ship, the one she leads", team, err)
 	}
 	_, err := svc.LedTeam(ctx, LeadChat{BotID: ana.ID, FromUser: true}, docs.ID)
-	wantRefused(t, "Ana and Docs, which Cy leads", err, "only Cy, the lead of Docs, adds tasks to its board")
+	wantRefused(t, "Ana and Docs, which Cy leads", err, "only Cy, the lead of Docs, uses its board from its own chat")
 	ops, err := svc.CreateTeam(ctx, "Ops", "", []string{ana.ID}, TeamSettings{LeadID: ana.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestOnlyALeadInTheUsersOwnTurnAddsATask(t *testing.T) {
 	_, _, err := svc.LeadUserTask(ctx, LeadChat{BotID: bo.ID, FromUser: true}, "", NewTask{Text: "X."}, false)
 	wantRefused(t, "Bo, a member", err, "you lead no team; Ana leads Ship and adds its tasks")
 	_, _, err = svc.LeadUserTask(ctx, LeadChat{BotID: bo.ID, FromUser: true}, ship.ID, NewTask{Text: "X."}, false)
-	wantRefused(t, "Bo, a member, with team_id", err, "only Ana, the lead of Ship, adds tasks to its board")
+	wantRefused(t, "Bo, a member, with team_id", err, "only Ana, the lead of Ship, uses its board from its own chat")
 	loner, err := svc.CreateBot(ctx, "Lone", "")
 	if err != nil {
 		t.Fatal(err)
@@ -97,8 +97,17 @@ func TestOnlyALeadInTheUsersOwnTurnAddsATask(t *testing.T) {
 	_, _, err = svc.LeadUserTask(ctx, LeadChat{BotID: loner.ID, FromUser: true}, "", NewTask{Text: "X."}, false)
 	wantRefused(t, "a bot in no team", err, "update_board works only in a turn in your team")
 	_, _, err = svc.LeadUserTask(ctx, LeadChat{BotID: ana.ID}, "", NewTask{Text: "X."}, false)
-	wantRefused(t, "Ana in a turn the user didn't start", err, "only when the user's own message to you started the turn")
+	wantRefused(t, "Ana in a turn the user didn't start", err, "works only in your own chat, in a turn that the user's own message to you started")
 	if board, _ := svc.Board(ctx, ship.ID); len(board.Inbox) != 0 || board.Goal != nil {
 		t.Fatalf("Ship's board after the refusals = %+v; want no task", board)
+	}
+}
+
+// LedTeam itself refuses a turn the user's own message didn't start, for list as for user_task.
+func TestLedTeamRefusesATurnTheUserDidNotStart(t *testing.T) {
+	svc, ana, _, _, ship, _ := leadFixture(t)
+	for _, teamID := range []string{"", ship.ID} {
+		_, err := svc.LedTeam(context.Background(), LeadChat{BotID: ana.ID}, teamID)
+		wantRefused(t, "Ana's LedTeam with team_id "+teamID+" in a turn the user didn't start", err, "works only in your own chat, in a turn that the user's own message to you started")
 	}
 }

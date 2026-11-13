@@ -39,7 +39,7 @@ func (s *Service) LedTeam(ctx context.Context, c LeadChat, teamID string) (Bot, 
 		return Bot{}, invalid("%s", errNotInTeam)
 	}
 	if !c.FromUser {
-		return Bot{}, invalid("outside a turn in your team, update_board works only when the user's own message to you started the turn")
+		return Bot{}, invalid("outside a turn in your team, update_board works only in your own chat, in a turn that the user's own message to you started")
 	}
 	if teamID != "" {
 		return ledOne(teams, teamID, c.BotID)
@@ -60,7 +60,7 @@ func ledOne(teams []Bot, teamID, botID string) (Bot, error) {
 			continue
 		}
 		if lead, _ := t.Lead(); lead.ID != botID {
-			return Bot{}, invalid("only %s, the lead of %s, adds tasks to its board", lead.Name, t.Name)
+			return Bot{}, invalid("only %s, the lead of %s, uses its board from its own chat", lead.Name, t.Name)
 		}
 		return t, nil
 	}

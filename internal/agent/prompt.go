@@ -16,6 +16,7 @@ type promptContext struct {
 	Bot       core.Bot
 	Workspace string    // where the bot works in this turn: its own workspace, or its team's folder
 	Team      *core.Bot // the team of a turn in a team
+	InRoom    bool      // the turn is in a room or a team, not in the bot's own chat
 	// OwnWorkspace is the bot's own workspace in a turn in a team.
 	OwnWorkspace string
 	OtherTeams   []core.Bot // in a turn in a team, the user's other teams
@@ -748,6 +749,9 @@ The members' turns start on their own when their steps are ready; never wait or 
 // ledTeamsLine tells a team's lead, in its own chat, that it adds the work the user asks for here
 // to its team's board, instead of only asking the team in its channel.
 func ledTeamsLine(pc promptContext) string {
+	if pc.InRoom {
+		return ""
+	}
 	var led []string
 	for _, r := range pc.Rooms {
 		if lead, _ := r.Lead(); r.IsTeam() && lead.ID == pc.Bot.ID {

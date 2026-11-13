@@ -102,13 +102,13 @@ func (s *Service) DeleteSkill(id string) error {
 }
 
 // isFolder reports whether entry d of dir is a folder, or a link to one. A link that leads
-// nowhere, broken or pointing at itself, is no folder.
+// nowhere is no folder: a missing target, a path through a file, or a loop.
 func isFolder(dir string, d fs.DirEntry) (bool, error) {
 	if d.Type()&fs.ModeSymlink == 0 {
 		return d.IsDir(), nil
 	}
 	info, err := os.Stat(filepath.Join(dir, d.Name()))
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ELOOP) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP) {
 		return false, nil
 	}
 	if err != nil {

@@ -85,6 +85,10 @@ func turnSettings(dataDir string) (string, error) {
 	return string(raw), nil
 }
 
+// autocompactWindow is the context size, in tokens, at which Claude Code compacts a session's
+// conversation (--autocompact). Without it, Claude Code waits until the model's window is nearly full.
+const autocompactWindow = "200000"
+
 // args builds the claude CLI arguments; the prompt goes to stdin as a
 // userMessage. --setting-sources project keeps the
 // user's personal settings and hooks out of the bot (startSession keeps
@@ -114,7 +118,8 @@ func (r claudeRun) args() ([]string, error) {
 		"--strict-mcp-config",
 		"--mcp-config", r.MCPConfig,
 		"--settings", settings,
-		"--system-prompt-snapshot", "off",
+		"--system-prompt-snapshot", "on",
+		"--autocompact", autocompactWindow,
 		"--append-system-prompt-file", r.SystemPromptFile,
 		"--agents", string(agents),
 		"--tools", strings.Join(builtinTools, ","),

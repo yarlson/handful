@@ -96,6 +96,13 @@ compact)
   result ""
   lifecycle completed
   ;;
+error)
+  # The turn fails: Claude Code ends it with an error result.
+  lifecycle started
+  init
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"boom"}'
+  lifecycle completed
+  ;;
 slow)
   lifecycle started
   who=$(basename "$(dirname "$PWD")")
@@ -357,7 +364,8 @@ background)
   # It first reports a task of an earlier process, as a resumed session does.
   # The first message starts a background task. Later messages come on
   # stdin (logged to stdin.log) until one says "finish": then the task ends,
-  # and Claude Code reports it and wakes the model on its own.
+  # and Claude Code reports it and wakes the model on its own. A message that
+  # says "auto-compact" is compacted on its way, as when the context is full.
   echo $$ > "$dir/pid"
   trap 'echo "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"t1\",\"status\":\"stopped\",\"summary\":\"Build the site\"}"; exit 143' TERM
   echo '{"type":"system","subtype":"task_notification","task_id":"t0","status":"stopped","summary":"A task of the previous process"}'
@@ -373,6 +381,7 @@ background)
     lifecycle started
     case "$input" in
     *'"content":"/compact"'*) compacted; result "" ;;
+    *auto-compact*) init; compacted; result "pong" ;;
     *) init; result "pong" ;;
     esac
     lifecycle completed
@@ -470,7 +479,7 @@ func newHarnessWith(t *testing.T, mode, model, effort string) *harness {
 	// Bookkeeping after a turn logs only real failures: a check that logs
 	// without an error shows here.
 	t.Cleanup(func() {
-		for _, msg := range []string{"record turn failure", "record interrupt", "acknowledge inbox", "mark room seen", "record compaction", "drop missing session"} {
+		for _, msg := range []string{"record turn failure", "record interrupt", "acknowledge inbox", "mark room seen", "record compaction", "drop missing session", "record the known prompt", "record the known prompt after compaction"} {
 			if logs := h.logs.String(); strings.Contains(logs, `msg="`+msg+`"`) {
 				t.Errorf("the runner logged %q:\n%s", msg, logs)
 			}
@@ -659,7 +668,7 @@ func TestFirstTurnStartsSessionAndLaterTurnsResumeIt(t *testing.T) {
 			t.Errorf("first call does not allow %s without approval: %v", tool, allowed)
 		}
 	}
-	for _, flag := range []string{"--setting-sources project", "--strict-mcp-config", "--permission-prompt-tool mcp__handful__approve", "--system-prompt-snapshot off", `--settings {"attribution":{"commit":"","pr":""},"autoMemoryEnabled":false,"permissions":`, "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
+	for _, flag := range []string{"--setting-sources project", "--strict-mcp-config", "--permission-prompt-tool mcp__handful__approve", "--system-prompt-snapshot on", "--autocompact 200000", `--settings {"attribution":{"commit":"","pr":""},"autoMemoryEnabled":false,"permissions":`, "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
 		if !strings.Contains(calls[0], flag) {
 			t.Errorf("first call lacks %q", flag)
 		}

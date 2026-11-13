@@ -1201,6 +1201,27 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 	return i, err
 }
 
+const getSessionPrompt = `-- name: GetSessionPrompt :one
+SELECT session_id, prompt FROM session_prompts WHERE bot_id = ? AND chat_id = ?
+`
+
+type GetSessionPromptParams struct {
+	BotID  string `json:"bot_id"`
+	ChatID string `json:"chat_id"`
+}
+
+type GetSessionPromptRow struct {
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
+func (q *Queries) GetSessionPrompt(ctx context.Context, arg GetSessionPromptParams) (GetSessionPromptRow, error) {
+	row := q.db.QueryRowContext(ctx, getSessionPrompt, arg.BotID, arg.ChatID)
+	var i GetSessionPromptRow
+	err := row.Scan(&i.SessionID, &i.Prompt)
+	return i, err
+}
+
 const getTeam = `-- name: GetTeam :one
 SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams WHERE team_id = ?
 `
@@ -4484,6 +4505,28 @@ type SetRoutineNextRunParams struct {
 
 func (q *Queries) SetRoutineNextRun(ctx context.Context, arg SetRoutineNextRunParams) error {
 	_, err := q.db.ExecContext(ctx, setRoutineNextRun, arg.NextRunAt, arg.ID)
+	return err
+}
+
+const setSessionPrompt = `-- name: SetSessionPrompt :exec
+INSERT INTO session_prompts (bot_id, chat_id, session_id, prompt) VALUES (?, ?, ?, ?)
+ON CONFLICT (bot_id, chat_id) DO UPDATE SET session_id = excluded.session_id, prompt = excluded.prompt
+`
+
+type SetSessionPromptParams struct {
+	BotID     string `json:"bot_id"`
+	ChatID    string `json:"chat_id"`
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
+func (q *Queries) SetSessionPrompt(ctx context.Context, arg SetSessionPromptParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionPrompt,
+		arg.BotID,
+		arg.ChatID,
+		arg.SessionID,
+		arg.Prompt,
+	)
 	return err
 }
 

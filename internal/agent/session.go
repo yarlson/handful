@@ -42,14 +42,16 @@ func (k sessionKey) transcript() string {
 // tasks run, so later turns go to the same process, and closes it when no
 // task is left; the process then exits.
 type session struct {
-	key    sessionKey
-	bot    core.Bot
-	token  string
-	files  []string // MCP config and system prompt files of the process, removed when it exits
-	flags  runFlags // the model and effort the process started with
-	stdin  io.WriteCloser
-	kill   context.CancelFunc
-	exited chan struct{} // closed after the process exits and its turns are finished
+	key      sessionKey
+	bot      core.Bot
+	token    string
+	claudeID string   // the Claude session the process runs
+	prompt   string   // the system prompt the process started with; "" for /compact's own process
+	files    []string // MCP config and system prompt files of the process, removed when it exits
+	flags    runFlags // the model and effort the process started with
+	stdin    io.WriteCloser
+	kill     context.CancelFunc
+	exited   chan struct{} // closed after the process exits and its turns are finished
 
 	// Guarded by Runner.mu.
 	open    bool                // stdin is open, so the session takes turns
@@ -108,10 +110,13 @@ func (a *activeTurn) turnID() string {
 	return a.turn.ID
 }
 
-// processStart is how a session's process starts: its arguments and the files it uses.
+// processStart is how a session's process starts: its arguments, the files it uses, and the
+// Claude session and system prompt it runs with.
 type processStart struct {
-	args  []string
-	files []string
+	args     []string
+	files    []string
+	claudeID string
+	prompt   string
 }
 
 // sendCommand writes prompt to the claude process of key as the message of
@@ -226,7 +231,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// The record lets the next server end this process group if this one
 	// crashes, since only a clean stop signals it.
 	r.recordProcess(cmd.Process.Pid)
-	s := &session{key: key, bot: bot, token: token, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
+	s := &session{key: key, bot: bot, token: token, claudeID: start.claudeID, prompt: start.prompt, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
 	r.mu.Lock()
 	r.sessions[key] = s
 	r.mu.Unlock()
@@ -333,9 +338,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 			case "init":
 				cur = r.onInit(ctx, s, cur, ev.Model)
 			case "compact_boundary":
-				if cur != nil && ev.CompactMetadata != nil {
-					cur.out.compacted = ev.CompactMetadata
-				}
+				r.onCompacted(s, cur, ev.CompactMetadata)
 			case "task_notification":
 				if listed[ev.TaskID] {
 					r.noteTask(s, cur, ev.Status, ev.Summary)

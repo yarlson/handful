@@ -191,6 +191,13 @@ type RoutineTurn struct {
 	RoutineID string `json:"routine_id"`
 }
 
+type SessionPrompt struct {
+	BotID     string `json:"bot_id"`
+	ChatID    string `json:"chat_id"`
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
 type Team struct {
 	TeamID          string `json:"team_id"`
 	LeadBotID       string `json:"lead_bot_id"`

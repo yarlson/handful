@@ -745,3 +745,10 @@ UPDATE phone_sessions SET revoked_at = sqlc.arg(at) WHERE id = sqlc.arg(id) AND 
 
 -- name: RevokeAllPhoneSessions :execrows
 UPDATE phone_sessions SET revoked_at = sqlc.arg(at) WHERE revoked_at = 0;
+
+-- name: GetSessionPrompt :one
+SELECT session_id, prompt FROM session_prompts WHERE bot_id = ? AND chat_id = ?;
+
+-- name: SetSessionPrompt :exec
+INSERT INTO session_prompts (bot_id, chat_id, session_id, prompt) VALUES (?, ?, ?, ?)
+ON CONFLICT (bot_id, chat_id) DO UPDATE SET session_id = excluded.session_id, prompt = excluded.prompt;

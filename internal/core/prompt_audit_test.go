@@ -64,3 +64,39 @@ func TestBoardTurnsAndErrorsSayTaskAndStep(t *testing.T) {
 		t.Fatalf("a second Parse = %v; want the step error", err)
 	}
 }
+
+// Audit findings 7 and 9: the user's approval gives the lead a retro turn that says the task was
+// approved, and starts the next planned task when the plan is on hold.
+func TestTheUsersApprovalStartsTheRetroThenTheNextTask(t *testing.T) {
+	f := newBoardFixture(t, 30)
+	ctx := context.Background()
+	f.finish(t, f.create(t, f.lead, item("Parse", f.ana.ID, "")), f.ana)
+	if _, err := f.svc.DeliverGoal(ctx, f.lead, "Done."); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+	// While the done task waits for the approval, the user starts another one and plans a third,
+	// then ends the second without starting the next: the plan is on hold.
+	second, err := f.svc.UserTask(ctx, f.team.ID, NewTask{Text: "Then: CSV import."}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := f.svc.UserTask(ctx, f.team.ID, NewTask{Text: "Next: JSON export."}, true)
+	if err != nil || third.State != GoalQueued {
+		t.Fatalf("the third task = %+v, %v; want it planned", third, err)
+	}
+	if err := f.svc.EndGoal(ctx, second.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	finishQueued(t, f.svc)
+	if _, err := f.svc.AcceptGoal(ctx, f.goal.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := f.svc.QueuedTurns(ctx, 10)
+	if err != nil || len(turns) == 0 || turns[0].BoardRole != RoleRetro || turns[0].Prompt != "The user approved the task." {
+		t.Fatalf("queued turns = %+v, %v; want the retro first, saying the user approved the task", turns, err)
+	}
+	if board, err := f.svc.Board(ctx, f.team.ID); err != nil || board.Goal == nil || board.Goal.ID != third.ID || board.Goal.State != GoalActive {
+		t.Fatalf("Now task after the approval = %+v, %v; want %q in progress", board.Goal, err, third.Text)
+	}
+}

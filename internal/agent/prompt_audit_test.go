@@ -134,9 +134,7 @@ func TestTheSmallerStatementsMatchTheCode(t *testing.T) {
 func agentMessageFields(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	typ := reflect.TypeFor[agentMessageInput]()
-	for i := range typ.NumField() {
-		f := typ.Field(i)
+	for f := range reflect.TypeFor[agentMessageInput]().Fields() {
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		out[name] = f.Tag.Get("jsonschema")
 	}
@@ -156,9 +154,8 @@ func TestTheBoardTextsSayTaskAndStep(t *testing.T) {
 		"gatekeeper": leadGatekeeper, "member text": memberWork, "update_board": updateBoardDescription,
 		"Builder's guide": strings.ReplaceAll(setup, "goal_budget", ""),
 	}
-	typ := reflect.TypeFor[boardInput]()
-	for i := range typ.NumField() {
-		texts["update_board field "+typ.Field(i).Name] = typ.Field(i).Tag.Get("jsonschema")
+	for f := range reflect.TypeFor[boardInput]().Fields() {
+		texts["update_board field "+f.Name] = f.Tag.Get("jsonschema")
 	}
 	for what, text := range texts {
 		if word := boardWord.FindString(strings.NewReplacer("goal_id", "", "item_id", "").Replace(text)); word != "" {

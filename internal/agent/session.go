@@ -108,12 +108,17 @@ func (a *activeTurn) turnID() string {
 	return a.turn.ID
 }
 
+// processStart is how a session's process starts: its arguments and the files it uses.
+type processStart struct {
+	args  []string
+	files []string
+}
+
 // sendCommand writes prompt to the claude process of key as the message of
 // turn t and waits until Claude Code completes it. When no process runs for
-// key, it starts one with startArgs, which receive the MCP token and return
-// the arguments and the MCP config file, if any. Cancelling ctx stops the
-// process and its background tasks.
-func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt, skill string, flags runFlags, startArgs func(token string) (args []string, files []string, err error)) (outcome, error) {
+// key, it starts one with startArgs, which receive the MCP token. Cancelling
+// ctx stops the process and its background tasks.
+func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt, skill string, flags runFlags, startArgs func(token string) (processStart, error)) (outcome, error) {
 	msg, err := userMessage(t.ID, prompt, skill)
 	if err != nil {
 		return outcome{}, err
@@ -140,7 +145,7 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 // claimSession puts c on the open session of key, or starts a session for it.
 // A closed session can still run a last task turn, and a second process must
 // not resume the same Claude session meanwhile, so it waits for that one to exit.
-func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, []string, error)) (*session, error) {
+func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot, c *command, startArgs func(string) (processStart, error)) (*session, error) {
 	for {
 		r.mu.Lock()
 		s := r.sessions[key]
@@ -167,7 +172,7 @@ func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot,
 	}
 }
 
-func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, []string, error)) (*session, error) {
+func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArgs func(string) (processStart, error)) (*session, error) {
 	dir, err := r.svc.TurnWorkspace(context.Background(), key.botID, key.roomID)
 	if err != nil {
 		return nil, err
@@ -176,15 +181,16 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	if err != nil {
 		return nil, err
 	}
-	args, files, err := startArgs(token)
+	start, err := startArgs(token)
 	if err != nil {
 		r.tokens.revoke(token)
 		return nil, err
 	}
+	files := start.files
 	// The process outlives the turn that starts it. stopSession, and
 	// stopSessions at shutdown, end it.
 	ctx, kill := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, r.cfg.ClaudePath, args...)
+	cmd := exec.CommandContext(ctx, r.cfg.ClaudePath, start.args...)
 	cmd.Dir = dir
 	// Bundled skills such as "schedule" create cloud routines, which compete with Handful's own routines.
 	// The silent-turn reminder tells the model that the user waits for news,

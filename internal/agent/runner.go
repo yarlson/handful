@@ -1085,8 +1085,8 @@ func (r *Runner) runCompact(ctx context.Context, bot core.Bot, t core.Turn, sess
 	if err != nil {
 		return outcome{}, err
 	}
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", "", flags, func(string) ([]string, []string, error) {
-		return compactArgs(sessionID, flags.model, flags.effort), nil, nil
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", "", flags, func(string) (processStart, error) {
+		return processStart{args: compactArgs(sessionID, flags.model, flags.effort)}, nil
 	})
 }
 
@@ -1122,15 +1122,15 @@ func (r *Runner) saveSession(ctx context.Context, botID, roomID, sessionID strin
 // session, which starts with run's arguments and a new MCP config file when
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Command, run.Flags, func(token string) ([]string, []string, error) {
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Command, run.Flags, func(token string) (processStart, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
-			return nil, nil, err
+			return processStart{}, err
 		}
 		promptFile, err := r.writeRunFile("prompt-*.md", []byte(run.SystemPrompt))
 		if err != nil {
 			r.removeRunFile(path)
-			return nil, nil, fmt.Errorf("system prompt file: %w", err)
+			return processStart{}, fmt.Errorf("system prompt file: %w", err)
 		}
 		files := []string{path, promptFile}
 		if len(signIn) > 0 {
@@ -1140,9 +1140,9 @@ func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run cla
 		args, err := run.args()
 		if err != nil {
 			r.removeRunFiles(files)
-			return nil, nil, err
+			return processStart{}, err
 		}
-		return args, files, nil
+		return processStart{args: args, files: files}, nil
 	})
 }
 

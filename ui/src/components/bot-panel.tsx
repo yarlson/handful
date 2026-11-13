@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { budgetError, decisionError, inboxError } from "@/lib/tasks"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
-import { contextLine, type Usage } from "@/lib/usage"
+import { contextLine, usageKey, type Usage } from "@/lib/usage"
 import { cn } from "@/lib/utils"
 import { useRights } from "@/lib/session"
 import { BoardTab } from "@/components/board"
@@ -695,7 +695,7 @@ function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; o
   const isRoom = bot.kind === "room"
   const what = bot.team ? "team" : isRoom ? "room" : "bot"
   const grants = useLoad(() => (isRoom ? Promise.resolve([]) : api.grants(bot.id)), `${bot.id}`)
-  const usage = useLoad(() => (isRoom ? Promise.resolve(null) : api.usage(bot.id)), `${bot.id}:${version}`)
+  const usage = useLoad(() => (isRoom ? Promise.resolve(null) : api.usage(bot.id)), usageKey(bot, version))
   useEffect(() => {
     setName(bot.name)
     setInstructions(bot.instructions)

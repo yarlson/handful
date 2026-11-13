@@ -24,3 +24,10 @@ export function contextLine(usage: Usage | null | undefined): string | null {
   const cache = last.cold ? "rebuilt the cache" : "from cache"
   return `Context: ${thousands(last.contextTokens)} of ${thousands(usage.windowTokens)} · last turn: ${calls}, ${cache}`
 }
+
+// usageKey changes whenever the bot's usage may have changed: when its chat changes, and when a
+// turn of the bot ends. A turn's usage is stored at its end, after its last chat entry, and a
+// turn in a team or room changes no entry of the bot's own chat.
+export function usageKey(bot: { id: string; running: boolean }, version: number): string {
+  return `${bot.id}:${version}:${bot.running}`
+}

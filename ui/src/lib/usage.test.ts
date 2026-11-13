@@ -1,5 +1,5 @@
 import { assert, test } from "vitest"
-import { contextLine, type TurnUsage } from "./usage"
+import { contextLine, usageKey, type TurnUsage } from "./usage"
 
 const turn = (p: Partial<TurnUsage>): TurnUsage => ({
   inputTokens: 4,
@@ -37,4 +37,13 @@ test("no line before a turn is recorded, or before the usage loads", () => {
   assert.isNull(contextLine({ windowTokens: 200_000, last: null }))
   assert.isNull(contextLine(null))
   assert.isNull(contextLine(undefined))
+})
+
+test("the usage reloads when a turn of the bot ends, with no new chat entry, and when the chat changes", () => {
+  const running = usageKey({ id: "b1", running: true }, 7)
+  const ended = usageKey({ id: "b1", running: false }, 7)
+  assert.notEqual(ended, running)
+  assert.notEqual(usageKey({ id: "b1", running: false }, 8), ended)
+  assert.notEqual(usageKey({ id: "b2", running: false }, 7), ended)
+  assert.equal(usageKey({ id: "b1", running: false }, 7), ended)
 })

@@ -276,6 +276,15 @@ func addRunTool[In any](s *mcp.Server, current func() (runContext, bool), tool *
 	})
 }
 
+// sendToAgentDescription describes send_to_agent: outside a team it messages a bot or posts to a
+// room; in a team turn it only posts, waking no one, to a room the bot is in.
+func sendToAgentDescription(team bool) string {
+	if team {
+		return fmt.Sprintf("Post into a room you are in, at most %d characters, when the post @mentions no one, so that it wakes no one (for example a report). In a team turn you cannot message a bot: to ask a teammate to act, post in the team's channel with send_to_user and write @Name.", core.MaxAgentMessage)
+	}
+	return fmt.Sprintf("Message one of the user's other bots, or post into a room you are in; at most %d characters. Asynchronous like texting: the reply, if any, arrives later as its own turn, so do not wait or poll for it. To ask a teammate to act, message them directly. A room post wakes only the members it names with @Name; use that only when the room should see the request.", core.MaxAgentMessage)
+}
+
 // updateBoardDescription is the update_board tool's description: what each action does, and who
 // approves a done task, as core's approver rule decides.
 const updateBoardDescription = "Work on your team's board, only in a turn in your team: its tasks and their steps. list shows the board. Every task from outside the team, the user's too, arrives in the team's inbox. The lead decides on each: take puts it in the plan (at a position), ask asks its sender (answered with answer_task), later defers it, pass_on sends it to the team it belongs to, and push_back returns it with a reason; order changes the plan. send_task gives another team a task (waits_for names your step that waits on it), propose suggests a task for your own team, make_task (the lead) makes a task of the team's turns on no task and takes it, and withdraw takes back a task you sent. The lead splits the Now task into steps (create, with an owner and an optional reviewer), and answers, assigns or drops them (unblock, assign, drop). A step's owner hands it on with submit, or stops it with block and a question; its reviewer passes it or asks for changes. When every step is done or dropped, the lead closes the task with its result (close). Whoever asked then approves it (approve) or asks for changes: the user for the user's tasks, the sending team's lead for a task from another team, and the team's own lead for a task the team proposed (propose or make_task). stop stops a task, keeping its steps."
@@ -284,7 +293,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: "1"}, nil)
 	h := tools{svc: svc, meta: meta}
 	addRunTool(s, current, &mcp.Tool{Name: "send_to_user", Description: "Send a message to the user, with images or videos if you attach files. This is the only output the user sees. During a turn in a room, it posts into the room for everyone."}, h.sendToUser)
-	addRunTool(s, current, &mcp.Tool{Name: "send_to_agent", Description: fmt.Sprintf("Message one of the user's other bots, or post into a room you are in; at most %d characters. Asynchronous like texting: the reply, if any, arrives later as its own turn, so do not wait or poll for it. To ask a teammate to act, message them directly. A room post wakes only the members it names with @Name; use that only when the room should see the request.", core.MaxAgentMessage)}, h.sendToAgent)
+	addRunTool(s, current, &mcp.Tool{Name: "send_to_agent", Description: sendToAgentDescription(inTeam(svc, current))}, h.sendToAgent)
 	addRunTool(s, current, &mcp.Tool{Name: "read_room", Description: "Read the latest messages of a room you are in, oldest first, with the files they carry. Each line starts with the message's #seq; pass the oldest one as before_seq to read further back. Reading does not change what your next room turn shows as new."}, h.readRoom)
 	addRunTool(s, current, &mcp.Tool{Name: "recall_memory", Description: "Search your durable memory and the shared user memory for facts that are not in your prompt."}, h.recallMemory)
 	addRunTool(s, current, &mcp.Tool{Name: "update_memory", Description: fmt.Sprintf("Save a durable fact (write), replace one (write with replaces) or drop one by its exact text (forget). A fact is one sentence of at most %d characters; keep long lists in a file in your working directory. Save without asking and mention it only in passing.", core.MaxFactLen)}, h.updateMemory)
@@ -374,6 +383,12 @@ func (t tools) sendToAgent(ctx context.Context, rc runContext, in agentMessageIn
 	}
 	if len(res.Woken) > 0 {
 		return textResult("Posted in the room. Woke %s.", strings.Join(res.Woken, ", ")), nil, nil
+	}
+	// In a team turn a message to a bot is refused, so the hint to message one is wrong there.
+	if rc.RoomID != "" {
+		if teamID, err := t.svc.TurnTeam(ctx, rc.RoomID); err != nil || teamID != "" {
+			return textResult("Posted in the room; no one was woken."), nil, err
+		}
 	}
 	return textResult("Posted in the room; no one was woken. To ask a teammate to act, message them directly."), nil, nil
 }

@@ -466,7 +466,7 @@ func (s *Service) checkWaitsOn(ctx context.Context, from sender, itemID string) 
 		return nil
 	}
 	if from.goalID == "" || from.botID == "" {
-		return invalid("waits_on names a step of the task your turn works on; your team works on none")
+		return invalid("waits_for names a step of the task your turn works on; your team works on none")
 	}
 	items, err := goalItems(ctx, s.q, from.goalID)
 	if err != nil {

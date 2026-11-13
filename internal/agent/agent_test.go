@@ -1108,8 +1108,9 @@ func TestMCPInATeamTurnTalksOnlyToTheTeamAndSharesTeamMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": reports.ID, "message": "PR #100 is merged.", "priority": false}); isErr || !strings.Contains(text, "no one was woken") {
-		t.Fatalf("send_to_agent to Ana's room from a team turn = %q (error %v); want a post that wakes no one", text, isErr)
+	// Audit finding 8: a team turn can't message a bot, so the result doesn't say to.
+	if text, isErr := callText(t, inTeam, "send_to_agent", map[string]any{"target_id": reports.ID, "message": "PR #100 is merged.", "priority": false}); isErr || text != "Posted in the room; no one was woken." {
+		t.Fatalf("send_to_agent to Ana's room from a team turn = %q (error %v); want a post that wakes no one, with no hint to message a bot", text, isErr)
 	}
 	if turns, _ := h.svc.QueuedTurns(ctx, 10); len(turns) != 0 {
 		t.Fatalf("queued after the report = %+v; want no turn", turns)

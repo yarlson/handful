@@ -486,7 +486,7 @@ func (s *Service) CreateItem(ctx context.Context, a Actor, n NewItem) (Item, err
 		return Item{}, err
 	}
 	if !ok {
-		return Item{}, invalid("the team has no goal; the lead starts one with start_goal")
+		return Item{}, invalid("the team has no Now task; propose one with update_board propose, and the lead takes it")
 	}
 	team, g, err := s.boardOf(ctx, a, a.TeamID, g.ID)
 	if err != nil {

@@ -115,6 +115,31 @@ func (q *Queries) AddRoomMember(ctx context.Context, arg AddRoomMemberParams) er
 	return err
 }
 
+const addSessionPrompt = `-- name: AddSessionPrompt :execrows
+INSERT INTO session_prompts (bot_id, chat_id, session_id, prompt) VALUES (?, ?, ?, ?)
+ON CONFLICT (bot_id, chat_id) DO NOTHING
+`
+
+type AddSessionPromptParams struct {
+	BotID     string `json:"bot_id"`
+	ChatID    string `json:"chat_id"`
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
+func (q *Queries) AddSessionPrompt(ctx context.Context, arg AddSessionPromptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addSessionPrompt,
+		arg.BotID,
+		arg.ChatID,
+		arg.SessionID,
+		arg.Prompt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addToolGrant = `-- name: AddToolGrant :exec
 INSERT INTO tool_grants (bot_id, tool_name, created_at) VALUES (?, ?, ?)
 ON CONFLICT (bot_id, tool_name) DO NOTHING
@@ -1198,6 +1223,27 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 		&i.UpdatedAt,
 		&i.LastRunBy,
 	)
+	return i, err
+}
+
+const getSessionPrompt = `-- name: GetSessionPrompt :one
+SELECT session_id, prompt FROM session_prompts WHERE bot_id = ? AND chat_id = ?
+`
+
+type GetSessionPromptParams struct {
+	BotID  string `json:"bot_id"`
+	ChatID string `json:"chat_id"`
+}
+
+type GetSessionPromptRow struct {
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
+func (q *Queries) GetSessionPrompt(ctx context.Context, arg GetSessionPromptParams) (GetSessionPromptRow, error) {
+	row := q.db.QueryRowContext(ctx, getSessionPrompt, arg.BotID, arg.ChatID)
+	var i GetSessionPromptRow
+	err := row.Scan(&i.SessionID, &i.Prompt)
 	return i, err
 }
 
@@ -4156,6 +4202,35 @@ func (q *Queries) RemoveRoomMember(ctx context.Context, arg RemoveRoomMemberPara
 	return err
 }
 
+const replaceSessionPrompt = `-- name: ReplaceSessionPrompt :execrows
+UPDATE session_prompts SET session_id = ?1, prompt = ?2
+WHERE bot_id = ?3 AND chat_id = ?4 AND session_id = ?5 AND prompt = ?6
+`
+
+type ReplaceSessionPromptParams struct {
+	SessionID    string `json:"session_id"`
+	Prompt       string `json:"prompt"`
+	BotID        string `json:"bot_id"`
+	ChatID       string `json:"chat_id"`
+	WasSessionID string `json:"was_session_id"`
+	WasPrompt    string `json:"was_prompt"`
+}
+
+func (q *Queries) ReplaceSessionPrompt(ctx context.Context, arg ReplaceSessionPromptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, replaceSessionPrompt,
+		arg.SessionID,
+		arg.Prompt,
+		arg.BotID,
+		arg.ChatID,
+		arg.WasSessionID,
+		arg.WasPrompt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const requeueTurn = `-- name: RequeueTurn :execrows
 UPDATE turns SET status = 'queued', error = '', started_at = NULL, finished_at = NULL
 WHERE id = ? AND status = 'running'
@@ -4484,6 +4559,28 @@ type SetRoutineNextRunParams struct {
 
 func (q *Queries) SetRoutineNextRun(ctx context.Context, arg SetRoutineNextRunParams) error {
 	_, err := q.db.ExecContext(ctx, setRoutineNextRun, arg.NextRunAt, arg.ID)
+	return err
+}
+
+const setSessionPrompt = `-- name: SetSessionPrompt :exec
+INSERT INTO session_prompts (bot_id, chat_id, session_id, prompt) VALUES (?, ?, ?, ?)
+ON CONFLICT (bot_id, chat_id) DO UPDATE SET session_id = excluded.session_id, prompt = excluded.prompt
+`
+
+type SetSessionPromptParams struct {
+	BotID     string `json:"bot_id"`
+	ChatID    string `json:"chat_id"`
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
+func (q *Queries) SetSessionPrompt(ctx context.Context, arg SetSessionPromptParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionPrompt,
+		arg.BotID,
+		arg.ChatID,
+		arg.SessionID,
+		arg.Prompt,
+	)
 	return err
 }
 

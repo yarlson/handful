@@ -42,14 +42,16 @@ func (k sessionKey) transcript() string {
 // tasks run, so later turns go to the same process, and closes it when no
 // task is left; the process then exits.
 type session struct {
-	key    sessionKey
-	bot    core.Bot
-	token  string
-	files  []string // MCP config and system prompt files of the process, removed when it exits
-	flags  runFlags // the model and effort the process started with
-	stdin  io.WriteCloser
-	kill   context.CancelFunc
-	exited chan struct{} // closed after the process exits and its turns are finished
+	key      sessionKey
+	bot      core.Bot
+	token    string
+	claudeID string   // the Claude session the process runs
+	prompt   string   // the system prompt the process started with; "" for /compact's own process
+	files    []string // MCP config and system prompt files of the process, removed when it exits
+	flags    runFlags // the model and effort the process started with
+	stdin    io.WriteCloser
+	kill     context.CancelFunc
+	exited   chan struct{} // closed after the process exits and its turns are finished
 
 	// Guarded by Runner.mu.
 	open    bool                // stdin is open, so the session takes turns
@@ -108,12 +110,20 @@ func (a *activeTurn) turnID() string {
 	return a.turn.ID
 }
 
+// processStart is how a session's process starts: its arguments, the files it uses, and the
+// Claude session and system prompt it runs with.
+type processStart struct {
+	args     []string
+	files    []string
+	claudeID string
+	prompt   string
+}
+
 // sendCommand writes prompt to the claude process of key as the message of
 // turn t and waits until Claude Code completes it. When no process runs for
-// key, it starts one with startArgs, which receive the MCP token and return
-// the arguments and the MCP config file, if any. Cancelling ctx stops the
-// process and its background tasks.
-func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt, skill string, flags runFlags, startArgs func(token string) (args []string, files []string, err error)) (outcome, error) {
+// key, it starts one with startArgs, which receive the MCP token. Cancelling
+// ctx stops the process and its background tasks.
+func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt, skill string, flags runFlags, startArgs func(token string) (processStart, error)) (outcome, error) {
 	msg, err := userMessage(t.ID, prompt, skill)
 	if err != nil {
 		return outcome{}, err
@@ -140,7 +150,7 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 // claimSession puts c on the open session of key, or starts a session for it.
 // A closed session can still run a last task turn, and a second process must
 // not resume the same Claude session meanwhile, so it waits for that one to exit.
-func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, []string, error)) (*session, error) {
+func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot, c *command, startArgs func(string) (processStart, error)) (*session, error) {
 	for {
 		r.mu.Lock()
 		s := r.sessions[key]
@@ -167,7 +177,7 @@ func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot,
 	}
 }
 
-func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArgs func(string) ([]string, []string, error)) (*session, error) {
+func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArgs func(string) (processStart, error)) (*session, error) {
 	dir, err := r.svc.TurnWorkspace(context.Background(), key.botID, key.roomID)
 	if err != nil {
 		return nil, err
@@ -176,15 +186,16 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	if err != nil {
 		return nil, err
 	}
-	args, files, err := startArgs(token)
+	start, err := startArgs(token)
 	if err != nil {
 		r.tokens.revoke(token)
 		return nil, err
 	}
+	files := start.files
 	// The process outlives the turn that starts it. stopSession, and
 	// stopSessions at shutdown, end it.
 	ctx, kill := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, r.cfg.ClaudePath, args...)
+	cmd := exec.CommandContext(ctx, r.cfg.ClaudePath, start.args...)
 	cmd.Dir = dir
 	// Bundled skills such as "schedule" create cloud routines, which compete with Handful's own routines.
 	// The silent-turn reminder tells the model that the user waits for news,
@@ -220,7 +231,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// The record lets the next server end this process group if this one
 	// crashes, since only a clean stop signals it.
 	r.recordProcess(cmd.Process.Pid)
-	s := &session{key: key, bot: bot, token: token, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
+	s := &session{key: key, bot: bot, token: token, claudeID: start.claudeID, prompt: start.prompt, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
 	r.mu.Lock()
 	r.sessions[key] = s
 	r.mu.Unlock()
@@ -327,9 +338,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 			case "init":
 				cur = r.onInit(ctx, s, cur, ev.Model)
 			case "compact_boundary":
-				if cur != nil && ev.CompactMetadata != nil {
-					cur.out.compacted = ev.CompactMetadata
-				}
+				r.onCompacted(s, cur, ev.CompactMetadata)
 			case "task_notification":
 				if listed[ev.TaskID] {
 					r.noteTask(s, cur, ev.Status, ev.Summary)

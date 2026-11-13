@@ -516,7 +516,10 @@ func (r *Runner) boardTurnsLocked() int {
 
 // outcome is what Claude Code reported for one message.
 type outcome struct {
-	compacted   *compactMetadata // set when the session was compacted
+	compacted *compactMetadata // set when the session was compacted
+	// recorded is set when Claude Code compacted the session and so recorded its process's
+	// system prompt again (onCompacted).
+	recorded    bool
 	resultText  string
 	resultError bool
 	exitErr     error
@@ -599,7 +602,7 @@ func (r *Runner) execute(ctx context.Context, t core.Turn) {
 	// Approval waits run in the MCP session, which outlives the turn; end them with it.
 	defer r.svc.ExpireTurnApprovals(t.ID)
 
-	out, err := r.runTurnOnce(ctx, bot, t, run)
+	out, err := r.runTurnOnce(ctx, bot, t, &run)
 	switch {
 	case ctx.Err() != nil:
 		status, errText = r.recordInterrupt(bg, t, transcript, context.Cause(ctx))
@@ -664,9 +667,9 @@ func (r *Runner) recordInterrupt(ctx context.Context, t core.Turn, transcript st
 
 // runTurnOnce runs the turn, and once more on a new Claude session when the
 // stored one is gone: deleted on disk, or not found under the data folder's
-// new name after the move to Handful. The chat says so.
-func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	out, err := r.runTurn(ctx, bot, t, run)
+// new name after the move to Handful. The chat says so, and run then holds the new session.
+func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run *claudeRun) (outcome, error) {
+	out, err := r.runTurn(ctx, bot, t, *run)
 	if err != nil || !out.failed() || !run.Resume || !out.sessionMissing() || ctx.Err() != nil {
 		return out, err
 	}
@@ -677,14 +680,23 @@ func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run
 	if _, err := r.svc.AppendEntry(ctx, t.Transcript(), core.KindEvent, t.ID, map[string]string{"type": "fresh-session", "text": "Started a fresh session after the move."}); err != nil {
 		return out, err
 	}
-	return r.runTurn(ctx, bot, t, run)
+	return r.runTurn(ctx, bot, t, *run)
 }
 
 // finishDelivery marks what a successful turn delivered as handled, and
 // delivers the final text when a user wrote and the bot sent nothing.
+// The session then knows the turn's system prompt, from Claude Code's record
+// or the turn's context update, unless a compaction made the record anew: in
+// this turn, or in a task turn after this one was prepared.
 func (r *Runner) finishDelivery(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun, delivered delivery, out outcome) {
 	if err := r.svc.AckInbox(ctx, delivered.inbox); err != nil {
 		r.log.Error("acknowledge inbox", "turn", t.ID, "err", err)
+	}
+	if !out.recorded {
+		key := sessionKey{bot.ID, t.RoomID}
+		if _, err := r.svc.ReplaceKnownPrompt(ctx, bot.ID, key.transcript(), delivered.known, run.SessionID, run.SystemPrompt); err != nil {
+			r.log.Error("record the known prompt", "turn", t.ID, "err", err)
+		}
 	}
 	if t.RoomID != "" {
 		if err := r.svc.MarkRoomSeen(ctx, t.RoomID, bot.ID, delivered.roomSeq); err != nil {
@@ -718,6 +730,7 @@ func (r *Runner) deliverFinalText(ctx context.Context, bot core.Bot, t core.Turn
 type delivery struct {
 	inbox   []core.InboxMessage // held direct messages
 	roomSeq int64               // seq of the last room message, for a room turn
+	known   core.KnownPrompt    // what was stored for the session when the turn was prepared
 }
 
 // prepare builds the claude invocation for the turn. It starts a new Claude
@@ -752,15 +765,22 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 	if err != nil {
 		return claudeRun{}, delivery{}, err
 	}
-	delivered := delivery{inbox: inbox, roomSeq: update.LastSeq}
+	key := sessionKey{bot.ID, t.RoomID}
+	known, err := r.svc.KnownPrompt(ctx, bot.ID, key.transcript())
+	if err != nil {
+		return claudeRun{}, delivery{}, err
+	}
+	delivered := delivery{inbox: inbox, roomSeq: update.LastSeq, known: known}
 	sessionID := bot.ClaudeSessionID
 	if t.RoomID != "" {
 		sessionID = update.Seat.ClaudeSessionID
 	}
+	system := systemPrompt(pc)
+	changes := contextUpdate(known, sessionID, system)
 	run := claudeRun{
-		Prompt:       timestampLine(now) + questions + inboxBlock(inbox) + heldOverflow(more) + prompt,
+		Prompt:       timestampLine(now) + changes + questions + inboxBlock(inbox) + heldOverflow(more) + prompt,
 		Command:      command,
-		SystemPrompt: systemPrompt(pc),
+		SystemPrompt: system,
 		SessionID:    sessionID,
 		Resume:       sessionID != "",
 		BotName:      bot.Name,
@@ -774,6 +794,38 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 		}
 	}
 	return run, delivered, nil
+}
+
+// contextUpdate returns the block of the turn message that brings the Claude session sessionID,
+// for which stored is what Handful stored, up to date with prompt, the turn's system prompt. A
+// new session ("") records prompt itself, and so does a session that holds no Handful prompt,
+// after /compact in a process of its own. When Handful does not know what the session holds,
+// every section goes once.
+func contextUpdate(stored core.KnownPrompt, sessionID, prompt string) string {
+	if sessionID == "" {
+		return ""
+	}
+	known, ok := stored.For(sessionID)
+	if ok && known == "" {
+		return ""
+	}
+	return promptChanges(known, prompt)
+}
+
+// onCompacted handles Claude Code's compaction of session s: the active turn cur, if any, reports
+// it with meta, and the session knows the system prompt its process started with, which Claude
+// Code records again. An update that an earlier message brought may now be only in the summary,
+// so the next turn brings it again.
+func (r *Runner) onCompacted(s *session, cur *activeTurn, meta *compactMetadata) {
+	if cur != nil {
+		cur.out.recorded = true
+		if meta != nil {
+			cur.out.compacted = meta
+		}
+	}
+	if err := r.svc.SetKnownPrompt(context.Background(), s.key.botID, s.key.transcript(), s.claudeID, s.prompt); err != nil {
+		r.log.Error("record the known prompt after compaction", "bot", s.key.botID, "err", err)
+	}
 }
 
 // runSettings resolves and checks the model and effort of the turn. A value
@@ -1085,8 +1137,8 @@ func (r *Runner) runCompact(ctx context.Context, bot core.Bot, t core.Turn, sess
 	if err != nil {
 		return outcome{}, err
 	}
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", "", flags, func(string) ([]string, []string, error) {
-		return compactArgs(sessionID, flags.model, flags.effort), nil, nil
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", "", flags, func(string) (processStart, error) {
+		return processStart{args: compactArgs(sessionID, flags.model, flags.effort), claudeID: sessionID}, nil
 	})
 }
 
@@ -1122,15 +1174,15 @@ func (r *Runner) saveSession(ctx context.Context, botID, roomID, sessionID strin
 // session, which starts with run's arguments and a new MCP config file when
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Command, run.Flags, func(token string) ([]string, []string, error) {
+	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Command, run.Flags, func(token string) (processStart, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
-			return nil, nil, err
+			return processStart{}, err
 		}
 		promptFile, err := r.writeRunFile("prompt-*.md", []byte(run.SystemPrompt))
 		if err != nil {
 			r.removeRunFile(path)
-			return nil, nil, fmt.Errorf("system prompt file: %w", err)
+			return processStart{}, fmt.Errorf("system prompt file: %w", err)
 		}
 		files := []string{path, promptFile}
 		if len(signIn) > 0 {
@@ -1140,9 +1192,9 @@ func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run cla
 		args, err := run.args()
 		if err != nil {
 			r.removeRunFiles(files)
-			return nil, nil, err
+			return processStart{}, err
 		}
-		return args, files, nil
+		return processStart{args: args, files: files, claudeID: run.SessionID, prompt: run.SystemPrompt}, nil
 	})
 }
 

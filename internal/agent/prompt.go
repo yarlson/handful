@@ -745,6 +745,21 @@ You lead this task. Keep the board moving with update_board:
 The members' turns start on their own when their steps are ready; never wait or poll for them.
 `
 
+// ledTeamsLine tells a team's lead, in its own chat, that it adds the work the user asks for here
+// to its team's board, instead of only asking the team in its channel.
+func ledTeamsLine(pc promptContext) string {
+	var led []string
+	for _, r := range pc.Rooms {
+		if lead, _ := r.Lead(); r.IsTeam() && lead.ID == pc.Bot.ID {
+			led = append(led, fmt.Sprintf("%q (id %s)", r.Name, r.ID))
+		}
+	}
+	if len(led) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("- You lead team %s. When the user asks you here to give work to your team, add it to the team's board yourself with update_board user_task (team_id when you lead several), so it is tracked as the user's task; start_now only when the user asks for it. update_board list shows the board here; plan and split the task in your turns in the team.\n", strings.Join(led, ", "))
+}
+
 func teammatesSection(pc promptContext) string {
 	if len(pc.Teammates) == 0 && len(pc.Rooms) == 0 {
 		return ""
@@ -763,6 +778,7 @@ The user's other bots each have their own chat, memory and routines. Message one
 			fmt.Fprintf(&b, "- %s (id %s): %s\n", t.Name, t.ID, truncate(firstNonEmpty(t.Instructions, "no instructions yet"), 160))
 		}
 	}
+	b.WriteString(ledTeamsLine(pc))
 	if len(pc.Rooms) > 0 {
 		b.WriteString("Rooms you are in (group chats with the user; a turn there is marked [room]):\n")
 		for _, r := range pc.Rooms {

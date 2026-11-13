@@ -38,6 +38,8 @@ For work with several steps, send the team a task. Type `/task` and what the tea
 
 `/goal` still works. **New task…** in **Across teams** does the same for any team. Its **Start now** box puts the task at the top of the team's plan.
 
+You can also ask a team's lead in its own chat, for example "add CSV export to the team's tasks". The lead adds it to the team's board as your task, the same as `/task`, and starts it at once only when you ask for that. Only the lead does this, and only for a message you wrote: a member, a routine or another bot's message cannot add a task this way.
+
 ### 1. The lead decides
 
 Every task lands in the team's inbox first, whether it comes from you, from another team or from a member. The lead decides on each one. It can:

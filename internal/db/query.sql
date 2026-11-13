@@ -760,3 +760,13 @@ ON CONFLICT (bot_id, chat_id) DO NOTHING;
 -- name: SetSessionPrompt :exec
 INSERT INTO session_prompts (bot_id, chat_id, session_id, prompt) VALUES (?, ?, ?, ?)
 ON CONFLICT (bot_id, chat_id) DO UPDATE SET session_id = excluded.session_id, prompt = excluded.prompt;
+
+-- name: SetTurnUsage :exec
+INSERT INTO turn_usage (turn_id, bot_id, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, calls, context_tokens, cold, recorded_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (turn_id) DO UPDATE SET input_tokens = excluded.input_tokens, cache_read_tokens = excluded.cache_read_tokens,
+  cache_write_tokens = excluded.cache_write_tokens, output_tokens = excluded.output_tokens, calls = excluded.calls,
+  context_tokens = excluded.context_tokens, cold = excluded.cold, recorded_at = excluded.recorded_at;
+
+-- name: LastTurnUsage :one
+SELECT * FROM turn_usage WHERE bot_id = ? ORDER BY recorded_at DESC, rowid DESC LIMIT 1;

@@ -520,6 +520,7 @@ type outcome struct {
 	// recorded is set when Claude Code compacted the session and so recorded its process's
 	// system prompt again (onCompacted).
 	recorded    bool
+	calls       callTokens // the model calls of the turn's main thread
 	resultText  string
 	resultError bool
 	exitErr     error

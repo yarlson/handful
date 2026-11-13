@@ -364,6 +364,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 		case "assistant":
 			if cur != nil {
 				cur.out.noteAPIError(ev)
+				cur.out.calls.note(ev)
 			}
 			if act := recorderOf(ev); act != nil {
 				act.toolUses(ctx, ev)
@@ -390,6 +391,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 			if cur == nil {
 				continue
 			}
+			r.recordUsage(s, cur, ev)
 			if cur.cmd == nil {
 				status, errText := "done", ""
 				if isErr {

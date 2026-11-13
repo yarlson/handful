@@ -96,6 +96,11 @@ compact)
   result ""
   lifecycle completed
   ;;
+replay)
+  # Claude Code's recorded stream in FAKE_STREAM, with the turn's uuid for COMMAND_UUID.
+  uuid=$(printf '%s' "$input" | sed -n 's/.*"uuid":"\([^"]*\)".*/\1/p')
+  sed "s/COMMAND_UUID/$uuid/g" "$FAKE_STREAM"
+  ;;
 error)
   # The turn fails: Claude Code ends it with an error result.
   lifecycle started
@@ -485,7 +490,7 @@ func newHarnessWith(t *testing.T, mode, model, effort string) *harness {
 	// Bookkeeping after a turn logs only real failures: a check that logs
 	// without an error shows here.
 	t.Cleanup(func() {
-		for _, msg := range []string{"record turn failure", "record interrupt", "acknowledge inbox", "mark room seen", "record compaction", "drop missing session", "record the known prompt", "record the known prompt after compaction"} {
+		for _, msg := range []string{"record turn failure", "record interrupt", "acknowledge inbox", "mark room seen", "record compaction", "drop missing session", "record the known prompt", "record the known prompt after compaction", "record turn usage"} {
 			if logs := h.logs.String(); strings.Contains(logs, `msg="`+msg+`"`) {
 				t.Errorf("the runner logged %q:\n%s", msg, logs)
 			}

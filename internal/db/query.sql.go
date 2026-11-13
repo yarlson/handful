@@ -1952,6 +1952,28 @@ func (q *Queries) LastGoalTurnStatus(ctx context.Context, goalID string) (string
 	return status, err
 }
 
+const lastTurnUsage = `-- name: LastTurnUsage :one
+SELECT turn_id, bot_id, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, calls, context_tokens, cold, recorded_at FROM turn_usage WHERE bot_id = ? ORDER BY recorded_at DESC, rowid DESC LIMIT 1
+`
+
+func (q *Queries) LastTurnUsage(ctx context.Context, botID string) (TurnUsage, error) {
+	row := q.db.QueryRowContext(ctx, lastTurnUsage, botID)
+	var i TurnUsage
+	err := row.Scan(
+		&i.TurnID,
+		&i.BotID,
+		&i.InputTokens,
+		&i.CacheReadTokens,
+		&i.CacheWriteTokens,
+		&i.OutputTokens,
+		&i.Calls,
+		&i.ContextTokens,
+		&i.Cold,
+		&i.RecordedAt,
+	)
+	return i, err
+}
+
 const latestGoalEventAt = `-- name: LatestGoalEventAt :one
 SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM goal_events WHERE goal_id = ?
 `
@@ -4580,6 +4602,43 @@ func (q *Queries) SetSessionPrompt(ctx context.Context, arg SetSessionPromptPara
 		arg.ChatID,
 		arg.SessionID,
 		arg.Prompt,
+	)
+	return err
+}
+
+const setTurnUsage = `-- name: SetTurnUsage :exec
+INSERT INTO turn_usage (turn_id, bot_id, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, calls, context_tokens, cold, recorded_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (turn_id) DO UPDATE SET input_tokens = excluded.input_tokens, cache_read_tokens = excluded.cache_read_tokens,
+  cache_write_tokens = excluded.cache_write_tokens, output_tokens = excluded.output_tokens, calls = excluded.calls,
+  context_tokens = excluded.context_tokens, cold = excluded.cold, recorded_at = excluded.recorded_at
+`
+
+type SetTurnUsageParams struct {
+	TurnID           string `json:"turn_id"`
+	BotID            string `json:"bot_id"`
+	InputTokens      int64  `json:"input_tokens"`
+	CacheReadTokens  int64  `json:"cache_read_tokens"`
+	CacheWriteTokens int64  `json:"cache_write_tokens"`
+	OutputTokens     int64  `json:"output_tokens"`
+	Calls            int64  `json:"calls"`
+	ContextTokens    int64  `json:"context_tokens"`
+	Cold             int64  `json:"cold"`
+	RecordedAt       int64  `json:"recorded_at"`
+}
+
+func (q *Queries) SetTurnUsage(ctx context.Context, arg SetTurnUsageParams) error {
+	_, err := q.db.ExecContext(ctx, setTurnUsage,
+		arg.TurnID,
+		arg.BotID,
+		arg.InputTokens,
+		arg.CacheReadTokens,
+		arg.CacheWriteTokens,
+		arg.OutputTokens,
+		arg.Calls,
+		arg.ContextTokens,
+		arg.Cold,
+		arg.RecordedAt,
 	)
 	return err
 }

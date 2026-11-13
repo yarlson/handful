@@ -37,6 +37,7 @@ Each bot works in its own folder, `~/.handful/bots/<bot id>`. The bot id is the 
   - `/clear` starts a fresh conversation context. The chat stays visible.
   - `/compact` shortens the context and shows the token counts before and after. A bot also compacts its context on its own before it reaches 200k tokens, at about 160k.
   - `/<skill> <request>` runs a skill now (see [Skills](#skills)).
+- The bot panel's **Settings** shows how much context the bot carries and how its last turn went, for example "Context: 142k of 200k · last turn: 3 calls, from cache". "Rebuilt the cache" means that the turn wrote the bot's context to the cache again, which costs more, as after a long pause.
 
 ## Approve what a bot does
 

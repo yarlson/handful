@@ -166,6 +166,7 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	mux.HandleFunc("POST /api/routines/{id}/run", s.runRoutine)
 	mux.HandleFunc("DELETE /api/routines/{id}", s.deleteRoutine)
 	mux.HandleFunc("GET /api/bots/{id}/grants", s.listGrants)
+	mux.HandleFunc("GET /api/bots/{id}/usage", s.turnUsage)
 	mux.HandleFunc("DELETE /api/bots/{id}/grants/{tool}", s.revokeGrant)
 	mux.HandleFunc("POST /api/approvals/{id}", s.resolveApproval)
 	mux.HandleFunc("POST /api/entries/{id}/reactions", s.setReaction)
@@ -908,6 +909,29 @@ func (s *server) listGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, grants)
+}
+
+// turnUsage returns the bot's context window and the tokens of its latest recorded turn, or
+// null before any.
+func (s *server) turnUsage(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.svc.GetBot(r.Context(), id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	u, ok, err := s.svc.LastTurnUsage(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out := struct {
+		WindowTokens int             `json:"windowTokens"`
+		Last         *core.TurnUsage `json:"last"`
+	}{WindowTokens: agent.AutocompactWindow}
+	if ok {
+		out.Last = &u
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) revokeGrant(w http.ResponseWriter, r *http.Request) {

@@ -238,3 +238,9 @@ test("a chat's entries come as a window of its newest, an older page, or the cha
     ],
   )
 })
+
+test("a bot's usage comes from its usage route", async () => {
+  const calls = stubFetch(200)
+  await api.usage("b1")
+  assert.deepEqual(calls, [{ method: "GET", url: "/api/bots/b1/usage", body: undefined }])
+})

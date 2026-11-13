@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -295,6 +296,9 @@ func leadBriefs(board core.Board) string {
 	if len(board.Inbox) > 0 {
 		text += inboxBrief
 	}
+	if slices.ContainsFunc(board.Done, func(g core.Goal) bool { return g.Origin == core.OriginProposal }) {
+		text += approveBrief
+	}
 	return text + offTaskLine(board.OffTask)
 }
 
@@ -543,9 +547,9 @@ func taskLines(board core.Board, clock decisionClock) string {
 		}
 	}
 	if len(board.Done) > 0 {
-		b.WriteString("Done, waiting for approval by whoever asked:\n")
+		b.WriteString("Done, waiting for approval:\n")
 		for _, g := range board.Done {
-			fmt.Fprintf(&b, "- %q (task id %s), from %s\n", g.Text, g.ID, taskSender(board, g))
+			fmt.Fprintf(&b, "- %q (task id %s), from %s — %s\n", g.Text, g.ID, taskSender(board, g), approverOf(board, g))
 		}
 	}
 	if len(board.Sent) > 0 {
@@ -555,6 +559,19 @@ func taskLines(board core.Board, clock decisionClock) string {
 		}
 	}
 	return b.String()
+}
+
+// approverOf says who approves done task g, as core's approver rule decides: the team's lead for
+// the team's own proposals (propose and make_task), the sending team's lead for a task it sent,
+// and the user for the user's tasks. The user may approve any of them in the app.
+func approverOf(board core.Board, g core.Goal) string {
+	if g.Origin == core.OriginProposal {
+		return "the team's lead approves it"
+	}
+	if g.FromTeamID != "" {
+		return fmt.Sprintf("team %q's lead approves it", board.Teams[g.FromTeamID])
+	}
+	return "the user approves it"
 }
 
 func pinned(g core.Goal) string {
@@ -638,6 +655,11 @@ The user accepted this goal. Look back on it in this turn, and start no new work
 - When a change to the working agreement would help, suggest it to the user in one short post. Only the user changes the agreement.
 `
 
+// approveBrief tells the lead to approve its team's own done tasks: no one else is asked to.
+const approveBrief = `
+Approve each done task your team proposed (with propose or make_task) once its result is right: update_board approve with its goal_id. To have more done first, use changes with its goal_id and text. Until then it stays under "Done, waiting for approval".
+`
+
 // leadBrief tells the lead how to run a goal.
 const leadBrief = `
 You lead this goal. Keep the board moving with update_board:
@@ -646,7 +668,7 @@ You lead this goal. Keep the board moving with update_board:
 - Answer a blocked item with unblock and a note, or ask the user in the channel with needs_reply when only they can decide. Assign an item that a member proposes only when the goal needs it; drop the other proposals and the items that are no longer needed, with a note.
 - You can own small items yourself.
 - When a step of this task waits on work that another team does, send that team a task with send_task and name the step in waits_for; that team pays for the work, and you hear back in this channel.
-- When every item is done or dropped, call close with goal_id and text: the result, what was done and where it is, and one line for each thing found but left out of scope. Whoever asked approves it or asks for changes; your next planned task starts at once.
+- When every item is done or dropped, call close with goal_id and text: the result, what was done and where it is, and one line for each thing found but left out of scope. Your next planned task starts at once. The task then waits for approval: the user approves a task from the user, and the sending team's lead one from another team. A task your team proposed, with propose or make_task, you approve yourself.
 The members' turns start on their own when their items are ready; never wait or poll for them.
 `
 

@@ -71,7 +71,7 @@ func TestTheBoardShowsThePlanTheInboxDoneAndSentTasks(t *testing.T) {
 		`- "Build the queue." (task id g2), from team "Product" — you asked (2 of 3): Which spec rev?; wait for the answer; clock paused: waiting for the sender's answer` + "\n",
 		`- "Tidy docs." (task id g3), from the user — the leads couldn't settle it; only the user decides now` + "\n",
 		`- "Refactor." (task id g4), from a proposal of your team — deferred: After the release; it comes back when due` + "\n",
-		"Done, waiting for approval by whoever asked:\n" + `- "Ship it." (task id d1), from team "Support"` + "\n",
+		"Done, waiting for approval:\n" + `- "Ship it." (task id d1), from team "Support" — team "Support"'s lead approves it` + "\n",
 		"Sent to other teams:\n" + `- "Write the guide." (task id s9) to team "Docs" [queued]` + "\n",
 		inboxBrief,
 	} {

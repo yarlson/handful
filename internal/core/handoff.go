@@ -932,13 +932,13 @@ func senderDecision(team, verb, task, text string) string {
 	return fmt.Sprintf("Team %s %s your task %q: %s Answer a question with answer_task. If a task of yours waits on it, re-plan when it is pushed back.", team, verb, task, text)
 }
 
-// wakeSender wakes the lead of the team that sent g, with q, in a turn that
-// no goal pays for. The user's tasks wake no lead.
+// wakeSender wakes the lead of the team that sent g, with q, in a turn that no goal pays for, to
+// approve g or ask for changes. The user's tasks wake no lead.
 func (s *Service) wakeSender(ctx context.Context, q *db.Queries, g Goal, from Bot, reason string) error {
 	if g.FromBotID == "" || from.ID == "" {
 		return nil
 	}
-	return s.wakeLead(ctx, q, from, Goal{}, reason+" Act on it if your team needs to; otherwise note it and stop.")
+	return s.wakeLead(ctx, q, from, Goal{}, reason+fmt.Sprintf(" Only you, or the user, approve it. Check the result, then approve it with update_board approve and goal_id %s, or ask for changes with update_board changes, goal_id %s and text.", g.ID, g.ID))
 }
 
 // WithdrawHandoff takes back a task that has not started.

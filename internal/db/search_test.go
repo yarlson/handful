@@ -27,6 +27,8 @@ func TestContainsFoldIgnoresTheCaseOfEveryScript(t *testing.T) {
 		{"", "a", false},
 		{"AZ", "az", true},
 		{"@[", "`{", false},
+		// A byte that is not UTF-8 reads as U+FFFD, as in a Go range loop.
+		{"a\x80b", "a\uFFFDb", true},
 	}
 	for _, c := range cases {
 		if got := containsFold(c.text, c.query); got != c.want {

@@ -44,7 +44,7 @@ func openSearchDB(t testing.TB) (*sql.DB, *Queries) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	if _, err := conn.Exec(`INSERT INTO bots (id, name, instructions, claude_session_id, kind, created_at, updated_at)
+	if _, err := conn.ExecContext(context.Background(), `INSERT INTO bots (id, name, instructions, claude_session_id, kind, created_at, updated_at)
 		VALUES ('ana', 'Ana', '', '', 'agent', 1, 1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestSearchEntriesFindsNoEntryWithoutText(t *testing.T) {
 func TestSearchEntriesReadsOnlyTheMessageIndex(t *testing.T) {
 	t.Parallel()
 	conn, _ := openSearchDB(t)
-	rows, err := conn.Query("EXPLAIN QUERY PLAN "+searchEntries, "ana", "x", 51)
+	rows, err := conn.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+searchEntries, "ana", "x", 51)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +133,7 @@ func BenchmarkSearchEntries(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer insert.Close()
 	for i := range 100_000 {
 		kind := [...]string{"user", "user", "user", "bot", "bot", "bot", "bot", "bot", "agent", "activity", "activity", "activity", "activity", "activity", "activity", "activity", "activity", "activity", "event", "event"}[i%20]
 		var text strings.Builder

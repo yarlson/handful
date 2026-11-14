@@ -125,6 +125,12 @@ export class ScrollFollower {
   // with nothing to scroll, cannot move up, and no scroll would follow to pin it again.
   intent(id: string, view: ScrollBox, items: Item[], input: Intent): boolean {
     if (!scrollsUp(input) || view.scrollTop <= 0) return this.memory.pinned(id)
+    return this.hold(id, view, items)
+  }
+
+  // hold unpins chat id where its view is and returns false, as when the user opens a row: the
+  // entry at the top of the view stays in place while the row grows below it.
+  hold(id: string, view: ScrollBox, items: Item[]): boolean {
     this.memory.unpin(id, view.scrollTop)
     this.capture(id, view, items)
     return false

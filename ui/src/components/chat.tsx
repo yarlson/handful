@@ -20,19 +20,25 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpRight,
+  BotIcon,
   Check,
   ChevronRight,
+  FilePen,
+  FileText,
+  Globe,
   Loader2,
   Lock,
   Paperclip,
   Play,
   RotateCw,
+  Search,
   SmilePlus,
   ShieldCheck,
   ShieldQuestion,
   ShieldX,
   Sparkles,
   Square,
+  Terminal,
   TerminalSquare,
   Wrench,
   X,
@@ -94,7 +100,8 @@ import { emptyText, expiryText, retryOf, type TranscriptStatus } from "@/lib/tra
 import { clock, daySeparators, fullDate } from "@/lib/dates"
 import { offersStarts, STARTS } from "@/lib/starts"
 import { Stamp } from "@/components/stamp"
-import { fits, rangeOf, RowHeights, rowOffsets, rowsFor, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
+import { ChatRows, fits, rangeOf, rowOffsets, rowsFor, rowWith, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
+import { groupKey, groupSummary } from "@/lib/tool-group"
 import { KEPT_CHATS } from "@/lib/chat-windows"
 
 const MINUTE = 60_000
@@ -150,15 +157,42 @@ export function MarkdownText({ text, breaks = false }: { text: string; breaks?: 
 // ChatInfo is what a row shows of its chat.
 type ChatInfo = Pick<Bot, "id" | "name" | "members">
 
+type ActivityEntry = Extract<Entry, { kind: "activity" }>
+
+// toolIcon is the icon of a tool's kind: reads, edits, shell commands, searches, web calls and
+// subagents. Any other tool, an MCP tool too, has the wrench.
+function toolIcon(tool: string) {
+  const className = "size-3.5 shrink-0"
+  switch (tool) {
+    case "Read":
+      return <FileText className={className} aria-hidden />
+    case "Edit":
+    case "Write":
+      return <FilePen className={className} aria-hidden />
+    case "Bash":
+      return <Terminal className={className} aria-hidden />
+    case "Grep":
+    case "Glob":
+      return <Search className={className} aria-hidden />
+    case "WebFetch":
+    case "WebSearch":
+      return <Globe className={className} aria-hidden />
+    case "Task":
+    case "Agent":
+      return <BotIcon className={className} aria-hidden />
+  }
+  return <Wrench className={className} aria-hidden />
+}
+
 // A tool run's row keeps whether it is expanded in its chat, since a row leaves the page when
-// it scrolls far from the view.
+// it scrolls far from the view. A row with nothing to expand is not a button.
 function ActivityRow({
   entry,
   chat,
   open,
   onToggle,
 }: {
-  entry: Extract<Entry, { kind: "activity" }>
+  entry: ActivityEntry
   chat: ChatInfo
   open: boolean
   onToggle: (entryId: string) => void
@@ -166,29 +200,40 @@ function ActivityRow({
   const b = entry.body
   const botColor = useBotColor()
   const content = Boolean(b.output || b.diff)
+  const line = (
+    <>
+      {content ? (
+        <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+      ) : (
+        <span className="size-3.5 shrink-0" />
+      )}
+      {b.status === "running" ? (
+        <Loader2 className="size-3.5 shrink-0 animate-spin" />
+      ) : b.status === "error" ? (
+        <X className="text-destructive size-3.5 shrink-0" />
+      ) : (
+        toolIcon(b.tool)
+      )}
+      {b.bot && <span className={cn("shrink-0 font-medium", botColor(colorId(b, chat)).text)}>{b.bot}</span>}
+      <span className="text-foreground/80 shrink-0 font-medium">{b.subagent ? `↳ ${b.tool}` : b.tool}</span>
+      <span className="truncate font-mono">{b.summary}</span>
+      {b.diff && <DiffCounts diff={b.diff} />}
+    </>
+  )
   return (
     <div className={cn("text-muted-foreground text-xs", b.subagent && "ml-5")}>
-      <button
-        type="button"
-        className={cn(touchArea, "hover:text-foreground flex w-full items-center gap-1.5 text-left")}
-        onClick={() => onToggle(entry.id)}
-        disabled={!content}
-      >
-        <ChevronRight
-          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90", !content && "opacity-0")}
-        />
-        {b.status === "running" ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin" />
-        ) : b.status === "error" ? (
-          <X className="text-destructive size-3.5 shrink-0" />
-        ) : (
-          <Wrench className="size-3.5 shrink-0" />
-        )}
-        {b.bot && <span className={cn("shrink-0 font-medium", botColor(colorId(b, chat)).text)}>{b.bot}</span>}
-        <span className="text-foreground/80 shrink-0 font-medium">{b.subagent ? `↳ ${b.tool}` : b.tool}</span>
-        <span className="truncate font-mono">{b.summary}</span>
-        {b.diff && <DiffCounts diff={b.diff} />}
-      </button>
+      {content ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          className={cn(touchArea, "hover:text-foreground flex w-full items-center gap-1.5 text-left")}
+          onClick={() => onToggle(entry.id)}
+        >
+          {line}
+        </button>
+      ) : (
+        <div className="flex items-center gap-1.5">{line}</div>
+      )}
       {open && b.diff ? (
         <div className="mt-1 ml-5">
           {b.diff.hunks ? (
@@ -199,6 +244,85 @@ function ActivityRow({
         </div>
       ) : (
         open && b.output && <ToolOutput output={b.output} />
+      )}
+    </div>
+  )
+}
+
+// ToolGroup is two or more tool calls in a row, folded to one line until the user opens it:
+// the count of each tool, or the newest call while the group runs.
+// id is the group's row key. Each call's row carries its id as data-call while the group is open.
+export function ToolGroup({
+  id,
+  calls,
+  chat,
+  expanded,
+  onExpand,
+}: {
+  id: string
+  calls: ActivityEntry[]
+  chat: ChatInfo
+  expanded: ReadonlySet<string>
+  onExpand: (key: string) => void
+}) {
+  const botColor = useBotColor()
+  // The group opens by its row key. A chat whose rows were dropped gets new row keys when it is
+  // opened again, so the key of any of its calls keeps it open.
+  const key = calls.map((c) => groupKey(c.id)).find((k) => expanded.has(k)) ?? groupKey(id)
+  const open = expanded.has(key)
+  const g = groupSummary(calls.map((c) => c.body))
+  const newest = calls[calls.length - 1].body
+  return (
+    <div className="text-muted-foreground text-xs">
+      <button
+        type="button"
+        aria-expanded={open}
+        className={cn(touchArea, "hover:text-foreground flex w-full items-center gap-1.5 text-left")}
+        onClick={() => onExpand(key)}
+      >
+        <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+        {g.running && (
+          <>
+            <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+            <span className="sr-only">Running:</span>
+          </>
+        )}
+        {newest.bot && (
+          <span className={cn("shrink-0 font-medium", botColor(colorId(newest, chat)).text)}>{newest.bot}</span>
+        )}
+        <span className="text-foreground/80 shrink-0 font-medium">{calls.length} tool calls</span>
+        {g.running ? (
+          <>
+            {toolIcon(newest.tool)}
+            <span className="text-foreground/80 shrink-0 font-medium">{newest.tool}</span>
+            <span className="truncate font-mono">{newest.summary}</span>
+          </>
+        ) : (
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2">
+            {g.counts.map((c) => (
+              <span key={c.tool} className="inline-flex items-center gap-1">
+                {toolIcon(c.tool)}
+                {c.tool} {c.count}
+              </span>
+            ))}
+          </span>
+        )}
+        {g.failed > 0 && (
+          <span className="text-destructive inline-flex shrink-0 items-center gap-0.5">
+            <X className="size-3.5" aria-hidden />
+            {g.failed} failed
+          </span>
+        )}
+        {g.diff && <DiffCounts diff={g.diff} />}
+      </button>
+      {open && (
+        <div className="mt-3 ml-5 flex flex-col gap-3">
+          {calls.map((c) => (
+            <div key={c.id} data-call={c.id}>
+              <ActivityRow entry={c} chat={chat} open={expanded.has(c.id)} onToggle={onExpand} />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
@@ -895,24 +1019,20 @@ export function EntryView({
   }
 }
 
-// Row is one entry of the transcript. It re-renders only when its own props change, not on each
-// render of the page.
-// day is the label of the day separator above the entry, when a new local day starts with it; it
-// is inside the row, so the row's measured height holds it.
-const Row = memo(function Row({ day, ...props }: Parameters<typeof EntryView>[0] & { day?: string }) {
+// Row is one entry of the transcript and GroupRow a group of tool calls. Each re-renders only
+// when its own props change, not on each render of the page.
+const Row = memo(EntryView)
+const GroupRow = memo(ToolGroup)
+
+function DayLine({ day }: { day: string }) {
   return (
-    <div data-entry={props.entry.id}>
-      {day && (
-        <div className="text-muted-foreground mb-3 flex items-center gap-3 text-xs">
-          <span className="bg-border h-px flex-1" />
-          <span>{day}</span>
-          <span className="bg-border h-px flex-1" />
-        </div>
-      )}
-      <EntryView {...props} />
+    <div className="text-muted-foreground mb-3 flex items-center gap-3 text-xs">
+      <span className="bg-border h-px flex-1" />
+      <span>{day}</span>
+      <span className="bg-border h-px flex-1" />
     </div>
   )
-})
+}
 
 export type Suggestion = {
   token: string
@@ -1452,14 +1572,16 @@ function Composer({
 // LOAD_OLDER_PX is how close to the top of the transcript a scroll loads the next older page.
 const LOAD_OLDER_PX = 800
 
-// itemsOf returns the transcript's rendered rows, keyed by their entries' ids.
+// itemsOf returns the transcript's rendered entries, keyed by their row keys, with the calls of
+// an open group in place of its row, so that the call the user reads is the one kept in place. An
+// entry's box leaves out its row's day separator, which an older page of the same day removes.
 function itemsOf(rows: HTMLElement | null): Item[] {
-  return rows
-    ? [...rows.children].map((box) => ({
-        key: (box as HTMLElement).dataset.entry ?? "",
-        box,
-      }))
-    : []
+  if (!rows) return []
+  return [...rows.children].flatMap((row) => {
+    const calls = [...row.querySelectorAll<HTMLElement>("[data-call]")]
+    if (calls.length === 0) return [{ key: (row as HTMLElement).dataset.entry ?? "", box: row.lastElementChild ?? row }]
+    return calls.map((call) => ({ key: call.dataset.call ?? "", box: call }))
+  })
 }
 
 // mentionables are the bots that @ can complete: room members, or the other bots.
@@ -1532,25 +1654,40 @@ export function Chat({
   }
   const items = () => itemsOf(rowsBox.current)
   // The transcript renders only the rows near its view, whatever the number of entries loaded.
-  // heights holds, by entry id, each row's height as measured when the rows rendered last
+  // heights holds, by row key, each row's height as measured when the rows rendered last
   // changed while it was on the page, for the chats that keep their loaded entries.
-  const [rowHeights] = useState(() => new RowHeights(KEPT_CHATS))
-  const heights = rowHeights.of(bot.id)
+  const [chatRows] = useState(() => new ChatRows(KEPT_CHATS))
+  const heights = chatRows.heights(bot.id)
   // span is the rows rendered in chat botId; another chat opens with its own.
   const [span, setSpan] = useState<{ botId: string; span: RowSpan } | null>(null)
-  const offsets = rowOffsets(entries, heights)
+  // A transcript's day separators. The clock ticks each minute, so Today becomes Yesterday after
+  // midnight.
+  const now = useNow(MINUTE)
+  const days = useMemo(
+    () =>
+      daySeparators(
+        entries.map((e) => e.createdAt),
+        now,
+      ),
+    [entries, now],
+  )
+  // rows are the transcript's rows: a group of tool calls is one row, and is measured as one.
+  // A row keeps its key, so that an older page or a new call that joins a group does not mount it
+  // again: the entry the user reads stays in place.
+  const rows = useMemo(() => chatRows.rows(bot.id, entries, days), [chatRows, bot.id, entries, days])
+  const offsets = rowOffsets(rows, heights)
   // openingRows are the rows of a chat just opened: around the entry it was left at, or else
   // at its bottom.
   const openingRows = (): RowRange => {
-    const left = memory.pinned(bot.id) ? -1 : entries.findIndex((e) => e.id === follower.leftAt(bot.id))
+    const left = memory.pinned(bot.id) ? -1 : rowWith(rows, follower.leftAt(bot.id) ?? "")
     const height = window.innerHeight
-    const top = left >= 0 ? offsets[left] : offsets[entries.length] - height
+    const top = left >= 0 ? offsets[left] : offsets[rows.length] - height
     return rowsFor(offsets, top, top + height)
   }
-  const kept = span?.botId === bot.id ? rangeOf(entries, span.span) : null
+  const kept = span?.botId === bot.id ? rangeOf(rows, span.span) : null
   const range = kept && kept.end > kept.start ? kept : openingRows()
   const before = offsets[range.start]
-  const after = offsets[entries.length] - offsets[range.end]
+  const after = offsets[rows.length] - offsets[range.end]
   // showRows renders the rows near the view once the rendered ones no longer cover it. It
   // first notes the height of each rendered row, so a row that leaves the page keeps its space.
   const showRows = (next?: RowRange) => {
@@ -1561,10 +1698,10 @@ export function Chat({
       const box = list.getBoundingClientRect()
       const top = el.getBoundingClientRect().top - box.top
       const view = { top, bottom: top + el.clientHeight }
-      if (fits(range, entries.length, { top: before, bottom: box.height - after }, view)) return
+      if (fits(range, rows.length, { top: before, bottom: box.height - after }, view)) return
       for (const row of list.children)
         heights.set((row as HTMLElement).dataset.entry ?? "", row.getBoundingClientRect().height)
-      next = rowsFor(rowOffsets(entries, heights), view.top, view.bottom)
+      next = rowsFor(rowOffsets(rows, heights), view.top, view.bottom)
     }
     if (next.start === range.start && next.end === range.end) return
     // A focused row that leaves the page would take the keyboard focus with it: the
@@ -1572,9 +1709,9 @@ export function Chat({
     const focused = list.contains(document.activeElement)
       ? document.activeElement?.closest<HTMLElement>("[data-entry]")?.dataset.entry
       : undefined
-    const at = entries.findIndex((e) => e.id === focused)
+    const at = rows.findIndex((r) => r.key === focused)
     if (at >= 0 && (at < next.start || at >= next.end)) el.focus({ preventScroll: true })
-    setSpan({ botId: bot.id, span: spanOf(entries, next) })
+    setSpan({ botId: bot.id, span: spanOf(rows, next) })
   }
   // jumping is the entry that Go to waits to show while older pages load or its rows render.
   const jumping = useRef<string | null>(null)
@@ -1595,7 +1732,7 @@ export function Chat({
     shown.current = bot.id
     // The rows a chat opened with stay rendered until the view leaves them, also when the chat
     // unpins and would now open elsewhere.
-    if (range !== kept) setSpan({ botId: bot.id, span: spanOf(entries, range) })
+    if (range !== kept) setSpan({ botId: bot.id, span: spanOf(rows, range) })
     // An unpinned chat keeps the entry the user reads in place, also when an older page
     // arrives above it or rows render above it. That entry may have left the page, when the
     // view had scrolled past the rows rendered: the entry now at the top takes its place.
@@ -1609,6 +1746,9 @@ export function Chat({
       follower.scrollTo(el, top)
       if (opened && !memory.pinned(bot.id)) follower.capture(bot.id, el, items())
     }
+    // Groups can fold a whole page into a few rows. A transcript that does not fill its view has
+    // no scroll to load the older page, so it loads it now.
+    if (older && el.scrollHeight <= el.clientHeight) onLoadOlder()
     const id = jumping.current
     if (id && document.getElementById(`entry-${id}`)) {
       jumping.current = null
@@ -1616,7 +1756,7 @@ export function Chat({
       return
     }
     // An entry loaded for Go to may be far from the rows rendered.
-    const at = id ? entries.findIndex((e) => e.id === id) : -1
+    const at = id ? rowWith(rows, id) : -1
     if (at >= range.start && at < range.end) jumping.current = null
     else if (at >= 0) return showRows(rowsFor(offsets, offsets[at], offsets[at + 1]))
     showRows()
@@ -1651,7 +1791,7 @@ export function Chat({
   const jumpTo = (entryId: string) => {
     if (document.getElementById(`entry-${entryId}`)) return goTo(entryId)
     jumping.current = entryId
-    const at = entries.findIndex((e) => e.id === entryId)
+    const at = rowWith(rows, entryId)
     if (at >= 0) return showRows(rowsFor(offsets, offsets[at], offsets[at + 1]))
     void onReveal(entryId).then((found) => {
       if (!found && jumping.current === entryId) jumping.current = null
@@ -1707,15 +1847,29 @@ export function Chat({
     requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
   }, [])
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
-  const expand = useCallback(
-    (entryId: string) =>
+  // toggle opens or folds the rows of keys together, by the first one's state.
+  const toggle = useCallback(
+    (keys: string[]) => {
+      // A row opens below its top, so the view stops following the bottom: a long group the user
+      // opens at the bottom of the chat stays where the user reads it.
+      const el = scroller.current
+      if (el) setFollowing(follower.hold(bot.id, el, itemsOf(rowsBox.current)))
       setExpanded((open) => {
         const next = new Set(open)
-        if (!next.delete(entryId)) next.add(entryId)
+        const fold = open.has(keys[0])
+        for (const k of keys) {
+          if (fold) next.delete(k)
+          else next.add(k)
+        }
         return next
-      }),
-    [],
+      })
+    },
+    [follower, bot.id],
   )
+  const expand = useCallback((key: string) => toggle([key]), [toggle])
+  // A tool call the user opens alone also opens the group it starts when the turn's next call
+  // joins it, since the group keeps the call's id as its key.
+  const expandCall = useCallback((entryId: string) => toggle([entryId, groupKey(entryId)]), [toggle])
   // chat changes only when what the rows show of it changes, not with each bots event.
   const membersKey = JSON.stringify(bot.members ?? null)
   const chat = useMemo<ChatInfo>(
@@ -1755,17 +1909,6 @@ export function Chat({
       team: inTeam ? {} : undefined,
     }).map((sk) => sk.id)
   }, [skillList, bot.id, chatKind, inTeam])
-  // A transcript's day separators and the failure that offers Retry. The clock ticks each minute,
-  // so Today becomes Yesterday after midnight.
-  const now = useNow(MINUTE)
-  const days = useMemo(
-    () =>
-      daySeparators(
-        entries.map((e) => e.createdAt),
-        now,
-      ),
-    [entries, now],
-  )
   // A device that may not send gets neither Retry nor the starts, as it gets no message box.
   const retry = useMemo(() => (rights.send ? retryOf(entries) : null), [entries, rights.send])
   const starts = status === "ready" && rights.send && offersStarts(bot, entries) && !older
@@ -1829,19 +1972,37 @@ export function Chat({
           {entries.length > 0 && (
             // The padding holds the space of the rows above and below the ones rendered.
             <div ref={rowsBox} className="flex flex-col gap-3" style={{ paddingTop: before, paddingBottom: after }}>
-              {entries.slice(range.start, range.end).map((e, i) => (
-                <Row
-                  key={e.id}
-                  day={days[range.start + i]}
-                  retry={retry?.failureId === e.id ? retry.message : undefined}
-                  entry={e}
-                  chat={chat}
-                  skillIds={skillIds}
-                  onAnswer={answer}
-                  expanded={expanded.has(e.id)}
-                  onExpand={expand}
-                />
-              ))}
+              {rows.slice(range.start, range.end).map((r) => {
+                const e = r.entries[0]
+                // A tool call that a new call joins stays the same element: only its row's content
+                // turns into the group. The day separator is inside the row, so the row's measured
+                // height holds it.
+                return (
+                  <div key={r.key} data-entry={r.key}>
+                    {days[r.at] && <DayLine day={days[r.at]!} />}
+                    {r.entries.length > 1 ? (
+                      <GroupRow
+                        id={r.key}
+                        // rowsOf groups only tool calls.
+                        calls={r.entries as ActivityEntry[]}
+                        chat={chat}
+                        expanded={expanded}
+                        onExpand={expand}
+                      />
+                    ) : (
+                      <Row
+                        retry={retry?.failureId === e.id ? retry.message : undefined}
+                        entry={e}
+                        chat={chat}
+                        skillIds={skillIds}
+                        onAnswer={answer}
+                        expanded={expanded.has(e.id)}
+                        onExpand={e.kind === "activity" ? expandCall : expand}
+                      />
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
           {starts && (

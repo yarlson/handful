@@ -30,7 +30,7 @@ export function KeyPage({ keyFile, onSaved }: { keyFile: string; onSaved: () => 
         <img src="/logo.svg" alt="Handful" className="size-10" />
         <p className="text-sm">
           Handful needs its key on this browser. Run{" "}
-          <code className="bg-muted rounded px-1 font-mono text-[0.85em]">cat {keyFile}</code> in a terminal on this
+          <code className="bg-muted rounded-sm px-1 font-mono text-[0.85em]">cat {keyFile}</code> in a terminal on this
           computer, then paste the key here.
         </p>
         <div className="flex flex-col gap-1">

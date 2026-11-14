@@ -38,7 +38,7 @@ import {
 // viewerButton is a round button of the media viewer. Its dark backing reads on a dark overlay
 // and on a light image zoomed to fill the screen.
 const viewerLook =
-  "place-items-center rounded-full bg-black/55 text-white ring-1 ring-white/15 transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-5"
+  "place-items-center rounded-full bg-black/55 text-white ring-1 ring-white/15 transition-colors hover:bg-black/75 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-5"
 export const viewerButton = `grid size-10 ${viewerLook}`
 
 // A gesture's announcement and its will-change wait this long after its last event.

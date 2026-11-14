@@ -9,6 +9,8 @@ const css = readFileSync(join(root, "index.css"), "utf8")
 const RAW_COLOUR = /\b(?:amber|blue|emerald)-\d{2,3}\b/
 const EXEMPT = new Set(["lib/bot-color.ts"])
 const PIXEL_TEXT = /\btext-\[\d+(?:\.\d+)?px\]/
+// Every control has the 3px ring of the shadcn Button; a 1, 2 or 4px focus ring is a second style.
+const OTHER_FOCUS_RING = /\b(?:focus|focus-visible|focus-within):(?:ring|outline)-[1248]\b/
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -75,4 +77,26 @@ test("transitions take the base duration token by default", () => {
   const light = block(":root {")
   assert.match(light, /--duration-fast:\s*100ms/)
   assert.match(light, /--duration-base:\s*150ms/)
+})
+
+test("every control without its own ring shows the 3px focus ring of the shadcn Button", () => {
+  const base = block("@layer base")
+  assert.match(
+    base,
+    /:focus-visible\s*\{\s*outline:\s*3px solid color-mix\(in oklab, var\(--ring\) 50%, transparent\);\s*outline-offset:\s*0;/,
+  )
+})
+
+test("the scan finds a focus ring of another width and passes the 3px ring", () => {
+  assert.deepEqual(hits(OTHER_FOCUS_RING, "x.tsx", 'className="focus-visible:ring-2 focus:outline-1"'), [
+    'x.tsx:1: className="focus-visible:ring-2 focus:outline-1"',
+  ])
+  assert.deepEqual(
+    hits(OTHER_FOCUS_RING, "x.tsx", 'className="focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-0"'),
+    [],
+  )
+})
+
+test("no control sets a focus ring of another width", () => {
+  assert.deepEqual(sourceHits(OTHER_FOCUS_RING), [])
 })

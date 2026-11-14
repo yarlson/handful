@@ -176,7 +176,7 @@ function Under({
       )}
       {v.source === "flag" && (
         <p id={`${id}-flag`} className="text-muted-foreground text-xs">
-          Set by the <code className="bg-muted rounded px-1 font-mono">{v.flag}</code> flag for this run.{" "}
+          Set by the <code className="bg-muted rounded-sm px-1 font-mono">{v.flag}</code> flag for this run.{" "}
           {flagHelp(k, v)}
         </p>
       )}
@@ -714,7 +714,7 @@ export function SettingsPage({
           className="text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 text-xs max-md:min-h-11 max-md:text-sm"
           onClick={onBack}
         >
-          <ArrowLeft className="size-3" /> Back to chats
+          <ArrowLeft className="size-3.5" /> Back to chats
         </button>
         <h1 className="px-2 text-sm font-semibold">Settings</h1>
         <nav
@@ -728,7 +728,9 @@ export function SettingsPage({
               aria-current={s.id === section ? "page" : undefined}
               className={cn(
                 "flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm max-md:shrink-0 max-md:gap-1.5 max-md:rounded-b-none max-md:px-3 max-md:py-3",
-                s.id === section ? "bg-muted font-medium" : "hover:bg-muted/60",
+                s.id === section
+                  ? "bg-muted font-medium"
+                  : "hover:bg-muted transition-colors duration-(--duration-fast)",
               )}
               onClick={() => onSection(s.id)}
             >

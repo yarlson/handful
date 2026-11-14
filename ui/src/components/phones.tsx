@@ -58,7 +58,7 @@ function CopyButton({ text, label = "Copy", what }: { text: string; label?: stri
   )
 }
 
-const code = (s: string) => <code className="bg-muted rounded px-1 font-mono text-[0.85em]">{s}</code>
+const code = (s: string) => <code className="bg-muted rounded-sm px-1 font-mono text-[0.85em]">{s}</code>
 
 // portOf is the port of a host:port address.
 function portOf(addr: string) {

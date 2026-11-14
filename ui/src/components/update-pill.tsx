@@ -483,7 +483,7 @@ export function UpdatePill({
               e.preventDefault()
               main.focus()
             }}
-            className="bg-popover text-popover-foreground ring-foreground/10 z-50 flex w-80 flex-col gap-3 rounded-xl p-4 shadow-lg ring-1"
+            className="bg-popover text-popover-foreground ring-foreground/10 z-50 flex w-80 flex-col gap-3 rounded-lg p-4 shadow-lg ring-1"
           >
             <Body s={s} a={actions} bots={bots} now={now} confirm={confirm} setConfirm={setConfirm} />
           </Popover.Content>
@@ -498,7 +498,7 @@ export function UpdatePill({
 export function PausedForUpdate({ label = "Paused for update" }: { label?: string }) {
   return (
     <Badge variant="secondary" title="New turns wait until Handful restarts. Running turns finish.">
-      <Pause className="size-3" aria-hidden />
+      <Pause className="size-3.5" aria-hidden />
       {label}
     </Badge>
   )

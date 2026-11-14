@@ -40,6 +40,7 @@ import {
 } from "@/lib/tasks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, attentionBar } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -173,7 +174,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
   const picked = taskTurns(offTask.turns)
   return (
     <section aria-label="Not on a task" className="flex flex-col gap-1.5">
-      <div className="flex flex-col gap-1.5 rounded-md border border-dashed p-2 text-xs">
+      <Card size="sm" className="gap-1.5 p-2 text-xs">
         <p>
           <strong>{`${turns} in the last hour`}</strong>
           {` ${offTask.count === 1 ? "wasn't" : "weren't"} on any task: ${who}.`}
@@ -228,7 +229,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
             ))}
           </ul>
         )}
-      </div>
+      </Card>
     </section>
   )
 }
@@ -361,8 +362,8 @@ export function TaskHistoryList({
               <li
                 key={e.id}
                 className={cn(
-                  tone === "changes" && "rounded-sm bg-attention-surface p-1.5",
-                  tone === "passed" && "rounded-sm bg-success/10 p-1.5",
+                  tone === "changes" && "rounded-md bg-attention-surface p-1.5",
+                  tone === "passed" && "rounded-md bg-success/10 p-1.5",
                 )}
               >
                 <p>
@@ -797,8 +798,8 @@ export function AcrossTeams({
                     <button
                       type="button"
                       className={cn(
-                        "hover:bg-accent flex h-full w-full flex-col gap-1 rounded-md border p-3 text-left text-sm",
-                        s?.paused && "border-attention/50",
+                        "hover:bg-muted transition-colors duration-(--duration-fast) flex h-full w-full flex-col gap-1 overflow-hidden rounded-lg border p-3 text-left text-sm",
+                        s?.paused && attentionBar,
                       )}
                       onClick={() => onOpen(t.id)}
                     >

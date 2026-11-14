@@ -346,7 +346,7 @@ export function SidebarItem({
         "relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
         selected
           ? "bg-sidebar-foreground/10 font-medium before:absolute before:inset-y-1.5 before:left-0 before:w-0.75 before:rounded-full before:bg-pink-600"
-          : "hover:bg-sidebar-foreground/5",
+          : "hover:bg-muted transition-colors duration-(--duration-fast)",
       )}
     >
       <Icon className={cn("size-4 shrink-0", (bot.kind !== "room" || bot.team) && botColor(bot.id).text)} />
@@ -455,9 +455,9 @@ function BotList({
           }}
           onDragEnd={endDrag}
         >
-          {insertAt === i && <div className="bg-primary absolute -top-px right-2 left-2 h-0.5 rounded" />}
+          {insertAt === i && <div className="bg-primary absolute -top-px right-2 left-2 h-0.5 rounded-full" />}
           {insertAt === items.length && i === items.length - 1 && (
-            <div className="bg-primary absolute right-2 -bottom-px left-2 h-0.5 rounded" />
+            <div className="bg-primary absolute right-2 -bottom-px left-2 h-0.5 rounded-full" />
           )}
           <SidebarItem
             bot={b}
@@ -807,7 +807,7 @@ export function App() {
         ref={closesDrawerOnEscape}
       >
         <div className="flex items-center px-3 py-3">
-          <img src="/logo.svg" alt="Handful" className="size-7" />
+          <img src="/logo.svg" alt="Handful" className="size-7 rounded-[6px] dark:ring-1 dark:ring-white/10" />
         </div>
         {moved.data?.show && rights.computer && (
           <MoveNotice
@@ -823,7 +823,9 @@ export function App() {
             aria-current={screen === "across" ? "page" : undefined}
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              screen === "across" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
+              screen === "across"
+                ? "bg-sidebar-foreground/10 font-medium"
+                : "hover:bg-muted transition-colors duration-(--duration-fast)",
             )}
             onClick={() => showScreen("across")}
           >
@@ -840,7 +842,9 @@ export function App() {
             aria-current={screen === "waiting" ? "page" : undefined}
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              screen === "waiting" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
+              screen === "waiting"
+                ? "bg-sidebar-foreground/10 font-medium"
+                : "hover:bg-muted transition-colors duration-(--duration-fast)",
             )}
             onClick={() => showScreen("waiting")}
           >
@@ -909,7 +913,7 @@ export function App() {
         aria-valuenow={width}
         tabIndex={0}
         title="Drag to resize; double-click to reset"
-        className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l outline-none max-md:hidden"
+        className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l max-md:hidden"
         onPointerDown={(e) => {
           e.preventDefault()
           e.currentTarget.setPointerCapture(e.pointerId)

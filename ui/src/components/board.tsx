@@ -36,6 +36,7 @@ import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@
 import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, attentionBar } from "@/components/ui/card"
 import {
   awaitsAnswer,
   canWithdraw,
@@ -98,7 +99,7 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
       onClick={onOpen}
       aria-label={`Work: ${now ? `now, ${now.text}` : "nothing now"}${needs > 0 ? `; ${needs} need you` : ""}. Opens the Work tab.`}
       title={now?.text}
-      className="hover:bg-muted flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-md:min-h-11 max-md:max-w-none max-md:flex-1"
+      className="hover:bg-muted transition-colors duration-(--duration-fast) flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-md:min-h-11 max-md:max-w-none max-md:flex-1"
     >
       <span
         aria-hidden
@@ -176,7 +177,7 @@ function StepRow({ team, item }: { team: Bot; item: Item }) {
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
-        className="hover:bg-sidebar-foreground/5 flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left max-md:min-h-11 max-md:py-2"
+        className="hover:bg-muted transition-colors duration-(--duration-fast) flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left max-md:min-h-11 max-md:py-2"
       >
         <Mark.icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", Mark.className)} />
         <span className="min-w-0 flex-1">
@@ -284,8 +285,8 @@ export function HistoryList({ id, item, events }: { id: string; item: Item; even
               key={e.id}
               className={cn(
                 "relative",
-                tone === "changes" && "rounded-sm bg-attention-surface p-1.5",
-                tone === "passed" && "rounded-sm bg-success/10 p-1.5",
+                tone === "changes" && "rounded-md bg-attention-surface p-1.5",
+                tone === "passed" && "rounded-md bg-success/10 p-1.5",
               )}
             >
               <p>
@@ -536,26 +537,25 @@ export function BoardView({
       {error && <p className="text-destructive text-xs">{error}</p>}
       <NowSection team={team} goal={now} data={data} names={names} act={act} rev={rev} paused={paused} />
       {needs.length > 0 && (
-        <section
-          aria-labelledby="needs-heading"
-          className="flex flex-col gap-2 rounded-lg border border-attention/50 p-2.5"
-        >
-          <h3 id="needs-heading" className="text-muted-foreground text-xs font-medium">
-            Needs you ({needs.length})
-          </h3>
-          <ul className="flex flex-col divide-y divide-attention/20">
-            {needs.map((n) => (
-              <NeedRow
-                key={n.kind === "budget" ? "budget" : `${n.kind}:${n.goal.id}`}
-                n={n}
-                team={team}
-                names={names}
-                act={act}
-                onOpenInbox={onOpenInbox}
-                budget={data.budget}
-              />
-            ))}
-          </ul>
+        <section aria-labelledby="needs-heading">
+          <Card size="sm" className={cn("gap-2 p-2.5", attentionBar)}>
+            <h3 id="needs-heading" className="text-muted-foreground text-xs font-medium">
+              Needs you ({needs.length})
+            </h3>
+            <ul className="flex flex-col divide-y">
+              {needs.map((n) => (
+                <NeedRow
+                  key={n.kind === "budget" ? "budget" : `${n.kind}:${n.goal.id}`}
+                  n={n}
+                  team={team}
+                  names={names}
+                  act={act}
+                  onOpenInbox={onOpenInbox}
+                  budget={data.budget}
+                />
+              ))}
+            </ul>
+          </Card>
         </section>
       )}
       {(plan.length > 0 || inbox.length > 0) && (
@@ -570,7 +570,7 @@ export function BoardView({
             </>
           )}
           {inbox.length > 0 && (
-            <div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-xs">
+            <Card size="sm" className="flex-row items-center gap-2 px-2.5 py-1.5 text-xs">
               <span className="flex-1">
                 {`Inbox: ${inbox.length} ${inbox.length === 1 ? "task waits" : "tasks wait"} for ${lead}'s decision.`}
               </span>
@@ -579,7 +579,7 @@ export function BoardView({
                   Open inbox
                 </Button>
               )}
-            </div>
+            </Card>
           )}
         </section>
       )}
@@ -669,7 +669,7 @@ function NowSection({
     <section aria-labelledby="now-heading" className="flex flex-col gap-1.5">
       <Heading id="now-heading">Now</Heading>
       {goal ? (
-        <div className="bg-background/60 flex flex-col gap-2 rounded-lg border p-2.5">
+        <Card size="sm" className="gap-2 p-2.5">
           <div className="flex flex-wrap items-start gap-2">
             <span className="min-w-[60%] flex-1 text-sm font-medium">{goal.text}</span>
             <FromChip goal={goal} names={names} />
@@ -724,7 +724,7 @@ function NowSection({
               </Button>
             )}
           </div>
-        </div>
+        </Card>
       ) : (
         <p className="text-muted-foreground text-sm">
           {plan.length > 0

@@ -404,7 +404,7 @@ test("turns on no task show as a quiet note in the footer, with Make a task and 
   const html = render(board({ offTask }))
   const footer = html.slice(html.indexOf("<footer"))
   assert.include(footer, '<section aria-label="Not on a task"')
-  assert.include(footer, "border-dashed")
+  assert.include(footer, 'data-slot="card"')
   assert.include(footer, "<strong>2 turns in the last hour</strong> weren&#x27;t on any task: Bo.")
   assert.include(footer, 'aria-label="Make a task: 2 turns on no task"')
   assert.include(footer, 'aria-label="Dismiss: 2 turns on no task"')

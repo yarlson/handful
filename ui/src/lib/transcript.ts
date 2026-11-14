@@ -67,10 +67,10 @@ export function retryOf(entries: readonly Entry[]): Retry | null {
 }
 
 // expiryText is the line of an expired approval card: why it expired and what the user can do.
-// A card from before the cause was stored says only that it expired.
-export function expiryText(expiry: string | undefined): string {
+// A card from before the cause was stored has no line; its badge says that it expired.
+export function expiryText(expiry: string | undefined): string | undefined {
   if (expiry === "limit") return "Expired: no answer within 4.5 minutes. Ask the bot to try again."
   if (expiry === "turn-ended") return "Expired: the turn ended before you answered."
   if (expiry === "restart") return "Expired: Handful restarted before you answered. Send your message again."
-  return "Expired"
+  return undefined
 }

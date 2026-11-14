@@ -218,6 +218,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
   const rights = useRights()
   const [error, setError] = useState<string | null>(null)
   const b = entry.body
+  const expiry = b.status === "expired" ? expiryText(b.expiry) : undefined
   const decide = async (d: Decision) => {
     setBusy(true)
     setError(null)
@@ -245,7 +246,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
         </CardHeader>
         <CardContent>
           <SetupSummary setup={setup} />
-          {b.status === "expired" && <p className="text-muted-foreground mt-2 text-xs">{expiryText(b.expiry)}</p>}
+          {expiry && <p className="text-muted-foreground mt-2 text-xs">{expiry}</p>}
           {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
           {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
         </CardContent>
@@ -288,7 +289,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
         <pre className="bg-muted max-h-48 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
           {command}
         </pre>
-        {b.status === "expired" && <p className="text-muted-foreground mt-2 text-xs">{expiryText(b.expiry)}</p>}
+        {expiry && <p className="text-muted-foreground mt-2 text-xs">{expiry}</p>}
         {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
         {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
       </CardContent>
@@ -1618,8 +1619,9 @@ export function Chat({
       ),
     [entries, now],
   )
-  const retry = useMemo(() => retryOf(entries), [entries])
-  const starts = offersStarts(bot, entries) && !older
+  // A device that may not send gets neither Retry nor the starts, as it gets no message box.
+  const retry = useMemo(() => (rights.send ? retryOf(entries) : null), [entries, rights.send])
+  const starts = status === "ready" && rights.send && offersStarts(bot, entries) && !older
   const fill = useRef<(text: string) => void>(null)
   const updateMedia = (botId: string, update: (media: PendingMedia[]) => PendingMedia[]) =>
     setPending((m) => new Map(m).set(botId, update(m.get(botId) ?? [])))
@@ -1695,7 +1697,7 @@ export function Chat({
               ))}
             </div>
           )}
-          {starts && rights.send && (
+          {starts && (
             <div className="flex flex-col gap-2 pl-9.5">
               {entries.length === 0 && (
                 <p className="text-sm">

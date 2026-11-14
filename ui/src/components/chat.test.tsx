@@ -1,10 +1,20 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, assert, test, vi } from "vitest"
 import type { ActivityBody, Bot, Entry } from "@/lib/api"
+import type { TranscriptStatus } from "@/lib/transcript"
 import { Chat, EntryView, MarkdownText } from "./chat.tsx"
+
+// session is what the server says of this browser; a test that needs a paired phone sets it.
+const session = vi.hoisted(() => ({ phone: false, scope: "chat+approve" }))
+vi.mock("@/lib/session", async (importOriginal) => {
+  const { rightsOf } = await import("@/lib/phones")
+  return { ...(await importOriginal<typeof import("@/lib/session")>()), useRights: () => rightsOf(session) }
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  session.phone = false
+  session.scope = "chat+approve"
 })
 
 test("an external link opens in a new tab and a relative link does not", () => {
@@ -278,10 +288,19 @@ test("a post's time is a time element that a focus or a hover opens the full dat
 })
 
 // chatPage renders a chat's page with its entries, at a window tall enough to render all rows.
-function chatPage(bot: Bot, entries: Entry[]) {
+function chatPage(bot: Bot, entries: Entry[], status: TranscriptStatus = "ready") {
   vi.stubGlobal("window", { innerHeight: 10_000, location: { origin: "http://localhost:4317" } })
-  return renderToStaticMarkup(<Chat bot={bot} entries={entries} mentionables={[]} />)
+  return renderToStaticMarkup(<Chat bot={bot} entries={entries} mentionables={[]} status={status} />)
 }
+
+test("Retry shows on the user's failed turn only on a device that may send", () => {
+  assert.match(chatPage(solo, [ask, failure]), /<button[^>]*>.*Retry<\/button>/)
+  session.phone = true
+  session.scope = "view"
+  const viewOnly = chatPage(solo, [ask, failure])
+  assert.include(viewOnly, failure.body.text ?? "", "the failure still shows")
+  assert.notInclude(viewOnly, "Retry")
+})
 
 test("a day separator stands above the first entry and where a new local day starts", () => {
   const day = 86_400_000
@@ -316,4 +335,25 @@ test("Builder's chat with no entries shows its intro with the starts; another em
   assert.include(other, ">Solo</p>")
   assert.include(other, "No messages yet.")
   assert.notInclude(other, "Writing studio")
+})
+
+test("Builder's empty chat shows the load state, not the starts, until the messages load", () => {
+  for (const [status, text] of [
+    ["loading", "Loading messages…"],
+    ["unloaded", "Loading messages…"],
+    ["failed", "load the messages."],
+  ] as const) {
+    const html = chatPage(builder, [], status)
+    assert.include(html, text, `status ${status}`)
+    assert.notInclude(html, "Writing studio", `status ${status}`)
+    assert.notInclude(html, "sets up bots", `status ${status}`)
+  }
+})
+
+test("Builder's empty chat on a view-only phone says No messages yet and offers no starts", () => {
+  session.phone = true
+  session.scope = "view"
+  const html = chatPage(builder, [])
+  assert.include(html, "No messages yet.")
+  assert.notInclude(html, "Writing studio")
 })

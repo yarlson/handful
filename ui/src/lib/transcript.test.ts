@@ -95,9 +95,9 @@ test("an event that is not a failure never offers Retry", () => {
   assert.isNull(retryOf([said("ask", "t1"), renamed]))
 })
 
-test("an expired approval says why it expired, and an old card says only Expired", () => {
+test("an expired approval says why it expired, and an old card has no line", () => {
   assert.equal(expiryText("limit"), "Expired: no answer within 4.5 minutes. Ask the bot to try again.")
   assert.equal(expiryText("turn-ended"), "Expired: the turn ended before you answered.")
   assert.equal(expiryText("restart"), "Expired: Handful restarted before you answered. Send your message again.")
-  assert.equal(expiryText(undefined), "Expired")
+  assert.isUndefined(expiryText(undefined))
 })

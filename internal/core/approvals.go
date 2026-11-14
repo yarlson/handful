@@ -25,7 +25,7 @@ const (
 const (
 	ExpiryLimit     = "limit"      // no answer within the approval timeout
 	ExpiryTurnEnded = "turn-ended" // the turn stopped or its request ended
-	ExpiryRestart   = "restart"    // the server restarted while the card waited
+	ExpiryRestart   = "restart"    // the server stopped or restarted while the card waited
 )
 
 var ErrApprovalClosed = errors.New("approval is no longer pending")
@@ -52,6 +52,8 @@ type approvalWaiters struct {
 	timeout time.Duration
 	mu      sync.Mutex
 	m       map[string]waiter // approval entry id -> waiter
+	// stopping is set when the server stops: every card that ends after it ends as a restart.
+	stopping bool
 }
 
 type waiter struct {
@@ -90,6 +92,27 @@ func (a *approvalWaiters) expireTurn(turnID string) {
 			w.ch <- ""
 		}
 	}
+}
+
+// stop ends every pending approval as the server stops.
+func (a *approvalWaiters) stop() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stopping = true
+	for id, w := range a.m {
+		delete(a.m, id)
+		w.ch <- ""
+	}
+}
+
+// endCause is the expiry cause of a card that its turn or its request ended.
+func (a *approvalWaiters) endCause() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.stopping {
+		return ExpiryRestart
+	}
+	return ExpiryTurnEnded
 }
 
 // ApprovalRequest is a bot's request to use a tool. The card goes to
@@ -152,11 +175,12 @@ func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (boo
 func (s *Service) awaitDecision(ctx context.Context, entryID string, ch chan string) (string, string) {
 	timer := time.NewTimer(s.approvals.timeout)
 	defer timer.Stop()
-	expiry := ExpiryTurnEnded
+	var expiry string
 	select {
 	case decision := <-ch:
-		return decision, ExpiryTurnEnded
+		return decision, s.approvals.endCause()
 	case <-ctx.Done():
+		expiry = s.approvals.endCause()
 	case <-timer.C:
 		expiry = ExpiryLimit
 	}
@@ -165,7 +189,22 @@ func (s *Service) awaitDecision(ctx context.Context, entryID string, ch chan str
 	if _, ok := s.approvals.take(entryID); ok {
 		return "", expiry
 	}
-	return <-ch, ExpiryTurnEnded
+	return <-ch, s.approvals.endCause()
+}
+
+// ServerContext returns the context of the server's turns and requests. It ends when ctx
+// ends, but first every pending approval expires as a restart, so that a card a stop
+// ends does not record its turn's end. Call the returned function when the server is done.
+func (s *Service) ServerContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopAfter := context.AfterFunc(ctx, func() {
+		s.approvals.stop()
+		cancel()
+	})
+	return work, func() {
+		stopAfter()
+		cancel()
+	}
 }
 
 // ExpireTurnApprovals ends the pending approvals of a turn that has stopped.

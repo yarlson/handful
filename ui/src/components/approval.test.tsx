@@ -104,7 +104,7 @@ test("a setup is only cancelled from a phone that may approve, and never created
   assert.notInclude(html, "Cancel this setup")
 })
 
-test("an expired approval or setup says why it expired, and an old card without a cause says Expired", () => {
+test("an expired approval or setup says why it expired, and an old card without a cause shows only its badge", () => {
   assert.include(
     card("expired", { expiry: "limit" }),
     "Expired: no answer within 4.5 minutes. Ask the bot to try again.",
@@ -114,6 +114,9 @@ test("an expired approval or setup says why it expired, and an old card without 
     card("expired", { expiry: "restart" }, "create_setup", setup),
     "Expired: Handful restarted before you answered. Send your message again.",
   )
-  assert.match(card("expired"), /<p[^>]*>Expired<\/p>/)
+  for (const old of [card("expired"), card("expired", {}, "create_setup", setup)]) {
+    assert.match(old, />expired</, "the badge says it expired")
+    assert.notInclude(old, "Expired")
+  }
   assert.notInclude(card("denied"), "Expired")
 })

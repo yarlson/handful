@@ -834,6 +834,36 @@ func TestApprovalDenyAndCancel(t *testing.T) {
 	}
 }
 
+func TestAServerStopExpiresAWaitingApprovalAsARestart(t *testing.T) {
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	events, unsubscribe := svc.Hub().Subscribe()
+	defer unsubscribe()
+	server, stopServer := context.WithCancel(context.Background())
+	work, endWork := svc.ServerContext(server)
+	defer endWork()
+
+	done := make(chan bool, 1)
+	go func() {
+		// The MCP library does not pass the server's cancel on to a tool call's context.
+		ok, _, _ := svc.RequestApproval(context.Background(), ApprovalRequest{BotID: bot.ID, TranscriptID: bot.ID, TurnID: "t", Tool: "Write", Input: json.RawMessage(`{}`)})
+		done <- ok
+	}()
+	for e := range events {
+		if e.Type == "entry" && e.Entry.Kind == KindApproval {
+			break
+		}
+	}
+	stopServer()
+	<-work.Done()
+	if <-done {
+		t.Fatal("approval at a server stop returned allowed; want denied")
+	}
+	if body := lastApproval(t, svc, bot.ID); body.Status != "expired" || body.Expiry != ExpiryRestart {
+		t.Fatalf("approval card after a server stop = %+v; want status expired, expiry %q", body, ExpiryRestart)
+	}
+}
+
 func TestExpireTurnApprovalsEndsPendingCardsOfThatTurnOnly(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)

@@ -244,3 +244,13 @@ test("a bot's usage comes from its usage route", async () => {
   await api.usage("b1")
   assert.deepEqual(calls, [{ method: "GET", url: "/api/bots/b1/usage", body: undefined }])
 })
+
+test("Stop turn posts to its own route, and Stop keeps its route", async () => {
+  const calls = stubFetch(200)
+  await api.stopTurn("b1")
+  await api.interrupt("b1")
+  assert.deepEqual(calls, [
+    { method: "POST", url: "/api/bots/b1/stop-turn", body: {} },
+    { method: "POST", url: "/api/bots/b1/interrupt", body: {} },
+  ])
+})

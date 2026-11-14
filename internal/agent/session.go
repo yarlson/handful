@@ -50,16 +50,18 @@ type session struct {
 	files    []string // MCP config and system prompt files of the process, removed when it exits
 	flags    runFlags // the model and effort the process started with
 	stdin    io.WriteCloser
+	writeMu  sync.Mutex // turns and stops write to stdin from their own goroutines
 	kill     context.CancelFunc
 	exited   chan struct{} // closed after the process exits and its turns are finished
 
 	// Guarded by Runner.mu.
-	open    bool                // stdin is open, so the session takes turns
-	stopped bool                // stopSession ended the process
-	silent  bool                // stopIfSilent ended the process
-	waking  bool                // a task turn runs
-	pending map[string]*command // turn id -> message on stdin that has not completed
-	tasks   []core.BackgroundTask
+	open        bool                // stdin is open, so the session takes turns
+	stopped     bool                // stopSession ended the process
+	silent      bool                // stopIfSilent ended the process
+	waking      bool                // a task turn runs
+	taskStopped bool                // StopTurn stopped the running task turn
+	pending     map[string]*command // turn id -> message on stdin that has not completed
+	tasks       []core.BackgroundTask
 	// busySince is when the process last became busy with a task turn or
 	// background tasks, for the update's list of running work.
 	busySince time.Time
@@ -122,7 +124,8 @@ type processStart struct {
 // sendCommand writes prompt to the claude process of key as the message of
 // turn t and waits until Claude Code completes it. When no process runs for
 // key, it starts one with startArgs, which receive the MCP token. Cancelling
-// ctx stops the process and its background tasks.
+// ctx stops the process and its background tasks; cancelling it with
+// errTurnStopped stops only the turn.
 func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, t core.Turn, prompt, skill string, flags runFlags, startArgs func(token string) (processStart, error)) (outcome, error) {
 	msg, err := userMessage(t.ID, prompt, skill)
 	if err != nil {
@@ -133,7 +136,7 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 	if err != nil {
 		return outcome{}, err
 	}
-	if _, err := s.stdin.Write(msg); err != nil {
+	if err := s.write(msg); err != nil {
 		r.stopSession(s)
 		<-c.done
 		return outcome{}, fmt.Errorf("send turn %s to claude: %w", t.ID, err)
@@ -142,9 +145,77 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 	case out := <-c.done:
 		return out, nil
 	case <-ctx.Done():
-		r.stopSession(s)
-		return <-c.done, nil
 	}
+	if errors.Is(context.Cause(ctx), errTurnStopped) {
+		return r.stopCommand(s, c), nil
+	}
+	r.stopSession(s)
+	return <-c.done, nil
+}
+
+// write sends one stream-json line to the process. A pipe keeps only short
+// writes whole, and turns and stops write from their own goroutines.
+func (s *session) write(line []byte) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.stdin.Write(line)
+	return err
+}
+
+// stopCommand stops only c's run, and c's message when it still waits in
+// Claude Code's queue. When the run does not end within stopWait, or the
+// interrupt cannot be sent, the process stops. It returns c's outcome. A
+// run that already ended gets no interrupt: Claude Code would apply it to
+// the next run and drop the messages queued behind that.
+func (r *Runner) stopCommand(s *session, c *command) outcome {
+	select {
+	case out := <-c.done:
+		return out
+	default:
+	}
+	if err := s.write(interruptMessage(c.turn.ID, true)); err != nil {
+		r.log.Warn("send interrupt to claude", "bot", s.key.botID, "turn", c.turn.ID, "err", err)
+		r.stopSession(s)
+		return <-c.done
+	}
+	timer := time.NewTimer(r.stopWait)
+	defer timer.Stop()
+	select {
+	case out := <-c.done:
+		return out
+	case <-timer.C:
+	}
+	r.log.Warn("claude did not stop the turn; stop the process", "bot", s.key.botID, "turn", c.turn.ID, "wait", r.stopWait)
+	r.stopSession(s)
+	return <-c.done
+}
+
+// stopTaskTurn stops only the running task turn of s; StopTurn marked it
+// taskStopped. Messages queued behind it stay, because they belong to other
+// turns, such as a board turn. When the run does not end within stopWait, or
+// the interrupt cannot be sent, the process stops.
+func (r *Runner) stopTaskTurn(s *session) {
+	if err := s.write(interruptMessage(s.claudeID, false)); err != nil {
+		r.log.Warn("send interrupt to claude", "bot", s.key.botID, "err", err)
+		r.stopSession(s)
+		return
+	}
+	r.wg.Go(func() {
+		timer := time.NewTimer(r.stopWait)
+		defer timer.Stop()
+		select {
+		case <-s.exited:
+			return
+		case <-timer.C:
+		}
+		r.mu.Lock()
+		running := s.waking && s.taskStopped
+		r.mu.Unlock()
+		if running {
+			r.log.Warn("claude did not stop the task turn; stop the process", "bot", s.key.botID, "wait", r.stopWait)
+			r.stopSession(s)
+		}
+	})
 }
 
 // claimSession puts c on the open session of key, or starts a session for it.
@@ -393,10 +464,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 			}
 			r.recordUsage(s, cur, ev)
 			if cur.cmd == nil {
-				status, errText := "done", ""
-				if isErr {
-					status, errText = "failed", cur.out.errorText()
-				}
+				status, errText := r.taskTurnEnd(s, cur, isErr)
 				endActivity(cur.act)
 				r.finishTask(s, cur, status, errText)
 				cur = nil
@@ -479,6 +547,21 @@ func (r *Runner) startTask(s *session) *activeTurn {
 	return &activeTurn{turn: t, act: r.recorder(s, t.ID)}
 }
 
+// taskTurnEnd is the status and error of task turn a, whose run ended with a result: an error
+// result after StopTurn is the user's stop, written to the chat here.
+func (r *Runner) taskTurnEnd(s *session, a *activeTurn, isErr bool) (string, string) {
+	if !isErr {
+		return "done", ""
+	}
+	r.mu.Lock()
+	stopped := s.taskStopped
+	r.mu.Unlock()
+	if stopped {
+		return r.recordInterrupt(context.Background(), a.turn, s.key.transcript(), errTurnStopped)
+	}
+	return "failed", a.out.errorText()
+}
+
 // finishTask records the end of a task turn: "done", "failed" or "interrupted". The caller
 // writes an interrupted turn's note, which says who stopped it.
 func (r *Runner) finishTask(s *session, a *activeTurn, status, errText string) {
@@ -500,7 +583,7 @@ func (r *Runner) finishTask(s *session, a *activeTurn, status, errText string) {
 	}
 	r.svc.ExpireTurnApprovals(a.turn.ID)
 	r.mu.Lock()
-	s.waking = false
+	s.waking, s.taskStopped = false, false
 	r.mu.Unlock()
 	r.publishState(s.key.botID, s.key.roomID)
 	r.signalDone()

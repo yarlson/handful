@@ -244,6 +244,8 @@ func TestEveryPhoneRouteNeedsASessionAndNoOtherRouteAnswers(t *testing.T) {
 				t.Errorf("phone route %s is not a route of the main listener", r.pattern)
 			}
 			method, path := concrete(r.pattern)
+			// More routes than the sessionless limit's burst: each request waits for its token.
+			f.advance(time.Minute / unpairedPerMin)
 			if rec := f.do(req{method: method, path: path, body: "{}"}); rec.Code != http.StatusUnauthorized {
 				t.Errorf("%s without a session: %d; want 401", r.pattern, rec.Code)
 			}

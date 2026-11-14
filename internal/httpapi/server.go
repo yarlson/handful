@@ -115,6 +115,7 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	mux.HandleFunc("POST /api/bots/{id}/messages", s.sendMessage)
 	mux.HandleFunc("GET /api/media/{name}", s.media)
 	mux.HandleFunc("POST /api/bots/{id}/interrupt", s.interrupt)
+	mux.HandleFunc("POST /api/bots/{id}/stop-turn", s.stopTurn)
 	mux.HandleFunc("POST /api/bots/{id}/clear", s.clearContext)
 	mux.HandleFunc("POST /api/bots/{id}/compact", s.compactContext)
 	mux.HandleFunc("POST /api/rooms", s.createRoom)
@@ -570,6 +571,12 @@ func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"stopped": stopped})
+}
+
+// stopTurn stops only the running turn of a bot's or a room's chat; background tasks and the
+// team's board go on.
+func (s *server) stopTurn(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"stopped": s.runner.StopTurn(r.PathValue("id"))})
 }
 
 // clearContext starts a fresh Claude context; the transcript stays.

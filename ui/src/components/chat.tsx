@@ -62,6 +62,7 @@ import {
   type Step,
 } from "@/lib/history"
 import { offeredSkills } from "@/lib/skills"
+import { escapeAction, turnStoppable } from "@/lib/escape"
 import { CREATE_SETUP, setupProposal, type SetupProposal } from "@/lib/setup"
 import { Badge } from "@/components/ui/badge"
 import { Button, touchArea } from "@/components/ui/button"
@@ -934,10 +935,36 @@ function Composer({
       setSending(false)
     }
   }
+  // stopping is true while the request to stop the turn is on its way, so that a second Escape
+  // or click sends none. The draft stays as it is.
+  const [stopping, setStopping] = useState(false)
+  const stopTurn = () => {
+    setStopping(true)
+    api
+      .stopTurn(bot.id)
+      .catch((e: Error) => setError(`Could not stop the turn: ${e.message}`))
+      .finally(() => setStopping(false))
+  }
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // keyCode 229 is a key an IME takes, in browsers that don't set isComposing on it.
     const composing = e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
     if (composing) return
+    if (e.key === "Escape") {
+      const action = escapeAction({
+        handled: e.nativeEvent.defaultPrevented,
+        menuOpen: open,
+        browsing: browse !== null,
+        answering: answering !== null,
+        running: bot.running,
+        stopping,
+      })
+      if (action) e.preventDefault()
+      if (action === "menu") setDismissedAt(query?.start ?? null)
+      else if (action === "browse" && browse) showStep(endBrowse(browse))
+      else if (action === "answer") onAnswer(null)
+      else if (action === "stop") stopTurn()
+      return
+    }
     if (open) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault()
@@ -948,11 +975,6 @@ function Composer({
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault()
         accept(suggestions[Math.min(active, suggestions.length - 1)])
-        return
-      }
-      if (e.key === "Escape") {
-        e.preventDefault()
-        setDismissedAt(query?.start ?? null)
         return
       }
     }
@@ -972,16 +994,6 @@ function Composer({
       const entries = browse?.entries ?? withStorage((store) => loadHistory(store, bot.id), [])
       const step = stepBrowse(browse, entries, text, move)
       if (step) showStep(step)
-      return
-    }
-    if (e.key === "Escape" && browse) {
-      e.preventDefault()
-      showStep(endBrowse(browse))
-      return
-    }
-    if (e.key === "Escape" && answering) {
-      e.preventDefault()
-      onAnswer(null)
       return
     }
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1027,13 +1039,33 @@ function Composer({
             ))}
           </ul>
         )}
-        {bot.tasks.length > 0 && (
+        {(bot.tasks.length > 0 || turnStoppable(bot)) && (
           <div className="text-muted-foreground flex items-center gap-1.5 px-2 pb-1.5 text-xs">
-            <TerminalSquare className="size-3.5 shrink-0" />
-            <Loader2 className="size-3 shrink-0 animate-spin" />
-            <span className="truncate" title={bot.tasks.map(taskLabel).join("\n")}>
-              In the background: {bot.tasks.map(taskLabel).join(" · ")}
-            </span>
+            {bot.tasks.length > 0 && (
+              <>
+                <TerminalSquare className="size-3.5 shrink-0" />
+                <Loader2 className="size-3 shrink-0 animate-spin" />
+                <span className="truncate" title={bot.tasks.map(taskLabel).join("\n")}>
+                  In the background: {bot.tasks.map(taskLabel).join(" · ")}
+                </span>
+              </>
+            )}
+            {turnStoppable(bot) && (
+              <Button
+                size="xs"
+                variant="outline"
+                className="text-foreground ml-auto"
+                title={
+                  bot.team
+                    ? "Stop only this turn; background tasks and the board go on (Esc)"
+                    : "Stop only this turn; background tasks go on (Esc)"
+                }
+                disabled={stopping}
+                onClick={stopTurn}
+              >
+                Stop turn
+              </Button>
+            )}
           </div>
         )}
         <div className="bg-background focus-within:ring-ring/50 rounded-xl border p-2 focus-within:ring-2">

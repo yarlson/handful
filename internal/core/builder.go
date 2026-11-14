@@ -56,8 +56,8 @@ func (s *Service) SeedBuilder(ctx context.Context) error {
 }
 
 func insertBuilder(ctx context.Context, q *db.Queries, id string, now int64) error {
-	if _, err := q.CreateBot(ctx, db.CreateBotParams{ID: id, Name: builderName, Instructions: builderInstructions, Kind: kindAgentBot, CreatedAt: now, UpdatedAt: now}); err != nil {
-		return fmt.Errorf("create %s: %w", builderName, err)
+	if _, err := insertAgentBot(ctx, q, db.CreateBotParams{ID: id, Name: builderName, Instructions: builderInstructions, CreatedAt: now, UpdatedAt: now}); err != nil {
+		return err
 	}
 	if err := q.SetBotRole(ctx, db.SetBotRoleParams{Role: RoleBuilder, ID: id}); err != nil {
 		return fmt.Errorf("mark %s as the builder: %w", builderName, err)

@@ -373,11 +373,11 @@ func removeDirs(dirs []string) error {
 func insertSetup(ctx context.Context, q *db.Queries, plan plannedSetup, now int64) ([]Bot, error) {
 	var created []Bot
 	for _, b := range plan.bots {
-		row, err := q.CreateBot(ctx, db.CreateBotParams{ID: b.ID, Name: b.Name, Instructions: b.Instructions, Kind: kindAgentBot, Model: b.Model, Effort: b.Effort, CreatedAt: now, UpdatedAt: now})
+		bot, err := insertAgentBot(ctx, q, db.CreateBotParams{ID: b.ID, Name: b.Name, Instructions: b.Instructions, Model: b.Model, Effort: b.Effort, CreatedAt: now, UpdatedAt: now})
 		if err != nil {
-			return nil, fmt.Errorf("create bot %q: %w", b.Name, err)
+			return nil, err
 		}
-		created = append(created, toBot(row))
+		created = append(created, bot)
 	}
 	for _, r := range plan.rooms {
 		room, err := insertRoom(ctx, q, r.id, r.name, r.purpose, r.members, r.team, now)

@@ -423,12 +423,13 @@ func (s *server) updateBot(w http.ResponseWriter, r *http.Request) {
 		Instructions *string `json:"instructions"`
 		Model        *string `json:"model"`
 		Effort       *string `json:"effort"`
+		Hue          *string `json:"hue"`
 	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	bot, err := s.svc.UpdateBotSettings(r.Context(), r.PathValue("id"), core.BotPatch{Name: in.Name, Instructions: in.Instructions, Model: in.Model, Effort: in.Effort})
+	bot, err := s.svc.UpdateBotSettings(r.Context(), r.PathValue("id"), core.BotPatch{Name: in.Name, Instructions: in.Instructions, Model: in.Model, Effort: in.Effort, Hue: in.Hue})
 	if err != nil {
 		s.fail(w, r, err)
 		return

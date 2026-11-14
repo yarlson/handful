@@ -245,6 +245,22 @@ func (q *Queries) AskAboutHandoff(ctx context.Context, arg AskAboutHandoffParams
 	return result.RowsAffected()
 }
 
+const assignLeastUsedHue = `-- name: AssignLeastUsedHue :one
+INSERT INTO bot_hues (bot_id, hue)
+SELECT ?1, h.name FROM hues h
+ORDER BY (SELECT COUNT(*) FROM bot_hues bh WHERE bh.hue = h.name), h.position
+LIMIT 1
+RETURNING hue
+`
+
+// Gives a bot the hue that the fewest bots have; a tie goes to the first hue in palette order.
+func (q *Queries) AssignLeastUsedHue(ctx context.Context, botID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, assignLeastUsedHue, botID)
+	var hue string
+	err := row.Scan(&hue)
+	return hue, err
+}
+
 const attachOffTaskTurn = `-- name: AttachOffTaskTurn :execrows
 UPDATE turns SET goal_id = ?1
 WHERE id = ?2 AND room_id = ?3 AND goal_id = '' AND board_role NOT IN ('lead', 'retro')
@@ -1014,6 +1030,17 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 	return i, err
 }
 
+const getBotHue = `-- name: GetBotHue :one
+SELECT hue FROM bot_hues WHERE bot_id = ?
+`
+
+func (q *Queries) GetBotHue(ctx context.Context, botID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getBotHue, botID)
+	var hue string
+	err := row.Scan(&hue)
+	return hue, err
+}
+
 const getEntry = `-- name: GetEntry :one
 SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries WHERE id = ?
 `
@@ -1370,6 +1397,17 @@ func (q *Queries) HasQueuedRoutineTurn(ctx context.Context, routineID string) (b
 	var queued bool
 	err := row.Scan(&queued)
 	return queued, err
+}
+
+const hueExists = `-- name: HueExists :one
+SELECT EXISTS (SELECT 1 FROM hues WHERE name = ?)
+`
+
+func (q *Queries) HueExists(ctx context.Context, name string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hueExists, name)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const insertArtifact = `-- name: InsertArtifact :one
@@ -2098,6 +2136,33 @@ func (q *Queries) ListArtifactTags(ctx context.Context, artifactID string) ([]st
 			return nil, err
 		}
 		items = append(items, tag)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBotHues = `-- name: ListBotHues :many
+SELECT bot_id, hue FROM bot_hues
+`
+
+func (q *Queries) ListBotHues(ctx context.Context) ([]BotHue, error) {
+	rows, err := q.db.QueryContext(ctx, listBotHues)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BotHue
+	for rows.Next() {
+		var i BotHue
+		if err := rows.Scan(&i.BotID, &i.Hue); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -4377,6 +4442,21 @@ func (q *Queries) SearchArtifacts(ctx context.Context, arg SearchArtifactsParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const setBotHue = `-- name: SetBotHue :exec
+INSERT INTO bot_hues (bot_id, hue) VALUES (?, ?)
+ON CONFLICT (bot_id) DO UPDATE SET hue = excluded.hue
+`
+
+type SetBotHueParams struct {
+	BotID string `json:"bot_id"`
+	Hue   string `json:"hue"`
+}
+
+func (q *Queries) SetBotHue(ctx context.Context, arg SetBotHueParams) error {
+	_, err := q.db.ExecContext(ctx, setBotHue, arg.BotID, arg.Hue)
+	return err
 }
 
 const setBotPosition = `-- name: SetBotPosition :exec

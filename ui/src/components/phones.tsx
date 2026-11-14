@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useLoad } from "@/components/bot-panel"
 import { copyLabel, useCopy } from "@/components/copy"
+import { useNow } from "@/components/now"
 import { api, type PairRequest, type PhoneAccess } from "@/lib/api"
 import {
   codeGroups,
@@ -22,6 +23,8 @@ import { cn } from "@/lib/utils"
 
 // EXAMPLE_HOST is the phone address the setup text shows before the user types one.
 const EXAMPLE_HOST = "phone.handful.dev"
+// A countdown ticks every second.
+const SECOND = 1000
 
 // Qr draws text as a QR code, dark on white in both color modes, so any camera reads it.
 export function Qr({ text, label }: { text: string; label: string }) {
@@ -252,7 +255,7 @@ export function Pairing({ phone, onChange }: { phone: PhoneAccess; onChange: () 
   const [error, setError] = useState<string | null>(null)
   // The code shows until it is used or ends, and P6 until the pause ends; the clock ticks for both.
   const locked = phone.pairing.lockedUntil ?? 0
-  const now = useNow(code !== null || locked > 0)
+  const now = useNow(code !== null || locked > 0 ? SECOND : null)
   const open = code !== null && now < (phone.pairing.codeExpiresAt ?? 0)
   if (now < locked) {
     return (
@@ -403,17 +406,6 @@ export function PhonesSection({ pairRev }: { pairRev: number }) {
   )
 }
 
-// useNow ticks every second while on is true, for a countdown.
-function useNow(on: boolean) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!on) return
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [on])
-  return now
-}
-
 // PairRequestLine is P4: a phone that waits for the user's decision, with its countdown.
 export function PairRequestLine({
   request,
@@ -424,7 +416,7 @@ export function PairRequestLine({
   onDecided: () => void
   className?: string
 }) {
-  const now = useNow(true)
+  const now = useNow(SECOND)
   const [error, setError] = useState<string | null>(null)
   const decide = (d: "allow" | "deny") =>
     void api.decidePairing(request.id, d).then(onDecided, (e: Error) => setError(e.message))
@@ -452,7 +444,7 @@ export function PairRequestLine({
 export function usePairRequest(pairRev: number, computer: boolean) {
   const phone = useLoad(() => (computer ? api.phone() : Promise.resolve(null)), `${pairRev}:${computer}`)
   const request = phone.data?.pairing.request ?? null
-  const now = useNow(request !== null)
+  const now = useNow(request !== null ? SECOND : null)
   const live = request && now < request.expiresAt ? request : null
   const waiting = live ? 1 : 0
   const told = useRef(0)

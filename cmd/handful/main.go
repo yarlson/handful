@@ -276,6 +276,9 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		return err
 	}
 
+	// Turns and requests end with work, after ctx, once the waiting approvals have expired as a restart.
+	work, endWork := svc.ServerContext(ctx)
+	defer endWork()
 	base := "http://" + ln.Addr().String()
 	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", MaxParallel: o.MaxParallel}, log)
 	assets, err := ui.Assets()
@@ -294,7 +297,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 		Handler:           httpapi.New(svc, runner, assets, log, apiOpts...),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Requests end with the server: event streams and pending approvals stop on shutdown.
-		BaseContext: func(net.Listener) context.Context { return ctx },
+		BaseContext: func(net.Listener) context.Context { return work },
 	}
 
 	// Before the runner: a taken phone address stops the server with nothing to wait for.
@@ -303,7 +306,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	}
 	defer phone.Stop()
 	runnerDone := make(chan struct{})
-	go func() { runner.Run(ctx); close(runnerDone) }()
+	go func() { runner.Run(work); close(runnerDone) }()
 	waitRestarts := restarts.watch(ctx, runner)
 	defer func() { stop(); waitRestarts() }()
 

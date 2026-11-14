@@ -33,17 +33,14 @@ import { SendTaskDialog } from "@/components/tasks"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 import { forgetHistory, withStorage } from "@/lib/history"
+import { dateTime } from "@/lib/dates"
+import { useNow } from "@/components/now"
 
-function when(ms: number | null) {
-  return ms
-    ? new Date(ms).toLocaleString([], {
-        weekday: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        month: "short",
-        day: "numeric",
-      })
-    : "—"
+// useWhen formats a time as a day and a time; its clock ticks each minute, so Today becomes
+// Yesterday after midnight.
+function useWhen() {
+  const now = useNow(60_000)
+  return (ms: number | null) => (ms ? dateTime(ms, now) : "—")
 }
 
 // useLoad fetches data and fetches it again whenever key changes. Only the
@@ -122,6 +119,7 @@ const scopeLabel: Record<Memory["scope"], string> = {
 }
 
 function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
+  const when = useWhen()
   const { data, error, reload, setError } = useLoad(() => api.memory(bot.id), `${bot.id}:${version}`)
   const remove = async (id: string) => {
     try {
@@ -151,7 +149,7 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
               </Badge>
               <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
               {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
-              <span className="text-muted-foreground text-xs">{new Date(m.createdAt).toLocaleDateString()}</span>
+              <span className="text-muted-foreground text-xs">{when(m.createdAt)}</span>
             </div>
           </div>
           <Button
@@ -170,6 +168,7 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
 }
 
 function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
+  const when = useWhen()
   const { data, error, reload, setError } = useLoad(() => api.routines(bot.id), `${bot.id}:${version}`)
   const act = async (f: () => Promise<unknown>) => {
     try {
@@ -282,6 +281,7 @@ function SkillsTab({ version }: { version: number }) {
 // ArtifactsTab lists the documents that all bots share. Bots write them; the
 // user reads and deletes them here.
 function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: number; teams: Bot[] }) {
+  const when = useWhen()
   // handing is the artifact the user hands to a team.
   const [handing, setHanding] = useState<string | null>(null)
   const [kind, setKind] = useState("")

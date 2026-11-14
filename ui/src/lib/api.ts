@@ -84,7 +84,13 @@ export type ActivityBody = {
   status: "running" | "done" | "error"
   subagent: boolean
   output?: string
+  diff?: ActivityDiff // Edit and Write; absent on older entries
 }
+// ActivityDiff is what an Edit or Write call changed. A truncated diff was too large to store and
+// has only its counts.
+export type ActivityDiff = { added: number; removed: number; truncated?: boolean; hunks?: DiffHunk[] }
+// DiffHunk is one hunk of a unified diff. Each line starts with " ", "-", "+" or "\".
+export type DiffHunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }
 export type ApprovalBody = {
   bot?: string
   botId?: string

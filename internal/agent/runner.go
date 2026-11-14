@@ -1274,6 +1274,9 @@ type activityBody struct {
 	Status   string `json:"status"` // running, done, error
 	Subagent bool   `json:"subagent"`
 	Output   string `json:"output,omitempty"`
+	// Diff is what an Edit or Write call changed; absent for other tools, for older entries and
+	// when the result could not be matched to one call.
+	Diff *activityDiff `json:"diff,omitempty"`
 }
 
 func newActivityRecorder(svc *core.Service, botID, turnID string, log *slog.Logger) *activityRecorder {
@@ -1326,6 +1329,7 @@ func (a *activityRecorder) toolResults(ctx context.Context, ev streamEvent) {
 	if ev.Message == nil {
 		return
 	}
+	only := onlyResult(ev)
 	for _, b := range ev.Message.Content {
 		body, ok := a.entries[b.ToolUseID]
 		if b.Type != "tool_result" || !ok {
@@ -1334,6 +1338,9 @@ func (a *activityRecorder) toolResults(ctx context.Context, ev streamEvent) {
 		body.Status, body.Output = "done", truncate(toolResultText(b.Content), maxActivityText)
 		if b.IsError {
 			body.Status = "error"
+		}
+		if b.ToolUseID == only && editsFile(body.Tool) {
+			body.Diff = changeDiff(ev.ToolUseResult)
 		}
 		a.update(ctx, b.ToolUseID, body)
 	}

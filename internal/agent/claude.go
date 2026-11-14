@@ -216,7 +216,8 @@ type streamEvent struct {
 	SessionID       string           `json:"session_id"`
 	ParentToolUseID *string          `json:"parent_tool_use_id"`
 	Message         *streamMessage   `json:"message"`
-	Usage           *tokenUsage      `json:"usage"` // result: the turn's tokens
+	ToolUseResult   json.RawMessage  `json:"tool_use_result"` // user: the result of the event's tool call, in the tool's own shape
+	Usage           *tokenUsage      `json:"usage"`           // result: the turn's tokens
 	Result          string           `json:"result"`
 	IsError         bool             `json:"is_error"`
 	Errors          json.RawMessage  `json:"errors"`

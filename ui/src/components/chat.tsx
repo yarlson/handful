@@ -28,7 +28,9 @@ import {
   Play,
   RotateCw,
   SmilePlus,
+  ShieldCheck,
   ShieldQuestion,
+  ShieldX,
   Sparkles,
   Square,
   TerminalSquare,
@@ -72,6 +74,10 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { CodeBlock, CopyIcon, onMuted, TableBlock } from "@/components/code-block"
+import { DiffCounts, DiffView } from "@/components/diff"
+import { codeLanguage, codeText } from "@/lib/code-block"
+import { changeLines, diffLines } from "@/lib/diff"
+import { decisionLabel, fieldsOf, inputFields, toolTarget } from "@/lib/approval"
 import { copyLabel, useCopy } from "@/components/copy"
 import { BotDot } from "@/components/bot-dot"
 import { useNow } from "@/components/now"
@@ -85,7 +91,7 @@ import { AnswerChip, goTo, QuestionStrip } from "@/components/questions"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 import { emptyText, expiryText, retryOf, type TranscriptStatus } from "@/lib/transcript"
-import { daySeparators } from "@/lib/dates"
+import { clock, daySeparators, fullDate } from "@/lib/dates"
 import { offersStarts, STARTS } from "@/lib/starts"
 import { Stamp } from "@/components/stamp"
 import { fits, rangeOf, RowHeights, rowOffsets, rowsFor, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
@@ -98,7 +104,11 @@ const MINUTE = 60_000
 // image from another site doesn't load: it shows as a link to it, which the
 // user can open. Code blocks and tables get Copy.
 const markdownComponents: Components = {
-  pre: ({ node, children }) => <CodeBlock node={node}>{children}</CodeBlock>,
+  pre: ({ node, children }) => (
+    <CodeBlock code={node ? codeText(node) : ""} language={node ? codeLanguage(node) : ""}>
+      {children}
+    </CodeBlock>
+  ),
   table: ({ node, children }) => <TableBlock node={node}>{children}</TableBlock>,
   img: ({ node: _node, src, alt, ...props }) => {
     const url = typeof src === "string" ? src : undefined
@@ -155,16 +165,17 @@ function ActivityRow({
 }) {
   const b = entry.body
   const botColor = useBotColor()
+  const content = Boolean(b.output || b.diff)
   return (
     <div className={cn("text-muted-foreground text-xs", b.subagent && "ml-5")}>
       <button
         type="button"
         className={cn(touchArea, "hover:text-foreground flex w-full items-center gap-1.5 text-left")}
         onClick={() => onToggle(entry.id)}
-        disabled={!b.output}
+        disabled={!content}
       >
         <ChevronRight
-          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90", !b.output && "opacity-0")}
+          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90", !content && "opacity-0")}
         />
         {b.status === "running" ? (
           <Loader2 className="size-3.5 shrink-0 animate-spin" />
@@ -176,8 +187,19 @@ function ActivityRow({
         {b.bot && <span className={cn("shrink-0 font-medium", botColor(colorId(b, chat)).text)}>{b.bot}</span>}
         <span className="text-foreground/80 shrink-0 font-medium">{b.subagent ? `↳ ${b.tool}` : b.tool}</span>
         <span className="truncate font-mono">{b.summary}</span>
+        {b.diff && <DiffCounts diff={b.diff} />}
       </button>
-      {open && b.output && <ToolOutput output={b.output} />}
+      {open && b.diff ? (
+        <div className="mt-1 ml-5">
+          {b.diff.hunks ? (
+            <DiffView lines={diffLines(b.diff.hunks)} numbers />
+          ) : (
+            <p className="bg-muted text-foreground/70 rounded-md p-2">Diff too large to show</p>
+          )}
+        </div>
+      ) : (
+        open && b.output && <ToolOutput output={b.output} />
+      )}
     </div>
   )
 }
@@ -210,7 +232,19 @@ function ToolOutput({ output }: { output: string }) {
 // any narrow window.
 const phoneButton = (phone: boolean) => (phone ? "h-11 flex-1" : "max-md:h-11 max-md:flex-1")
 
-function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }) {
+// ApprovalCard is a tool approval. Once answered, it folds to one line: the tool, its target, the
+// decision and the time. Its chat keeps whether it is open, as for a tool run.
+function ApprovalCard({
+  entry,
+  chat,
+  open,
+  onToggle,
+}: {
+  entry: Extract<Entry, { kind: "approval" }>
+  chat: ChatInfo
+  open: boolean
+  onToggle: (entryId: string) => void
+}) {
   const [busy, setBusy] = useState(false)
   // A paired phone may allow one call or deny it, never widen what a bot may do; one paired for
   // View or Chat only reads the card.
@@ -271,56 +305,169 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
       </Card>
     )
   }
-  const input = typeof b.input === "object" && b.input !== null ? (b.input as Record<string, unknown>) : {}
-  const command = typeof input.command === "string" ? input.command : JSON.stringify(b.input, null, 2)
+  const answered = b.status !== "pending"
   return (
-    <Card size="sm" className="max-w-xl">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <ShieldQuestion className="size-4" /> {b.bot ? `Allow ${b.bot} to use ${b.tool}?` : `Allow ${b.tool}?`}
-          {b.status !== "pending" && (
-            <Badge variant={b.status === "allowed" ? "secondary" : "outline"} className="ml-auto">
-              {b.status === "allowed" ? (b.decision === "always" ? "always allowed" : "allowed") : b.status}
-            </Badge>
+    <div>
+      {answered && <ApprovalLine entry={entry} chat={chat} open={open} onToggle={onToggle} />}
+      {(!answered || open) && (
+        <Card size="sm" className={cn("max-w-xl", answered && "mt-1")}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ShieldQuestion className="size-4" /> {b.bot ? `Allow ${b.bot} to use ${b.tool}?` : `Allow ${b.tool}?`}
+              {b.status !== "pending" && (
+                <Badge variant={b.status === "allowed" ? "secondary" : "outline"} className="ml-auto">
+                  {decisionLabel(b)}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ApprovalInput tool={b.tool} input={b.input} />
+            {expiry && <p className="text-muted-foreground mt-2 text-xs">{expiry}</p>}
+            {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
+            {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
+          </CardContent>
+          {b.status === "pending" && rights.approve && (
+            <CardFooter className="gap-2 max-md:flex-wrap">
+              <Button size="sm" className={phoneButton(phone)} disabled={busy} onClick={() => void decide("once")}>
+                <Check /> Allow once
+              </Button>
+              {!phone && (
+                <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide("always")}>
+                  Always allow {b.tool}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={phone ? "outline" : "ghost"}
+                className={phoneButton(phone)}
+                disabled={busy}
+                onClick={() => void decide("deny")}
+              >
+                Deny
+              </Button>
+              {phone && (
+                <p className="text-muted-foreground flex w-full items-center gap-1.5 text-xs">
+                  <Lock className="size-3.5 shrink-0" aria-hidden />
+                  {ALWAYS_ON_COMPUTER}
+                </p>
+              )}
+            </CardFooter>
           )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <pre className="bg-muted max-h-48 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
-          {command}
-        </pre>
-        {expiry && <p className="text-muted-foreground mt-2 text-xs">{expiry}</p>}
-        {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
-        {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
-      </CardContent>
-      {b.status === "pending" && rights.approve && (
-        <CardFooter className="gap-2 max-md:flex-wrap">
-          <Button size="sm" className={phoneButton(phone)} disabled={busy} onClick={() => void decide("once")}>
-            <Check /> Allow once
-          </Button>
-          {!phone && (
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide("always")}>
-              Always allow {b.tool}
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant={phone ? "outline" : "ghost"}
-            className={phoneButton(phone)}
-            disabled={busy}
-            onClick={() => void decide("deny")}
-          >
-            Deny
-          </Button>
-          {phone && (
-            <p className="text-muted-foreground flex w-full items-center gap-1.5 text-xs">
-              <Lock className="size-3.5 shrink-0" aria-hidden />
-              {ALWAYS_ON_COMPUTER}
-            </p>
-          )}
-        </CardFooter>
+        </Card>
       )}
-    </Card>
+    </div>
+  )
+}
+
+// ApprovalLine is an answered approval folded to one line; a click opens or folds its card.
+function ApprovalLine({
+  entry,
+  chat,
+  open,
+  onToggle,
+}: {
+  entry: Extract<Entry, { kind: "approval" }>
+  chat: ChatInfo
+  open: boolean
+  onToggle: (entryId: string) => void
+}) {
+  const b = entry.body
+  const botColor = useBotColor()
+  const Mark = b.status === "allowed" ? ShieldCheck : ShieldX
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      className={cn(
+        touchArea,
+        "text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 text-left text-xs",
+      )}
+      onClick={() => onToggle(entry.id)}
+    >
+      <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+      <Mark className="size-3.5 shrink-0" />
+      {b.bot && <span className={cn("shrink-0 font-medium", botColor(colorId(b, chat)).text)}>{b.bot}</span>}
+      <span className="text-foreground/80 shrink-0 font-medium">{b.tool}</span>
+      <span className="min-w-0 truncate font-mono">{toolTarget(b.input)}</span>
+      <span className="ml-auto shrink-0">{decisionLabel(b)}</span>
+      <time
+        className="shrink-0 whitespace-nowrap"
+        dateTime={new Date(entry.createdAt).toISOString()}
+        title={fullDate(entry.createdAt)}
+      >
+        {clock(entry.createdAt)}
+      </time>
+    </button>
+  )
+}
+
+// ApprovalInput shows what a tool call will do: an Edit as a diff, a Write as added lines, a
+// Bash command as code with Copy, and any other input as names and values.
+function ApprovalInput({ tool, input }: { tool: string; input: unknown }) {
+  const fields = fieldsOf(input) ?? {}
+  const text = (key: string) => (typeof fields[key] === "string" ? fields[key] : undefined)
+  const path = text("file_path")
+  const command = text("command")
+  const before = text("old_string")
+  const after = text("new_string")
+  const content = text("content")
+  if (tool === "Edit" && path !== undefined && before !== undefined && after !== undefined) {
+    return (
+      <div className="space-y-2">
+        <FilePath path={path}>{fields.replace_all === true && <Badge variant="outline">All matches</Badge>}</FilePath>
+        <DiffView lines={changeLines(before, after)} />
+      </div>
+    )
+  }
+  if (tool === "Write" && path !== undefined && content !== undefined) {
+    return (
+      <div className="space-y-2">
+        <FilePath path={path} />
+        <DiffView lines={changeLines("", content)} />
+      </div>
+    )
+  }
+  if (tool === "Bash" && command !== undefined) {
+    const description = text("description")
+    return (
+      <div className="space-y-2">
+        {description && <p className="text-muted-foreground text-xs">{description}</p>}
+        <PlainCode code={command} language="bash" />
+      </div>
+    )
+  }
+  return (
+    <dl className="space-y-1.5 text-xs">
+      {inputFields(input).map((f) => (
+        <div key={f.name} className={cn(!f.block && "flex gap-2")}>
+          <dt className="text-muted-foreground shrink-0 font-mono">{f.name}</dt>
+          <dd className={cn("min-w-0", f.block ? "mt-1" : "font-mono [overflow-wrap:anywhere]")}>
+            {f.block ? <PlainCode code={f.value} language="" /> : f.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function FilePath({ path, children }: { path: string; children?: ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 text-xs">
+      <span className="min-w-0 font-mono [overflow-wrap:anywhere]">{path}</span>
+      {children}
+    </p>
+  )
+}
+
+// PlainCode is text in a code block with Wrap and Copy, styled as in a post.
+function PlainCode({ code, language }: { code: string; language: string }) {
+  return (
+    <div className="markdown text-xs">
+      <CodeBlock code={code} language={language}>
+        <code>{code}</code>
+      </CodeBlock>
+    </div>
   )
 }
 
@@ -740,7 +887,7 @@ export function EntryView({
     case "activity":
       return <ActivityRow entry={entry} chat={chat} open={expanded} onToggle={onExpand} />
     case "approval":
-      return <ApprovalCard entry={entry} />
+      return <ApprovalCard entry={entry} chat={chat} open={expanded} onToggle={onExpand} />
     case "event":
       return <EventLine entry={entry} chatId={chat.id} retry={retry} />
     case "agent":

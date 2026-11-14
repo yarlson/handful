@@ -104,7 +104,7 @@ export function useUpdate(): { state: UpdaterState | null; actions: Bridge } {
 
 const toneClass = {
   accent: "bg-info/10 text-info-foreground ring-info/30",
-  solid: "bg-info text-background ring-transparent hover:bg-info/90",
+  solid: "bg-info text-background ring-transparent hover:bg-info-foreground",
   neutral: "bg-popover text-foreground ring-foreground/10 dark:ring-foreground/15",
   warning: "bg-attention-surface text-attention-foreground ring-attention/30",
 }

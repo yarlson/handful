@@ -107,23 +107,20 @@ test("a setup is only cancelled from a phone that may approve, and never created
   assert.notInclude(html, "Cancel this setup")
 })
 
-test("an opened expired approval or a setup says why it expired, and an old card without a cause shows only its badge", () => {
+test("an expired approval or a setup stays full, with no fold line, and says why it expired; an old card without a cause shows only its badge", () => {
+  const limit = card("expired", { expiry: "limit" }, "Edit", { file_path: "/x" })
+  assert.include(limit, "Expired: no answer within 4.5 minutes. Ask the bot to try again.")
+  assert.include(limit, "Allow Edit?")
+  assert.notInclude(limit, "aria-expanded=", "no fold line")
   assert.include(
-    card("expired", { expiry: "limit" }, "Edit", { file_path: "/x" }, true),
-    "Expired: no answer within 4.5 minutes. Ask the bot to try again.",
-  )
-  assert.include(
-    card("expired", { expiry: "turn-ended" }, "Edit", { file_path: "/x" }, true),
+    card("expired", { expiry: "turn-ended" }, "Edit", { file_path: "/x" }),
     "Expired: the turn ended before you answered.",
   )
   assert.include(
     card("expired", { expiry: "restart" }, "create_setup", setup),
     "Expired: Handful restarted before you answered. Send your message again.",
   )
-  for (const old of [
-    card("expired", {}, "Edit", { file_path: "/x" }, true),
-    card("expired", {}, "create_setup", setup),
-  ]) {
+  for (const old of [card("expired", {}, "Edit", { file_path: "/x" }), card("expired", {}, "create_setup", setup)]) {
     assert.match(old, />expired</, "the badge says it expired")
     assert.notInclude(old, "Expired")
   }
@@ -137,7 +134,6 @@ test("an answered approval folds to one line: the tool, its target, the decision
     ["allowed", { decision: "once" }, "allowed"],
     ["allowed", { decision: "always" }, "always allowed"],
     ["denied", { decision: "deny" }, "denied"],
-    ["expired", {}, "expired"],
   ] as const) {
     const html = card(status as "allowed", extra, "Bash", { command: "make check\nmake crap" })
     assert.match(

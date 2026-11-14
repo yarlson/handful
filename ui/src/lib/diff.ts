@@ -45,13 +45,17 @@ export function diffLines(hunks: DiffHunk[]): DiffLine[] {
   })
 }
 
-// linesOf splits text into lines; the newline that ends the last line starts no new one.
+// linesOf splits text into lines, each with the newline that ends it, so a last line without a
+// newline differs from the same text with one.
 function linesOf(text: string): string[] {
-  return text === "" ? [] : text.replace(/\n$/, "").split("\n")
+  return text === "" ? [] : text.split(/(?<=\n)/)
 }
 
+const noNewline: DiffLine = { kind: "note", text: "No newline at end of file" }
+
 // changeLines is the diff that replacing before with after makes, without line numbers: the
-// lines both share at the start and the end are context, the rest is removed and added.
+// lines both share at the start and the end are context, the rest is removed and added. When
+// only one side ends with a newline, the other side's changed lines end with a note.
 export function changeLines(before: string, after: string): DiffLine[] {
   const a = linesOf(before)
   const b = linesOf(after)
@@ -60,11 +64,20 @@ export function changeLines(before: string, after: string): DiffLine[] {
   while (start < a.length && a[start] === b[start]) start++
   let end = 0
   while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++
-  const context = (text: string): DiffLine => ({ kind: "context", text })
+  // A line holds at most one newline, at its end.
+  const line =
+    (kind: "context" | "add" | "remove") =>
+    (text: string): DiffLine => ({ kind, text: text.replace("\n", "") })
+  // The last line of a side without the final newline never matches a line of the other side,
+  // so it is the last of that side's changed lines.
+  const note = (text: string) =>
+    before.endsWith("\n") !== after.endsWith("\n") && text !== "" && !text.endsWith("\n") ? [noNewline] : []
   return [
-    ...a.slice(0, start).map(context),
-    ...a.slice(start, a.length - end).map((text): DiffLine => ({ kind: "remove", text })),
-    ...b.slice(start, b.length - end).map((text): DiffLine => ({ kind: "add", text })),
-    ...a.slice(a.length - end).map(context),
+    ...a.slice(0, start).map(line("context")),
+    ...a.slice(start, a.length - end).map(line("remove")),
+    ...note(before),
+    ...b.slice(start, b.length - end).map(line("add")),
+    ...note(after),
+    ...a.slice(a.length - end).map(line("context")),
   ]
 }

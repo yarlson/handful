@@ -60,9 +60,18 @@ test("an edit keeps the lines both sides share at the start and the end as conte
 })
 
 test("a line that matches both the start and the end counts once", () => {
-  assert.deepEqual(changeLines("x\nx", "x"), [c("x"), r("x")])
-  assert.deepEqual(changeLines("x", "x\nx"), [c("x"), a("x")])
+  assert.deepEqual(changeLines("x\nx\n", "x\n"), [c("x"), r("x")])
+  assert.deepEqual(changeLines("x\n", "x\nx\n"), [c("x"), a("x")])
   assert.deepEqual(changeLines("a\na\na", "a\na\na"), [c("a"), c("a"), c("a")])
+})
+
+const noNewline = { kind: "note", text: "No newline at end of file" }
+
+test("a change of only the final newline shows the last line changed, with a note on the side without it", () => {
+  assert.deepEqual(changeLines("x\n", "x"), [r("x"), a("x"), noNewline])
+  assert.deepEqual(changeLines("x", "x\n"), [r("x"), noNewline, a("x")])
+  assert.deepEqual(changeLines("a\nb", "a\nc\n"), [c("a"), r("b"), noNewline, a("c")])
+  assert.deepEqual(changeLines("x\nx", "x"), [r("x"), c("x")])
 })
 
 test("new content is all added lines; the newline that ends it starts no line", () => {

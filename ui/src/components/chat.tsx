@@ -305,7 +305,7 @@ function ApprovalCard({
       </Card>
     )
   }
-  const answered = b.status !== "pending"
+  const answered = b.status === "allowed" || b.status === "denied"
   return (
     <div>
       {answered && <ApprovalLine entry={entry} chat={chat} open={open} onToggle={onToggle} />}

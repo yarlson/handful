@@ -882,7 +882,11 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
   const incoming = b.direction === "in"
   const botColor = useBotColor()
   return (
-    <div className={cn("group/message flex flex-col", incoming ? "items-start" : "items-end")}>
+    <div
+      id={`entry-${entry.id}`}
+      tabIndex={-1}
+      className={cn("group/message flex flex-col rounded-md outline-none", incoming ? "items-start" : "items-end")}
+    >
       <Card size="sm" className="max-w-[75%] gap-0 px-3.5 py-2">
         <div className="text-muted-foreground mb-1 flex items-center gap-1.5 text-xs">
           {incoming ? <ArrowDownLeft className="size-3.5" /> : <ArrowUpRight className="size-3.5" />}
@@ -923,7 +927,11 @@ export function EntryView({
     case "user": {
       const skills = entry.body.text ? namedSkills(entry.body.text, skillIds) : []
       return (
-        <div className="group/message flex flex-col items-end">
+        <div
+          id={`entry-${entry.id}`}
+          tabIndex={-1}
+          className="group/message flex flex-col items-end rounded-md outline-none"
+        >
           {skills.length > 0 && (
             <div className="mb-1 flex flex-wrap justify-end gap-1">
               {skills.map((id) => (
@@ -958,8 +966,8 @@ export function EntryView({
       const asked = questionOf(entry.id, entry.body)
       return (
         <div
-          id={qState ? `entry-${entry.id}` : undefined}
-          tabIndex={qState ? -1 : undefined}
+          id={`entry-${entry.id}`}
+          tabIndex={-1}
           className={cn(
             "group/message flex max-w-[85%] gap-2.5 rounded-md outline-none",
             open && "border-attention rounded-l-none border-l-2 pl-2",

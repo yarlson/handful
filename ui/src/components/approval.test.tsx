@@ -30,6 +30,7 @@ const card = (
   extra: object = {},
   tool = "Edit",
   input: unknown = { file_path: "/x" },
+  expanded = false,
 ) =>
   renderToStaticMarkup(
     <EntryView
@@ -47,6 +48,7 @@ const card = (
       }
       chat={chat}
       skillIds={[]}
+      expanded={expanded}
     />,
   )
 
@@ -85,10 +87,11 @@ test("a phone paired for Chat or View reads an approval but has no buttons for i
   }
 })
 
-test("a phone's decision shows on the card with the phone's name (P7)", () => {
-  assert.include(card("allowed", { decision: "once", decidedOn: "Pixel 8" }), "Approved once from Pixel 8.")
-  assert.include(card("denied", { decision: "deny", decidedOn: "Pixel 8" }), "Denied from Pixel 8.")
-  assert.notInclude(card("allowed", { decision: "always" }), " from ")
+test("a phone's decision shows on the opened card with the phone's name (P7)", () => {
+  const opened = (status: "allowed" | "denied", extra: object) => card(status, extra, "Edit", { file_path: "/x" }, true)
+  assert.include(opened("allowed", { decision: "once", decidedOn: "Pixel 8" }), "Approved once from Pixel 8.")
+  assert.include(opened("denied", { decision: "deny", decidedOn: "Pixel 8" }), "Denied from Pixel 8.")
+  assert.notInclude(opened("allowed", { decision: "always" }), " from ")
 })
 
 const setup = { bots: [{ name: "Ann", instructions: "y" }], teams: [], rooms: [] }
@@ -104,19 +107,102 @@ test("a setup is only cancelled from a phone that may approve, and never created
   assert.notInclude(html, "Cancel this setup")
 })
 
-test("an expired approval or setup says why it expired, and an old card without a cause shows only its badge", () => {
+test("an expired approval or a setup stays full, with no fold line, and says why it expired; an old card without a cause shows only its badge", () => {
+  const limit = card("expired", { expiry: "limit" }, "Edit", { file_path: "/x" })
+  assert.include(limit, "Expired: no answer within 4.5 minutes. Ask the bot to try again.")
+  assert.include(limit, "Allow Edit?")
+  assert.notInclude(limit, "aria-expanded=", "no fold line")
   assert.include(
-    card("expired", { expiry: "limit" }),
-    "Expired: no answer within 4.5 minutes. Ask the bot to try again.",
+    card("expired", { expiry: "turn-ended" }, "Edit", { file_path: "/x" }),
+    "Expired: the turn ended before you answered.",
   )
-  assert.include(card("expired", { expiry: "turn-ended" }), "Expired: the turn ended before you answered.")
   assert.include(
     card("expired", { expiry: "restart" }, "create_setup", setup),
     "Expired: Handful restarted before you answered. Send your message again.",
   )
-  for (const old of [card("expired"), card("expired", {}, "create_setup", setup)]) {
+  for (const old of [card("expired", {}, "Edit", { file_path: "/x" }), card("expired", {}, "create_setup", setup)]) {
     assert.match(old, />expired</, "the badge says it expired")
     assert.notInclude(old, "Expired")
   }
-  assert.notInclude(card("denied"), "Expired")
+  assert.notInclude(card("denied", {}, "Edit", { file_path: "/x" }, true), "Expired")
+})
+
+const at = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(0)
+
+test("an answered approval folds to one line: the tool, its target, the decision and the time", () => {
+  for (const [status, extra, label] of [
+    ["allowed", { decision: "once" }, "allowed"],
+    ["allowed", { decision: "always" }, "always allowed"],
+    ["denied", { decision: "deny" }, "denied"],
+  ] as const) {
+    const html = card(status as "allowed", extra, "Bash", { command: "make check\nmake crap" })
+    assert.match(
+      html,
+      new RegExp(
+        `^<div><button type="button" aria-expanded="false".*>Bash</span>.*>make check</span>.*>${label}</span>.*>${at}</time></button></div>$`,
+      ),
+      label,
+    )
+    assert.notInclude(html, "Allow Bash?", label)
+    assert.notInclude(html, "make crap", label)
+  }
+})
+
+test("a click opens an answered approval's full card; a pending card is full and has no fold line", () => {
+  const opened = card("allowed", { decision: "once" }, "Bash", { command: "make check" }, true)
+  assert.include(opened, 'aria-expanded="true"')
+  assert.include(opened, "Allow Bash?")
+  assert.include(opened, ">allowed</span>")
+  const pending = card("pending", {}, "Bash", { command: "make check" })
+  assert.notInclude(pending, 'aria-expanded="')
+  assert.include(pending, "Allow Bash?")
+  assert.include(pending, "Allow once")
+})
+
+// diffRows are the rendered diff's line rows: their colour and their text.
+const diffRows = (html: string) =>
+  [...html.matchAll(/<tr class="([^"]*)">(?:<td[^>]*>[^<]*<\/td>)*?<td class="pr-2[^"]*">([^<]*)<\/td><\/tr>/g)].map(
+    ([, tone, text]) => `${tone.includes("success") ? "+" : tone.includes("destructive") ? "-" : " "}${text}`,
+  )
+
+test("an Edit approval shows the file and a diff of the change, without line numbers", () => {
+  const html = card("pending", {}, "Edit", {
+    file_path: "/w/a.txt",
+    old_string: "one\ntwo\nend",
+    new_string: "one\nTWO\nend",
+  })
+  assert.include(html, ">/w/a.txt</span>")
+  assert.deepEqual(diffRows(html), [" one", "-two", "+TWO", " end"])
+  assert.notInclude(html, "text-right", "no line numbers")
+  assert.notInclude(html, "All matches")
+  assert.notInclude(html, "old_string")
+  const all = card("pending", {}, "Edit", {
+    file_path: "/w/a.txt",
+    old_string: "a",
+    new_string: "b",
+    replace_all: true,
+  })
+  assert.include(all, ">All matches</span>")
+})
+
+test("a Write approval shows the file and its content as added lines", () => {
+  const html = card("pending", {}, "Write", { file_path: "/w/c.txt", content: "alpha\nbeta\n" })
+  assert.include(html, ">/w/c.txt</span>")
+  assert.deepEqual(diffRows(html), ["+alpha", "+beta"])
+})
+
+test("a Bash approval shows its description and the command in a code block with Copy", () => {
+  const html = card("pending", {}, "Bash", { command: "make check", description: "Run the checks" })
+  assert.include(html, ">Run the checks</p>")
+  assert.match(html, />bash<\/span>.*Copy.*<pre[^>]*><code>make check<\/code><\/pre>/)
+  assert.notInclude(card("pending", {}, "Bash", { command: "ls" }), '<p class="text-muted-foreground text-xs">')
+})
+
+test("another tool's input is a list of names and values; a multi-line value is in a code block", () => {
+  const html = card("pending", {}, "mcp__mail__send", { to: "Ann", body: "line one\nline two" })
+  assert.match(html, /<dt[^>]*>to<\/dt><dd[^>]*>Ann<\/dd>/)
+  assert.match(html, /<dt[^>]*>body<\/dt><dd[^>]*>.*Copy.*<code>line one\nline two<\/code>.*<\/dd>/s)
+  assert.notInclude(html, "{")
+  // An Edit without the strings it needs shows its fields, too.
+  assert.match(card("pending", {}, "Edit", { file_path: "/x" }), /<dt[^>]*>file_path<\/dt><dd[^>]*>\/x<\/dd>/)
 })

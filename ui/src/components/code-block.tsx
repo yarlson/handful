@@ -3,7 +3,7 @@ import type { Element, RootContent } from "hast"
 import { Check, Copy, WrapText, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { copyLabel, useCopy, type CopyState } from "@/components/copy"
-import { codeLanguage, codeText, fadeEdges, tableMarkdown } from "@/lib/code-block"
+import { fadeEdges, tableMarkdown } from "@/lib/code-block"
 import { cn } from "@/lib/utils"
 
 // CopyIcon shows the state of a Copy control.
@@ -85,11 +85,9 @@ const copyStates: CopyState[] = ["idle", "copied", "failed"]
 
 const fade = "pointer-events-none absolute inset-y-0 w-8 from-muted to-transparent"
 
-// CodeBlock is a markdown code block with a header: its language, Wrap and Copy. Copy gives the
-// plain code, never the highlighted markup.
-export function CodeBlock({ node, children }: { node?: Element; children?: ReactNode }) {
-  const code = node ? codeText(node) : ""
-  const language = node ? codeLanguage(node) : ""
+// CodeBlock is a code block with a header: its language, Wrap and Copy. Copy gives the plain
+// code, never the highlighted markup. children is the code as shown until it is highlighted.
+export function CodeBlock({ code, language, children }: { code: string; language: string; children?: ReactNode }) {
   const [wrap, setWrap] = useState(false)
   const [state, copy] = useCopy()
   const pre = useRef<HTMLPreElement>(null)

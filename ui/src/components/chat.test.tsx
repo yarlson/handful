@@ -214,6 +214,58 @@ test("a table has Copy table", () => {
   assert.match(html, /<table>.*<\/table><\/div><button[^>]*>.*Copy table<\/button>/)
 })
 
+const edit = (diff: ActivityBody["diff"], output?: string) =>
+  tool(solo, { tool: "Edit", summary: "/w/a.txt", diff, output })
+const row = (entry: Entry, expanded = false) =>
+  renderToStaticMarkup(<EntryView entry={entry} chat={solo} skillIds={[]} expanded={expanded} />)
+
+test("an Edit row shows +N −M, and expanded, a unified diff with line numbers in place of its output", () => {
+  const diff = {
+    added: 1,
+    removed: 1,
+    hunks: [
+      {
+        oldStart: 1,
+        oldLines: 2,
+        newStart: 1,
+        newLines: 2,
+        lines: ["-old first", "+new first", " old second", "\\ No newline at end of file"],
+      },
+    ],
+  }
+  const folded = row(edit(diff, "The file was updated."))
+  assert.match(folded, /<span class="text-success-foreground">\+1<\/span> <span class="text-destructive">−1<\/span>/)
+  assert.notInclude(folded, "<table")
+  const open = row(edit(diff, "The file was updated."), true)
+  assert.notInclude(open, "The file was updated.")
+  assert.include(open, ">@@ -1,2 +1,2 @@</td>")
+  const lines = [...open.matchAll(/<tr class="([^"]*)">(.*?)<\/tr>/g)].map(([, tone, cells]) => [
+    tone.split(" ")[0],
+    ...[...cells.matchAll(/<td[^>]*>([^<]*)<\/td>/g)].map((m) => m[1]),
+  ])
+  assert.deepEqual(lines, [
+    ["bg-destructive/10", "1", "", "-", "old first"],
+    ["bg-success/10", "", "1", "+", "new first"],
+    ["", "2", "2", " ", "old second"],
+  ])
+  assert.match(open, /<td colSpan="4" class="[^"]*italic[^"]*">No newline at end of file<\/td>/)
+})
+
+test("a diff too large to store shows its counts and says so", () => {
+  const big = edit({ added: 500, removed: 2, truncated: true })
+  assert.include(row(big), ">+500</span>")
+  assert.include(row(big), ">−2</span>")
+  assert.notInclude(row(big), "disabled", "a row with a diff opens")
+  assert.include(row(big, true), "Diff too large to show")
+  assert.notInclude(row(big, true), "<table")
+})
+
+test("a row stored before diffs shows its output and no counts", () => {
+  const old = edit(undefined, "The file was updated.")
+  assert.notInclude(row(old), "−")
+  assert.include(row(old, true), ">The file was updated.</pre>")
+})
+
 test("an expanded tool run's output has Copy", () => {
   const html = renderToStaticMarkup(
     <EntryView entry={tool(solo, { output: "file.txt" })} chat={solo} skillIds={[]} expanded />,

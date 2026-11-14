@@ -24,8 +24,8 @@ export function goTo(entryId: string) {
   if (!el) return
   el.scrollIntoView({ block: "center" })
   el.focus({ preventScroll: true })
-  el.classList.add("ring-2", "ring-amber-500/60")
-  setTimeout(() => el.classList.remove("ring-2", "ring-amber-500/60"), 1500)
+  el.classList.add("ring-2", "ring-attention/60")
+  setTimeout(() => el.classList.remove("ring-2", "ring-attention/60"), 1500)
 }
 
 // useDismiss dismisses questions and offers Undo for 10 seconds after each.
@@ -102,7 +102,7 @@ export function QuestionStrip({
   const collapsed = stripCollapsed(questions.length) && !expanded
   const shown = collapsed ? questions.slice(0, 1) : questions
   return (
-    <section aria-labelledby="open-questions-heading" className="mx-3 mt-2 rounded-lg border border-amber-500/40 p-2">
+    <section aria-labelledby="open-questions-heading" className="mx-3 mt-2 rounded-lg border border-attention/50 p-2">
       <div className="flex items-center gap-2">
         <h3 id="open-questions-heading" className="flex-1 text-xs font-medium">
           Open questions ({questions.length})
@@ -218,7 +218,7 @@ export function WaitingView({
           </h3>
           <ul className="flex flex-col gap-2">
             {g.questions.map((q) => (
-              <li key={q.entryId} className="rounded-md border border-amber-500/40 p-2 text-sm">
+              <li key={q.entryId} className="rounded-md border border-attention/50 p-2 text-sm">
                 <p>{q.question}</p>
                 <p className="text-muted-foreground text-xs">
                   {q.askerName} · {time(q.createdAt)}

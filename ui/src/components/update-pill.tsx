@@ -103,10 +103,10 @@ export function useUpdate(): { state: UpdaterState | null; actions: Bridge } {
 }
 
 const toneClass = {
-  accent: "bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-950 dark:text-blue-300 dark:ring-blue-400/30",
-  solid: "bg-blue-600 text-white ring-transparent hover:bg-blue-700",
+  accent: "bg-info/10 text-info-foreground ring-info/30",
+  solid: "bg-info text-background ring-transparent hover:bg-info/90",
   neutral: "bg-popover text-foreground ring-foreground/10 dark:ring-foreground/15",
-  warning: "bg-amber-50 text-amber-800 ring-amber-600/30 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-400/30",
+  warning: "bg-attention-surface text-attention-foreground ring-attention/30",
 }
 
 function Icon({ s }: { s: UpdaterState }) {
@@ -132,7 +132,7 @@ function BotRows({ running, bots, now }: { running: RunningBot[]; bots: Bot[]; n
             <span className="min-w-0 flex-1 truncate">{r.name}</span>
             <span className="text-muted-foreground shrink-0 tabular-nums">{doing(r, now)}</span>
             <span
-              className={cn("size-2 shrink-0 rounded-full", r.kind === "turn" ? "bg-emerald-500" : "bg-sky-500")}
+              className={cn("size-2 shrink-0 rounded-full", r.kind === "turn" ? "bg-success" : "bg-sky-500")}
               aria-hidden
             />
           </li>
@@ -218,7 +218,7 @@ export function Body({
           aria-label={`Downloading ${s.version}`}
           value={pct}
           max={100}
-          className="h-1.5 w-full appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-blue-600 [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-blue-600 dark:[&::-moz-progress-bar]:bg-blue-400 dark:[&::-webkit-progress-value]:bg-blue-400 bg-muted"
+          className="h-1.5 w-full appearance-none overflow-hidden rounded-full bg-muted [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-info"
         />
         <p className="text-muted-foreground text-xs tabular-nums">
           {s.total ? `${mb(s.transferred)} of ${mb(s.total)} MB · ` : ""}
@@ -329,7 +329,7 @@ export function Body({
           aria-label="Time left before Handful asks you"
           value={Math.round(drainFraction(s.deadline, s.drainMinutes, now) * s.drainMinutes)}
           max={s.drainMinutes}
-          className="h-1.5 w-full appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-blue-600 [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-blue-600 dark:[&::-moz-progress-bar]:bg-blue-400 dark:[&::-webkit-progress-value]:bg-blue-400 bg-muted"
+          className="h-1.5 w-full appearance-none overflow-hidden rounded-full bg-muted [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-info"
         />
         <p className="text-muted-foreground text-[13px] tabular-nums">
           {left} of {s.drainMinutes} min left. Handful restarts on its own when they finish; if the limit passes, it
@@ -453,11 +453,7 @@ export function UpdatePill({
             )}
           >
             {s.state === "downloading" && (
-              <span
-                className="absolute inset-y-0 left-0 bg-blue-600/15 dark:bg-blue-400/20"
-                style={{ width: `${pct}%` }}
-                aria-hidden
-              />
+              <span className="absolute inset-y-0 left-0 bg-info/15" style={{ width: `${pct}%` }} aria-hidden />
             )}
             <span className="relative inline-flex items-center gap-1.5">
               <Icon s={s} />

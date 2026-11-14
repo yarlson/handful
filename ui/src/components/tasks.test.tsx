@@ -317,7 +317,7 @@ test("a task's history lists every event in order, with who, when and its text, 
   assert.include(html, "Which build?")
   assert.include(html, "macOS 15.")
   assert.include(html, "Add a test.")
-  assert.include(html, "bg-amber-500/10")
+  assert.include(html, "bg-attention-surface")
 })
 
 test("an empty history says so, and the history opens from a named button", () => {

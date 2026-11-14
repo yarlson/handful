@@ -35,6 +35,7 @@ import { countBadge, waitingCount, waitingKey, type Asked } from "@/lib/question
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, OPEN_SETTINGS, useDefaults } from "@/components/model"
 import { inheritedFromGlobal, overrides, teamEffective } from "@/lib/model"
 import { ConnectorsDialog } from "@/components/connectors"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -351,42 +352,36 @@ export function SidebarItem({
       <Icon className={cn("size-4 shrink-0", (bot.kind !== "room" || bot.team) && botColor(bot.id).text)} />
       <span className="flex-1 truncate">{bot.name}</span>
       {bot.attention === "approval" && (
-        <ShieldQuestion className="size-4 shrink-0 text-amber-500" aria-label="Needs your approval">
+        <ShieldQuestion className="size-4 shrink-0 text-attention" aria-label="Needs your approval">
           <title>Needs your approval</title>
         </ShieldQuestion>
       )}
       {bot.attention === "goal" && (
-        <PauseCircle className="size-4 shrink-0 text-amber-500" aria-label="The task is paused">
+        <PauseCircle className="size-4 shrink-0 text-attention" aria-label="The task is paused">
           <title>The task is paused</title>
         </PauseCircle>
       )}
       {bot.attention === "model" && (
-        <AlertTriangle className="size-4 shrink-0 text-amber-500" aria-label="Check the bot's model">
+        <AlertTriangle className="size-4 shrink-0 text-attention" aria-label="Check the bot's model">
           <title>Check the bot's model</title>
         </AlertTriangle>
       )}
       {bot.attention === "question" && (
-        <MessageCircleQuestion className="size-4 shrink-0 text-amber-500" aria-label="Waiting for your reply">
+        <MessageCircleQuestion className="size-4 shrink-0 text-attention" aria-label="Waiting for your reply">
           <title>Waiting for your reply</title>
         </MessageCircleQuestion>
       )}
       {(bot.incomingHandoffs ?? 0) > 0 && (
-        <span
-          className="rounded-full bg-sky-500/15 px-1.5 text-xs text-sky-700 dark:text-sky-400"
-          aria-label={`${bot.incomingHandoffs} in the inbox`}
-        >
+        <Badge variant="info" aria-label={`${bot.incomingHandoffs} in the inbox`}>
           {bot.incomingHandoffs}
-        </span>
+        </Badge>
       )}
       {countBadge(bot.openQuestions) && (
-        <span
-          className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
-          aria-label={`${bot.openQuestions} open questions`}
-        >
+        <Badge variant="attention" aria-label={`${bot.openQuestions} open questions`}>
           {countBadge(bot.openQuestions)}
-        </span>
+        </Badge>
       )}
-      {bot.running && <span className="size-2 animate-pulse rounded-full bg-emerald-500" title="Working" />}
+      {bot.running && <span className="size-2 animate-pulse rounded-full bg-success" title="Working" />}
       {!bot.running && bot.tasks.length > 0 && (
         <span
           className="size-2 animate-[pulse_3s_cubic-bezier(0.4,0,0.6,1)_infinite] rounded-full bg-sky-500"
@@ -555,7 +550,7 @@ export function SidebarFooter({
 }) {
   return (
     <div className="text-muted-foreground flex items-center gap-1.5 px-3 py-2 text-xs" data-connection={link}>
-      <span className={cn("size-1.5 shrink-0 rounded-full", link === "live" ? "bg-emerald-500" : "bg-amber-500")} />
+      <span className={cn("size-1.5 shrink-0 rounded-full", link === "live" ? "bg-success" : "bg-attention")} />
       <span className="min-w-0 flex-1 truncate">{linkLabel(link)}</span>
       {onConnectors && (
         <Button size="icon-xs" variant="ghost" aria-label="Connectors" title="Connectors" onClick={onConnectors}>
@@ -835,12 +830,9 @@ export function App() {
             <LayoutDashboard className="size-4 shrink-0" />
             <span className="flex-1">Across teams</span>
             {needsN > 0 && (
-              <span
-                className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
-                aria-label={`${needsN} need you`}
-              >
+              <Badge variant="attention" aria-label={`${needsN} need you`}>
                 {needsN}
-              </span>
+              </Badge>
             )}
           </button>
           <button
@@ -855,12 +847,9 @@ export function App() {
             <Inbox className="size-4 shrink-0" />
             <span className="flex-1">Waiting for you</span>
             {waitingN > 0 && (
-              <span
-                className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
-                aria-label={`${waitingN} waiting`}
-              >
+              <Badge variant="attention" aria-label={`${waitingN} waiting`}>
                 {waitingN}
-              </span>
+              </Badge>
             )}
           </button>
           <SectionTitle
@@ -954,7 +943,7 @@ export function App() {
             </div>
           )}
           {pausedUntil && (
-            <div className="bg-amber-500/10 px-4 py-2 text-sm">
+            <div className="bg-attention-surface px-4 py-2 text-sm">
               Claude usage limit reached. New turns wait until{" "}
               {new Date(pausedUntil).toLocaleString([], {
                 weekday: "short",
@@ -1087,11 +1076,9 @@ export function App() {
           )}
         </div>
         {view === "chat" && bot && panel && (
-          // The panel has the sidebar's colors. On them the destructive red, which is under AA in
-          // light mode, takes a darker shade.
           <aside
             aria-label="Chat panel"
-            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-l-0 max-md:pt-[env(safe-area-inset-top)] [&_[data-variant=destructive]]:text-red-700 dark:[&_[data-variant=destructive]]:text-destructive"
+            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-l-0 max-md:pt-[env(safe-area-inset-top)]"
             ref={panelKeys}
           >
             <BotPanel

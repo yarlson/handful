@@ -104,7 +104,7 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
         aria-hidden
         className={cn(
           "size-1.5 shrink-0 rounded-full",
-          !now ? "bg-muted-foreground/40" : now.state === "paused" ? "bg-amber-500" : "bg-emerald-500",
+          !now ? "bg-muted-foreground/40" : now.state === "paused" ? "bg-attention" : "bg-success",
         )}
       />
       <span className={cn("text-muted-foreground shrink-0", now && "max-md:hidden")}>
@@ -203,11 +203,11 @@ function StepRow({ team, item }: { team: Bot; item: Item }) {
 
 // stepMark is the icon of a step's state; the state is also written next to it.
 const stepMark: Record<Item["state"], { icon: LucideIcon; className: string }> = {
-  blocked: { icon: AlertTriangle, className: "text-amber-600 dark:text-amber-400" },
+  blocked: { icon: AlertTriangle, className: "text-attention" },
   review: { icon: Eye, className: "text-violet-600 dark:text-violet-400" },
-  doing: { icon: CircleDot, className: "text-blue-600 dark:text-blue-400" },
+  doing: { icon: CircleDot, className: "text-info" },
   todo: { icon: Circle, className: "text-muted-foreground" },
-  done: { icon: CheckCircle2, className: "text-emerald-600 dark:text-emerald-400" },
+  done: { icon: CheckCircle2, className: "text-success" },
   dropped: { icon: MinusCircle, className: "text-muted-foreground" },
 }
 
@@ -236,8 +236,8 @@ export function StepDetails({ team, item }: { team: Bot; item: Item }) {
         {toggle}
       </p>
       {item.latestChange && (
-        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
-          <p className="font-medium text-amber-800 dark:text-amber-300">
+        <div className="rounded-md border border-attention/50 bg-attention-surface p-2 text-xs">
+          <p className="font-medium text-attention-foreground">
             Changes asked · round {item.latestChange.round} · {item.latestChange.by} · {time(item.latestChange.at)}
           </p>
           <p className="mt-1 whitespace-pre-wrap">{item.latestChange.text}</p>
@@ -284,16 +284,16 @@ export function HistoryList({ id, item, events }: { id: string; item: Item; even
               key={e.id}
               className={cn(
                 "relative",
-                tone === "changes" && "rounded-sm bg-amber-500/10 p-1.5",
-                tone === "passed" && "rounded-sm bg-emerald-500/10 p-1.5",
+                tone === "changes" && "rounded-sm bg-attention-surface p-1.5",
+                tone === "passed" && "rounded-sm bg-success/10 p-1.5",
               )}
             >
               <p>
                 <span
                   className={cn(
                     "font-medium",
-                    tone === "changes" && "text-amber-800 dark:text-amber-300",
-                    tone === "passed" && "text-emerald-800 dark:text-emerald-300",
+                    tone === "changes" && "text-attention-foreground",
+                    tone === "passed" && "text-success-foreground",
                   )}
                 >
                   {eventLabel(e)}
@@ -538,12 +538,12 @@ export function BoardView({
       {needs.length > 0 && (
         <section
           aria-labelledby="needs-heading"
-          className="flex flex-col gap-2 rounded-lg border border-amber-500/50 p-2.5"
+          className="flex flex-col gap-2 rounded-lg border border-attention/50 p-2.5"
         >
-          <h3 id="needs-heading" className="text-xs font-medium text-amber-800 uppercase dark:text-amber-300">
+          <h3 id="needs-heading" className="text-xs font-medium text-attention-foreground uppercase">
             Needs you ({needs.length})
           </h3>
-          <ul className="flex flex-col divide-y divide-amber-500/20">
+          <ul className="flex flex-col divide-y divide-attention/20">
             {needs.map((n) => (
               <NeedRow
                 key={n.kind === "budget" ? "budget" : `${n.kind}:${n.goal.id}`}

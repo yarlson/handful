@@ -364,7 +364,7 @@ function EventLine({ entry }: { entry: Extract<Entry, { kind: "event" }> }) {
         role="alert"
         className={cn(
           "flex flex-wrap items-center justify-center gap-1.5 text-xs",
-          error ? "text-destructive" : "text-amber-700 dark:text-amber-400",
+          error ? "text-destructive" : "text-attention-foreground",
         )}
       >
         <AlertTriangle className="size-3 shrink-0" aria-hidden />
@@ -598,7 +598,7 @@ export function EntryView({
           tabIndex={qState ? -1 : undefined}
           className={cn(
             "group/message flex max-w-[85%] gap-2.5 rounded-md outline-none",
-            open && "border-l-2 border-amber-500 pl-2",
+            open && "border-l-2 border-attention pl-2",
           )}
         >
           <div
@@ -621,10 +621,7 @@ export function EntryView({
               <span className="text-muted-foreground text-xs">{time(entry.createdAt)}</span>
               {stateLabel(qState) && (
                 <span
-                  className={cn(
-                    "text-xs",
-                    open ? "font-medium text-amber-700 dark:text-amber-400" : "text-muted-foreground",
-                  )}
+                  className={cn("text-xs", open ? "font-medium text-attention-foreground" : "text-muted-foreground")}
                 >
                   {stateLabel(qState)}
                 </span>

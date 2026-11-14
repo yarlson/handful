@@ -66,9 +66,9 @@ export function when(ms: number) {
 }
 
 const toneClass: Record<Tone, string> = {
-  progress: "border-emerald-500/50 text-emerald-700 dark:text-emerald-400",
+  progress: "border-success/50 text-success-foreground",
   waiting: "border-sky-500/50 text-sky-700 dark:text-sky-400",
-  attention: "border-amber-500/50 text-amber-700 dark:text-amber-400",
+  attention: "border-attention/50 text-attention-foreground",
   over: "text-muted-foreground",
 }
 
@@ -298,13 +298,13 @@ export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget
         // The line above says the same in words, so the bar is only for the eye.
         <div aria-hidden="true" className="bg-muted h-1.5 overflow-hidden rounded-full">
           <div
-            className={cn("h-full", budget.paused || budget.warn ? "bg-amber-500" : "bg-foreground")}
+            className={cn("h-full", budget.paused || budget.warn ? "bg-attention" : "bg-foreground")}
             style={{ width: `${share}%` }}
           />
         </div>
       )}
       {budget.paused && (
-        <p className="text-amber-700 dark:text-amber-400">
+        <p className="text-attention-foreground">
           Paused: new turns wait until midnight or a higher limit. The lead's decisions still run.
         </p>
       )}
@@ -361,8 +361,8 @@ export function TaskHistoryList({
               <li
                 key={e.id}
                 className={cn(
-                  tone === "changes" && "rounded-sm bg-amber-500/10 p-1.5",
-                  tone === "passed" && "rounded-sm bg-emerald-500/10 p-1.5",
+                  tone === "changes" && "rounded-sm bg-attention-surface p-1.5",
+                  tone === "passed" && "rounded-sm bg-success/10 p-1.5",
                 )}
               >
                 <p>
@@ -486,7 +486,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
   return (
     <li
       aria-labelledby={titleId}
-      className={cn("flex flex-col gap-1.5 rounded-md border p-3 text-sm", g.needsUser && "border-amber-500/50")}
+      className={cn("flex flex-col gap-1.5 rounded-md border p-3 text-sm", g.needsUser && "border-attention/50")}
     >
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <SourceChip goal={g} names={view.names} />
@@ -495,7 +495,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
           {clock(g.createdAt)}
         </span>
         {g.waitsOnItemId && <ToneChip tone="attention">{`${sender}'s task waits on this`}</ToneChip>}
-        <span className={cn("ml-auto", g.needsUser ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+        <span className={cn("ml-auto", g.needsUser ? "text-attention-foreground" : "text-muted-foreground")}>
           {line}
         </span>
       </div>
@@ -653,7 +653,7 @@ function NeedsYouRow({
     <li
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm",
-        n.kind !== "approve" && n.kind !== "question" && "border-amber-500/50",
+        n.kind !== "approve" && n.kind !== "question" && "border-attention/50",
       )}
     >
       <p className="min-w-0 flex-1 max-md:basis-full">
@@ -763,7 +763,7 @@ export function AcrossTeams({
           ) : (
             <ul className="flex flex-col gap-1.5">
               {pairRequest && (
-                <li className="rounded-md border border-amber-500/50 px-3 py-2">
+                <li className="rounded-md border border-attention/50 px-3 py-2">
                   <PairRequestLine request={pairRequest} onDecided={onPairDecided} />
                 </li>
               )}
@@ -798,7 +798,7 @@ export function AcrossTeams({
                       type="button"
                       className={cn(
                         "hover:bg-accent flex h-full w-full flex-col gap-1 rounded-md border p-3 text-left text-sm",
-                        s?.paused && "border-amber-500/50",
+                        s?.paused && "border-attention/50",
                       )}
                       onClick={() => onOpen(t.id)}
                     >

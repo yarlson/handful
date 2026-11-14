@@ -146,7 +146,7 @@ function TailscaleText({ addr, host }: { addr: string; host: string }) {
 
 function Warnings({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+    <div className="flex flex-col gap-2 rounded-lg border border-attention/50 bg-attention-surface px-4 py-3 text-attention-foreground">
       {children}
     </div>
   )
@@ -472,7 +472,7 @@ export function PairBanner({ request, onDecided }: { request: PairRequest | null
     <PairRequestLine
       request={request}
       onDecided={onDecided}
-      className="border-b border-amber-500/40 bg-amber-50 px-4 py-2 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      className="border-b border-attention/50 bg-attention-surface px-4 py-2 text-attention-foreground"
     />
   )
 }

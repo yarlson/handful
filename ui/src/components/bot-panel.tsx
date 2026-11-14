@@ -375,7 +375,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
               href={l}
               target="_blank"
               rel="noopener noreferrer"
-              className="truncate text-xs text-blue-600 underline"
+              className="truncate text-xs text-info-foreground underline"
             >
               {l}
             </a>

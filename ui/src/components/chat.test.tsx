@@ -172,3 +172,64 @@ test("an open question is marked in words and offers Answer; a closed one says h
   assert.include(renderToStaticMarkup(<EntryView entry={ask("dismissed")} chat={solo} skillIds={[]} />), "Dismissed")
   assert.notInclude(renderToStaticMarkup(<EntryView entry={post(solo)} chat={solo} skillIds={[]} />), 'id="entry-')
 })
+
+const user = (text: string): Entry => ({ ...base, id: "u", botId: solo.id, kind: "user", body: { text } })
+
+test("a code block has a header with its language, Wrap and Copy; inline code has none", () => {
+  const html = renderToStaticMarkup(<MarkdownText text={"Run `ls` now.\n\n```go\nfmt.Println(1)\n```"} />)
+  assert.match(html, /<span class="[^"]*font-mono[^"]*">go<\/span>/)
+  const buttons = html.match(/<button[^>]*>/g) ?? []
+  assert.match(buttons[0] ?? "", /aria-pressed="false"[^>]*title="Wrap long lines"/)
+  assert.match(html, /<button[^>]*>.*Copy<\/button>/)
+  for (const button of buttons) {
+    assert.include(button, "aria-pressed:bg-foreground/10", "a pressed or hovered button shows on the muted header")
+    assert.include(button, "hover:bg-foreground/10")
+  }
+  assert.include(html, '<code class="language-go">fmt.Println(1)\n</code>')
+  assert.include(html, "<code>ls</code>")
+  assert.equal(html.match(/<button/g)?.length, 2, "only the code block has buttons")
+})
+
+test("a code block without a language says text", () => {
+  for (const text of ["```\nplain\n```", "    indented"]) {
+    assert.match(renderToStaticMarkup(<MarkdownText text={text} />), /font-mono[^"]*">text<\/span>/, text)
+  }
+})
+
+test("a table has Copy table", () => {
+  const html = renderToStaticMarkup(<MarkdownText text={"| a | b |\n| - | - |\n| 1 | 2 |"} />)
+  assert.match(html, /<table>.*<\/table><\/div><button[^>]*>.*Copy table<\/button>/)
+})
+
+test("an expanded tool run's output has Copy", () => {
+  const html = renderToStaticMarkup(
+    <EntryView entry={tool(solo, { output: "file.txt" })} chat={solo} skillIds={[]} expanded />,
+  )
+  assert.match(html, /<pre[^>]*>file.txt<\/pre><button[^>]*>.*Copy<\/button>/)
+})
+
+test("a message's Copy shows at rest on a touch screen", () => {
+  const html = renderToStaticMarkup(<EntryView entry={post(solo)} chat={solo} skillIds={[]} />)
+  const button = html.match(/<button[^>]*aria-label="Copy message"[^>]*>/)?.[0] ?? ""
+  assert.include(button, " opacity-0 ", "hidden at rest on a desktop")
+  assert.include(button, "pointer-coarse:opacity-100")
+})
+
+test("a user's message renders markdown, keeps typed line breaks and has the code block header", () => {
+  const html = renderToStaticMarkup(
+    <EntryView entry={user("**Fix** this:\nline two\n\n```sh\nmake check\n```")} chat={solo} skillIds={[]} />,
+  )
+  assert.include(html, "<strong>Fix</strong> this:<br/>\nline two")
+  assert.match(html, /font-mono[^"]*">sh<\/span>/)
+  assert.include(html, '<code class="language-sh">make check\n</code>')
+})
+
+test("raw HTML in a user's message shows as text", () => {
+  const html = renderToStaticMarkup(
+    <EntryView entry={user('<script>alert(1)</script>\n\n<img src=x onerror="alert(2)">')} chat={solo} skillIds={[]} />,
+  )
+  assert.notInclude(html, "<script")
+  assert.notInclude(html, "<img")
+  assert.include(html, "&lt;script&gt;alert(1)&lt;/script&gt;")
+  assert.include(html, "&lt;img src=x onerror=&quot;alert(2)&quot;&gt;")
+})

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowLeft } from "lucide-react"
 import { api } from "@/lib/api"
 import {
@@ -46,6 +46,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { PhonesSection } from "@/components/phones"
+import { copyLabel, useCopy } from "@/components/copy"
 
 // The desktop app's preload exposes these; a browser has none.
 type SettingsBridge = {
@@ -629,7 +630,8 @@ export function SettingsPage({
   const [asking, setAsking] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copyState, copy] = useCopy()
+  const pathShown = useRef<HTMLElement>(null)
   // The keys this page saved: a pending key it didn't save changed on disk.
   const [saved, setSaved] = useState(loadSaved)
   const load = () =>
@@ -1011,7 +1013,9 @@ export function SettingsPage({
                 <div className="grid grid-cols-[minmax(0,1fr)_16rem] gap-4 border-t py-4 max-sm:grid-cols-1">
                   <span className="text-sm font-medium">Location</span>
                   <div className="flex min-w-0 flex-col gap-2">
-                    <code className="font-mono text-sm [overflow-wrap:anywhere]">{shortPath(view.file.path)}</code>
+                    <code ref={pathShown} className="font-mono text-sm [overflow-wrap:anywhere]">
+                      {shortPath(view.file.path)}
+                    </code>
                     <div className="flex flex-wrap gap-2">
                       {bridge && (
                         <>
@@ -1023,17 +1027,8 @@ export function SettingsPage({
                           </Button>
                         </>
                       )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          void navigator.clipboard.writeText(view.file.path).then(() => {
-                            setCopied(true)
-                            setTimeout(() => setCopied(false), 2000)
-                          })
-                        }
-                      >
-                        {copied ? "Copied" : "Copy path"}
+                      <Button size="sm" variant="outline" onClick={() => copy(view.file.path, () => pathShown.current)}>
+                        {copyLabel(copyState, "Copy path")}
                       </Button>
                     </div>
                   </div>

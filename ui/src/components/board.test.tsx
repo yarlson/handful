@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
 import type { Board, Bot, Goal, Item } from "@/lib/api"
+import { botColor } from "@/lib/bot-color"
 import { BoardView, HistoryList, needsOf, NowChipView, StepDetails } from "./board.tsx"
 
 const team: Bot = {
@@ -169,10 +170,14 @@ test("each step row shows its state as an icon and a word, its owner and change 
     }),
   )
   inOrder(html, ["Step blocked", "Step review", "Step doing", "Step todo", "Step done", "Step dropped"])
-  for (const word of ["Blocked", "In review", "Doing", "To do", "Done", "Dropped"]) assert.include(html, `${word} · Bo`)
-  assert.include(html, "Doing · Bo · 2 change requests")
-  assert.include(html, "In review · Bo · 1 change request<")
-  assert.notInclude(html, "Blocked · Bo · ")
+  // The owner's name follows the owner's dot, in the owner's colour.
+  const ownerDot = `class="mr-1 inline size-4 align-text-bottom ${botColor("b").text}"`
+  assert.equal(html.split(ownerDot).length - 1, 6)
+  const text = html.replace(/<svg[\s\S]*?<\/svg>/g, "")
+  for (const word of ["Blocked", "In review", "Doing", "To do", "Done", "Dropped"]) assert.include(text, `${word} · Bo`)
+  assert.include(text, "Doing · Bo · 2 change requests")
+  assert.include(text, "In review · Bo · 1 change request<")
+  assert.notInclude(text, "Blocked · Bo · ")
   assert.equal(html.match(/<svg[^>]*class="[^"]*mt-0.5 size-4 shrink-0[^"]*" aria-hidden="true"/g)?.length, 6)
   assert.match(html, /<button type="button" aria-expanded="false" aria-controls="step-s0"/)
   assert.include(render(board({ items: [step("s1", "Lone", {})] })), "To do · No owner yet")
@@ -462,4 +467,14 @@ test("the Now chip names the Now task and counts what needs the user, as Needs y
   assert.include(quiet, "bg-muted-foreground/40")
   assert.include(chip(board({ goal: goal("g1", "Ship CSV export", "paused") })), "bg-attention")
   assert.include(chip(board({ goal: goal("g0", "Old", "stopped") })), ">Nothing now<")
+})
+
+test("on a phone the Now chip hides the task text while it shows the needs count", () => {
+  const textClasses = (html: string) =>
+    (/<span class="([^"]*)">Ship CSV export<\/span>/.exec(html)?.[1] ?? "").split(" ")
+  const withNeeds = chip(busy)
+  assert.include(textClasses(withNeeds), "max-md:hidden", withNeeds)
+  const alone = chip(board({ goal: goal("g1", "Ship CSV export", "active") }))
+  assert.notInclude(alone, "need you")
+  assert.deepEqual(textClasses(alone), ["min-w-0", "truncate"], alone)
 })

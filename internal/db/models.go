@@ -47,6 +47,11 @@ type Bot struct {
 	Effort          string `json:"effort"`
 }
 
+type BotHue struct {
+	BotID string `json:"bot_id"`
+	Hue   string `json:"hue"`
+}
+
 type Entry struct {
 	BotID     string `json:"bot_id"`
 	Seq       int64  `json:"seq"`
@@ -99,6 +104,11 @@ type GoalEvent struct {
 	ActorName string `json:"actor_name"`
 	Text      string `json:"text"`
 	CreatedAt int64  `json:"created_at"`
+}
+
+type Hue struct {
+	Name     string `json:"name"`
+	Position int64  `json:"position"`
 }
 
 type Item struct {

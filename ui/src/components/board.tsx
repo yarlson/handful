@@ -34,6 +34,8 @@ import {
 } from "@/components/tasks"
 import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@/lib/questions"
 import { useLoad } from "@/components/bot-panel"
+import { useBotColor } from "@/components/bot-colors"
+import { BotDot } from "@/components/bot-dot"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, attentionBar } from "@/components/ui/card"
@@ -99,7 +101,7 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
       onClick={onOpen}
       aria-label={`Work: ${now ? `now, ${now.text}` : "nothing now"}${needs > 0 ? `; ${needs} need you` : ""}. Opens the Work tab.`}
       title={now?.text}
-      className="hover:bg-muted transition-colors duration-(--duration-fast) flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-md:min-h-11 max-md:max-w-none max-md:flex-1"
+      className="hover:bg-muted transition-colors duration-(--duration-fast) flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-md:min-h-11 max-md:max-w-none max-md:min-w-16 max-md:flex-1"
     >
       <span
         aria-hidden
@@ -111,7 +113,7 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
       <span className={cn("text-muted-foreground shrink-0", now && "max-md:hidden")}>
         {now ? "Now" : "Nothing now"}
       </span>
-      {now && <span className="min-w-0 truncate">{now.text}</span>}
+      {now && <span className={cn("min-w-0 truncate", needs > 0 && "max-md:hidden")}>{now.text}</span>}
       {needs > 0 && (
         <ToneChip tone="attention">
           <span className="max-md:hidden">{needs} need you</span>
@@ -170,6 +172,7 @@ function StepRow({ team, item }: { team: Bot; item: Item }) {
   const over = item.state === "done" || item.state === "dropped"
   const who = item.ownerId ? memberName(team, item.ownerId) : "No owner yet"
   const Mark = stepMark[item.state]
+  const color = useBotColor()
   return (
     <li className="text-sm">
       <button
@@ -183,7 +186,11 @@ function StepRow({ team, item }: { team: Bot; item: Item }) {
         <span className="min-w-0 flex-1">
           <span className={cn("block", over ? "text-muted-foreground" : "font-medium")}>{item.title}</span>
           <span className="text-muted-foreground block text-xs">
-            {stateLabel[item.state]} · {who}
+            {stateLabel[item.state]} ·{" "}
+            {item.ownerId && (
+              <BotDot className={cn("mr-1 inline size-4 align-text-bottom", color(item.ownerId).text)} />
+            )}
+            {who}
             {item.reviewRounds > 0 &&
               ` · ${item.reviewRounds} ${item.reviewRounds === 1 ? "change request" : "change requests"}`}
           </span>

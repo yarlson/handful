@@ -54,6 +54,7 @@ type Bot struct {
 	Role            string   `json:"role,omitempty"` // RoleBuilder for Builder
 	Model           string   `json:"model"`          // the bot's own model; "" inherits
 	Effort          string   `json:"effort"`         // the bot's own effort; "" inherits
+	Hue             string   `json:"hue,omitempty"`  // a bot's colour, a name from the hues table; rooms and teams have none
 	ClaudeSessionID string   `json:"-"`
 	Members         []Member `json:"members,omitempty"`
 	Team            *Team    `json:"team,omitempty"`          // set for a room that is a team
@@ -279,15 +280,33 @@ func (s *Service) CreateBotWithModel(ctx context.Context, name, instructions, mo
 		return Bot{}, err
 	}
 	now := s.nowMs()
-	row, err := s.q.CreateBot(ctx, db.CreateBotParams{ID: id, Name: name, Instructions: instructions, Kind: kindAgentBot, Model: model, Effort: effort, CreatedAt: now, UpdatedAt: now})
+	var bot Bot
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		bot, err = insertAgentBot(ctx, q, db.CreateBotParams{ID: id, Name: name, Instructions: instructions, Model: model, Effort: effort, CreatedAt: now, UpdatedAt: now})
+		return err
+	})
 	if err != nil {
-		return Bot{}, fmt.Errorf("create bot %q: %w", name, err)
+		return Bot{}, err
 	}
 	s.hub.Publish(Event{Type: "bots"})
 	if _, err := s.EnqueueTurn(ctx, id, SourceSystem, firstRunPrompt); err != nil {
 		return Bot{}, err
 	}
-	return toBot(row), nil
+	return bot, nil
+}
+
+// insertAgentBot stores a bot, not a room, and gives it the hue that the fewest bots have.
+func insertAgentBot(ctx context.Context, q *db.Queries, p db.CreateBotParams) (Bot, error) {
+	p.Kind = kindAgentBot
+	row, err := q.CreateBot(ctx, p)
+	if err != nil {
+		return Bot{}, fmt.Errorf("create bot %q: %w", p.Name, err)
+	}
+	bot := toBot(row)
+	if bot.Hue, err = q.AssignLeastUsedHue(ctx, p.ID); err != nil {
+		return Bot{}, fmt.Errorf("give bot %q a colour: %w", p.Name, err)
+	}
+	return bot, nil
 }
 
 // prepareWorkspace creates a working directory of a bot or a team. Its
@@ -342,6 +361,14 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	if err != nil {
 		return nil, err
 	}
+	hues, err := s.q.ListBotHues(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list bot colours: %w", err)
+	}
+	hueOf := map[string]string{}
+	for _, h := range hues {
+		hueOf[h.BotID] = h.Hue
+	}
 	bots := make([]Bot, 0, len(rows))
 	for _, r := range rows {
 		b := toBot(r)
@@ -350,6 +377,7 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 			b.Team = toTeam(row, b.Members)
 		}
 		b.Attention, b.OpenQuestions, b.IncomingHandoffs = attention[b.ID], open[b.ID], incoming[b.ID]
+		b.Hue = hueOf[b.ID]
 		bots = append(bots, b)
 	}
 	return bots, nil
@@ -396,15 +424,29 @@ func (s *Service) GetBot(ctx context.Context, id string) (Bot, error) {
 		return Bot{}, fmt.Errorf("get bot %s: %w", id, err)
 	}
 	b := toBot(row)
-	if b.IsRoom() {
-		if b.Members, err = s.memberList(ctx, id); err != nil {
-			return Bot{}, err
-		}
-		if b.Team, err = s.teamOf(ctx, id, b.Members); err != nil {
-			return Bot{}, err
-		}
+	if !b.IsRoom() {
+		b.Hue, err = s.hueOf(ctx, id)
+		return b, err
+	}
+	if b.Members, err = s.memberList(ctx, id); err != nil {
+		return Bot{}, err
+	}
+	if b.Team, err = s.teamOf(ctx, id, b.Members); err != nil {
+		return Bot{}, err
 	}
 	return b, nil
+}
+
+// hueOf returns the stored colour of a bot, or "" when it has none.
+func (s *Service) hueOf(ctx context.Context, id string) (string, error) {
+	hue, err := s.q.GetBotHue(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get the colour of bot %s: %w", id, err)
+	}
+	return hue, nil
 }
 
 // UpdateBot changes the name and/or instructions. A nil field keeps its value.
@@ -415,7 +457,7 @@ func (s *Service) UpdateBot(ctx context.Context, id string, name, instructions *
 // BotPatch changes what the user sets on a bot. A nil field keeps its value;
 // an empty model or effort inherits.
 type BotPatch struct {
-	Name, Instructions, Model, Effort *string
+	Name, Instructions, Model, Effort, Hue *string
 }
 
 // UpdateBotSettings changes a bot's profile, model and effort, all or none.
@@ -428,13 +470,23 @@ func (s *Service) UpdateBotSettings(ctx context.Context, id string, p BotPatch) 
 	if bot.IsRoom() && (p.Model != nil || p.Effort != nil) {
 		return Bot{}, invalid("Rooms have no model; set it on the bot.")
 	}
+	if bot.IsRoom() && p.Hue != nil {
+		return Bot{}, invalid("Rooms and teams have no colour to choose; set it on a bot.")
+	}
 	next, err := p.apply(bot)
 	if err != nil {
 		return Bot{}, err
 	}
-	row, err := s.q.UpdateBotProfile(ctx, db.UpdateBotProfileParams{Name: next.Name, Instructions: next.Instructions, Model: next.Model, Effort: next.Effort, UpdatedAt: s.nowMs(), ID: id})
+	var row db.Bot
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		var err error
+		if row, err = q.UpdateBotProfile(ctx, db.UpdateBotProfileParams{Name: next.Name, Instructions: next.Instructions, Model: next.Model, Effort: next.Effort, UpdatedAt: s.nowMs(), ID: id}); err != nil {
+			return fmt.Errorf("update bot %s: %w", id, err)
+		}
+		return storeHue(ctx, q, id, bot.Hue, next.Hue)
+	})
 	if err != nil {
-		return Bot{}, fmt.Errorf("update bot %s: %w", id, err)
+		return Bot{}, err
 	}
 	if next.Model != bot.Model || next.Effort != bot.Effort {
 		s.modelAttention.set(id, false)
@@ -446,7 +498,27 @@ func (s *Service) UpdateBotSettings(ctx context.Context, id string, p BotPatch) 
 		}
 	}
 	s.hub.Publish(Event{Type: "bots"})
-	return toBot(row), nil
+	saved := toBot(row)
+	saved.Hue = next.Hue
+	return saved, nil
+}
+
+// storeHue saves a bot's colour when it changed, after it checks the name against the palette.
+func storeHue(ctx context.Context, q *db.Queries, id, old, hue string) error {
+	if hue == old {
+		return nil
+	}
+	known, err := q.HueExists(ctx, hue)
+	if err != nil {
+		return fmt.Errorf("check colour %q: %w", hue, err)
+	}
+	if !known {
+		return invalid("Unknown colour %q; pick one of the swatches.", hue)
+	}
+	if err := q.SetBotHue(ctx, db.SetBotHueParams{BotID: id, Hue: hue}); err != nil {
+		return fmt.Errorf("set the colour of bot %s: %w", id, err)
+	}
+	return nil
 }
 
 // apply returns bot with the patch's fields, checked and normalized.
@@ -455,6 +527,7 @@ func (p BotPatch) apply(bot Bot) (Bot, error) {
 	setIf(&bot.Instructions, p.Instructions)
 	setIf(&bot.Model, p.Model)
 	setIf(&bot.Effort, p.Effort)
+	setIf(&bot.Hue, p.Hue)
 	var err error
 	if bot.Name, bot.Instructions, err = validateProfile(bot.Name, bot.Instructions); err != nil {
 		return Bot{}, err

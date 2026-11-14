@@ -770,3 +770,24 @@ ON CONFLICT (turn_id) DO UPDATE SET input_tokens = excluded.input_tokens, cache_
 
 -- name: LastTurnUsage :one
 SELECT * FROM turn_usage WHERE bot_id = ? ORDER BY recorded_at DESC, rowid DESC LIMIT 1;
+
+-- name: AssignLeastUsedHue :one
+-- Gives a bot the hue that the fewest bots have; a tie goes to the first hue in palette order.
+INSERT INTO bot_hues (bot_id, hue)
+SELECT sqlc.arg(bot_id), h.name FROM hues h
+ORDER BY (SELECT COUNT(*) FROM bot_hues bh WHERE bh.hue = h.name), h.position
+LIMIT 1
+RETURNING hue;
+
+-- name: SetBotHue :exec
+INSERT INTO bot_hues (bot_id, hue) VALUES (?, ?)
+ON CONFLICT (bot_id) DO UPDATE SET hue = excluded.hue;
+
+-- name: GetBotHue :one
+SELECT hue FROM bot_hues WHERE bot_id = ?;
+
+-- name: ListBotHues :many
+SELECT * FROM bot_hues;
+
+-- name: HueExists :one
+SELECT EXISTS (SELECT 1 FROM hues WHERE name = ?);

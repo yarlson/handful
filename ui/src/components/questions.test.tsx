@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, assert, test, vi } from "vitest"
 import type { Bot } from "@/lib/api"
 import type { OpenQuestion } from "@/lib/questions"
+import { BotHuesProvider } from "./bot-colors.tsx"
 import { AnswerChip, QuestionStrip, WaitingView } from "./questions.tsx"
 
 const q = (entryId: string, chatId: string, question: string, createdAt = 1): OpenQuestion => ({
@@ -97,6 +98,28 @@ test("Waiting for you groups questions by chat and links approvals and paused ta
   assert.include(html, "Team: the task is paused")
   assert.include(html, "Answered or dismissed in the last 7 days: 4")
   assert.notInclude(html, "Nothing is waiting")
+})
+
+test("a Waiting for you group starts with its chat's dot; a deleted chat has none", () => {
+  const bots = [{ ...bot("x", "Alpha"), hue: "lime" }]
+  const html = renderToStaticMarkup(
+    <BotHuesProvider bots={bots}>
+      <WaitingView
+        waiting={{
+          questions: [q("e1", "x", "First?"), q("e2", "gone", "Old?")],
+          approvals: 0,
+          pausedGoals: 0,
+          closedRecently: 0,
+        }}
+        bots={bots}
+        onOpen={noop}
+        onAnswer={noop}
+        onChange={noop}
+      />
+    </BotHuesProvider>,
+  )
+  assert.match(html, /<h3 id="waiting-x"[^>]*><svg[^>]*class="size-4 shrink-0 text-lime-700 dark:text-lime-400"/)
+  assert.match(html, /<h3 id="waiting-gone"[^>]*>A deleted chat/)
 })
 
 test("with nothing waiting the view says so", () => {

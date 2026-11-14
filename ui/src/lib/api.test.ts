@@ -245,6 +245,12 @@ test("a bot's usage comes from its usage route", async () => {
   assert.deepEqual(calls, [{ method: "GET", url: "/api/bots/b1/usage", body: undefined }])
 })
 
+test("a bot's settings, its hue among them, patch the bot's route", async () => {
+  const calls = stubFetch(200)
+  await api.updateBot("b1", { name: "Ana", hue: "lime" })
+  assert.deepEqual(calls, [{ method: "PATCH", url: "/api/bots/b1", body: { name: "Ana", hue: "lime" } }])
+})
+
 test("Stop turn posts to its own route, and Stop keeps its route", async () => {
   const calls = stubFetch(200)
   await api.stopTurn("b1")

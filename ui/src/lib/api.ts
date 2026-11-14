@@ -34,6 +34,7 @@ export type Bot = {
   instructions: string
   model?: string // "" inherits
   effort?: string // "" inherits
+  hue?: string // a bot's colour, one of hues in bot-color.ts; absent on rooms, teams and older servers
   effective?: Effective // its values in its direct chat; absent on rooms
   openQuestions?: number
   incomingHandoffs?: number // on a team: the tasks in its inbox that wait for its lead
@@ -402,8 +403,10 @@ export const api = {
     request<Goal>("POST", `/api/teams/${teamId}/tasks/from-turns`, t),
   // waitForBudget hides a team's budget_reached item until midnight.
   waitForBudget: (teamId: string) => request<Budget>("POST", `/api/teams/${teamId}/budget/wait`, {}),
-  updateBot: (id: string, patch: { name?: string; instructions?: string; model?: string; effort?: string }) =>
-    request<Bot>("PATCH", `/api/bots/${id}`, patch),
+  updateBot: (
+    id: string,
+    patch: { name?: string; instructions?: string; model?: string; effort?: string; hue?: string },
+  ) => request<Bot>("PATCH", `/api/bots/${id}`, patch),
   deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),
   entries: (id: string, afterRev: number) =>
     request<{ entries: Entry[] }>("GET", `/api/bots/${id}/entries?after=${afterRev}`).then((r) => r.entries),

@@ -11,6 +11,7 @@ import {
   type OpenQuestion,
   type Waiting,
 } from "@/lib/questions"
+import { ChatIcon } from "@/components/bot-colors"
 import { Button } from "@/components/ui/button"
 import { Card, attentionBar } from "@/components/ui/card"
 import { useRights } from "@/lib/session"
@@ -203,6 +204,10 @@ export function WaitingView({
   // A phone paired for View only reads questions.
   const { send } = useRights()
   const name = (id: string) => bots.find((b) => b.id === id)?.name ?? "A deleted chat"
+  const icon = (id: string) => {
+    const chat = bots.find((b) => b.id === id)
+    return chat && <ChatIcon chat={chat} />
+  }
   const approvals = bots.filter((b) => b.attention === "approval")
   const paused = bots.filter((b) => b.attention === "goal")
   const groups = byChat(waiting.questions)
@@ -216,6 +221,7 @@ export function WaitingView({
       {groups.map((g) => (
         <section key={g.chatId} aria-labelledby={`waiting-${g.chatId}`} className="flex flex-col gap-2">
           <h3 id={`waiting-${g.chatId}`} className="flex items-center gap-2 text-sm font-medium">
+            {icon(g.chatId)}
             {name(g.chatId)}
             <Button size="xs" variant="ghost" onClick={() => onOpen(g.chatId)}>
               Open chat

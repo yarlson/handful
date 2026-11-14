@@ -144,7 +144,7 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
               </Badge>
               <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
               {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
-              <span className="text-muted-foreground text-xs">{dateTime(m.createdAt, Date.now())}</span>
+              <span className="text-muted-foreground text-xs">{when(m.createdAt)}</span>
             </div>
           </div>
           <Button

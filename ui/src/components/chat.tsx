@@ -74,6 +74,7 @@ import { MediaGallery } from "@/components/media"
 import { CodeBlock, CopyIcon, onMuted, TableBlock } from "@/components/code-block"
 import { copyLabel, useCopy } from "@/components/copy"
 import { BotDot } from "@/components/bot-dot"
+import { useNow } from "@/components/now"
 import { TeamDots } from "@/components/team-dots"
 import { cn } from "@/lib/utils"
 import { colorId } from "@/lib/bot-color"
@@ -89,6 +90,8 @@ import { offersStarts, STARTS } from "@/lib/starts"
 import { Stamp } from "@/components/stamp"
 import { fits, rangeOf, RowHeights, rowOffsets, rowsFor, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
 import { KEPT_CHATS } from "@/lib/chat-windows"
+
+const MINUTE = 60_000
 
 // markdownComponents opens links to other sites in a new tab, so the app
 // stays open. The desktop app sends such links to the default browser. An
@@ -1604,14 +1607,16 @@ export function Chat({
       team: inTeam ? {} : undefined,
     }).map((sk) => sk.id)
   }, [skillList, bot.id, chatKind, inTeam])
-  // A transcript's day separators and the failure that offers Retry.
+  // A transcript's day separators and the failure that offers Retry. The clock ticks each minute,
+  // so Today becomes Yesterday after midnight.
+  const now = useNow(MINUTE)
   const days = useMemo(
     () =>
       daySeparators(
         entries.map((e) => e.createdAt),
-        Date.now(),
+        now,
       ),
-    [entries],
+    [entries, now],
   )
   const retry = useMemo(() => retryOf(entries), [entries])
   const starts = offersStarts(bot, entries) && !older

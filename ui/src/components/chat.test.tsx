@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, assert, test, vi } from "vitest"
 import type { ActivityBody, Bot, Entry } from "@/lib/api"
 import type { TranscriptStatus } from "@/lib/transcript"
-import { Chat, EntryView, MarkdownText } from "./chat.tsx"
+import { groupKey } from "@/lib/tool-group"
+import { Chat, EntryView, MarkdownText, ToolGroup } from "./chat.tsx"
 
 // session is what the server says of this browser; a test that needs a paired phone sets it.
 const session = vi.hoisted(() => ({ phone: false, scope: "chat+approve" }))
@@ -408,4 +409,113 @@ test("Builder's empty chat on a view-only phone says No messages yet and offers 
   const html = chatPage(builder, [])
   assert.include(html, "No messages yet.")
   assert.notInclude(html, "Writing studio")
+})
+
+// call is tool call n of turn t in the solo chat.
+const call = (n: number, body: Partial<ActivityBody>): Extract<Entry, { kind: "activity" }> => ({
+  ...base,
+  seq: n,
+  id: `c${n}`,
+  botId: solo.id,
+  kind: "activity",
+  body: { tool: "Read", summary: `/w/f${n}.go`, status: "done", subagent: false, ...body },
+})
+const editCall = (n: number, added: number, removed: number) =>
+  call(n, { tool: "Edit", diff: { added, removed, hunks: [] } })
+// bare drops the icons' shapes, so a test can match an icon and the text next to it.
+const bare = (html: string) => html.replace(/<(path|circle|rect|line)\b[^>]*><\/\1>/g, "")
+const icon = (name: string) => `<svg[^>]*class="lucide lucide-${name}[ "][^>]*></svg>`
+const answer: Entry = { ...post(solo), id: "answer", seq: 99 }
+const turnCalls = [
+  call(2, {}),
+  call(3, {}),
+  editCall(4, 3, 1),
+  call(5, { tool: "Bash", summary: "make check", output: "all checks passed" }),
+  editCall(6, 10, 2),
+  call(7, {}),
+]
+const group = (calls: Extract<Entry, { kind: "activity" }>[], expanded: string[] = []) =>
+  renderToStaticMarkup(<ToolGroup calls={calls} chat={solo} expanded={new Set(expanded)} onExpand={() => {}} />)
+
+test("a turn's tool calls show as one folded row: the count, each tool with its icon and count, and the diff totals", () => {
+  const html = bare(chatPage(solo, [{ ...ask, seq: 1 }, ...turnCalls, answer]))
+  assert.equal(html.match(/data-entry=/g)?.length, 3, "the message, the group and the answer")
+  assert.match(html, /<button type="button" aria-expanded="false"[^>]*>.*6 tool calls/)
+  const counts = [...html.matchAll(/class="lucide lucide-([a-z-]+)[^>]*><\/svg>(\w+) (\d+)<\/span>/g)].map(
+    ([, name, t, n]) => `${name} ${t} ${n}`,
+  )
+  assert.deepEqual(counts, ["file-text Read 3", "file-pen Edit 2", "terminal Bash 1"])
+  assert.include(html, ">+13</span>")
+  assert.include(html, ">−3</span>")
+  assert.notInclude(html, "/w/f2.go", "the calls are folded")
+  assert.notInclude(html, "make check")
+})
+
+test("a single tool call stays its own row", () => {
+  const html = chatPage(solo, [{ ...ask, seq: 1 }, call(2, {}), answer])
+  assert.notInclude(html, "tool calls")
+  assert.include(html, "/w/f2.go")
+})
+
+test("an open group shows its calls as rows, each opening on its own", () => {
+  const closed = group(turnCalls)
+  const open = group(turnCalls, [groupKey("c2")])
+  assert.match(open, /^<div[^>]*><button type="button" aria-expanded="true"/)
+  for (const n of [2, 3, 4, 6, 7]) assert.include(open, `/w/f${n}.go`)
+  assert.include(open, "make check")
+  assert.notInclude(open, "all checks passed", "a call's output stays folded")
+  assert.include(group(turnCalls, [groupKey("c2"), "c5"]), "all checks passed")
+  assert.notInclude(group(turnCalls, ["c2"]), "/w/f3.go", "the first call's own key does not open the group")
+  assert.notInclude(closed, "/w/f3.go")
+})
+
+test("a running group shows its newest call and a running mark in place of the counts", () => {
+  const html = bare(group([call(2, {}), call(3, { tool: "Bash", summary: "make check", status: "running" })]))
+  assert.include(html, ">Running:</span>")
+  assert.include(html, "2 tool calls")
+  assert.match(html, new RegExp(`${icon("terminal")}<span[^>]*>Bash</span><span[^>]*>make check</span>`))
+  assert.notInclude(html, "Read 1")
+  assert.notInclude(group(turnCalls), ">Running:</span>")
+})
+
+test("a group says how many of its calls failed", () => {
+  const html = bare(group([call(2, {}), call(3, { status: "error" }), call(4, { status: "error" })]))
+  assert.match(html, new RegExp(`text-destructive[^>]*>${icon("x")}2 failed</span>`))
+  assert.notInclude(group(turnCalls), "failed")
+})
+
+test("each kind of tool has its own icon", () => {
+  const icons = [
+    ["Read", "file-text"],
+    ["Edit", "file-pen"],
+    ["Write", "file-pen"],
+    ["Bash", "terminal"],
+    ["Grep", "search"],
+    ["Glob", "search"],
+    ["WebFetch", "globe"],
+    ["WebSearch", "globe"],
+    ["Task", "bot"],
+    ["Agent", "bot"],
+    ["mcp__github__get_issue", "wrench"],
+    ["NotebookEdit", "wrench"],
+    ["constructor", "wrench"],
+  ]
+  for (const [name, kind] of icons) {
+    const html = bare(renderToStaticMarkup(<EntryView entry={tool(solo, { tool: name })} chat={solo} skillIds={[]} />))
+    assert.match(html, new RegExp(icon(kind)), name)
+  }
+})
+
+test("a tool row with output is a button that says whether it is expanded; one without output is not a button", () => {
+  const row = (body: Partial<ActivityBody>, expanded?: boolean) =>
+    renderToStaticMarkup(<EntryView entry={tool(solo, body)} chat={solo} skillIds={[]} expanded={expanded} />)
+  assert.include(row({ output: "x" }), '<button type="button" aria-expanded="false"')
+  assert.include(row({ output: "x" }, true), '<button type="button" aria-expanded="true"')
+  assert.include(row({ diff: { added: 1, removed: 0, hunks: [] } }), 'aria-expanded="false"')
+  const plain = row({})
+  assert.notInclude(plain, "<button")
+  assert.notInclude(plain, "aria-expanded")
+  assert.notInclude(plain, "tabindex")
+  assert.notInclude(plain, "lucide-chevron-right")
+  assert.include(plain, ">ls</span>")
 })

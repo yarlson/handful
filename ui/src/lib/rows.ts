@@ -1,5 +1,5 @@
 import type { Entry } from "./api"
-import { keptChats, seqIndex } from "./window"
+import { keptChats } from "./window"
 
 // ROW_GAP is the space between two rows of the transcript, in pixels: its column's gap-3.
 export const ROW_GAP = 12
@@ -18,15 +18,50 @@ export const ROW_ESTIMATES: Record<Entry["kind"], number> = {
   approval: 160,
   event: 20,
 }
+// GROUP_ESTIMATE is the height, in pixels, that a group of tool calls is taken to have until it
+// has been on screen.
+export const GROUP_ESTIMATE = 28
+
+// Row is one row of the transcript: one entry, or a group of two or more tool calls in a row.
+// at is the index of its first entry in the transcript's entries.
+export type Row = { at: number; entries: Entry[] }
+
+// rowKey is the row's id: its first entry's. The row's element carries it, and its measured
+// height is kept by it.
+export const rowKey = (row: Row) => row.entries[0].id
+
+// rowsOf returns the rows of the transcript's entries. Tool calls in a row form one group while
+// they are of one turn and one bot. Any other entry, another turn, another bot or a new day
+// (days[i] is the day separator above entry i) ends the group.
+export function rowsOf(entries: Entry[], days: readonly (string | undefined)[]): Row[] {
+  const rows: Row[] = []
+  for (const [i, e] of entries.entries()) {
+    const last = rows.at(-1)
+    if (last && !days[i] && joins(last.entries.at(-1)!, e)) last.entries.push(e)
+    else rows.push({ at: i, entries: [e] })
+  }
+  return rows
+}
+
+function joins(a: Entry, b: Entry): boolean {
+  return a.kind === "activity" && b.kind === "activity" && a.turnId === b.turnId && a.body.bot === b.body.bot
+}
+
+// rowWith returns the index of the row that holds entry id, or -1.
+export function rowWith(rows: Row[], id: string): number {
+  return rows.findIndex((r) => r.entries.some((e) => e.id === id))
+}
 
 // rowOffsets returns where each row of the transcript starts, below the top of its first row:
-// offsets[i] is the top of row i, and offsets[entries.length] is the height of all the rows
-// and one gap. A row has the height it had when last on screen, or else its kind's estimate.
-export function rowOffsets(entries: Entry[], heights: ReadonlyMap<string, number>): number[] {
+// offsets[i] is the top of row i, and offsets[rows.length] is the height of all the rows and one
+// gap. A row has the height it had when last on screen, or else its kind's estimate. A group of
+// tool calls is one row, however many entries it holds.
+export function rowOffsets(rows: Row[], heights: ReadonlyMap<string, number>): number[] {
   const offsets = [0]
   let y = 0
-  for (const e of entries) {
-    y += (heights.get(e.id) ?? ROW_ESTIMATES[e.kind]) + ROW_GAP
+  for (const r of rows) {
+    const estimate = r.entries.length > 1 ? GROUP_ESTIMATE : ROW_ESTIMATES[r.entries[0].kind]
+    y += (heights.get(rowKey(r)) ?? estimate) + ROW_GAP
     offsets.push(y)
   }
   return offsets
@@ -94,16 +129,31 @@ export class RowHeights {
 // then grows with each new one.
 export type RowSpan = { first: number; last: number | null }
 
-export function spanOf(entries: Entry[], range: RowRange): RowSpan {
+export function spanOf(rows: Row[], range: RowRange): RowSpan {
   return {
-    first: entries[range.start].seq,
-    last: range.end === entries.length ? null : entries[range.end - 1].seq,
+    first: rows[range.start].entries[0].seq,
+    last: range.end === rows.length ? null : rows[range.end - 1].entries.at(-1)!.seq,
   }
 }
 
-export function rangeOf(entries: Entry[], span: RowSpan): RowRange {
+// rangeOf returns the rows of a span. A group that gained entries at either end since the span
+// was taken stays in it whole.
+export function rangeOf(rows: Row[], { first, last }: RowSpan): RowRange {
   return {
-    start: seqIndex(entries, span.first),
-    end: span.last === null ? entries.length : seqIndex(entries, span.last + 1),
+    start: firstRow(rows, (r) => r.entries.at(-1)!.seq >= first),
+    end: last === null ? rows.length : firstRow(rows, (r) => r.entries[0].seq > last),
   }
+}
+
+// firstRow returns the first of the rows, which are in seq order, that past holds for, or
+// rows.length; past holds for every row after one it holds for.
+function firstRow(rows: Row[], past: (r: Row) => boolean): number {
+  let lo = 0
+  let hi = rows.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (past(rows[mid])) hi = mid
+    else lo = mid + 1
+  }
+  return lo
 }

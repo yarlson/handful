@@ -102,7 +102,7 @@ test("a model error names the problem as an alert with a way to the settings", (
       skillIds={[]}
     />,
   )
-  assert.include(mismatch, "amber")
+  assert.include(mismatch, "text-attention-foreground")
   assert.include(mismatch, 'role="alert"')
 })
 
@@ -156,14 +156,14 @@ test("an open question is marked in words and offers Answer; a closed one says h
   const open = renderToStaticMarkup(<EntryView entry={ask("open")} chat={solo} skillIds={[]} onAnswer={() => {}} />)
   assert.include(open, 'id="entry-q1"')
   assert.include(open, 'tabindex="-1"')
-  assert.include(open, "Open question")
-  assert.include(open, "border-amber-500")
-  assert.include(open, 'aria-label="Answer: Ship it now?"')
+  assert.match(open, /data-variant="attention"[^>]*>Open question</)
+  assert.include(open, "border-attention")
+  assert.match(open, /data-variant="outline" data-size="sm" class="[^"]*" aria-label="Answer: Ship it now\?"/)
   const answered = renderToStaticMarkup(
     <EntryView entry={ask("answered")} chat={solo} skillIds={[]} onAnswer={() => {}} />,
   )
   assert.include(answered, "Answered")
-  assert.notInclude(answered, "border-amber-500")
+  assert.notInclude(answered, "border-attention")
   assert.notInclude(answered, "Answer: ")
   assert.include(
     renderToStaticMarkup(<EntryView entry={ask("withdrawn")} chat={solo} skillIds={[]} />),

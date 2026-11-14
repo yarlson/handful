@@ -40,6 +40,7 @@ import {
 } from "@/lib/tasks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, attentionBar } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -66,9 +67,9 @@ export function when(ms: number) {
 }
 
 const toneClass: Record<Tone, string> = {
-  progress: "border-emerald-500/50 text-emerald-700 dark:text-emerald-400",
+  progress: "border-success/50 text-success-foreground",
   waiting: "border-sky-500/50 text-sky-700 dark:text-sky-400",
-  attention: "border-amber-500/50 text-amber-700 dark:text-amber-400",
+  attention: "border-attention/50 text-attention-foreground",
   over: "text-muted-foreground",
 }
 
@@ -117,7 +118,7 @@ export function TextAction({
   if (text === null) {
     return (
       <Button
-        size="xs"
+        size="sm"
         variant="outline"
         aria-label={open}
         onClick={() => {
@@ -137,7 +138,7 @@ export function TextAction({
       <Textarea id={id} rows={2} value={text} onChange={(e) => setText(e.target.value)} />
       <div className="flex gap-1.5">
         <Button
-          size="xs"
+          size="sm"
           disabled={!text.trim()}
           onClick={() =>
             void onSubmit(text.trim()).then((ok) => {
@@ -148,7 +149,7 @@ export function TextAction({
           {submit}
         </Button>
         <Button
-          size="xs"
+          size="sm"
           variant="ghost"
           onClick={() => {
             setText(null)
@@ -173,14 +174,14 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
   const picked = taskTurns(offTask.turns)
   return (
     <section aria-label="Not on a task" className="flex flex-col gap-1.5">
-      <div className="flex flex-col gap-1.5 rounded-md border border-dashed p-2 text-xs">
+      <Card size="sm" className="gap-1.5 p-2 text-xs">
         <p>
           <strong>{`${turns} in the last hour`}</strong>
           {` ${offTask.count === 1 ? "wasn't" : "weren't"} on any task: ${who}.`}
         </p>
         <div className="flex flex-wrap gap-1.5">
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
             aria-expanded={shown}
             aria-controls="off-task-turns"
@@ -203,7 +204,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
           )}
           {rights.send && (
             <Button
-              size="xs"
+              size="sm"
               variant="ghost"
               aria-label={`Dismiss: ${turns} on no task`}
               title="They stay in the chat; they only leave this count."
@@ -228,7 +229,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
             ))}
           </ul>
         )}
-      </div>
+      </Card>
     </section>
   )
 }
@@ -242,7 +243,7 @@ export function LimitAction({ team, open, value, act }: { team: Bot; open: strin
   if (!rights.computer) return null
   if (text === null)
     return (
-      <Button size="xs" variant="outline" aria-label={open} onClick={() => setText(String(value))}>
+      <Button size="sm" variant="outline" aria-label={open} onClick={() => setText(String(value))}>
         {open.split(":")[0]}…
       </Button>
     )
@@ -264,15 +265,15 @@ export function LimitAction({ team, open, value, act }: { team: Bot; open: strin
         type="number"
         min={0}
         max={10000}
-        className="border-input h-6 w-20 rounded-md border bg-transparent px-1 text-xs"
+        className="border-input h-7 w-20 rounded-md border bg-transparent px-1 text-xs"
         value={text}
         aria-invalid={error ? true : undefined}
         onChange={(e) => setText(e.target.value)}
       />
-      <Button size="xs" onClick={save}>
+      <Button size="sm" onClick={save}>
         Save
       </Button>
-      <Button size="xs" variant="ghost" onClick={() => setText(null)}>
+      <Button size="sm" variant="ghost" onClick={() => setText(null)}>
         Cancel
       </Button>
       {error && <span className="text-destructive w-full">{error}</span>}
@@ -287,7 +288,7 @@ export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget
   const rights = useRights()
   return (
     <section aria-labelledby="budget-heading" className="flex flex-col gap-1.5 text-xs">
-      <h3 id="budget-heading" className="text-muted-foreground font-medium uppercase">
+      <h3 id="budget-heading" className="text-muted-foreground font-medium">
         Today
       </h3>
       <p>
@@ -298,13 +299,13 @@ export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget
         // The line above says the same in words, so the bar is only for the eye.
         <div aria-hidden="true" className="bg-muted h-1.5 overflow-hidden rounded-full">
           <div
-            className={cn("h-full", budget.paused || budget.warn ? "bg-amber-500" : "bg-foreground")}
+            className={cn("h-full", budget.paused || budget.warn ? "bg-attention" : "bg-foreground")}
             style={{ width: `${share}%` }}
           />
         </div>
       )}
       {budget.paused && (
-        <p className="text-amber-700 dark:text-amber-400">
+        <p className="text-attention-foreground">
           Paused: new turns wait until midnight or a higher limit. The lead's decisions still run.
         </p>
       )}
@@ -313,7 +314,7 @@ export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget
           <>
             <span className="text-muted-foreground">{`Suggested limit: ${budget.suggested} turns a day.`}</span>
             <Button
-              size="xs"
+              size="sm"
               variant="outline"
               onClick={() => void act(() => api.updateTeam(team.id, { dailyBudget: budget.suggested }))}
             >
@@ -361,8 +362,8 @@ export function TaskHistoryList({
               <li
                 key={e.id}
                 className={cn(
-                  tone === "changes" && "rounded-sm bg-amber-500/10 p-1.5",
-                  tone === "passed" && "rounded-sm bg-emerald-500/10 p-1.5",
+                  tone === "changes" && "rounded-md bg-attention-surface p-1.5",
+                  tone === "passed" && "rounded-md bg-success/10 p-1.5",
                 )}
               >
                 <p>
@@ -396,7 +397,7 @@ export function TaskHistory({
   return (
     <>
       <Button
-        size="xs"
+        size="sm"
         variant="link"
         className="text-muted-foreground h-auto self-start p-0 text-xs"
         aria-expanded={open}
@@ -435,7 +436,7 @@ export function WithdrawAction({ g, to, act }: { g: Goal; to: string; act: Act }
   if (!rights.computer) return null
   if (!confirm) {
     return (
-      <Button size="xs" variant="ghost" aria-label={`Withdraw: ${g.text}`} onClick={() => setConfirm(true)}>
+      <Button size="sm" variant="ghost" aria-label={`Withdraw: ${g.text}`} onClick={() => setConfirm(true)}>
         Withdraw…
       </Button>
     )
@@ -444,13 +445,13 @@ export function WithdrawAction({ g, to, act }: { g: Goal; to: string; act: Act }
     <span className="flex flex-wrap items-center gap-2 text-xs">
       Withdraw it? {to} won't work on it.
       <Button
-        size="xs"
+        size="sm"
         variant="destructive"
         onClick={() => void act(() => api.withdrawTask(g.id)).then(() => setConfirm(false))}
       >
         Withdraw
       </Button>
-      <Button size="xs" variant="ghost" onClick={() => setConfirm(false)}>
+      <Button size="sm" variant="ghost" onClick={() => setConfirm(false)}>
         Keep it
       </Button>
     </span>
@@ -486,7 +487,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
   return (
     <li
       aria-labelledby={titleId}
-      className={cn("flex flex-col gap-1.5 rounded-md border p-3 text-sm", g.needsUser && "border-amber-500/50")}
+      className={cn("flex flex-col gap-1.5 rounded-md border p-3 text-sm", g.needsUser && "border-attention/50")}
     >
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <SourceChip goal={g} names={view.names} />
@@ -495,7 +496,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
           {clock(g.createdAt)}
         </span>
         {g.waitsOnItemId && <ToneChip tone="attention">{`${sender}'s task waits on this`}</ToneChip>}
-        <span className={cn("ml-auto", g.needsUser ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+        <span className={cn("ml-auto", g.needsUser ? "text-attention-foreground" : "text-muted-foreground")}>
           {line}
         </span>
       </div>
@@ -532,7 +533,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
           <>
             <select
               aria-label={`Place in the plan: ${g.text}`}
-              className="border-input h-6 rounded-md border bg-transparent px-1 text-xs"
+              className="border-input h-7 rounded-md border bg-transparent px-1 text-xs"
               value={place}
               onChange={(e) => setPlace(Number(e.target.value))}
             >
@@ -543,7 +544,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
               ))}
             </select>
             <Button
-              size="xs"
+              size="sm"
               aria-label={`Take: ${g.text}`}
               onClick={() => void view.act(() => api.takeTask(g.id, place === view.planned + 1 ? 0 : place))}
             >
@@ -653,7 +654,7 @@ function NeedsYouRow({
     <li
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm",
-        n.kind !== "approve" && n.kind !== "question" && "border-amber-500/50",
+        n.kind !== "approve" && n.kind !== "question" && "border-attention/50",
       )}
     >
       <p className="min-w-0 flex-1 max-md:basis-full">
@@ -661,7 +662,7 @@ function NeedsYouRow({
       </p>
       {n.kind === "approve" && id && rights.send && (
         <>
-          <Button size="xs" aria-label={`Approve: ${n.text}`} onClick={() => void act(() => api.approveTask(id))}>
+          <Button size="sm" aria-label={`Approve: ${n.text}`} onClick={() => void act(() => api.approveTask(id))}>
             Approve
           </Button>
           <TextAction
@@ -675,7 +676,7 @@ function NeedsYouRow({
       )}
       {(n.kind === "missed" || n.kind === "stuck") && id && rights.computer && (
         <>
-          <Button size="xs" aria-label={`Take: ${n.text}`} onClick={() => void act(() => api.takeTask(id))}>
+          <Button size="sm" aria-label={`Take: ${n.text}`} onClick={() => void act(() => api.takeTask(id))}>
             Take
           </Button>
           <TextAction
@@ -691,11 +692,11 @@ function NeedsYouRow({
         <LimitAction team={team} open={`Raise: ${team.name}`} value={(limit ?? 0) + 50} act={act} />
       )}
       {n.kind === "budget_reached" && rights.send && (
-        <Button size="xs" variant="outline" onClick={() => void act(() => api.waitForBudget(n.chatId))}>
+        <Button size="sm" variant="outline" onClick={() => void act(() => api.waitForBudget(n.chatId))}>
           Wait until midnight
         </Button>
       )}
-      <Button size="xs" variant="ghost" onClick={() => onOpen(n.chatId)}>
+      <Button size="sm" variant="ghost" onClick={() => onOpen(n.chatId)}>
         Open chat
       </Button>
     </li>
@@ -755,7 +756,7 @@ export function AcrossTeams({
       <div className="flex max-w-5xl flex-col gap-5 overflow-y-auto p-4 max-md:px-3">
         {error && <p className="text-destructive text-xs">{error}</p>}
         <section aria-labelledby="needs-you-heading" className="flex flex-col gap-1.5">
-          <h3 id="needs-you-heading" className="text-muted-foreground text-xs font-medium uppercase">
+          <h3 id="needs-you-heading" className="text-muted-foreground text-xs font-medium">
             Needs you ({count})
           </h3>
           {count === 0 ? (
@@ -763,7 +764,7 @@ export function AcrossTeams({
           ) : (
             <ul className="flex flex-col gap-1.5">
               {pairRequest && (
-                <li className="rounded-md border border-amber-500/50 px-3 py-2">
+                <li className="rounded-md border border-attention/50 px-3 py-2">
                   <PairRequestLine request={pairRequest} onDecided={onPairDecided} />
                 </li>
               )}
@@ -782,7 +783,7 @@ export function AcrossTeams({
           )}
         </section>
         <section aria-labelledby="teams-heading" className="flex flex-col gap-1.5">
-          <h3 id="teams-heading" className="text-muted-foreground text-xs font-medium uppercase">
+          <h3 id="teams-heading" className="text-muted-foreground text-xs font-medium">
             Teams
           </h3>
           {teams.length === 0 ? (
@@ -797,8 +798,8 @@ export function AcrossTeams({
                     <button
                       type="button"
                       className={cn(
-                        "hover:bg-accent flex h-full w-full flex-col gap-1 rounded-md border p-3 text-left text-sm",
-                        s?.paused && "border-amber-500/50",
+                        "hover:bg-muted transition-colors duration-(--duration-fast) flex h-full w-full flex-col gap-1 overflow-hidden rounded-lg border p-3 text-left text-sm",
+                        s?.paused && attentionBar,
                       )}
                       onClick={() => onOpen(t.id)}
                     >

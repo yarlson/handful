@@ -196,7 +196,7 @@ function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
           </div>
           <p className="text-muted-foreground mt-1 text-xs">{r.prompt}</p>
           <div className="mt-2 flex items-center gap-2 text-xs">
-            <code className="bg-sidebar-foreground/5 shrink-0 rounded px-1 whitespace-nowrap">{r.schedule}</code>
+            <code className="bg-sidebar-foreground/5 shrink-0 rounded-sm px-1 whitespace-nowrap">{r.schedule}</code>
             <span className="text-muted-foreground min-w-0">next {r.enabled ? when(r.nextRunAt) : "paused"}</span>
           </div>
           <div className="mt-1 flex items-center justify-end gap-1">
@@ -249,7 +249,7 @@ function SkillsTab({ version }: { version: number }) {
         <button
           key={s.id}
           type="button"
-          className="hover:bg-sidebar-foreground/5 rounded-md border p-2 text-left text-sm"
+          className="hover:bg-muted transition-colors duration-(--duration-fast) rounded-md border p-2 text-left text-sm"
           onClick={() => void show(s.id)}
         >
           <span className="font-medium">{s.name}</span>
@@ -340,7 +340,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
         <button
           key={a.id}
           type="button"
-          className="hover:bg-sidebar-foreground/5 rounded-md border p-2 text-left text-sm"
+          className="hover:bg-muted transition-colors duration-(--duration-fast) rounded-md border p-2 text-left text-sm"
           onClick={() => void show(a.id)}
         >
           <span className="font-medium">{a.title}</span>
@@ -375,7 +375,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
               href={l}
               target="_blank"
               rel="noopener noreferrer"
-              className="truncate text-xs text-blue-600 underline"
+              className="truncate text-xs text-info-foreground underline"
             >
               {l}
             </a>
@@ -794,13 +794,15 @@ function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; o
           {grants.data?.map((g) => (
             <Badge key={g} variant="secondary" className="gap-1">
               {g}
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="-mr-1.5 size-4 rounded-full"
                 aria-label={`Revoke ${g}`}
                 onClick={() => void api.revokeGrant(bot.id, g).then(grants.reload)}
               >
-                ×
-              </button>
+                <X />
+              </Button>
             </Badge>
           ))}
         </div>

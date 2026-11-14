@@ -35,6 +35,7 @@ import { countBadge, waitingCount, waitingKey, type Asked } from "@/lib/question
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, OPEN_SETTINGS, useDefaults } from "@/components/model"
 import { inheritedFromGlobal, overrides, teamEffective } from "@/lib/model"
 import { ConnectorsDialog } from "@/components/connectors"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -345,48 +346,42 @@ export function SidebarItem({
         "relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
         selected
           ? "bg-sidebar-foreground/10 font-medium before:absolute before:inset-y-1.5 before:left-0 before:w-0.75 before:rounded-full before:bg-pink-600"
-          : "hover:bg-sidebar-foreground/5",
+          : "hover:bg-muted transition-colors duration-(--duration-fast)",
       )}
     >
       <Icon className={cn("size-4 shrink-0", (bot.kind !== "room" || bot.team) && botColor(bot.id).text)} />
       <span className="flex-1 truncate">{bot.name}</span>
       {bot.attention === "approval" && (
-        <ShieldQuestion className="size-4 shrink-0 text-amber-500" aria-label="Needs your approval">
+        <ShieldQuestion className="size-4 shrink-0 text-attention" aria-label="Needs your approval">
           <title>Needs your approval</title>
         </ShieldQuestion>
       )}
       {bot.attention === "goal" && (
-        <PauseCircle className="size-4 shrink-0 text-amber-500" aria-label="The task is paused">
+        <PauseCircle className="size-4 shrink-0 text-attention" aria-label="The task is paused">
           <title>The task is paused</title>
         </PauseCircle>
       )}
       {bot.attention === "model" && (
-        <AlertTriangle className="size-4 shrink-0 text-amber-500" aria-label="Check the bot's model">
+        <AlertTriangle className="size-4 shrink-0 text-attention" aria-label="Check the bot's model">
           <title>Check the bot's model</title>
         </AlertTriangle>
       )}
       {bot.attention === "question" && (
-        <MessageCircleQuestion className="size-4 shrink-0 text-amber-500" aria-label="Waiting for your reply">
+        <MessageCircleQuestion className="size-4 shrink-0 text-attention" aria-label="Waiting for your reply">
           <title>Waiting for your reply</title>
         </MessageCircleQuestion>
       )}
       {(bot.incomingHandoffs ?? 0) > 0 && (
-        <span
-          className="rounded-full bg-sky-500/15 px-1.5 text-xs text-sky-700 dark:text-sky-400"
-          aria-label={`${bot.incomingHandoffs} in the inbox`}
-        >
+        <Badge variant="info" aria-label={`${bot.incomingHandoffs} in the inbox`}>
           {bot.incomingHandoffs}
-        </span>
+        </Badge>
       )}
       {countBadge(bot.openQuestions) && (
-        <span
-          className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
-          aria-label={`${bot.openQuestions} open questions`}
-        >
+        <Badge variant="attention" aria-label={`${bot.openQuestions} open questions`}>
           {countBadge(bot.openQuestions)}
-        </span>
+        </Badge>
       )}
-      {bot.running && <span className="size-2 animate-pulse rounded-full bg-emerald-500" title="Working" />}
+      {bot.running && <span className="size-2 animate-pulse rounded-full bg-success" title="Working" />}
       {!bot.running && bot.tasks.length > 0 && (
         <span
           className="size-2 animate-[pulse_3s_cubic-bezier(0.4,0,0.6,1)_infinite] rounded-full bg-sky-500"
@@ -460,9 +455,9 @@ function BotList({
           }}
           onDragEnd={endDrag}
         >
-          {insertAt === i && <div className="bg-primary absolute -top-px right-2 left-2 h-0.5 rounded" />}
+          {insertAt === i && <div className="bg-primary absolute -top-px right-2 left-2 h-0.5 rounded-full" />}
           {insertAt === items.length && i === items.length - 1 && (
-            <div className="bg-primary absolute right-2 -bottom-px left-2 h-0.5 rounded" />
+            <div className="bg-primary absolute right-2 -bottom-px left-2 h-0.5 rounded-full" />
           )}
           <SidebarItem
             bot={b}
@@ -520,7 +515,7 @@ function chatInLocation() {
 // SectionTitle heads a sidebar section; without onAction, as on a phone, it has no add button.
 function SectionTitle({ title, action, onAction }: { title: string; action: string; onAction?: () => void }) {
   return (
-    <div className="text-muted-foreground mt-3 flex min-h-6 items-center justify-between px-2 text-xs font-medium uppercase">
+    <div className="text-muted-foreground mt-3 flex min-h-6 items-center justify-between px-2 text-xs font-medium">
       {title}
       {onAction && (
         <Button size="icon" variant="ghost" className="size-6 max-md:size-11" aria-label={action} onClick={onAction}>
@@ -555,7 +550,7 @@ export function SidebarFooter({
 }) {
   return (
     <div className="text-muted-foreground flex items-center gap-1.5 px-3 py-2 text-xs" data-connection={link}>
-      <span className={cn("size-1.5 shrink-0 rounded-full", link === "live" ? "bg-emerald-500" : "bg-amber-500")} />
+      <span className={cn("size-1.5 shrink-0 rounded-full", link === "live" ? "bg-success" : "bg-attention")} />
       <span className="min-w-0 flex-1 truncate">{linkLabel(link)}</span>
       {onConnectors && (
         <Button size="icon-xs" variant="ghost" aria-label="Connectors" title="Connectors" onClick={onConnectors}>
@@ -812,7 +807,7 @@ export function App() {
         ref={closesDrawerOnEscape}
       >
         <div className="flex items-center px-3 py-3">
-          <img src="/logo.svg" alt="Handful" className="size-7" />
+          <img src="/logo.svg" alt="Handful" className="size-7 rounded-[6px] dark:ring-1 dark:ring-white/10" />
         </div>
         {moved.data?.show && rights.computer && (
           <MoveNotice
@@ -828,19 +823,18 @@ export function App() {
             aria-current={screen === "across" ? "page" : undefined}
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              screen === "across" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
+              screen === "across"
+                ? "bg-sidebar-foreground/10 font-medium"
+                : "hover:bg-muted transition-colors duration-(--duration-fast)",
             )}
             onClick={() => showScreen("across")}
           >
             <LayoutDashboard className="size-4 shrink-0" />
             <span className="flex-1">Across teams</span>
             {needsN > 0 && (
-              <span
-                className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
-                aria-label={`${needsN} need you`}
-              >
+              <Badge variant="attention" aria-label={`${needsN} need you`}>
                 {needsN}
-              </span>
+              </Badge>
             )}
           </button>
           <button
@@ -848,19 +842,18 @@ export function App() {
             aria-current={screen === "waiting" ? "page" : undefined}
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              screen === "waiting" ? "bg-sidebar-foreground/10 font-medium" : "hover:bg-sidebar-foreground/5",
+              screen === "waiting"
+                ? "bg-sidebar-foreground/10 font-medium"
+                : "hover:bg-muted transition-colors duration-(--duration-fast)",
             )}
             onClick={() => showScreen("waiting")}
           >
             <Inbox className="size-4 shrink-0" />
             <span className="flex-1">Waiting for you</span>
             {waitingN > 0 && (
-              <span
-                className="rounded-full bg-amber-500/15 px-1.5 text-xs text-amber-700 dark:text-amber-400"
-                aria-label={`${waitingN} waiting`}
-              >
+              <Badge variant="attention" aria-label={`${waitingN} waiting`}>
                 {waitingN}
-              </span>
+              </Badge>
             )}
           </button>
           <SectionTitle
@@ -920,7 +913,7 @@ export function App() {
         aria-valuenow={width}
         tabIndex={0}
         title="Drag to resize; double-click to reset"
-        className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l outline-none max-md:hidden"
+        className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l max-md:hidden"
         onPointerDown={(e) => {
           e.preventDefault()
           e.currentTarget.setPointerCapture(e.pointerId)
@@ -954,7 +947,7 @@ export function App() {
             </div>
           )}
           {pausedUntil && (
-            <div className="bg-amber-500/10 px-4 py-2 text-sm">
+            <div className="bg-attention-surface px-4 py-2 text-sm">
               Claude usage limit reached. New turns wait until{" "}
               {new Date(pausedUntil).toLocaleString([], {
                 weekday: "short",
@@ -1087,11 +1080,9 @@ export function App() {
           )}
         </div>
         {view === "chat" && bot && panel && (
-          // The panel has the sidebar's colors. On them the destructive red, which is under AA in
-          // light mode, takes a darker shade.
           <aside
             aria-label="Chat panel"
-            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-l-0 max-md:pt-[env(safe-area-inset-top)] [&_[data-variant=destructive]]:text-red-700 dark:[&_[data-variant=destructive]]:text-destructive"
+            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-l-0 max-md:pt-[env(safe-area-inset-top)]"
             ref={panelKeys}
           >
             <BotPanel

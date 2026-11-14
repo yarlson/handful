@@ -35,9 +35,9 @@ export function MediaGallery({ names }: { names: string[] }) {
               aria-label={`Open ${kindLabel[kind].toLowerCase()} ${i + 1} of ${names.length}`}
               onClick={() => setOpen(i)}
               className={cn(
-                "bg-muted focus-visible:ring-ring relative block overflow-hidden rounded-xl border outline-none focus-visible:ring-2",
+                "bg-muted relative block overflow-hidden rounded-lg border",
                 single && kind === "video" && "aspect-video w-80 max-w-full",
-                !single && "aspect-square rounded-lg",
+                !single && "aspect-square",
                 names.length === 3 && i === 0 && "col-span-2 aspect-[2/1]",
               )}
             >
@@ -75,7 +75,7 @@ function Tile({ name, kind, fill }: { name: string; kind: MediaKind; fill: boole
         className={cn("block", fill ? "size-full object-cover" : "max-h-80 max-w-full object-contain")}
       />
       {kind === "gif" && (
-        <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1 text-[10px] font-semibold text-white">
+        <span className="absolute bottom-1.5 left-1.5 rounded-sm bg-black/60 px-1 text-xs font-semibold text-white">
           GIF
         </span>
       )}

@@ -148,21 +148,21 @@ function ActivityRow({
         disabled={!b.output}
       >
         <ChevronRight
-          className={cn("size-3 shrink-0 transition-transform", open && "rotate-90", !b.output && "opacity-0")}
+          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90", !b.output && "opacity-0")}
         />
         {b.status === "running" ? (
-          <Loader2 className="size-3 shrink-0 animate-spin" />
+          <Loader2 className="size-3.5 shrink-0 animate-spin" />
         ) : b.status === "error" ? (
-          <X className="text-destructive size-3 shrink-0" />
+          <X className="text-destructive size-3.5 shrink-0" />
         ) : (
-          <Wrench className="size-3 shrink-0" />
+          <Wrench className="size-3.5 shrink-0" />
         )}
         {b.bot && <span className={cn("shrink-0 font-medium", botColor(colorId(b, chat)).text)}>{b.bot}</span>}
         <span className="text-foreground/80 shrink-0 font-medium">{b.subagent ? `↳ ${b.tool}` : b.tool}</span>
         <span className="truncate font-mono">{b.summary}</span>
       </button>
       {open && b.output && (
-        <pre className="bg-muted mt-1 ml-5 max-h-60 overflow-auto rounded-md p-2 font-mono text-[11px] whitespace-pre-wrap">
+        <pre className="bg-muted mt-1 ml-5 max-h-60 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
           {b.output}
         </pre>
       )}
@@ -289,7 +289,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
 // whole instructions, so that the user can read what they confirm. It has no
 // scroll box of its own: nothing that the setup creates is out of sight.
 function SetupSummary({ setup }: { setup: SetupProposal }) {
-  const heading = "text-muted-foreground mb-1 text-xs font-medium uppercase"
+  const heading = "text-muted-foreground mb-1 text-xs font-medium"
   return (
     <div className="space-y-3 text-sm">
       {setup.bots.length > 0 && (
@@ -364,10 +364,10 @@ function EventLine({ entry }: { entry: Extract<Entry, { kind: "event" }> }) {
         role="alert"
         className={cn(
           "flex flex-wrap items-center justify-center gap-1.5 text-xs",
-          error ? "text-destructive" : "text-amber-700 dark:text-amber-400",
+          error ? "text-destructive" : "text-attention-foreground",
         )}
       >
-        <AlertTriangle className="size-3 shrink-0" aria-hidden />
+        <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
         <span className="max-w-xl">{b.text}</span>
         {b.botId && (
           <Button size="xs" variant="outline" onClick={() => openSettings(b.botId ?? "")}>
@@ -387,7 +387,7 @@ function EventLine({ entry }: { entry: Extract<Entry, { kind: "event" }> }) {
         failed ? "text-destructive" : "text-muted-foreground",
       )}
     >
-      {failed && <AlertTriangle className="size-3" />}
+      {failed && <AlertTriangle className="size-3.5" />}
       <span className="max-w-xl truncate" title={text}>
         {text}
       </span>
@@ -523,16 +523,16 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
   const incoming = b.direction === "in"
   return (
     <div className={cn("group/message flex flex-col", incoming ? "items-start" : "items-end")}>
-      <div className="border-primary/30 bg-muted/40 max-w-[75%] rounded-xl border border-dashed px-3.5 py-2">
+      <Card size="sm" className="max-w-[75%] gap-0 px-3.5 py-2">
         <div className="text-muted-foreground mb-1 flex items-center gap-1.5 text-xs">
-          {incoming ? <ArrowDownLeft className="size-3" /> : <ArrowUpRight className="size-3" />}
+          {incoming ? <ArrowDownLeft className="size-3.5" /> : <ArrowUpRight className="size-3.5" />}
           {incoming ? "From" : "To"} <span className={cn("font-semibold", botColor(b.peerId).text)}>{b.peerName}</span>{" "}
           · {time(entry.createdAt)}
           {b.priority && !b.held && <Badge variant="secondary">priority</Badge>}
           {b.held && <Badge variant="outline">next turn</Badge>}
         </div>
         <MarkdownText text={b.text} />
-      </div>
+      </Card>
       {b.text && <Reactions entryId={entry.id} reactions={b.reactions} copyText={b.text} />}
     </div>
   )
@@ -564,7 +564,7 @@ export function EntryView({
             <div className="mb-1 flex flex-wrap justify-end gap-1">
               {skills.map((id) => (
                 <Badge key={id} variant="outline" className="font-mono" title="This message names a skill">
-                  <Sparkles className="size-3" />
+                  <Sparkles className="size-3.5" />
                   skill: {id}
                 </Badge>
               ))}
@@ -598,7 +598,7 @@ export function EntryView({
           tabIndex={qState ? -1 : undefined}
           className={cn(
             "group/message flex max-w-[85%] gap-2.5 rounded-md outline-none",
-            open && "border-l-2 border-amber-500 pl-2",
+            open && "border-attention rounded-l-none border-l-2 pl-2",
           )}
         >
           <div
@@ -619,19 +619,14 @@ export function EntryView({
                 <span className={cn("text-sm font-semibold", color.text)}>{speaker}</span>
               )}
               <span className="text-muted-foreground text-xs">{time(entry.createdAt)}</span>
-              {stateLabel(qState) && (
-                <span
-                  className={cn(
-                    "text-xs",
-                    open ? "font-medium text-amber-700 dark:text-amber-400" : "text-muted-foreground",
-                  )}
-                >
-                  {stateLabel(qState)}
-                </span>
+              {open ? (
+                <Badge variant="attention">{stateLabel(qState)}</Badge>
+              ) : (
+                stateLabel(qState) && <span className="text-muted-foreground text-xs">{stateLabel(qState)}</span>
               )}
               {open && onAnswer && (
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="outline"
                   aria-label={`Answer: ${asked.question}`}
                   onClick={() => onAnswer(asked)}
@@ -1044,7 +1039,7 @@ function Composer({
             {bot.tasks.length > 0 && (
               <>
                 <TerminalSquare className="size-3.5 shrink-0" />
-                <Loader2 className="size-3 shrink-0 animate-spin" />
+                <Loader2 className="size-3.5 shrink-0 animate-spin" />
                 <span className="truncate" title={bot.tasks.map(taskLabel).join("\n")}>
                   In the background: {bot.tasks.map(taskLabel).join(" · ")}
                 </span>
@@ -1068,7 +1063,7 @@ function Composer({
             )}
           </div>
         )}
-        <div className="bg-background focus-within:ring-ring/50 rounded-xl border p-2 focus-within:ring-2">
+        <div className="bg-background focus-within:border-ring focus-within:ring-ring/50 rounded-lg border p-2 focus-within:ring-3">
           {answering && <AnswerChip answering={answering} onClear={() => onAnswer(null)} />}
           {media.length > 0 && (
             <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">
@@ -1089,17 +1084,17 @@ function Composer({
                   ) : (
                     <img src={m.url} alt="Image to send" className="size-16 rounded-lg border object-cover" />
                   )}
-                  <button
-                    type="button"
+                  <Button
+                    size="icon-xs"
                     aria-label="Remove file"
-                    className="bg-foreground text-background absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full"
+                    className="absolute -top-1.5 -right-1.5 rounded-full"
                     onClick={() => {
                       URL.revokeObjectURL(m.url)
                       onMediaChange((list) => list.filter((i) => i.key !== m.key))
                     }}
                   >
-                    <X className="size-3" />
-                  </button>
+                    <X />
+                  </Button>
                 </div>
               ))}
             </div>
@@ -1135,7 +1130,7 @@ function Composer({
               aria-expanded={open}
               aria-controls={open ? "completion-list" : undefined}
               aria-activedescendant={open ? `completion-${active}` : undefined}
-              className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0 max-md:max-h-32 max-md:min-h-11 max-md:text-base"
+              className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0 dark:bg-transparent max-md:max-h-32 max-md:min-h-11 max-md:text-base"
               placeholder={
                 narrow
                   ? `Message ${bot.name}…`
@@ -1515,7 +1510,7 @@ export function Chat({
       }}
     >
       {dropping && (
-        <div className="border-primary/50 bg-background/80 text-muted-foreground pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed text-sm">
+        <div className="border-primary/50 bg-background/80 text-muted-foreground pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-lg border-2 border-dashed text-sm">
           Drop images or videos to attach
         </div>
       )}
@@ -1547,7 +1542,7 @@ export function Chat({
           )}
           {bot.running && (
             <div className="text-muted-foreground flex items-center gap-2 text-xs">
-              <Loader2 className="size-3 animate-spin" />{" "}
+              <Loader2 className="size-3.5 animate-spin" />{" "}
               {draining
                 ? `${bot.kind === "room" ? "Members are" : `${bot.name} is`} finishing. ${pause}: new turns wait.`
                 : bot.kind === "room"

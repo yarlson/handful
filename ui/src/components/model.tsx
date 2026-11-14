@@ -182,14 +182,14 @@ export function ModelChip({
       type="button"
       className={cn(
         "inline-flex max-w-full min-w-0 shrink items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
-        warn ? "border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-400" : "text-muted-foreground",
-        onClick ? "hover:bg-muted" : "cursor-default",
+        warn ? "border-attention/50 bg-attention-surface text-attention-foreground" : "text-muted-foreground",
+        onClick ? "hover:bg-muted transition-colors duration-(--duration-fast)" : "cursor-default",
       )}
       aria-label={label}
       title={label}
       onClick={onClick}
     >
-      {warn && <AlertTriangle className="size-3 shrink-0" aria-hidden />}
+      {warn && <AlertTriangle className="size-3.5 shrink-0" aria-hidden />}
       <span className="truncate">
         {prefix && <span>{prefix}</span>}
         {chipText(effective, aliases)}

@@ -132,12 +132,12 @@ export function Chips({ v }: { v: Value }) {
     <>
       {edited(v) && (
         <>
-          <span className="size-1.5 rounded-full bg-blue-600 dark:bg-blue-400" aria-hidden />
+          <span className="size-1.5 rounded-full bg-info" aria-hidden />
           <span className="sr-only">changed from default</span>
         </>
       )}
       {pending(v) && (
-        <span className="rounded-full border border-amber-500/40 bg-amber-50 px-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+        <span className="rounded-full border border-attention/50 bg-attention-surface px-2 text-xs text-attention-foreground">
           Restart required
         </span>
       )}
@@ -176,7 +176,7 @@ function Under({
       )}
       {v.source === "flag" && (
         <p id={`${id}-flag`} className="text-muted-foreground text-xs">
-          Set by the <code className="bg-muted rounded px-1 font-mono">{v.flag}</code> flag for this run.{" "}
+          Set by the <code className="bg-muted rounded-sm px-1 font-mono">{v.flag}</code> flag for this run.{" "}
           {flagHelp(k, v)}
         </p>
       )}
@@ -429,7 +429,7 @@ export function RestartBanner({ view, onRestart }: { view: SettingsView; onResta
   if (!text) return null
   const manual = view.restart === "manual" && !settingsBridge()
   return (
-    <output className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+    <output className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-attention/50 bg-attention-surface px-4 py-3 text-sm text-attention-foreground">
       <p className="min-w-0 flex-1">
         <strong className="font-semibold">{text.lead}</strong>: {text.labels}.
         {view.startError && (
@@ -448,7 +448,7 @@ export function RestartBanner({ view, onRestart }: { view: SettingsView; onResta
           id="settings-restart"
           size="sm"
           variant="outline"
-          className="border-amber-800 text-amber-800 dark:border-amber-300 dark:text-amber-300"
+          className="border-attention-foreground text-attention-foreground"
           disabled={Boolean(view.startError)}
           onClick={onRestart}
         >
@@ -714,7 +714,7 @@ export function SettingsPage({
           className="text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 text-xs max-md:min-h-11 max-md:text-sm"
           onClick={onBack}
         >
-          <ArrowLeft className="size-3" /> Back to chats
+          <ArrowLeft className="size-3.5" /> Back to chats
         </button>
         <h1 className="px-2 text-sm font-semibold">Settings</h1>
         <nav
@@ -728,14 +728,16 @@ export function SettingsPage({
               aria-current={s.id === section ? "page" : undefined}
               className={cn(
                 "flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm max-md:shrink-0 max-md:gap-1.5 max-md:rounded-b-none max-md:px-3 max-md:py-3",
-                s.id === section ? "bg-muted font-medium" : "hover:bg-muted/60",
+                s.id === section
+                  ? "bg-muted font-medium"
+                  : "hover:bg-muted transition-colors duration-(--duration-fast)",
               )}
               onClick={() => onSection(s.id)}
             >
               {s.label}
               {dots.has(s.id) && (
                 <>
-                  <span className="size-1.5 rounded-full bg-amber-800 dark:bg-amber-300" aria-hidden />
+                  <span className="size-1.5 rounded-full bg-attention-foreground" aria-hidden />
                   <span className="sr-only">, restart required</span>
                 </>
               )}
@@ -770,7 +772,7 @@ export function SettingsPage({
           {restart.state !== "now" && restart.state !== "draining" && view.restartExpired && (
             <div
               role="alert"
-              className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-attention/50 bg-attention-surface px-4 py-3 text-sm text-attention-foreground"
             >
               <span className="min-w-0 flex-1">
                 Bots were still working after {drainLimit(view)} min, so Handful didn't restart. Restart now stops their
@@ -994,7 +996,7 @@ export function SettingsPage({
                   This page reads and writes the same file. Editing it by hand still works.
                 </p>
                 {disk && (
-                  <output className="mb-4 block rounded-lg border border-blue-600/20 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-400/30 dark:bg-blue-950 dark:text-blue-300">
+                  <output className="mb-4 block rounded-lg border border-info/30 bg-info/10 px-4 py-3 text-sm text-info-foreground">
                     config.json changed on disk after the server started:{" "}
                     {disk.map((d, i) => (
                       <span key={d.key}>

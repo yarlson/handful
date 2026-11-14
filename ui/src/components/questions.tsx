@@ -12,7 +12,9 @@ import {
   type Waiting,
 } from "@/lib/questions"
 import { Button } from "@/components/ui/button"
+import { Card, attentionBar } from "@/components/ui/card"
 import { useRights } from "@/lib/session"
+import { cn } from "@/lib/utils"
 
 function time(ms: number) {
   return new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })
@@ -24,8 +26,8 @@ export function goTo(entryId: string) {
   if (!el) return
   el.scrollIntoView({ block: "center" })
   el.focus({ preventScroll: true })
-  el.classList.add("ring-2", "ring-amber-500/60")
-  setTimeout(() => el.classList.remove("ring-2", "ring-amber-500/60"), 1500)
+  el.classList.add("ring-2", "ring-attention/60")
+  setTimeout(() => el.classList.remove("ring-2", "ring-attention/60"), 1500)
 }
 
 // useDismiss dismisses questions and offers Undo for 10 seconds after each.
@@ -102,56 +104,58 @@ export function QuestionStrip({
   const collapsed = stripCollapsed(questions.length) && !expanded
   const shown = collapsed ? questions.slice(0, 1) : questions
   return (
-    <section aria-labelledby="open-questions-heading" className="mx-3 mt-2 rounded-lg border border-amber-500/40 p-2">
-      <div className="flex items-center gap-2">
-        <h3 id="open-questions-heading" className="flex-1 text-xs font-medium">
-          Open questions ({questions.length})
-        </h3>
-        {stripCollapsed(questions.length) && (
-          <Button size="xs" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-            {expanded ? "Show less" : `Show all ${questions.length}`}
-          </Button>
-        )}
-      </div>
-      <ul className="mt-1 flex flex-col gap-1">
-        {shown.map((q) => (
-          <li key={q.entryId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            <span className="min-w-0 flex-1 truncate" title={q.question}>
-              {q.question}
-            </span>
-            <span className="text-muted-foreground shrink-0">
-              {room ? `${q.askerName} · ` : ""}
-              {time(q.createdAt)}
-            </span>
-            <span className="flex shrink-0 gap-1">
-              <Button size="xs" variant="ghost" aria-label={`Go to: ${q.question}`} onClick={() => onGoTo(q.entryId)}>
-                Go to
-              </Button>
-              {send && (
-                <>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    aria-label={`Answer: ${q.question}`}
-                    onClick={() => onAnswer({ entryId: q.entryId, question: q.question })}
-                  >
-                    Answer
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    aria-label={`Dismiss: ${q.question}`}
-                    onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
-                  >
-                    Dismiss
-                  </Button>
-                </>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <UndoNote undo={undo} onUndo={() => void reopen()} error={error} />
+    <section aria-labelledby="open-questions-heading" className="mx-3 mt-2">
+      <Card size="sm" className={cn("gap-0 p-2", attentionBar)}>
+        <div className="flex items-center gap-2">
+          <h3 id="open-questions-heading" className="flex-1 text-xs font-medium">
+            Open questions ({questions.length})
+          </h3>
+          {stripCollapsed(questions.length) && (
+            <Button size="xs" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+              {expanded ? "Show less" : `Show all ${questions.length}`}
+            </Button>
+          )}
+        </div>
+        <ul className="mt-1 flex flex-col gap-1">
+          {shown.map((q) => (
+            <li key={q.entryId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <span className="min-w-0 flex-1 truncate" title={q.question}>
+                {q.question}
+              </span>
+              <span className="text-muted-foreground shrink-0">
+                {room ? `${q.askerName} · ` : ""}
+                {time(q.createdAt)}
+              </span>
+              <span className="flex shrink-0 gap-1">
+                <Button size="xs" variant="ghost" aria-label={`Go to: ${q.question}`} onClick={() => onGoTo(q.entryId)}>
+                  Go to
+                </Button>
+                {send && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label={`Answer: ${q.question}`}
+                      onClick={() => onAnswer({ entryId: q.entryId, question: q.question })}
+                    >
+                      Answer
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      aria-label={`Dismiss: ${q.question}`}
+                      onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
+                    >
+                      Dismiss
+                    </Button>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <UndoNote undo={undo} onUndo={() => void reopen()} error={error} />
+      </Card>
     </section>
   )
 }
@@ -160,18 +164,19 @@ export function QuestionStrip({
 export function AnswerChip({ answering, onClear }: { answering: Asked; onClear: () => void }) {
   return (
     <div className="bg-muted mb-1.5 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs">
-      <CornerDownLeft className="size-3 shrink-0" aria-hidden />
+      <CornerDownLeft className="size-3.5 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1 truncate" title={answering.question}>
         Answering: {answering.question}
       </span>
-      <button
-        type="button"
-        className="hover:text-foreground text-muted-foreground shrink-0"
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground"
         aria-label={`Stop answering: ${answering.question}`}
         onClick={onClear}
       >
-        <X className="size-3" />
-      </button>
+        <X className="size-3.5" />
+      </Button>
     </div>
   )
 }
@@ -218,30 +223,33 @@ export function WaitingView({
           </h3>
           <ul className="flex flex-col gap-2">
             {g.questions.map((q) => (
-              <li key={q.entryId} className="rounded-md border border-amber-500/40 p-2 text-sm">
-                <p>{q.question}</p>
-                <p className="text-muted-foreground text-xs">
-                  {q.askerName} · {time(q.createdAt)}
-                </p>
-                {send && (
-                  <div className="mt-1.5 flex gap-1">
-                    <Button
-                      size="xs"
-                      aria-label={`Answer: ${q.question}`}
-                      onClick={() => onAnswer(g.chatId, { entryId: q.entryId, question: q.question })}
-                    >
-                      Answer
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      aria-label={`Dismiss: ${q.question}`}
-                      onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
-                    >
-                      Dismiss
-                    </Button>
-                  </div>
-                )}
+              <li key={q.entryId}>
+                <Card size="sm" className="gap-0 p-2">
+                  <p>{q.question}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {q.askerName} · {time(q.createdAt)}
+                  </p>
+                  {send && (
+                    <div className="mt-1.5 flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-label={`Answer: ${q.question}`}
+                        onClick={() => onAnswer(g.chatId, { entryId: q.entryId, question: q.question })}
+                      >
+                        Answer
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        aria-label={`Dismiss: ${q.question}`}
+                        onClick={() => void dismiss({ entryId: q.entryId, question: q.question })}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  )}
+                </Card>
               </li>
             ))}
           </ul>

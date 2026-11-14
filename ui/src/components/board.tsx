@@ -36,6 +36,7 @@ import { actorOf, eventLabel, eventTone, historyToggle, type ItemEvent } from "@
 import { useLoad } from "@/components/bot-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, attentionBar } from "@/components/ui/card"
 import {
   awaitsAnswer,
   canWithdraw,
@@ -98,13 +99,13 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
       onClick={onOpen}
       aria-label={`Work: ${now ? `now, ${now.text}` : "nothing now"}${needs > 0 ? `; ${needs} need you` : ""}. Opens the Work tab.`}
       title={now?.text}
-      className="hover:bg-muted flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-md:min-h-11 max-md:max-w-none max-md:flex-1"
+      className="hover:bg-muted transition-colors duration-(--duration-fast) flex max-w-md min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-md:min-h-11 max-md:max-w-none max-md:flex-1"
     >
       <span
         aria-hidden
         className={cn(
           "size-1.5 shrink-0 rounded-full",
-          !now ? "bg-muted-foreground/40" : now.state === "paused" ? "bg-amber-500" : "bg-emerald-500",
+          !now ? "bg-muted-foreground/40" : now.state === "paused" ? "bg-attention" : "bg-success",
         )}
       />
       <span className={cn("text-muted-foreground shrink-0", now && "max-md:hidden")}>
@@ -176,7 +177,7 @@ function StepRow({ team, item }: { team: Bot; item: Item }) {
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
-        className="hover:bg-sidebar-foreground/5 flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left max-md:min-h-11 max-md:py-2"
+        className="hover:bg-muted transition-colors duration-(--duration-fast) flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left max-md:min-h-11 max-md:py-2"
       >
         <Mark.icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", Mark.className)} />
         <span className="min-w-0 flex-1">
@@ -203,11 +204,11 @@ function StepRow({ team, item }: { team: Bot; item: Item }) {
 
 // stepMark is the icon of a step's state; the state is also written next to it.
 const stepMark: Record<Item["state"], { icon: LucideIcon; className: string }> = {
-  blocked: { icon: AlertTriangle, className: "text-amber-600 dark:text-amber-400" },
+  blocked: { icon: AlertTriangle, className: "text-attention" },
   review: { icon: Eye, className: "text-violet-600 dark:text-violet-400" },
-  doing: { icon: CircleDot, className: "text-blue-600 dark:text-blue-400" },
+  doing: { icon: CircleDot, className: "text-info" },
   todo: { icon: Circle, className: "text-muted-foreground" },
-  done: { icon: CheckCircle2, className: "text-emerald-600 dark:text-emerald-400" },
+  done: { icon: CheckCircle2, className: "text-success" },
   dropped: { icon: MinusCircle, className: "text-muted-foreground" },
 }
 
@@ -219,7 +220,7 @@ export function StepDetails({ team, item }: { team: Bot; item: Item }) {
   const count = item.eventCount ?? 0
   const toggle = (item.reviewRounds > 0 || count > 0) && (
     <Button
-      size="xs"
+      size="sm"
       variant={item.reviewRounds > 0 ? "outline" : "link"}
       className={item.reviewRounds > 0 ? "" : "text-muted-foreground h-auto p-0 text-xs"}
       aria-expanded={history}
@@ -236,8 +237,8 @@ export function StepDetails({ team, item }: { team: Bot; item: Item }) {
         {toggle}
       </p>
       {item.latestChange && (
-        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
-          <p className="font-medium text-amber-800 dark:text-amber-300">
+        <div className="rounded-md border border-attention/50 bg-attention-surface p-2 text-xs">
+          <p className="font-medium text-attention-foreground">
             Changes asked · round {item.latestChange.round} · {item.latestChange.by} · {time(item.latestChange.at)}
           </p>
           <p className="mt-1 whitespace-pre-wrap">{item.latestChange.text}</p>
@@ -284,16 +285,16 @@ export function HistoryList({ id, item, events }: { id: string; item: Item; even
               key={e.id}
               className={cn(
                 "relative",
-                tone === "changes" && "rounded-sm bg-amber-500/10 p-1.5",
-                tone === "passed" && "rounded-sm bg-emerald-500/10 p-1.5",
+                tone === "changes" && "rounded-md bg-attention-surface p-1.5",
+                tone === "passed" && "rounded-md bg-success/10 p-1.5",
               )}
             >
               <p>
                 <span
                   className={cn(
                     "font-medium",
-                    tone === "changes" && "text-amber-800 dark:text-amber-300",
-                    tone === "passed" && "text-emerald-800 dark:text-emerald-300",
+                    tone === "changes" && "text-attention-foreground",
+                    tone === "passed" && "text-success-foreground",
                   )}
                 >
                   {eventLabel(e)}
@@ -418,7 +419,7 @@ function PlanList({
         <div className="flex items-center gap-2 text-xs">
           <span className="text-muted-foreground flex-1">On hold.</span>
           {rights.computer && (
-            <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
+            <Button size="sm" onClick={() => void act(() => api.startNextGoal(team.id))}>
               Start now
             </Button>
           )}
@@ -489,7 +490,7 @@ function Heading({
 }) {
   return (
     <div className="flex min-h-7 items-center gap-2">
-      <h3 id={id} className="text-muted-foreground text-xs font-medium uppercase">
+      <h3 id={id} className="text-muted-foreground text-xs font-medium">
         {children}
         {count !== undefined && ` (${count})`}
       </h3>
@@ -536,26 +537,25 @@ export function BoardView({
       {error && <p className="text-destructive text-xs">{error}</p>}
       <NowSection team={team} goal={now} data={data} names={names} act={act} rev={rev} paused={paused} />
       {needs.length > 0 && (
-        <section
-          aria-labelledby="needs-heading"
-          className="flex flex-col gap-2 rounded-lg border border-amber-500/50 p-2.5"
-        >
-          <h3 id="needs-heading" className="text-xs font-medium text-amber-800 uppercase dark:text-amber-300">
-            Needs you ({needs.length})
-          </h3>
-          <ul className="flex flex-col divide-y divide-amber-500/20">
-            {needs.map((n) => (
-              <NeedRow
-                key={n.kind === "budget" ? "budget" : `${n.kind}:${n.goal.id}`}
-                n={n}
-                team={team}
-                names={names}
-                act={act}
-                onOpenInbox={onOpenInbox}
-                budget={data.budget}
-              />
-            ))}
-          </ul>
+        <section aria-labelledby="needs-heading">
+          <Card size="sm" className={cn("gap-2 p-2.5", attentionBar)}>
+            <h3 id="needs-heading" className="text-muted-foreground text-xs font-medium">
+              Needs you ({needs.length})
+            </h3>
+            <ul className="flex flex-col divide-y">
+              {needs.map((n) => (
+                <NeedRow
+                  key={n.kind === "budget" ? "budget" : `${n.kind}:${n.goal.id}`}
+                  n={n}
+                  team={team}
+                  names={names}
+                  act={act}
+                  onOpenInbox={onOpenInbox}
+                  budget={data.budget}
+                />
+              ))}
+            </ul>
+          </Card>
         </section>
       )}
       {(plan.length > 0 || inbox.length > 0) && (
@@ -570,16 +570,16 @@ export function BoardView({
             </>
           )}
           {inbox.length > 0 && (
-            <div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-xs">
+            <Card size="sm" className="flex-row items-center gap-2 px-2.5 py-1.5 text-xs">
               <span className="flex-1">
                 {`Inbox: ${inbox.length} ${inbox.length === 1 ? "task waits" : "tasks wait"} for ${lead}'s decision.`}
               </span>
               {onOpenInbox && (
-                <Button size="xs" variant="outline" onClick={onOpenInbox}>
+                <Button size="sm" variant="outline" onClick={onOpenInbox}>
                   Open inbox
                 </Button>
               )}
-            </div>
+            </Card>
           )}
         </section>
       )}
@@ -590,7 +590,7 @@ export function BoardView({
           action={
             allTeams.length > 1 &&
             rights.computer && (
-              <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
+              <Button size="sm" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
                 <Send /> Send a task…
               </Button>
             )
@@ -610,7 +610,7 @@ export function BoardView({
       </section>
       {earlier.length > 0 && (
         <details className="group/earlier">
-          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center max-md:min-h-11 gap-1 text-xs font-medium uppercase">
+          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center max-md:min-h-11 gap-1 text-xs font-medium">
             <ChevronRight aria-hidden className="size-3.5 transition-transform group-open/earlier:rotate-90" />
             Earlier ({earlier.length})
           </summary>
@@ -669,7 +669,7 @@ function NowSection({
     <section aria-labelledby="now-heading" className="flex flex-col gap-1.5">
       <Heading id="now-heading">Now</Heading>
       {goal ? (
-        <div className="bg-background/60 flex flex-col gap-2 rounded-lg border p-2.5">
+        <Card size="sm" className="gap-2 p-2.5">
           <div className="flex flex-wrap items-start gap-2">
             <span className="min-w-[60%] flex-1 text-sm font-medium">{goal.text}</span>
             <FromChip goal={goal} names={names} />
@@ -697,7 +697,7 @@ function NowSection({
             <span className="flex-1" />
             {goal.state === "paused" && !stopping && rights.computer && (
               <Button
-                size="xs"
+                size="sm"
                 aria-label={`Resume: ${goal.text}`}
                 onClick={() => void act(() => api.extendGoal(goal.id, 0))}
               >
@@ -708,23 +708,23 @@ function NowSection({
               <span className="flex flex-wrap items-center gap-1.5 text-xs">
                 Stop the task? Running turns finish, and its steps stay.
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="destructive"
                   onClick={() => void act(() => api.stopTask(goal.id)).then(() => setStopping(false))}
                 >
                   Stop task
                 </Button>
-                <Button size="xs" variant="ghost" onClick={() => setStopping(false)}>
+                <Button size="sm" variant="ghost" onClick={() => setStopping(false)}>
                   Keep it
                 </Button>
               </span>
             ) : (
-              <Button size="xs" variant="ghost" aria-label={`Stop: ${goal.text}`} onClick={() => setStopping(true)}>
+              <Button size="sm" variant="ghost" aria-label={`Stop: ${goal.text}`} onClick={() => setStopping(true)}>
                 <Square /> Stop…
               </Button>
             )}
           </div>
-        </div>
+        </Card>
       ) : (
         <p className="text-muted-foreground text-sm">
           {plan.length > 0
@@ -791,7 +791,7 @@ function NeedRow({
       <div className="flex flex-wrap items-center gap-1.5">
         {(n.kind === "approve" || n.kind === "sent-done") && send && (
           <>
-            <Button size="xs" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
+            <Button size="sm" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
               Approve
             </Button>
             <TextAction
@@ -814,7 +814,7 @@ function NeedRow({
         )}
         {n.kind === "pushed" && send && (
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
             aria-label={`Dismiss: ${g.text}`}
             onClick={() => void act(() => api.dismissSent(g.id))}
@@ -823,7 +823,7 @@ function NeedRow({
           </Button>
         )}
         {n.kind === "decide" && onOpenInbox && (
-          <Button size="xs" variant="outline" onClick={onOpenInbox}>
+          <Button size="sm" variant="outline" onClick={onOpenInbox}>
             Open inbox
           </Button>
         )}
@@ -879,7 +879,7 @@ function StoppedRow({ g, names, act, rev }: { g: Goal; names: Names; act: Act; r
         <TaskHistory goal={g} version={rev} />
         {rights.computer && (
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
             aria-label={`Reopen: ${g.text}`}
             onClick={() => void act(() => api.reopenTask(g.id))}

@@ -4,7 +4,7 @@ import { FALLBACK_ALIASES, ModelChip, ModelEffortFields } from "./model.tsx"
 
 const none = { value: "", source: "claude-code" as const }
 
-test("a chip is a labelled button, amber with a warning icon on a mismatch", () => {
+test("a chip is a labelled button, attention-coloured with a warning icon on a mismatch", () => {
   const ok = renderToStaticMarkup(
     <ModelChip
       effective={{ model: "opus", modelSource: "bot", effort: "max", effortSource: "bot" }}
@@ -15,7 +15,7 @@ test("a chip is a labelled button, amber with a warning icon on a mismatch", () 
   assert.include(ok, "<button")
   assert.include(ok, 'aria-label="Model Opus, set on this bot. Requested effort max, set on this bot. Open settings."')
   assert.include(ok, "Opus · max")
-  assert.notInclude(ok, "amber")
+  assert.notInclude(ok, "attention")
   const bad = renderToStaticMarkup(
     <ModelChip
       effective={{
@@ -29,7 +29,7 @@ test("a chip is a labelled button, amber with a warning icon on a mismatch", () 
       aliases={FALLBACK_ALIASES}
     />,
   )
-  assert.include(bad, "amber")
+  assert.include(bad, "attention")
   assert.include(bad, "<svg")
   assert.include(bad, 'aria-label="Asked for Opus, ran claude-sonnet-5-5.')
 })

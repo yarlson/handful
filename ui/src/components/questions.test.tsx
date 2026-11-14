@@ -90,7 +90,7 @@ test("Waiting for you groups questions by chat and links approvals and paused ta
     />,
   )
   assert.isBelow(html.indexOf("Alpha"), html.indexOf("Beta"))
-  assert.include(html, 'aria-label="Answer: First?"')
+  assert.match(html, /data-variant="outline" data-size="sm" class="[^"]*" aria-label="Answer: First\?"/)
   assert.include(html, 'aria-label="Dismiss: Second?"')
   assert.include(html, "Open chat")
   assert.include(html, "Gamma: needs your approval")

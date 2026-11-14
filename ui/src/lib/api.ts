@@ -429,6 +429,7 @@ export const api = {
   reopenQuestion: (entryId: string) => request<Entry>("POST", `/api/entries/${entryId}/reopen`, {}),
   mediaUrl: (name: string) => `/api/media/${encodeURIComponent(name)}`,
   interrupt: (id: string) => request<{ stopped: boolean }>("POST", `/api/bots/${id}/interrupt`, {}),
+  stopTurn: (id: string) => request<{ stopped: boolean }>("POST", `/api/bots/${id}/stop-turn`, {}),
   clearContext: (id: string) => request<void>("POST", `/api/bots/${id}/clear`, {}),
   compactContext: (id: string) => request<{ queued: number }>("POST", `/api/bots/${id}/compact`, {}),
   memory: (id: string) => request<Memory[]>("GET", `/api/bots/${id}/memory`),

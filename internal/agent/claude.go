@@ -160,6 +160,13 @@ func userMessage(id, text, command string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// interruptMessage asks Claude Code to stop the model's current run; id names the request.
+// The process and its background tasks go on. With cancelQueued it also drops the messages still queued
+// behind that run, each with a "cancelled" lifecycle event.
+func interruptMessage(id string, cancelQueued bool) []byte {
+	return fmt.Appendf(nil, `{"type":"control_request","request_id":"stop-%s","request":{"subtype":"interrupt","cancel_queued":%t}}`+"\n", id, cancelQueued)
+}
+
 // compactArgs starts claude on a stored session to run Claude Code's /compact,
 // which goes to stdin. The isolation flags match a normal turn; no tools or
 // MCP servers are needed.

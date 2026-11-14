@@ -52,6 +52,9 @@ type Runner struct {
 	log    *slog.Logger
 
 	outputTimeout time.Duration // turnOutputTimeout; tests shorten it
+	// stopWait is how long a stopped run may go on before its process stops; Claude Code ends a
+	// run within milliseconds of an interrupt. Tests shorten it.
+	stopWait time.Duration
 	// environ is the environment that claude processes start from:
 	// os.Environ, which tests replace because they run in parallel.
 	environ func() []string
@@ -112,7 +115,7 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 	resume := time.NewTimer(0)
 	resume.Stop()
 	return &Runner{
-		svc: svc, cfg: cfg, tokens: newTokenRegistry(log), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, running: make(map[string]runningTurn), deleting: make(map[string]bool), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
+		svc: svc, cfg: cfg, tokens: newTokenRegistry(log), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, stopWait: 15 * time.Second, running: make(map[string]runningTurn), deleting: make(map[string]bool), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
 		resume: resume, maxLimitPause: limitPauseMax, publish: svc.PublishState, environ: os.Environ,
 	}
 }
@@ -314,6 +317,35 @@ func (r *Runner) Interrupt(ctx context.Context, id string) (bool, error) {
 	}
 	stopped := len(cancels) > 0 || len(sessions) > 0
 	return stopped, errors.Join(stopErr, r.svc.CancelQueuedRoomTurns(ctx, id))
+}
+
+// StopTurn stops only the turns that the chat of a bot or a room shows: its
+// conversation turn and its task turns. The claude processes and their
+// background tasks go on, and so do the board's turns and the queued turns.
+// It returns false when no such turn was running.
+func (r *Runner) StopTurn(id string) bool {
+	r.mu.Lock()
+	var cancels []context.CancelCauseFunc
+	for botID, rt := range r.running {
+		if !rt.board && (rt.roomID == id || rt.roomID == "" && botID == id) {
+			cancels = append(cancels, rt.cancel)
+		}
+	}
+	var waking []*session
+	for _, s := range r.sessions {
+		if s.waking && !s.taskStopped && s.key.transcript() == id {
+			s.taskStopped = true
+			waking = append(waking, s)
+		}
+	}
+	r.mu.Unlock()
+	for _, c := range cancels {
+		c(errTurnStopped)
+	}
+	for _, s := range waking {
+		r.stopTaskTurn(s)
+	}
+	return len(cancels) > 0 || len(waking) > 0
 }
 
 // CancelGoal stops the running turns that work for a goal, in every team,
@@ -646,10 +678,17 @@ func (r *Runner) recordFailure(ctx context.Context, t core.Turn, transcript stri
 // is the server stopping.
 var errStoppedByUser = errors.New("stopped by the user")
 
+// errTurnStopped is the cause when the user stops only the turn (StopTurn): its claude process
+// and background tasks go on.
+var errTurnStopped = fmt.Errorf("%w, only the turn", errStoppedByUser)
+
 // interruption names why a turn was stopped, from cause, the cause of its context's end: the
 // user stopped it, or the server stopped. It returns the turn's error text and the line its chat
 // shows.
 func interruption(cause error) (string, string) {
+	if errors.Is(cause, errTurnStopped) {
+		return errStoppedByUser.Error(), "Stopped this turn."
+	}
 	if errors.Is(cause, errStoppedByUser) {
 		return errStoppedByUser.Error(), "Stopped."
 	}

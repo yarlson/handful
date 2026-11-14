@@ -301,6 +301,19 @@ func TestClearAndCompactEndpoints(t *testing.T) {
 	}
 }
 
+// #37: the stop-turn route answers whether a turn stopped; the runner's tests cover the stop.
+func TestStopTurnEndpointSaysWhenNoTurnRuns(t *testing.T) {
+	h, svc := newTestHandler(t)
+	bot, err := svc.CreateBot(context.Background(), "Scout", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "POST", "/api/bots/"+bot.ID+"/stop-turn", `{}`, jsonHeader)
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"stopped":false}` {
+		t.Fatalf("stop-turn of an idle bot: %d %s; want 200 {\"stopped\":false}", rec.Code, rec.Body)
+	}
+}
+
 func TestCreateRoutineEndpoint(t *testing.T) {
 	h, svc := newTestHandler(t)
 	ctx := context.Background()

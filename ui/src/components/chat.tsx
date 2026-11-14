@@ -2,12 +2,14 @@ import {
   memo,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
@@ -24,6 +26,7 @@ import {
   Lock,
   Paperclip,
   Play,
+  RotateCw,
   SmilePlus,
   ShieldQuestion,
   Sparkles,
@@ -80,13 +83,12 @@ import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
 import { AnswerChip, goTo, QuestionStrip } from "@/components/questions"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
-import { emptyText, type TranscriptStatus } from "@/lib/transcript"
+import { emptyText, expiryText, retryOf, type TranscriptStatus } from "@/lib/transcript"
+import { daySeparators } from "@/lib/dates"
+import { offersStarts, STARTS } from "@/lib/starts"
+import { Stamp } from "@/components/stamp"
 import { fits, rangeOf, RowHeights, rowOffsets, rowsFor, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
 import { KEPT_CHATS } from "@/lib/chat-windows"
-
-function time(ms: number) {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-}
 
 // markdownComponents opens links to other sites in a new tab, so the app
 // stays open. The desktop app sends such links to the default browser. An
@@ -240,6 +242,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
         </CardHeader>
         <CardContent>
           <SetupSummary setup={setup} />
+          {b.status === "expired" && <p className="text-muted-foreground mt-2 text-xs">{expiryText(b.expiry)}</p>}
           {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
           {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
         </CardContent>
@@ -282,6 +285,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
         <pre className="bg-muted max-h-48 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
           {command}
         </pre>
+        {b.status === "expired" && <p className="text-muted-foreground mt-2 text-xs">{expiryText(b.expiry)}</p>}
         {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
         {b.decidedOn && <p className="text-muted-foreground mt-2 text-xs">{decidedOn(b.decision, b.decidedOn)}</p>}
       </CardContent>
@@ -377,7 +381,15 @@ function SetupSummary({ setup }: { setup: SetupProposal }) {
   )
 }
 
-function EventLine({ entry }: { entry: Extract<Entry, { kind: "event" }> }) {
+function EventLine({
+  entry,
+  chatId,
+  retry,
+}: {
+  entry: Extract<Entry, { kind: "event" }>
+  chatId: string
+  retry?: UserEntry
+}) {
   const b = entry.body
   if (b.type === "context-cleared") {
     return (
@@ -405,25 +417,72 @@ function EventLine({ entry }: { entry: Extract<Entry, { kind: "event" }> }) {
             Open settings
           </Button>
         )}
-        <span className="opacity-60">· {time(entry.createdAt)}</span>
+        <span>
+          <span className="opacity-60">·</span> <Stamp ms={entry.createdAt} />
+        </span>
       </div>
     )
   }
-  const failed = b.type === "turn-failed"
   const text = b.type === "renamed" ? `Renamed from ${b.from} to ${b.to}` : (b.text ?? b.type)
+  if (b.type === "turn-failed") {
+    return (
+      <div className="text-destructive mx-auto flex max-w-xl flex-col items-center gap-1.5 text-xs">
+        <p className="flex min-w-0 items-start gap-1.5">
+          <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 [overflow-wrap:anywhere] whitespace-pre-wrap">
+            {text} <span className="opacity-60">· </span>
+            <Stamp ms={entry.createdAt} />
+          </span>
+        </p>
+        {retry && <RetryButton chatId={chatId} failureId={entry.id} message={retry} />}
+      </div>
+    )
+  }
   return (
-    <div
-      className={cn(
-        "flex items-center justify-center gap-1.5 text-xs",
-        failed ? "text-destructive" : "text-muted-foreground",
-      )}
-    >
-      {failed && <AlertTriangle className="size-3.5" />}
+    <div className="text-muted-foreground flex items-center justify-center gap-1.5 text-xs">
       <span className="max-w-xl truncate" title={text}>
         {text}
       </span>
-      <span className="opacity-60">· {time(entry.createdAt)}</span>
+      <span>
+        <span className="opacity-60">·</span> <Stamp ms={entry.createdAt} />
+      </span>
     </div>
+  )
+}
+
+type UserEntry = Extract<Entry, { kind: "user" }>
+
+// RetryButton sends the message that started a failed turn again, with its text and its
+// attachments, as a new message. The failure names the send, so a second click after an error
+// stores the message once.
+function RetryButton({ chatId, failureId, message }: { chatId: string; failureId: string; message: UserEntry }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const retry = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const media = await Promise.all(
+        (message.body.media ?? []).map(async (name) => {
+          const res = await fetch(api.mediaUrl(name))
+          if (!res.ok) throw new Error(`Could not load the attachment ${name}: HTTP ${res.status}.`)
+          return readBase64(await res.blob(), name)
+        }),
+      )
+      await api.send(chatId, message.body.text, `retry-${failureId}`, media)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Button size="sm" variant="outline" className="text-foreground" disabled={busy} onClick={() => void retry()}>
+        {busy ? <Loader2 className="animate-spin" /> : <RotateCw />} Retry
+      </Button>
+      {error && <p role="alert">{error}</p>}
+    </>
   )
 }
 
@@ -480,16 +539,17 @@ function Reactions({ entryId, reactions, copyText }: { entryId: string; reaction
             size="xs"
             variant="outline"
             aria-pressed
-            aria-label={`Remove ${emoji} reaction`}
-            title={`Remove ${emoji} reaction`}
+            aria-label={`Your ${emoji} reaction. Remove it`}
+            title={`Your ${emoji} reaction. Click to remove it`}
             className="rounded-full"
             onClick={() => void set(emoji)}
           >
-            <span>{emoji}</span> <span className="text-muted-foreground">1</span>
+            {emoji}
           </Button>
         ) : (
           <span key={emoji} className="rounded-full border px-2 text-xs leading-6">
-            {emoji}
+            <span aria-hidden>{emoji}</span>
+            <span className="sr-only">Your {emoji} reaction</span>
           </span>
         ),
       )}
@@ -551,7 +611,7 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
         <div className="text-muted-foreground mb-1 flex items-center gap-1.5 text-xs">
           {incoming ? <ArrowDownLeft className="size-3.5" /> : <ArrowUpRight className="size-3.5" />}
           {incoming ? "From" : "To"} <span className={cn("font-semibold", botColor(b.peerId).text)}>{b.peerName}</span>{" "}
-          · {time(entry.createdAt)}
+          · <Stamp ms={entry.createdAt} />
           {b.priority && !b.held && <Badge variant="secondary">priority</Badge>}
           {b.held && <Badge variant="outline">next turn</Badge>}
         </div>
@@ -569,6 +629,7 @@ export function EntryView({
   onAnswer,
   expanded = false,
   onExpand = () => {},
+  retry,
 }: {
   entry: Entry
   chat: ChatInfo
@@ -578,6 +639,8 @@ export function EntryView({
   // expanded says a tool run's output is shown; onExpand shows or hides it.
   expanded?: boolean
   onExpand?: (entryId: string) => void
+  // retry is the message that started this failed turn, when the failure offers Retry.
+  retry?: UserEntry
 }) {
   const botColor = useBotColor()
   switch (entry.kind) {
@@ -640,7 +703,7 @@ export function EntryView({
               ) : (
                 <span className={cn("text-sm font-semibold", color.text)}>{speaker}</span>
               )}
-              <span className="text-muted-foreground text-xs">{time(entry.createdAt)}</span>
+              <Stamp ms={entry.createdAt} className="text-muted-foreground text-xs" />
               {open ? (
                 <Badge variant="attention">{stateLabel(qState)}</Badge>
               ) : (
@@ -675,7 +738,7 @@ export function EntryView({
     case "approval":
       return <ApprovalCard entry={entry} />
     case "event":
-      return <EventLine entry={entry} />
+      return <EventLine entry={entry} chatId={chat.id} retry={retry} />
     case "agent":
       return <AgentMessage entry={entry} />
   }
@@ -683,9 +746,18 @@ export function EntryView({
 
 // Row is one entry of the transcript. It re-renders only when its own props change, not on each
 // render of the page.
-const Row = memo(function Row(props: Parameters<typeof EntryView>[0]) {
+// day is the label of the day separator above the entry, when a new local day starts with it; it
+// is inside the row, so the row's measured height holds it.
+const Row = memo(function Row({ day, ...props }: Parameters<typeof EntryView>[0] & { day?: string }) {
   return (
     <div data-entry={props.entry.id}>
+      {day && (
+        <div className="text-muted-foreground mb-3 flex items-center gap-3 text-xs">
+          <span className="bg-border h-px flex-1" />
+          <span>{day}</span>
+          <span className="bg-border h-px flex-1" />
+        </div>
+      )}
       <EntryView {...props} />
     </div>
   )
@@ -804,14 +876,15 @@ function saveDraft(botId: string, text: string) {
 // preview; revoke it when the file leaves the composer.
 type PendingMedia = { key: string; file: File; url: string }
 
-function readBase64(file: File): Promise<string> {
+// readBase64 reads a file to attach, or a sent attachment that Retry sends again, as base64.
+function readBase64(file: Blob, name: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = reader.result as string
       resolve(dataUrl.slice(dataUrl.indexOf(",") + 1))
     }
-    reader.onerror = () => reject(reader.error ?? new Error(`could not read ${file.name}`))
+    reader.onerror = () => reject(reader.error ?? new Error(`could not read ${name}`))
     reader.readAsDataURL(file)
   })
 }
@@ -826,6 +899,7 @@ function Composer({
   onSent,
   answering,
   onAnswer,
+  fill,
 }: {
   bot: Bot
   mentionables: Member[]
@@ -837,6 +911,8 @@ function Composer({
   // answering is the question that the next message answers, set by an Answer button.
   answering: Asked | null
   onAnswer: (q: Asked | null) => void
+  // fill gets the function that puts a text in the box, as a start does.
+  fill?: Ref<(text: string) => void>
 }) {
   const narrow = useNarrow()
   const [text, setText] = useState(() => loadDraft(bot.id))
@@ -859,6 +935,19 @@ function Composer({
   const input = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const isRoom = bot.kind === "room"
+  useImperativeHandle(
+    fill,
+    () => (next: string) => {
+      setText(next)
+      setBrowse(null)
+      requestAnimationFrame(() => {
+        const el = input.current
+        el?.focus()
+        el?.setSelectionRange(next.length, next.length)
+      })
+    },
+    [],
+  )
 
   // Skills are invoked in a bot's own chat and in a team's chat; a plain room
   // offers only the commands.
@@ -936,7 +1025,7 @@ function Composer({
           bot.id,
           plan.text,
           nonces.of(key),
-          await Promise.all(media.map((m) => readBase64(m.file))),
+          await Promise.all(media.map((m) => readBase64(m.file, m.file.name))),
           answered,
         )
         nonces.sent()
@@ -1214,7 +1303,12 @@ const LOAD_OLDER_PX = 800
 
 // itemsOf returns the transcript's rendered rows, keyed by their entries' ids.
 function itemsOf(rows: HTMLElement | null): Item[] {
-  return rows ? [...rows.children].map((box) => ({ key: (box as HTMLElement).dataset.entry ?? "", box })) : []
+  return rows
+    ? [...rows.children].map((box) => ({
+        key: (box as HTMLElement).dataset.entry ?? "",
+        box,
+      }))
+    : []
 }
 
 // mentionables are the bots that @ can complete: room members, or the other bots.
@@ -1474,7 +1568,11 @@ export function Chat({
   // chat changes only when what the rows show of it changes, not with each bots event.
   const membersKey = JSON.stringify(bot.members ?? null)
   const chat = useMemo<ChatInfo>(
-    () => ({ id: bot.id, name: bot.name, members: JSON.parse(membersKey) ?? undefined }),
+    () => ({
+      id: bot.id,
+      name: bot.name,
+      members: JSON.parse(membersKey) ?? undefined,
+    }),
     [bot.id, bot.name, membersKey],
   )
 
@@ -1485,7 +1583,10 @@ export function Chat({
   useEffect(() => setAttachError(null), [bot.id])
   // A user's message shows the skills it names, among those its chat offers. The list is
   // loaded per chat; a failed load shows no labels.
-  const [skillList, setSkillList] = useState<{ chat: string; skills: { id: string }[] }>({ chat: "", skills: [] })
+  const [skillList, setSkillList] = useState<{
+    chat: string
+    skills: { id: string }[]
+  }>({ chat: "", skills: [] })
   useEffect(() => {
     const chat = bot.id
     api.skills().then(
@@ -1498,8 +1599,23 @@ export function Chat({
   const inTeam = Boolean(bot.team)
   const skillIds = useMemo(() => {
     const listed = skillList.chat === bot.id ? skillList.skills : []
-    return offeredSkills(listed, { kind: chatKind, team: inTeam ? {} : undefined }).map((sk) => sk.id)
+    return offeredSkills(listed, {
+      kind: chatKind,
+      team: inTeam ? {} : undefined,
+    }).map((sk) => sk.id)
   }, [skillList, bot.id, chatKind, inTeam])
+  // A transcript's day separators and the failure that offers Retry.
+  const days = useMemo(
+    () =>
+      daySeparators(
+        entries.map((e) => e.createdAt),
+        Date.now(),
+      ),
+    [entries],
+  )
+  const retry = useMemo(() => retryOf(entries), [entries])
+  const starts = offersStarts(bot, entries) && !older
+  const fill = useRef<(text: string) => void>(null)
   const updateMedia = (botId: string, update: (media: PendingMedia[]) => PendingMedia[]) =>
     setPending((m) => new Map(m).set(botId, update(m.get(botId) ?? [])))
   const attach = (files: File[]) => {
@@ -1510,7 +1626,11 @@ export function Chat({
     if (media.length === 0) return
     updateMedia(bot.id, (list) => [
       ...list,
-      ...media.map((file) => ({ key: crypto.randomUUID(), file, url: URL.createObjectURL(file) })),
+      ...media.map((file) => ({
+        key: crypto.randomUUID(),
+        file,
+        url: URL.createObjectURL(file),
+      })),
     ])
   }
 
@@ -1546,13 +1666,20 @@ export function Chat({
         onScroll={(e) => onScroll(e.currentTarget)}
       >
         <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
-          {entries.length === 0 && <p className="text-muted-foreground text-center text-sm">{emptyText(status)}</p>}
+          {entries.length === 0 && !starts && (
+            <div className="text-muted-foreground text-center text-sm">
+              {status === "ready" && <p className="text-foreground font-medium">{bot.name}</p>}
+              <p>{emptyText(status)}</p>
+            </div>
+          )}
           {entries.length > 0 && (
             // The padding holds the space of the rows above and below the ones rendered.
             <div ref={rowsBox} className="flex flex-col gap-3" style={{ paddingTop: before, paddingBottom: after }}>
-              {entries.slice(range.start, range.end).map((e) => (
+              {entries.slice(range.start, range.end).map((e, i) => (
                 <Row
                   key={e.id}
+                  day={days[range.start + i]}
+                  retry={retry?.failureId === e.id ? retry.message : undefined}
                   entry={e}
                   chat={chat}
                   skillIds={skillIds}
@@ -1561,6 +1688,22 @@ export function Chat({
                   onExpand={expand}
                 />
               ))}
+            </div>
+          )}
+          {starts && rights.send && (
+            <div className="flex flex-col gap-2 pl-9.5">
+              {entries.length === 0 && (
+                <p className="text-sm">
+                  {bot.name} sets up bots, teams and rooms for you. Pick a start, or describe your own idea.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {STARTS.map((s) => (
+                  <Button key={s.label} size="sm" variant="outline" onClick={() => fill.current?.(s.text)}>
+                    {s.label}
+                  </Button>
+                ))}
+              </div>
             </div>
           )}
           {bot.running && (
@@ -1615,6 +1758,7 @@ export function Chat({
             onAttach={attach}
             onMediaChange={(update) => updateMedia(bot.id, update)}
             onSent={pin}
+            fill={fill}
           />
         )}
       </div>

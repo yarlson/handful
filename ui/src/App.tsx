@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
 import {
+  ArrowRight,
   Inbox,
   LayoutDashboard,
   AlertTriangle,
@@ -19,6 +20,7 @@ import { useHandful } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
 import { useNarrow } from "@/lib/narrow"
+import { BUILDER } from "@/lib/starts"
 import { MoveNotice } from "@/components/move-notice"
 import { NowChip } from "@/components/board"
 import { AcrossScreen, InboxScreen } from "@/components/tasks"
@@ -893,6 +895,11 @@ export function App() {
           {bots.length === 0 && rights.computer && (
             <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreating(true)}>
               <Plus /> Create your first bot
+            </Button>
+          )}
+          {bots.length === 1 && bots[0].role === BUILDER && (
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => openChat(bots[0].id)}>
+              <ArrowRight /> Set up your bots with {bots[0].name}
             </Button>
           )}
         </nav>

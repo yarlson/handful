@@ -14,17 +14,18 @@ import (
 	"handful/internal/db"
 )
 
-// approvalTimeout ends an approval before Claude Code gives up on the tool
-// call: it aborts an MCP call that sends nothing for 300 s, even with
-// MCP_TOOL_TIMEOUT set, and a card left after that would take a decision
-// that reaches no one.
-const approvalTimeout time.Duration = 270e9 // 270 s, in nanoseconds
-
 // Approval decisions a user can make on an approval card.
 const (
 	DecisionOnce   = "once"
 	DecisionAlways = "always"
 	DecisionDeny   = "deny"
+)
+
+// Expiry causes: why an approval card expired without a decision.
+const (
+	ExpiryLimit     = "limit"      // no answer within the approval timeout
+	ExpiryTurnEnded = "turn-ended" // the turn stopped or its request ended
+	ExpiryRestart   = "restart"    // the server restarted while the card waited
 )
 
 var ErrApprovalClosed = errors.New("approval is no longer pending")
@@ -37,13 +38,20 @@ type approvalBody struct {
 	Decision string          `json:"decision,omitempty"`
 	// DecidedOn names the paired phone the decision came from; "" for the computer.
 	DecidedOn string `json:"decidedOn,omitempty"`
+	// Expiry is the cause of an expired card; cards from before it was stored have none.
+	Expiry string `json:"expiry,omitempty"`
 }
 
 // approvalWaiters connects a pending approval card to the worker that waits on it.
 // Pending approvals live only in memory: when the server stops, the waiting turn stops too.
 type approvalWaiters struct {
-	mu sync.Mutex
-	m  map[string]waiter // approval entry id -> waiter
+	// timeout ends an approval before Claude Code gives up on the tool call:
+	// it aborts an MCP call that sends nothing for 300 s, even with
+	// MCP_TOOL_TIMEOUT set, and a card left after that would take a decision
+	// that reaches no one.
+	timeout time.Duration
+	mu      sync.Mutex
+	m       map[string]waiter // approval entry id -> waiter
 }
 
 type waiter struct {
@@ -53,7 +61,7 @@ type waiter struct {
 }
 
 func newApprovalWaiters() *approvalWaiters {
-	return &approvalWaiters{m: make(map[string]waiter)}
+	return &approvalWaiters{timeout: 270 * time.Second, m: make(map[string]waiter)}
 }
 
 func (a *approvalWaiters) add(entryID, turnID, botID string) chan string {
@@ -126,19 +134,10 @@ func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (boo
 		s.approvals.take(entryID)
 		return false, "", err
 	}
-	timer := time.NewTimer(approvalTimeout)
-	defer timer.Stop()
-
-	var decision string
-	select {
-	case decision = <-ch:
-	case <-ctx.Done():
-		decision = s.awaitTaken(entry.ID, ch)
-	case <-timer.C:
-		decision = s.awaitTaken(entry.ID, ch)
-	}
+	decision, expiry := s.awaitDecision(ctx, entry.ID, ch)
 	if decision == "" {
 		body.Status = "expired"
+		body.Expiry = expiry
 		// The request context may be done; record the outcome regardless.
 		if _, err := s.UpdateEntry(context.WithoutCancel(ctx), entry.ID, body); err != nil {
 			return false, "", err
@@ -148,14 +147,25 @@ func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (boo
 	return decision != DecisionDeny, "The user denied this action.", nil
 }
 
-// awaitTaken ends the wait for an approval that timed out or whose request
-// ended. If a decision or a turn's expiry took the waiter first, it sends on
-// ch, and that outcome stands, so the worker gets what the card shows.
-func (s *Service) awaitTaken(entryID string, ch chan string) string {
-	if _, ok := s.approvals.take(entryID); ok {
-		return ""
+// awaitDecision waits for the decision on an approval card. It returns "" and
+// the expiry cause when the card expires.
+func (s *Service) awaitDecision(ctx context.Context, entryID string, ch chan string) (string, string) {
+	timer := time.NewTimer(s.approvals.timeout)
+	defer timer.Stop()
+	expiry := ExpiryTurnEnded
+	select {
+	case decision := <-ch:
+		return decision, ExpiryTurnEnded
+	case <-ctx.Done():
+	case <-timer.C:
+		expiry = ExpiryLimit
 	}
-	return <-ch
+	// If a decision or a turn's expiry took the waiter first, it sends on ch,
+	// and that outcome stands, so the worker gets what the card shows.
+	if _, ok := s.approvals.take(entryID); ok {
+		return "", expiry
+	}
+	return <-ch, ExpiryTurnEnded
 }
 
 // ExpireTurnApprovals ends the pending approvals of a turn that has stopped.

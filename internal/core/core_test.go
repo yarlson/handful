@@ -726,9 +726,36 @@ func TestApprovalAlwaysCreatesGrantThatSkipsTheNextCard(t *testing.T) {
 func TestApprovalCardExpiresBeforeClaudeCodeAbortsTheToolCall(t *testing.T) {
 	// Claude Code aborts an MCP tool call that sends nothing for 300 s, even
 	// with MCP_TOOL_TIMEOUT set; the card must not stay clickable after that.
-	if approvalTimeout >= 300*time.Second {
-		t.Fatalf("approvalTimeout = %v; want less than Claude Code's 300 s idle abort", approvalTimeout)
+	if timeout := newApprovalWaiters().timeout; timeout <= 0 || timeout >= 300*time.Second {
+		t.Fatalf("approval timeout = %v; want more than 0 and less than Claude Code's 300 s idle abort", timeout)
 	}
+}
+
+func TestAnApprovalWithNoAnswerInTimeExpiresWithTheLimitCause(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	svc.approvals.timeout = time.Millisecond
+	ok, reason, err := svc.RequestApproval(ctx, ApprovalRequest{BotID: bot.ID, TranscriptID: bot.ID, TurnID: "t", Tool: "Write", Input: json.RawMessage(`{}`)})
+	if err != nil || ok {
+		t.Fatalf("RequestApproval = %v, %q, %v; want not allowed, no error", ok, reason, err)
+	}
+	if body := lastApproval(t, svc, bot.ID); body.Status != "expired" || body.Expiry != ExpiryLimit {
+		t.Fatalf("approval card = %+v; want status expired, expiry %q", body, ExpiryLimit)
+	}
+}
+
+func lastApproval(t *testing.T, svc *Service, transcript string) approvalBody {
+	t.Helper()
+	entries, err := svc.Entries(context.Background(), transcript, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body approvalBody
+	if err := json.Unmarshal(entries[len(entries)-1].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	return body
 }
 
 func TestADecisionThatWinsTheRaceWithExpiryReachesTheWorker(t *testing.T) {
@@ -802,14 +829,8 @@ func TestApprovalDenyAndCancel(t *testing.T) {
 	if <-done {
 		t.Fatal("cancelled approval returned allowed; want denied")
 	}
-	entries, err := svc.Entries(context.Background(), bot.ID, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	last := entries[len(entries)-1]
-	var body approvalBody
-	if err := json.Unmarshal(last.Body, &body); err != nil || body.Status != "expired" {
-		t.Fatalf("approval card = %s; want status expired", last.Body)
+	if body := lastApproval(t, svc, bot.ID); body.Status != "expired" || body.Expiry != ExpiryTurnEnded {
+		t.Fatalf("approval card = %+v; want status expired, expiry %q", body, ExpiryTurnEnded)
 	}
 }
 
@@ -861,8 +882,8 @@ func TestExpireTurnApprovalsEndsPendingCardsOfThatTurnOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	var body approvalBody
-	if err := json.Unmarshal(card.Body, &body); err != nil || body.Status != "expired" {
-		t.Fatalf("stopped turn's card = %s; want status expired", card.Body)
+	if err := json.Unmarshal(card.Body, &body); err != nil || body.Status != "expired" || body.Expiry != ExpiryTurnEnded {
+		t.Fatalf("stopped turn's card = %s; want status expired, expiry %q", card.Body, ExpiryTurnEnded)
 	}
 }
 
@@ -933,6 +954,10 @@ func TestRecoverAfterRestartClosesOpenCardsAndToolCalls(t *testing.T) {
 		if body["status"] != want {
 			t.Errorf("entry %s status = %v; want %s", e.Kind, body["status"], want)
 		}
+	}
+	var body approvalBody
+	if e, err := svc.GetEntry(ctx, card.ID); err != nil || json.Unmarshal(e.Body, &body) != nil || body.Expiry != ExpiryRestart {
+		t.Fatalf("approval card after restart = %+v (err %v); want expiry %q", body, err, ExpiryRestart)
 	}
 }
 

@@ -977,6 +977,7 @@ func (s *Service) RecoverAfterRestart(ctx context.Context) error {
 		}
 		if e.Kind == KindApproval {
 			body["status"] = "expired"
+			body["expiry"] = ExpiryRestart
 		} else {
 			body["status"] = "error"
 			body["output"] = "No result: the turn ended first."

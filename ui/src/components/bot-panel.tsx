@@ -33,17 +33,10 @@ import { SendTaskDialog } from "@/components/tasks"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 import { forgetHistory, withStorage } from "@/lib/history"
+import { dateTime } from "@/lib/dates"
 
 function when(ms: number | null) {
-  return ms
-    ? new Date(ms).toLocaleString([], {
-        weekday: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        month: "short",
-        day: "numeric",
-      })
-    : "—"
+  return ms ? dateTime(ms, Date.now()) : "—"
 }
 
 // useLoad fetches data and fetches it again whenever key changes. Only the
@@ -151,7 +144,7 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
               </Badge>
               <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
               {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
-              <span className="text-muted-foreground text-xs">{new Date(m.createdAt).toLocaleDateString()}</span>
+              <span className="text-muted-foreground text-xs">{dateTime(m.createdAt, Date.now())}</span>
             </div>
           </div>
           <Button

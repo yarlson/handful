@@ -34,6 +34,7 @@ export type Bot = {
   instructions: string
   model?: string // "" inherits
   effort?: string // "" inherits
+  role?: string // "builder" for Builder; absent on other bots and rooms
   hue?: string // a bot's colour, one of hues in bot-color.ts; absent on rooms, teams and older servers
   effective?: Effective // its values in its direct chat; absent on rooms
   openQuestions?: number
@@ -92,6 +93,7 @@ export type ApprovalBody = {
   status: "pending" | "allowed" | "denied" | "expired"
   decision?: Decision
   decidedOn?: string // the paired phone that decided; absent for the computer
+  expiry?: "limit" | "turn-ended" | "restart" // why an expired card expired; absent on older cards
 }
 export type Decision = "once" | "always" | "deny"
 

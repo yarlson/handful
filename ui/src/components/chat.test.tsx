@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, assert, test, vi } from "vitest"
 import type { ActivityBody, Bot, Entry } from "@/lib/api"
-import { EntryView, MarkdownText } from "./chat.tsx"
+import { Chat, EntryView, MarkdownText } from "./chat.tsx"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -118,9 +118,9 @@ test("a post that records its model makes the speaker a focusable button for its
     renderToStaticMarkup(<EntryView entry={withModel} chat={solo} skillIds={[]} />),
     '<button type="button"',
   )
-  assert.notInclude(
+  assert.notMatch(
     renderToStaticMarkup(<EntryView entry={post(solo)} chat={solo} skillIds={[]} />),
-    '<button type="button" class="cursor-default',
+    /<button[^>]*>Solo<\/button>/,
   )
 })
 
@@ -235,4 +235,85 @@ test("raw HTML in a user's message shows as text", () => {
   assert.notInclude(html, "<img")
   assert.include(html, "&lt;script&gt;alert(1)&lt;/script&gt;")
   assert.include(html, "&lt;img src=x onerror=&quot;alert(2)&quot;&gt;")
+})
+
+const failure: Entry = {
+  ...base,
+  id: "f",
+  botId: "solo-id",
+  kind: "event",
+  body: { type: "turn-failed", text: "Claude Code exited with status 1: " + "the session file is locked. ".repeat(8) },
+}
+const ask: Extract<Entry, { kind: "user" }> = {
+  ...base,
+  id: "u",
+  botId: "solo-id",
+  kind: "user",
+  body: { text: "Plan my day", media: ["a.png"] },
+}
+
+test("a failed turn shows its whole failure text in the page, and Retry only when it offers it", () => {
+  const html = renderToStaticMarkup(<EntryView entry={failure} chat={solo} skillIds={[]} retry={ask} />)
+  assert.include(html, failure.body.text ?? "")
+  assert.notInclude(html, "truncate")
+  assert.notInclude(html, "title=", "the text is read without a hover")
+  assert.match(html, /<button[^>]*>.*Retry<\/button>/)
+  const without = renderToStaticMarkup(<EntryView entry={failure} chat={solo} skillIds={[]} />)
+  assert.include(without, failure.body.text ?? "")
+  assert.notInclude(without, "Retry")
+})
+
+test("a reaction chip shows only its emoji and says it is the user's own", () => {
+  const html = renderToStaticMarkup(
+    <EntryView entry={{ ...ask, body: { text: "hi", reactions: ["👍"] } }} chat={solo} skillIds={[]} />,
+  )
+  assert.match(html, /<button[^>]*aria-label="Your 👍 reaction. Remove it"[^>]*>👍<\/button>/)
+})
+
+test("a post's time is a time element that a focus or a hover opens the full date of", () => {
+  const html = renderToStaticMarkup(
+    <EntryView entry={{ ...post(solo), createdAt: Date.parse("2026-11-13T12:05:00Z") }} chat={solo} skillIds={[]} />,
+  )
+  assert.match(html, /<button type="button"[^>]*><time datetime="2026-11-13T12:05:00.000Z">[^<]+<\/time><\/button>/i)
+})
+
+// chatPage renders a chat's page with its entries, at a window tall enough to render all rows.
+function chatPage(bot: Bot, entries: Entry[]) {
+  vi.stubGlobal("window", { innerHeight: 10_000, location: { origin: "http://localhost:4317" } })
+  return renderToStaticMarkup(<Chat bot={bot} entries={entries} mentionables={[]} />)
+}
+
+test("a day separator stands above the first entry and where a new local day starts", () => {
+  const day = 86_400_000
+  const now = Date.now()
+  const entries = [
+    { ...post(solo), id: "p1", createdAt: now - 400 * day },
+    { ...post(solo), id: "p2", createdAt: now - 400 * day },
+    { ...post(solo), id: "p3", createdAt: now },
+  ]
+  const html = chatPage(solo, entries)
+  assert.equal(html.split("Today").length - 1, 1, "one separator for today")
+  assert.equal(html.match(/bg-border h-px flex-1/g)?.length, 4, "two separators, each with two rules")
+})
+
+const builder: Bot = { ...solo, id: "builder-id", name: "Builder", role: "builder" }
+const welcome: Entry = { ...post(builder), id: "w", kind: "bot", body: { text: "Hi! I set up bots.", fallback: false } }
+
+test("Builder's chat offers the four starts until the user's first message", () => {
+  const html = chatPage(builder, [welcome])
+  for (const label of ["Personal assistant", "Software team", "Research desk", "Writing studio"])
+    assert.match(html, new RegExp(`<button[^>]*>${label}</button>`))
+  const after = chatPage(builder, [welcome, { ...ask, id: "first", body: { text: "A software team" } }])
+  assert.notInclude(after, "Research desk")
+})
+
+test("Builder's chat with no entries shows its intro with the starts; another empty chat says No messages yet", () => {
+  const html = chatPage(builder, [])
+  assert.include(html, "Builder sets up bots, teams and rooms for you.")
+  assert.include(html, "Writing studio")
+  assert.notInclude(html, "No messages yet.")
+  const other = chatPage(solo, [])
+  assert.include(other, ">Solo</p>")
+  assert.include(other, "No messages yet.")
+  assert.notInclude(other, "Writing studio")
 })

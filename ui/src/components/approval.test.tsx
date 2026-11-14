@@ -26,7 +26,7 @@ const chat: Bot = {
   tasks: [],
 }
 const card = (
-  status: "pending" | "allowed" | "denied" = "pending",
+  status: "pending" | "allowed" | "denied" | "expired" = "pending",
   extra: object = {},
   tool = "Edit",
   input: unknown = { file_path: "/x" },
@@ -102,4 +102,18 @@ test("a setup is only cancelled from a phone that may approve, and never created
   session.scope = "chat"
   html = card("pending", {}, "create_setup", setup)
   assert.notInclude(html, "Cancel this setup")
+})
+
+test("an expired approval or setup says why it expired, and an old card without a cause says Expired", () => {
+  assert.include(
+    card("expired", { expiry: "limit" }),
+    "Expired: no answer within 4.5 minutes. Ask the bot to try again.",
+  )
+  assert.include(card("expired", { expiry: "turn-ended" }), "Expired: the turn ended before you answered.")
+  assert.include(
+    card("expired", { expiry: "restart" }, "create_setup", setup),
+    "Expired: Handful restarted before you answered. Send your message again.",
+  )
+  assert.match(card("expired"), /<p[^>]*>Expired<\/p>/)
+  assert.notInclude(card("denied"), "Expired")
 })

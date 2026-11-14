@@ -71,7 +71,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { BotDot } from "@/components/bot-dot"
 import { cn } from "@/lib/utils"
-import { botColor, colorId } from "@/lib/bot-color"
+import { colorId } from "@/lib/bot-color"
+import { useBotColor } from "@/components/bot-colors"
 import { FALLBACK_ALIASES, Hint, openSettings } from "@/components/model"
 import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
 import { AnswerChip, goTo, QuestionStrip } from "@/components/questions"
@@ -139,6 +140,7 @@ function ActivityRow({
   onToggle: (entryId: string) => void
 }) {
   const b = entry.body
+  const botColor = useBotColor()
   return (
     <div className={cn("text-muted-foreground text-xs", b.subagent && "ml-5")}>
       <button
@@ -521,6 +523,7 @@ function Reactions({ entryId, reactions, copyText }: { entryId: string; reaction
 function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
   const b = entry.body
   const incoming = b.direction === "in"
+  const botColor = useBotColor()
   return (
     <div className={cn("group/message flex flex-col", incoming ? "items-start" : "items-end")}>
       <Card size="sm" className="max-w-[75%] gap-0 px-3.5 py-2">
@@ -555,6 +558,7 @@ export function EntryView({
   expanded?: boolean
   onExpand?: (entryId: string) => void
 }) {
+  const botColor = useBotColor()
   switch (entry.kind) {
     case "user": {
       const skills = entry.body.text ? namedSkills(entry.body.text, skillIds) : []
@@ -679,6 +683,7 @@ export type Suggestion = {
 
 // SuggestionIcon is the icon of a menu row: a bot in its own colour, everyone, a command or a skill.
 export function SuggestionIcon({ s }: { s: Suggestion }) {
+  const botColor = useBotColor()
   if (s.kind === "bot") return <BotDot className={cn("mt-0.5 size-3.5 shrink-0", s.botId && botColor(s.botId).text)} />
   if (s.kind === "everyone") return <Users className="mt-0.5 size-3.5 shrink-0" />
   if (s.kind === "command") return <TerminalSquare className="mt-0.5 size-3.5 shrink-0" />

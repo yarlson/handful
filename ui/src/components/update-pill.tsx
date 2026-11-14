@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Download, Hourglass, LoaderCircle, Package, Pause, RotateCw, TriangleAlert } from "lucide-react"
 import { Popover } from "radix-ui"
 import { api, type Bot } from "@/lib/api"
-import { botColor } from "@/lib/bot-color"
+import { useBotColor } from "@/components/bot-colors"
 import {
   announcement,
   ariaLabel,
@@ -122,6 +122,7 @@ function Icon({ s }: { s: UpdaterState }) {
 // BotRows lists the bots the update waits for, with what each is doing and the sidebar's
 // dot: green for a running turn, blue for background tasks.
 function BotRows({ running, bots, now }: { running: RunningBot[]; bots: Bot[]; now: number }) {
+  const botColor = useBotColor()
   return (
     <ul className="flex flex-col gap-1.5 rounded-lg border p-2.5 text-sm">
       {running.map((r) => {

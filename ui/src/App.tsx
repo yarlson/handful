@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   AlertTriangle,
   MessageCircleQuestion,
-  MessagesSquare,
   Menu,
   PanelRight,
   PauseCircle,
@@ -13,9 +12,7 @@ import {
   Settings as SettingsIcon,
   ShieldQuestion,
 } from "lucide-react"
-import { BotDot } from "@/components/bot-dot"
-import { TeamDots } from "@/components/team-dots"
-import { botColor } from "@/lib/bot-color"
+import { ChatIcon } from "@/components/bot-colors"
 import { api, type Bot, type Entry } from "@/lib/api"
 import { type Link, linkLabel } from "@/lib/connection"
 import { useHandful } from "@/lib/store"
@@ -334,7 +331,6 @@ export function SidebarItem({
   onSelect: () => void
   onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
 }) {
-  const Icon = bot.team ? TeamDots : bot.kind === "room" ? MessagesSquare : BotDot
   return (
     <button
       type="button"
@@ -349,7 +345,7 @@ export function SidebarItem({
           : "hover:bg-muted transition-colors duration-(--duration-fast)",
       )}
     >
-      <Icon className={cn("size-4 shrink-0", (bot.kind !== "room" || bot.team) && botColor(bot.id).text)} />
+      <ChatIcon chat={bot} />
       <span className="flex-1 truncate">{bot.name}</span>
       {bot.attention === "approval" && (
         <ShieldQuestion className="size-4 shrink-0 text-attention" aria-label="Needs your approval">

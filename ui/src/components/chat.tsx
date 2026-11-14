@@ -275,7 +275,9 @@ export function ToolGroup({
   onExpand: (key: string) => void
 }) {
   const botColor = useBotColor()
-  const key = groupKey(calls[0].id)
+  // The group opens by its first call's key. An older page can add calls above that one, so the
+  // key of any of its calls keeps it open.
+  const key = calls.map((c) => groupKey(c.id)).find((k) => expanded.has(k)) ?? groupKey(calls[0].id)
   const open = expanded.has(key)
   const g = groupSummary(calls.map((c) => c.body))
   const newest = calls[calls.length - 1].body
@@ -1765,6 +1767,9 @@ export function Chat({
       follower.scrollTo(el, top)
       if (opened && !memory.pinned(bot.id)) follower.capture(bot.id, el, items())
     }
+    // Groups can fold a whole page into a few rows. A transcript that does not fill its view has
+    // no scroll to load the older page, so it loads it now.
+    if (older && el.scrollHeight <= el.clientHeight) onLoadOlder()
     const id = jumping.current
     if (id && document.getElementById(`entry-${id}`)) {
       jumping.current = null
@@ -1864,13 +1869,18 @@ export function Chat({
   }, [])
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const expand = useCallback(
-    (entryId: string) =>
+    (entryId: string) => {
+      // A row opens below its top, so the view stops following the bottom: a long group the user
+      // opens at the bottom of the chat stays where the user reads it.
+      const el = scroller.current
+      if (el) setFollowing(follower.hold(bot.id, el, itemsOf(rowsBox.current)))
       setExpanded((open) => {
         const next = new Set(open)
         if (!next.delete(entryId)) next.add(entryId)
         return next
-      }),
-    [],
+      })
+    },
+    [follower, bot.id],
   )
   // chat changes only when what the rows show of it changes, not with each bots event.
   const membersKey = JSON.stringify(bot.members ?? null)
@@ -1980,7 +1990,8 @@ export function Chat({
                   <GroupRow
                     key={e.id}
                     day={days[r.at]}
-                    calls={r.entries.filter((c) => c.kind === "activity")}
+                    // rowsOf groups only tool calls.
+                    calls={r.entries as ActivityEntry[]}
                     chat={chat}
                     expanded={expanded}
                     onExpand={expand}

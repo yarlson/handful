@@ -469,6 +469,12 @@ test("an open group shows its calls as rows, each opening on its own", () => {
   assert.notInclude(closed, "/w/f3.go")
 })
 
+test("a group stays open when an older page adds calls above the one it opened by", () => {
+  const html = group([call(1, {}), ...turnCalls], [groupKey("c2")])
+  assert.match(html, /^<div[^>]*><button type="button" aria-expanded="true"/)
+  assert.include(html, "/w/f1.go")
+})
+
 test("a running group shows its newest call and a running mark in place of the counts", () => {
   const html = bare(group([call(2, {}), call(3, { tool: "Bash", summary: "make check", status: "running" })]))
   assert.include(html, ">Running:</span>")

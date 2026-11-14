@@ -468,3 +468,17 @@ test("a step up one pixel below the top unpins the chat", () => {
   l.scrollTop = 1
   assert.isFalse(f.intent("a", l.view, l.entries(), { kind: "wheel", deltaY: -40 }))
 })
+
+test("a row opened at the bottom of a followed chat grows below the view's top entry", () => {
+  const l = new Layout(Array(20).fill(100), 300)
+  const f = new ScrollFollower(new ScrollMemory())
+  f.settle("a", l.view)
+  const before = l.topOf(18)
+  assert.isFalse(f.hold("a", l.view, l.entries()))
+  assert.isFalse(f.memory.pinned("a"))
+  assert.equal(f.leftAt("a"), "e17")
+  // Entry 18 opens to 5000px.
+  l.heights[18] += 4900
+  f.settle("a", l.view)
+  assert.equal(l.topOf(18), before)
+})

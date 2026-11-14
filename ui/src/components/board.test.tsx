@@ -240,7 +240,7 @@ test("each need has the buttons that settle it", () => {
   assert.include(needs, "Ana didn&#x27;t decide in time:")
   assert.include(needs, ">Open inbox</button>")
   assert.include(needs, "Ops asks:")
-  assert.include(needs, 'aria-label="Answer: Asked one"')
+  assert.match(needs, /data-variant="outline" data-size="sm" class="[^"]*" aria-label="Answer: Asked one"/)
   assert.include(needs, "Ops:</strong> Which build?")
   for (const t of ["Spec the updater", "Delivered one"]) {
     assert.include(needs, `aria-label="Approve: ${t}"`)

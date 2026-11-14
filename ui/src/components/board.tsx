@@ -220,7 +220,7 @@ export function StepDetails({ team, item }: { team: Bot; item: Item }) {
   const count = item.eventCount ?? 0
   const toggle = (item.reviewRounds > 0 || count > 0) && (
     <Button
-      size="xs"
+      size="sm"
       variant={item.reviewRounds > 0 ? "outline" : "link"}
       className={item.reviewRounds > 0 ? "" : "text-muted-foreground h-auto p-0 text-xs"}
       aria-expanded={history}
@@ -419,7 +419,7 @@ function PlanList({
         <div className="flex items-center gap-2 text-xs">
           <span className="text-muted-foreground flex-1">On hold.</span>
           {rights.computer && (
-            <Button size="xs" onClick={() => void act(() => api.startNextGoal(team.id))}>
+            <Button size="sm" onClick={() => void act(() => api.startNextGoal(team.id))}>
               Start now
             </Button>
           )}
@@ -575,7 +575,7 @@ export function BoardView({
                 {`Inbox: ${inbox.length} ${inbox.length === 1 ? "task waits" : "tasks wait"} for ${lead}'s decision.`}
               </span>
               {onOpenInbox && (
-                <Button size="xs" variant="outline" onClick={onOpenInbox}>
+                <Button size="sm" variant="outline" onClick={onOpenInbox}>
                   Open inbox
                 </Button>
               )}
@@ -590,7 +590,7 @@ export function BoardView({
           action={
             allTeams.length > 1 &&
             rights.computer && (
-              <Button size="xs" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
+              <Button size="sm" variant="ghost" aria-haspopup="dialog" onClick={() => setSending(true)}>
                 <Send /> Send a task…
               </Button>
             )
@@ -697,7 +697,7 @@ function NowSection({
             <span className="flex-1" />
             {goal.state === "paused" && !stopping && rights.computer && (
               <Button
-                size="xs"
+                size="sm"
                 aria-label={`Resume: ${goal.text}`}
                 onClick={() => void act(() => api.extendGoal(goal.id, 0))}
               >
@@ -708,18 +708,18 @@ function NowSection({
               <span className="flex flex-wrap items-center gap-1.5 text-xs">
                 Stop the task? Running turns finish, and its steps stay.
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="destructive"
                   onClick={() => void act(() => api.stopTask(goal.id)).then(() => setStopping(false))}
                 >
                   Stop task
                 </Button>
-                <Button size="xs" variant="ghost" onClick={() => setStopping(false)}>
+                <Button size="sm" variant="ghost" onClick={() => setStopping(false)}>
                   Keep it
                 </Button>
               </span>
             ) : (
-              <Button size="xs" variant="ghost" aria-label={`Stop: ${goal.text}`} onClick={() => setStopping(true)}>
+              <Button size="sm" variant="ghost" aria-label={`Stop: ${goal.text}`} onClick={() => setStopping(true)}>
                 <Square /> Stop…
               </Button>
             )}
@@ -791,7 +791,7 @@ function NeedRow({
       <div className="flex flex-wrap items-center gap-1.5">
         {(n.kind === "approve" || n.kind === "sent-done") && send && (
           <>
-            <Button size="xs" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
+            <Button size="sm" aria-label={`Approve: ${g.text}`} onClick={() => void act(() => api.approveTask(g.id))}>
               Approve
             </Button>
             <TextAction
@@ -814,7 +814,7 @@ function NeedRow({
         )}
         {n.kind === "pushed" && send && (
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
             aria-label={`Dismiss: ${g.text}`}
             onClick={() => void act(() => api.dismissSent(g.id))}
@@ -823,7 +823,7 @@ function NeedRow({
           </Button>
         )}
         {n.kind === "decide" && onOpenInbox && (
-          <Button size="xs" variant="outline" onClick={onOpenInbox}>
+          <Button size="sm" variant="outline" onClick={onOpenInbox}>
             Open inbox
           </Button>
         )}
@@ -879,7 +879,7 @@ function StoppedRow({ g, names, act, rev }: { g: Goal; names: Names; act: Act; r
         <TaskHistory goal={g} version={rev} />
         {rights.computer && (
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
             aria-label={`Reopen: ${g.text}`}
             onClick={() => void act(() => api.reopenTask(g.id))}

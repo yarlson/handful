@@ -118,7 +118,7 @@ export function TextAction({
   if (text === null) {
     return (
       <Button
-        size="xs"
+        size="sm"
         variant="outline"
         aria-label={open}
         onClick={() => {
@@ -138,7 +138,7 @@ export function TextAction({
       <Textarea id={id} rows={2} value={text} onChange={(e) => setText(e.target.value)} />
       <div className="flex gap-1.5">
         <Button
-          size="xs"
+          size="sm"
           disabled={!text.trim()}
           onClick={() =>
             void onSubmit(text.trim()).then((ok) => {
@@ -149,7 +149,7 @@ export function TextAction({
           {submit}
         </Button>
         <Button
-          size="xs"
+          size="sm"
           variant="ghost"
           onClick={() => {
             setText(null)
@@ -181,7 +181,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
         </p>
         <div className="flex flex-wrap gap-1.5">
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
             aria-expanded={shown}
             aria-controls="off-task-turns"
@@ -204,7 +204,7 @@ export function OffTaskBox({ team, offTask, act }: { team: Bot; offTask: OffTask
           )}
           {rights.send && (
             <Button
-              size="xs"
+              size="sm"
               variant="ghost"
               aria-label={`Dismiss: ${turns} on no task`}
               title="They stay in the chat; they only leave this count."
@@ -243,7 +243,7 @@ export function LimitAction({ team, open, value, act }: { team: Bot; open: strin
   if (!rights.computer) return null
   if (text === null)
     return (
-      <Button size="xs" variant="outline" aria-label={open} onClick={() => setText(String(value))}>
+      <Button size="sm" variant="outline" aria-label={open} onClick={() => setText(String(value))}>
         {open.split(":")[0]}…
       </Button>
     )
@@ -265,15 +265,15 @@ export function LimitAction({ team, open, value, act }: { team: Bot; open: strin
         type="number"
         min={0}
         max={10000}
-        className="border-input h-6 w-20 rounded-md border bg-transparent px-1 text-xs"
+        className="border-input h-7 w-20 rounded-md border bg-transparent px-1 text-xs"
         value={text}
         aria-invalid={error ? true : undefined}
         onChange={(e) => setText(e.target.value)}
       />
-      <Button size="xs" onClick={save}>
+      <Button size="sm" onClick={save}>
         Save
       </Button>
-      <Button size="xs" variant="ghost" onClick={() => setText(null)}>
+      <Button size="sm" variant="ghost" onClick={() => setText(null)}>
         Cancel
       </Button>
       {error && <span className="text-destructive w-full">{error}</span>}
@@ -314,7 +314,7 @@ export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget
           <>
             <span className="text-muted-foreground">{`Suggested limit: ${budget.suggested} turns a day.`}</span>
             <Button
-              size="xs"
+              size="sm"
               variant="outline"
               onClick={() => void act(() => api.updateTeam(team.id, { dailyBudget: budget.suggested }))}
             >
@@ -397,7 +397,7 @@ export function TaskHistory({
   return (
     <>
       <Button
-        size="xs"
+        size="sm"
         variant="link"
         className="text-muted-foreground h-auto self-start p-0 text-xs"
         aria-expanded={open}
@@ -436,7 +436,7 @@ export function WithdrawAction({ g, to, act }: { g: Goal; to: string; act: Act }
   if (!rights.computer) return null
   if (!confirm) {
     return (
-      <Button size="xs" variant="ghost" aria-label={`Withdraw: ${g.text}`} onClick={() => setConfirm(true)}>
+      <Button size="sm" variant="ghost" aria-label={`Withdraw: ${g.text}`} onClick={() => setConfirm(true)}>
         Withdraw…
       </Button>
     )
@@ -445,13 +445,13 @@ export function WithdrawAction({ g, to, act }: { g: Goal; to: string; act: Act }
     <span className="flex flex-wrap items-center gap-2 text-xs">
       Withdraw it? {to} won't work on it.
       <Button
-        size="xs"
+        size="sm"
         variant="destructive"
         onClick={() => void act(() => api.withdrawTask(g.id)).then(() => setConfirm(false))}
       >
         Withdraw
       </Button>
-      <Button size="xs" variant="ghost" onClick={() => setConfirm(false)}>
+      <Button size="sm" variant="ghost" onClick={() => setConfirm(false)}>
         Keep it
       </Button>
     </span>
@@ -533,7 +533,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
           <>
             <select
               aria-label={`Place in the plan: ${g.text}`}
-              className="border-input h-6 rounded-md border bg-transparent px-1 text-xs"
+              className="border-input h-7 rounded-md border bg-transparent px-1 text-xs"
               value={place}
               onChange={(e) => setPlace(Number(e.target.value))}
             >
@@ -544,7 +544,7 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
               ))}
             </select>
             <Button
-              size="xs"
+              size="sm"
               aria-label={`Take: ${g.text}`}
               onClick={() => void view.act(() => api.takeTask(g.id, place === view.planned + 1 ? 0 : place))}
             >
@@ -662,7 +662,7 @@ function NeedsYouRow({
       </p>
       {n.kind === "approve" && id && rights.send && (
         <>
-          <Button size="xs" aria-label={`Approve: ${n.text}`} onClick={() => void act(() => api.approveTask(id))}>
+          <Button size="sm" aria-label={`Approve: ${n.text}`} onClick={() => void act(() => api.approveTask(id))}>
             Approve
           </Button>
           <TextAction
@@ -676,7 +676,7 @@ function NeedsYouRow({
       )}
       {(n.kind === "missed" || n.kind === "stuck") && id && rights.computer && (
         <>
-          <Button size="xs" aria-label={`Take: ${n.text}`} onClick={() => void act(() => api.takeTask(id))}>
+          <Button size="sm" aria-label={`Take: ${n.text}`} onClick={() => void act(() => api.takeTask(id))}>
             Take
           </Button>
           <TextAction
@@ -692,11 +692,11 @@ function NeedsYouRow({
         <LimitAction team={team} open={`Raise: ${team.name}`} value={(limit ?? 0) + 50} act={act} />
       )}
       {n.kind === "budget_reached" && rights.send && (
-        <Button size="xs" variant="outline" onClick={() => void act(() => api.waitForBudget(n.chatId))}>
+        <Button size="sm" variant="outline" onClick={() => void act(() => api.waitForBudget(n.chatId))}>
           Wait until midnight
         </Button>
       )}
-      <Button size="xs" variant="ghost" onClick={() => onOpen(n.chatId)}>
+      <Button size="sm" variant="ghost" onClick={() => onOpen(n.chatId)}>
         Open chat
       </Button>
     </li>

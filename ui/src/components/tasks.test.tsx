@@ -113,7 +113,7 @@ test("an asked task shows the question, waits for the answer, and the user answe
   ])
   assert.include(mine, "from you")
   assert.include(mine, "Waiting for your answer.")
-  assert.include(mine, 'aria-label="Answer: Fix the scroll"')
+  assert.match(mine, /data-variant="outline" data-size="sm" class="[^"]*" aria-label="Answer: Fix the scroll"/)
   assert.include(mine, 'aria-label="Withdraw: Fix the scroll"')
 })
 

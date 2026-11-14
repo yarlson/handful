@@ -158,7 +158,7 @@ test("an open question is marked in words and offers Answer; a closed one says h
   assert.include(open, 'tabindex="-1"')
   assert.match(open, /data-variant="attention"[^>]*>Open question</)
   assert.include(open, "border-attention")
-  assert.include(open, 'aria-label="Answer: Ship it now?"')
+  assert.match(open, /data-variant="outline" data-size="sm" class="[^"]*" aria-label="Answer: Ship it now\?"/)
   const answered = renderToStaticMarkup(
     <EntryView entry={ask("answered")} chat={solo} skillIds={[]} onAnswer={() => {}} />,
   )

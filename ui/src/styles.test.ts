@@ -9,8 +9,10 @@ const css = readFileSync(join(root, "index.css"), "utf8")
 const RAW_COLOUR = /\b(?:amber|blue|emerald)-\d{2,3}\b/
 const EXEMPT = new Set(["lib/bot-color.ts"])
 const PIXEL_TEXT = /\btext-\[\d+(?:\.\d+)?px\]/
-// Every control has the 3px ring of the shadcn Button; a 1, 2 or 4px focus ring is a second style.
-const OTHER_FOCUS_RING = /\b(?:focus|focus-visible|focus-within):(?:ring|outline)-[1248]\b/
+// Every control has the 3px ring of the shadcn Button. A bare ring or outline (1px), a 1, 2, 4 or
+// 8px one, or an arbitrary width is a second style.
+const OTHER_FOCUS_RING =
+  /\b(?:focus|focus-visible|focus-within):(?:(?:ring|outline)-(?:[1248]\b|\[[^\]]*\])|(?:ring|outline)(?![\w/-]))/
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -88,11 +90,22 @@ test("every control without its own ring shows the 3px focus ring of the shadcn 
 })
 
 test("the scan finds a focus ring of another width and passes the 3px ring", () => {
-  assert.deepEqual(hits(OTHER_FOCUS_RING, "x.tsx", 'className="focus-visible:ring-2 focus:outline-1"'), [
-    'x.tsx:1: className="focus-visible:ring-2 focus:outline-1"',
-  ])
+  for (const ring of [
+    "focus-visible:ring-2",
+    "focus:outline-1",
+    "focus-visible:ring",
+    "focus-visible:outline",
+    "focus-visible:ring-[2px]",
+    "focus-within:outline-[3px]",
+  ]) {
+    assert.deepEqual(hits(OTHER_FOCUS_RING, "x.tsx", `className="a ${ring} b"`), [`x.tsx:1: className="a ${ring} b"`])
+  }
   assert.deepEqual(
-    hits(OTHER_FOCUS_RING, "x.tsx", 'className="focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-0"'),
+    hits(
+      OTHER_FOCUS_RING,
+      "x.tsx",
+      'className="focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-0 focus-visible:outline-none focus-visible:ring-destructive/20"',
+    ),
     [],
   )
 })

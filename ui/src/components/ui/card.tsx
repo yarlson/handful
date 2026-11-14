@@ -66,8 +66,9 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-// attentionBar marks a card that waits for the user: a straight 2 px bar on its left edge, which
-// the card's overflow-hidden clips to its corners.
-const attentionBar = "relative before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-attention"
+// attentionBar marks a card that waits for the user: a straight 2 px bar on its left edge. The
+// left corners are square, so the bar does not bend with the card's radius.
+const attentionBar =
+  "relative rounded-l-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-attention"
 
 export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent, attentionBar }

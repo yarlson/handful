@@ -100,19 +100,7 @@ import { emptyText, expiryText, retryOf, type TranscriptStatus } from "@/lib/tra
 import { clock, daySeparators, fullDate } from "@/lib/dates"
 import { offersStarts, STARTS } from "@/lib/starts"
 import { Stamp } from "@/components/stamp"
-import {
-  fits,
-  rangeOf,
-  RowHeights,
-  rowKey,
-  rowOffsets,
-  rowsFor,
-  rowsOf,
-  rowWith,
-  spanOf,
-  type RowRange,
-  type RowSpan,
-} from "@/lib/rows"
+import { ChatRows, fits, rangeOf, rowOffsets, rowsFor, rowWith, spanOf, type RowRange, type RowSpan } from "@/lib/rows"
 import { groupKey, groupSummary } from "@/lib/tool-group"
 import { KEPT_CHATS } from "@/lib/chat-windows"
 
@@ -263,21 +251,24 @@ function ActivityRow({
 
 // ToolGroup is two or more tool calls in a row, folded to one line until the user opens it:
 // the count of each tool, or the newest call while the group runs.
+// id is the group's row key. Each call's row carries its id as data-call while the group is open.
 export function ToolGroup({
+  id,
   calls,
   chat,
   expanded,
   onExpand,
 }: {
+  id: string
   calls: ActivityEntry[]
   chat: ChatInfo
   expanded: ReadonlySet<string>
   onExpand: (key: string) => void
 }) {
   const botColor = useBotColor()
-  // The group opens by its first call's key. An older page can add calls above that one, so the
-  // key of any of its calls keeps it open.
-  const key = calls.map((c) => groupKey(c.id)).find((k) => expanded.has(k)) ?? groupKey(calls[0].id)
+  // The group opens by its row key. A chat whose rows were dropped gets new row keys when it is
+  // opened again, so the key of any of its calls keeps it open.
+  const key = calls.map((c) => groupKey(c.id)).find((k) => expanded.has(k)) ?? groupKey(id)
   const open = expanded.has(key)
   const g = groupSummary(calls.map((c) => c.body))
   const newest = calls[calls.length - 1].body
@@ -327,7 +318,9 @@ export function ToolGroup({
       {open && (
         <div className="mt-3 ml-5 flex flex-col gap-3">
           {calls.map((c) => (
-            <ActivityRow key={c.id} entry={c} chat={chat} open={expanded.has(c.id)} onToggle={onExpand} />
+            <div key={c.id} data-call={c.id}>
+              <ActivityRow entry={c} chat={chat} open={expanded.has(c.id)} onToggle={onExpand} />
+            </div>
           ))}
         </div>
       )}
@@ -1026,28 +1019,10 @@ export function EntryView({
   }
 }
 
-// Row is one entry of the transcript. It re-renders only when its own props change, not on each
-// render of the page.
-// day is the label of the day separator above the entry, when a new local day starts with it; it
-// is inside the row, so the row's measured height holds it.
-const Row = memo(function Row({ day, ...props }: Parameters<typeof EntryView>[0] & { day?: string }) {
-  return (
-    <div data-entry={props.entry.id}>
-      {day && <DayLine day={day} />}
-      <EntryView {...props} />
-    </div>
-  )
-})
-
-// GroupRow is a group of tool calls in the transcript. Its element carries its first call's id.
-const GroupRow = memo(function GroupRow({ day, ...props }: Parameters<typeof ToolGroup>[0] & { day?: string }) {
-  return (
-    <div data-entry={props.calls[0].id}>
-      {day && <DayLine day={day} />}
-      <ToolGroup {...props} />
-    </div>
-  )
-})
+// Row is one entry of the transcript and GroupRow a group of tool calls. Each re-renders only
+// when its own props change, not on each render of the page.
+const Row = memo(EntryView)
+const GroupRow = memo(ToolGroup)
 
 function DayLine({ day }: { day: string }) {
   return (
@@ -1597,14 +1572,16 @@ function Composer({
 // LOAD_OLDER_PX is how close to the top of the transcript a scroll loads the next older page.
 const LOAD_OLDER_PX = 800
 
-// itemsOf returns the transcript's rendered rows, keyed by their entries' ids.
+// itemsOf returns the transcript's rendered entries, keyed by their row keys, with the calls of
+// an open group in place of its row, so that the call the user reads is the one kept in place. An
+// entry's box leaves out its row's day separator, which an older page of the same day removes.
 function itemsOf(rows: HTMLElement | null): Item[] {
-  return rows
-    ? [...rows.children].map((box) => ({
-        key: (box as HTMLElement).dataset.entry ?? "",
-        box,
-      }))
-    : []
+  if (!rows) return []
+  return [...rows.children].flatMap((row) => {
+    const calls = [...row.querySelectorAll<HTMLElement>("[data-call]")]
+    if (calls.length === 0) return [{ key: (row as HTMLElement).dataset.entry ?? "", box: row.lastElementChild ?? row }]
+    return calls.map((call) => ({ key: call.dataset.call ?? "", box: call }))
+  })
 }
 
 // mentionables are the bots that @ can complete: room members, or the other bots.
@@ -1677,10 +1654,10 @@ export function Chat({
   }
   const items = () => itemsOf(rowsBox.current)
   // The transcript renders only the rows near its view, whatever the number of entries loaded.
-  // heights holds, by entry id, each row's height as measured when the rows rendered last
+  // heights holds, by row key, each row's height as measured when the rows rendered last
   // changed while it was on the page, for the chats that keep their loaded entries.
-  const [rowHeights] = useState(() => new RowHeights(KEPT_CHATS))
-  const heights = rowHeights.of(bot.id)
+  const [chatRows] = useState(() => new ChatRows(KEPT_CHATS))
+  const heights = chatRows.heights(bot.id)
   // span is the rows rendered in chat botId; another chat opens with its own.
   const [span, setSpan] = useState<{ botId: string; span: RowSpan } | null>(null)
   // A transcript's day separators. The clock ticks each minute, so Today becomes Yesterday after
@@ -1695,12 +1672,14 @@ export function Chat({
     [entries, now],
   )
   // rows are the transcript's rows: a group of tool calls is one row, and is measured as one.
-  const rows = useMemo(() => rowsOf(entries, days), [entries, days])
+  // A row keeps its key, so that an older page or a new call that joins a group does not mount it
+  // again: the entry the user reads stays in place.
+  const rows = useMemo(() => chatRows.rows(bot.id, entries, days), [chatRows, bot.id, entries, days])
   const offsets = rowOffsets(rows, heights)
   // openingRows are the rows of a chat just opened: around the entry it was left at, or else
   // at its bottom.
   const openingRows = (): RowRange => {
-    const left = memory.pinned(bot.id) ? -1 : rows.findIndex((r) => rowKey(r) === follower.leftAt(bot.id))
+    const left = memory.pinned(bot.id) ? -1 : rowWith(rows, follower.leftAt(bot.id) ?? "")
     const height = window.innerHeight
     const top = left >= 0 ? offsets[left] : offsets[rows.length] - height
     return rowsFor(offsets, top, top + height)
@@ -1730,7 +1709,7 @@ export function Chat({
     const focused = list.contains(document.activeElement)
       ? document.activeElement?.closest<HTMLElement>("[data-entry]")?.dataset.entry
       : undefined
-    const at = rows.findIndex((r) => rowKey(r) === focused)
+    const at = rows.findIndex((r) => r.key === focused)
     if (at >= 0 && (at < next.start || at >= next.end)) el.focus({ preventScroll: true })
     setSpan({ botId: bot.id, span: spanOf(rows, next) })
   }
@@ -1868,20 +1847,29 @@ export function Chat({
     requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
   }, [])
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
-  const expand = useCallback(
-    (entryId: string) => {
+  // toggle opens or folds the rows of keys together, by the first one's state.
+  const toggle = useCallback(
+    (keys: string[]) => {
       // A row opens below its top, so the view stops following the bottom: a long group the user
       // opens at the bottom of the chat stays where the user reads it.
       const el = scroller.current
       if (el) setFollowing(follower.hold(bot.id, el, itemsOf(rowsBox.current)))
       setExpanded((open) => {
         const next = new Set(open)
-        if (!next.delete(entryId)) next.add(entryId)
+        const fold = open.has(keys[0])
+        for (const k of keys) {
+          if (fold) next.delete(k)
+          else next.add(k)
+        }
         return next
       })
     },
     [follower, bot.id],
   )
+  const expand = useCallback((key: string) => toggle([key]), [toggle])
+  // A tool call the user opens alone also opens the group it starts when the turn's next call
+  // joins it, since the group keeps the call's id as its key.
+  const expandCall = useCallback((entryId: string) => toggle([entryId, groupKey(entryId)]), [toggle])
   // chat changes only when what the rows show of it changes, not with each bots event.
   const membersKey = JSON.stringify(bot.members ?? null)
   const chat = useMemo<ChatInfo>(
@@ -1986,28 +1974,33 @@ export function Chat({
             <div ref={rowsBox} className="flex flex-col gap-3" style={{ paddingTop: before, paddingBottom: after }}>
               {rows.slice(range.start, range.end).map((r) => {
                 const e = r.entries[0]
-                return r.entries.length > 1 ? (
-                  <GroupRow
-                    key={e.id}
-                    day={days[r.at]}
-                    // rowsOf groups only tool calls.
-                    calls={r.entries as ActivityEntry[]}
-                    chat={chat}
-                    expanded={expanded}
-                    onExpand={expand}
-                  />
-                ) : (
-                  <Row
-                    key={e.id}
-                    day={days[r.at]}
-                    retry={retry?.failureId === e.id ? retry.message : undefined}
-                    entry={e}
-                    chat={chat}
-                    skillIds={skillIds}
-                    onAnswer={answer}
-                    expanded={expanded.has(e.id)}
-                    onExpand={expand}
-                  />
+                // A tool call that a new call joins stays the same element: only its row's content
+                // turns into the group. The day separator is inside the row, so the row's measured
+                // height holds it.
+                return (
+                  <div key={r.key} data-entry={r.key}>
+                    {days[r.at] && <DayLine day={days[r.at]!} />}
+                    {r.entries.length > 1 ? (
+                      <GroupRow
+                        id={r.key}
+                        // rowsOf groups only tool calls.
+                        calls={r.entries as ActivityEntry[]}
+                        chat={chat}
+                        expanded={expanded}
+                        onExpand={expand}
+                      />
+                    ) : (
+                      <Row
+                        retry={retry?.failureId === e.id ? retry.message : undefined}
+                        entry={e}
+                        chat={chat}
+                        skillIds={skillIds}
+                        onAnswer={answer}
+                        expanded={expanded.has(e.id)}
+                        onExpand={e.kind === "activity" ? expandCall : expand}
+                      />
+                    )}
+                  </div>
                 )
               })}
             </div>

@@ -1,14 +1,13 @@
 import { assert, test } from "vitest"
 import type { ActivityBody, Entry } from "./api"
 import {
+  ChatRows,
   fits,
   GROUP_ESTIMATE,
   rangeOf,
   ROW_ESTIMATES,
   ROW_GAP,
   ROW_MARGIN,
-  RowHeights,
-  rowKey,
   rowOffsets,
   rowsFor,
   rowsOf,
@@ -49,7 +48,11 @@ test("tool calls in a row of one turn and one bot form one row", () => {
     [0, 1, 3],
     "each row knows where its first entry is",
   )
-  assert.deepEqual(rows.map(rowKey), ["e1", "e2", "e4"], "a row's key is its first entry's id")
+  assert.deepEqual(
+    rows.map((r) => r.key),
+    ["e1", "e2", "e4"],
+    "a row's key is its first entry's id",
+  )
 })
 
 test("a single tool call stays its own row", () => {
@@ -72,6 +75,49 @@ test("tool calls of another turn, of another bot or on a new day start a new gro
   assert.deepEqual(shape([call(1, "t"), call(2, "t", "Ann")]), [[1], [2]], "the chat's own bot and a member")
   assert.deepEqual(shape([call(1), call(2), call(3)], [undefined, undefined, "Today"]), [[1, 2], [3]])
   assert.deepEqual(shape([call(1), call(2)], ["Yesterday", undefined]), [[1, 2]], "a day above the first call")
+})
+
+// keys returns the row keys of entries, after the rows of shown.
+const keys = (entries: Entry[], shown: Entry[], days: (string | undefined)[] = []) =>
+  rowsOf(entries, days, rowsOfEntries(shown)).map((r) => r.key)
+
+test("a group keeps its key when an older page adds calls above it", () => {
+  assert.deepEqual(keys([call(1), call(2), call(3), e(4, "bot")], [call(3), e(4, "bot")]), ["e3", "e4"])
+  assert.deepEqual(keys([call(1), call(2), call(3)], [call(2), call(3)]), ["e2"])
+  assert.deepEqual(
+    rowsOf([e(0), call(1), call(2), call(3)], [], rowsOf([call(2), call(3)], [], rowsOfEntries([call(3)]))).map(
+      (r) => r.key,
+    ),
+    ["e0", "e3"],
+    "over two older pages",
+  )
+})
+
+test("a group keeps its key when new calls join it", () => {
+  assert.deepEqual(keys([e(1), call(2), call(3), call(4)], [e(1), call(2)]), ["e1", "e2"])
+  assert.deepEqual(keys([e(1), call(2), call(3), call(4)], [e(1), call(2), call(3)]), ["e1", "e2"])
+})
+
+test("rows new to the entries shown last take their first entry's id", () => {
+  assert.deepEqual(keys([call(1), call(2), e(3, "bot"), call(4), call(5)], [call(1), call(2)]), ["e1", "e3", "e4"])
+  assert.deepEqual(keys([call(1), call(2)], [e(7), call(8), call(9)]), ["e1"], "another chat's rows")
+})
+
+// grown returns the row keys of entries after two older pages: first, then page, then entries.
+const grown = (first: Entry[], page: Entry[], entries: Entry[], days: (string | undefined)[]) =>
+  rowsOf(entries, days, rowsOf(page, [], rowsOfEntries(first))).map((r) => r.key)
+
+test("the parts of a group that a day separator splits keep keys of their own", () => {
+  const calls = [call(1), call(2), call(3), call(4), call(5)]
+  const at = (i: number) => calls.map((_, j) => (j === i ? "Today" : undefined))
+  assert.deepEqual(keys(calls.slice(0, 4), calls.slice(0, 4), at(2)), ["e1", "e3"])
+  assert.deepEqual(grown(calls.slice(2, 4), calls.slice(0, 4), calls.slice(0, 4), at(2)), ["e1", "e3"])
+  assert.deepEqual(grown(calls.slice(3), calls, calls, at(2)), ["e4", "e3"])
+  assert.deepEqual(
+    grown(calls.slice(2, 4), calls.slice(0, 4), calls.slice(0, 4), at(1)),
+    ["e1", "e3"],
+    "a single call keeps its own id",
+  )
 })
 
 test("rowWith finds the row that holds an entry, also inside a group", () => {
@@ -208,16 +254,39 @@ test("a chat that follows the bottom keeps a bounded number of rows however many
 })
 
 test("each chat has its own heights, kept for the chats opened most recently", () => {
-  const h = new RowHeights(2)
-  h.of("a").set("e1", 50)
-  h.of("b").set("e1", 70)
-  assert.equal(h.of("a").get("e1"), 50)
-  assert.equal(h.of("b").get("e1"), 70)
-  h.of("c") // a was opened before b and c
-  assert.isUndefined(h.of("a").get("e1"), "a's heights were dropped")
-  assert.isUndefined(h.of("c").get("e1"))
-  const c = h.of("c")
-  assert.strictEqual(h.of("c"), c, "the open chat keeps its map")
+  const h = new ChatRows(2)
+  h.heights("a").set("e1", 50)
+  h.heights("b").set("e1", 70)
+  assert.equal(h.heights("a").get("e1"), 50)
+  assert.equal(h.heights("b").get("e1"), 70)
+  h.heights("c") // a was opened before b and c
+  assert.isUndefined(h.heights("a").get("e1"), "a's heights were dropped")
+  assert.isUndefined(h.heights("c").get("e1"))
+  const c = h.heights("c")
+  assert.strictEqual(h.heights("c"), c, "the open chat keeps its map")
+})
+
+test("each chat's rows keep their keys while it is one of the chats opened most recently", () => {
+  const h = new ChatRows(2)
+  const newest = [call(3), call(4)]
+  const page = [call(1), call(2), ...newest]
+  assert.deepEqual(
+    h.rows("a", newest, []).map((r) => r.key),
+    ["e3"],
+  )
+  h.rows("b", [e(1)], [])
+  assert.deepEqual(
+    h.rows("a", page, []).map((r) => r.key),
+    ["e3"],
+    "a's rows after another chat's",
+  )
+  h.rows("b", [e(1)], [])
+  h.rows("c", [e(1)], [])
+  assert.deepEqual(
+    h.rows("a", page, []).map((r) => r.key),
+    ["e1"],
+    "a's rows were dropped",
+  )
 })
 
 test("a span keeps its entries when an older page arrives above them", () => {

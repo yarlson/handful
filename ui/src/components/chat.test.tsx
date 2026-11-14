@@ -434,8 +434,9 @@ const turnCalls = [
   editCall(6, 10, 2),
   call(7, {}),
 ]
-const group = (calls: Extract<Entry, { kind: "activity" }>[], expanded: string[] = []) =>
-  renderToStaticMarkup(<ToolGroup calls={calls} chat={solo} expanded={new Set(expanded)} onExpand={() => {}} />)
+// group renders a group of calls whose row key is id, its first call's by default.
+const group = (calls: Extract<Entry, { kind: "activity" }>[], expanded: string[] = [], id = calls[0].id) =>
+  renderToStaticMarkup(<ToolGroup id={id} calls={calls} chat={solo} expanded={new Set(expanded)} onExpand={() => {}} />)
 
 test("a turn's tool calls show as one folded row: the count, each tool with its icon and count, and the diff totals", () => {
   const html = bare(chatPage(solo, [{ ...ask, seq: 1 }, ...turnCalls, answer]))
@@ -467,12 +468,23 @@ test("an open group shows its calls as rows, each opening on its own", () => {
   assert.include(group(turnCalls, [groupKey("c2"), "c5"]), "all checks passed")
   assert.notInclude(group(turnCalls, ["c2"]), "/w/f3.go", "the first call's own key does not open the group")
   assert.notInclude(closed, "/w/f3.go")
+  assert.deepEqual(
+    [...open.matchAll(/data-call="(\w+)"/g)].map((m) => m[1]),
+    ["c2", "c3", "c4", "c5", "c6", "c7"],
+    "each call's row carries its id",
+  )
+  assert.notInclude(closed, "data-call")
 })
 
-test("a group stays open when an older page adds calls above the one it opened by", () => {
-  const html = group([call(1, {}), ...turnCalls], [groupKey("c2")])
+test("a group opens by its row key, which need not be its first call's", () => {
+  const html = group([call(1, {}), ...turnCalls], [groupKey("c2")], "c2")
   assert.match(html, /^<div[^>]*><button type="button" aria-expanded="true"/)
   assert.include(html, "/w/f1.go")
+})
+
+test("a group stays open by the key of any of its calls, as when its chat is shown again with new row keys", () => {
+  const html = group([call(1, {}), ...turnCalls], [groupKey("c2")], "c1")
+  assert.match(html, /^<div[^>]*><button type="button" aria-expanded="true"/)
 })
 
 test("a running group shows its newest call and a running mark in place of the counts", () => {

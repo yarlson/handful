@@ -23,22 +23,33 @@ export const ROW_ESTIMATES: Record<Entry["kind"], number> = {
 export const GROUP_ESTIMATE = 28
 
 // Row is one row of the transcript: one entry, or a group of two or more tool calls in a row.
-// at is the index of its first entry in the transcript's entries.
-export type Row = { at: number; entries: Entry[] }
-
-// rowKey is the row's id: its first entry's. The row's element carries it, and its measured
-// height is kept by it.
-export const rowKey = (row: Row) => row.entries[0].id
+// at is the index of its first entry in the transcript's entries. key is the row's id, one of its
+// entries' ids: the row's element carries it, and its measured height is kept by it.
+export type Row = { key: string; at: number; entries: Entry[] }
 
 // rowsOf returns the rows of the transcript's entries. Tool calls in a row form one group while
 // they are of one turn and one bot. Any other entry, another turn, another bot or a new day
 // (days[i] is the day separator above entry i) ends the group.
-export function rowsOf(entries: Entry[], days: readonly (string | undefined)[]): Row[] {
+// A row takes its first entry's id as its key. A group that holds entries of before, the rows
+// of the entries shown last, keeps the key of the first such row, so its element stays when an
+// older page adds calls above it or a new call joins it.
+export function rowsOf(entries: Entry[], days: readonly (string | undefined)[], before: readonly Row[] = []): Row[] {
   const rows: Row[] = []
   for (const [i, e] of entries.entries()) {
     const last = rows.at(-1)
     if (last && !days[i] && joins(last.entries.at(-1)!, e)) last.entries.push(e)
-    else rows.push({ at: i, entries: [e] })
+    else rows.push({ key: e.id, at: i, entries: [e] })
+  }
+  const keys = new Map(before.flatMap((r) => r.entries.map((e) => [e.id, r.key] as const)))
+  // A day separator can split a group. Its parts take no key that another row has, so no two
+  // rows share one.
+  const taken = new Set(rows.map((r) => r.key))
+  for (const r of rows) {
+    if (r.entries.length === 1) continue
+    const kept = r.entries.map((e) => keys.get(e.id)).find((k) => k !== undefined)
+    if (kept === undefined || taken.has(kept)) continue
+    r.key = kept
+    taken.add(kept)
   }
   return rows
 }
@@ -61,7 +72,7 @@ export function rowOffsets(rows: Row[], heights: ReadonlyMap<string, number>): n
   let y = 0
   for (const r of rows) {
     const estimate = r.entries.length > 1 ? GROUP_ESTIMATE : ROW_ESTIMATES[r.entries[0].kind]
-    y += (heights.get(rowKey(r)) ?? estimate) + ROW_GAP
+    y += (heights.get(r.key) ?? estimate) + ROW_GAP
     offsets.push(y)
   }
   return offsets
@@ -106,21 +117,34 @@ export function fits(
   return above && below && near
 }
 
-// RowHeights keeps the measured heights of rows, by entry id, for the chats opened most
-// recently: a chat's map lasts while it is one of the last max chats opened.
-export class RowHeights {
-  private chats = new Map<string, Map<string, number>>()
+// ChatRows keeps, for the chats opened most recently, the rows each showed last and their measured
+// heights, by row key: a chat's rows and heights last while it is one of the last max chats opened.
+export class ChatRows {
+  private chats = new Map<string, { rows: Row[]; heights: Map<string, number> }>()
   private recent: string[] = []
 
   constructor(private max: number) {}
 
-  // of returns chat id's heights, and drops those of the chats opened before the last max.
-  of(id: string): Map<string, number> {
+  // heights returns chat id's heights.
+  heights(id: string): Map<string, number> {
+    return this.of(id).heights
+  }
+
+  // rows returns the rows of chat id's entries, which keep the keys of the rows it showed last.
+  rows(id: string, entries: Entry[], days: readonly (string | undefined)[]): Row[] {
+    const chat = this.of(id)
+    chat.rows = rowsOf(entries, days, chat.rows)
+    return chat.rows
+  }
+
+  // of returns chat id's rows and heights, and drops those of the chats opened before the last
+  // max.
+  private of(id: string) {
     this.recent = keptChats(this.recent, id, this.max)
     for (const old of this.chats.keys()) if (!this.recent.includes(old)) this.chats.delete(old)
-    let heights = this.chats.get(id)
-    if (!heights) this.chats.set(id, (heights = new Map()))
-    return heights
+    let chat = this.chats.get(id)
+    if (!chat) this.chats.set(id, (chat = { rows: [], heights: new Map() }))
+    return chat
   }
 }
 

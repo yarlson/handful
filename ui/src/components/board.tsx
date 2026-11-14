@@ -113,7 +113,7 @@ export function NowChipView({ data, onOpen }: { data: Board; onOpen: () => void 
       <span className={cn("text-muted-foreground shrink-0", now && "max-md:hidden")}>
         {now ? "Now" : "Nothing now"}
       </span>
-      {now && <span className="min-w-0 truncate">{now.text}</span>}
+      {now && <span className={cn("min-w-0 truncate", needs > 0 && "max-md:hidden")}>{now.text}</span>}
       {needs > 0 && (
         <ToneChip tone="attention">
           <span className="max-md:hidden">{needs} need you</span>

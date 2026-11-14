@@ -468,3 +468,13 @@ test("the Now chip names the Now task and counts what needs the user, as Needs y
   assert.include(chip(board({ goal: goal("g1", "Ship CSV export", "paused") })), "bg-attention")
   assert.include(chip(board({ goal: goal("g0", "Old", "stopped") })), ">Nothing now<")
 })
+
+test("on a phone the Now chip hides the task text while it shows the needs count", () => {
+  const textClasses = (html: string) =>
+    (/<span class="([^"]*)">Ship CSV export<\/span>/.exec(html)?.[1] ?? "").split(" ")
+  const withNeeds = chip(busy)
+  assert.include(textClasses(withNeeds), "max-md:hidden", withNeeds)
+  const alone = chip(board({ goal: goal("g1", "Ship CSV export", "active") }))
+  assert.notInclude(alone, "need you")
+  assert.deepEqual(textClasses(alone), ["min-w-0", "truncate"], alone)
+})

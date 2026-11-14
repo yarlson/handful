@@ -94,6 +94,7 @@ import { useBotColor } from "@/components/bot-colors"
 import { FALLBACK_ALIASES, Hint, openSettings } from "@/components/model"
 import { postTooltip, setupLine, teamSetupLine } from "@/lib/model"
 import { AnswerChip, goTo, QuestionStrip } from "@/components/questions"
+import { ChatSearch } from "@/components/chat-search"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 import { emptyText, expiryText, retryOf, type TranscriptStatus } from "@/lib/transcript"
@@ -1599,6 +1600,8 @@ export function Chat({
   pill = null,
   draining = false,
   pause = "Paused for update",
+  search = 0,
+  onCloseSearch = () => {},
 }: {
   bot: Bot
   // entries are the loaded window of the chat: its newest entries and the older pages loaded.
@@ -1621,6 +1624,9 @@ export function Chat({
   // answering is the question the next message in this chat answers.
   answering?: Asked | null
   onAnswer?: (q: Asked | null) => void
+  // search opens the chat search when above 0, and each new value moves the keyboard into it.
+  search?: number
+  onCloseSearch?: () => void
 }) {
   // The chat's open questions, for the strip; reloaded as the transcript changes.
   const [questions, setQuestions] = useState<OpenQuestion[]>([])
@@ -1953,6 +1959,19 @@ export function Chat({
         <div className="border-primary/50 bg-background/80 text-muted-foreground pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-lg border-2 border-dashed text-sm">
           Drop images or videos to attach
         </div>
+      )}
+      {search > 0 && (
+        <ChatSearch
+          key={bot.id}
+          chatId={bot.id}
+          chatName={bot.name}
+          focus={search}
+          onPick={jumpTo}
+          onClose={() => {
+            onCloseSearch()
+            requestAnimationFrame(() => document.getElementById("composer-input")?.focus())
+          }}
+        />
       )}
       <div
         ref={scroller}

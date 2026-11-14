@@ -38,7 +38,7 @@ const solo: Bot = { ...room, id: "solo-id", kind: "agent", name: "Solo", members
 // colorOf renders an entry and returns the color class on the bot's name.
 function colorOf(entry: Entry, chat: Bot) {
   const html = renderToStaticMarkup(<EntryView entry={entry} chat={chat} skillIds={[]} />)
-  return /text-(sky|emerald|rose|violet|fuchsia|lime)-600/.exec(html)?.[0]
+  return /text-(sky|emerald|violet|fuchsia|lime)-700/.exec(html)?.[0]
 }
 const post = (chat: Bot, speakerId?: string, speakerName?: string): Entry => ({
   ...base,

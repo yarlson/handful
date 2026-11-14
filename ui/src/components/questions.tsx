@@ -11,6 +11,7 @@ import {
   type OpenQuestion,
   type Waiting,
 } from "@/lib/questions"
+import { ChatIcon } from "@/components/bot-colors"
 import { Button } from "@/components/ui/button"
 import { Card, attentionBar } from "@/components/ui/card"
 import { useRights } from "@/lib/session"
@@ -216,6 +217,11 @@ export function WaitingView({
       {groups.map((g) => (
         <section key={g.chatId} aria-labelledby={`waiting-${g.chatId}`} className="flex flex-col gap-2">
           <h3 id={`waiting-${g.chatId}`} className="flex items-center gap-2 text-sm font-medium">
+            {bots
+              .filter((b) => b.id === g.chatId)
+              .map((b) => (
+                <ChatIcon key={b.id} chat={b} />
+              ))}
             {name(g.chatId)}
             <Button size="xs" variant="ghost" onClick={() => onOpen(g.chatId)}>
               Open chat

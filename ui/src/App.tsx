@@ -12,7 +12,7 @@ import {
   Settings as SettingsIcon,
   ShieldQuestion,
 } from "lucide-react"
-import { ChatIcon } from "@/components/bot-colors"
+import { BotHuesProvider, ChatIcon } from "@/components/bot-colors"
 import { api, type Bot, type Entry } from "@/lib/api"
 import { type Link, linkLabel } from "@/lib/connection"
 import { useHandful } from "@/lib/store"
@@ -197,6 +197,7 @@ function NewRoomDialog({
           {agents.map((a) => (
             <label key={a.id} className="flex items-center gap-2 text-sm">
               <Checkbox checked={members.has(a.id)} onCheckedChange={(v) => toggle(a.id, v === true)} />
+              <ChatIcon chat={a} />
               {a.name}
             </label>
           ))}
@@ -277,6 +278,7 @@ function NewTeamDialog({
           {agents.map((a) => (
             <label key={a.id} className="flex items-center gap-2 text-sm">
               <Checkbox checked={members.includes(a.id)} onCheckedChange={(v) => toggle(a.id, v === true)} />
+              <ChatIcon chat={a} />
               {a.name}
             </label>
           ))}
@@ -786,7 +788,7 @@ export function App() {
     )
   }
 
-  return (
+  const layout = (
     <div className="bg-background text-foreground relative flex h-dvh overflow-clip">
       {narrow && drawer && (
         <div aria-hidden className="fixed inset-0 z-40 bg-black/40" onClick={() => setDrawer(false)} />
@@ -994,10 +996,8 @@ export function App() {
             <>
               <header className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3">
                 {menu}
-                <span
-                  className="max-w-[60%] shrink-0 truncate font-medium max-md:max-w-[40%] max-md:min-w-0 max-md:shrink"
-                  title={bot.name}
-                >
+                <ChatIcon chat={bot} />
+                <span className="max-w-[60%] shrink-0 truncate font-medium max-md:max-w-[30%]" title={bot.name}>
                   {bot.name}
                 </span>
                 <span
@@ -1125,4 +1125,5 @@ export function App() {
       />
     </div>
   )
+  return <BotHuesProvider bots={bots}>{layout}</BotHuesProvider>
 }

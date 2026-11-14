@@ -24,6 +24,9 @@ import { budgetError, decisionError, inboxError } from "@/lib/tasks"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { contextLine, usageKey, type Usage } from "@/lib/usage"
 import { cn } from "@/lib/utils"
+import { botColor, hues } from "@/lib/bot-color"
+import { ChatIcon } from "@/components/bot-colors"
+import { BotDot } from "@/components/bot-dot"
 import { useRights } from "@/lib/session"
 import { BoardTab } from "@/components/board"
 import { SendTaskDialog } from "@/components/tasks"
@@ -463,8 +466,9 @@ function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
         >
           {seated.map((m) => (
             <li key={m.id} className="flex min-w-0 flex-col gap-0.5">
-              <div className="flex min-w-0 items-center justify-between gap-2">
-                <span className="truncate font-medium">{m.name}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <ChatIcon chat={{ id: m.id, kind: "agent" }} />
+                <span className="flex-1 truncate font-medium">{m.name}</span>
                 {m.effective && <ModelChip effective={m.effective} aliases={aliases} who={m.name} />}
               </div>
               {m.effective && <span className="text-muted-foreground text-xs">{sourceLine(m.effective)}</span>}
@@ -490,6 +494,7 @@ function MembersTab({ room, agents }: { room: Bot; agents: Bot[] }) {
               })
             }
           />
+          <ChatIcon chat={a} />
           {a.name}
         </label>
       ))}
@@ -684,11 +689,41 @@ export function ContextNote({ usage }: { usage: Usage | null | undefined }) {
   return line && <p className="text-muted-foreground text-xs">{line}</p>
 }
 
-function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; onDeleted: () => void }) {
+// HueSwatches picks a bot's colour from the palette; the choice saves with the other settings.
+function HueSwatches({ hue, onHue }: { hue: string; onHue: (hue: string) => void }) {
+  return (
+    <fieldset className="flex flex-col gap-1.5">
+      <legend className="mb-1 text-sm font-medium">Colour</legend>
+      <div className="flex gap-1">
+        {hues.map((h) => (
+          <label
+            key={h}
+            title={h[0].toUpperCase() + h.slice(1)}
+            className="has-focus-visible:ring-ring/50 has-checked:border-foreground hover:bg-muted grid size-9 cursor-pointer place-items-center rounded-full border-2 border-transparent transition-colors has-focus-visible:ring-3"
+          >
+            <input
+              type="radio"
+              name="bot-hue"
+              value={h}
+              checked={hue === h}
+              onChange={() => onHue(h)}
+              className="sr-only"
+              aria-label={h[0].toUpperCase() + h.slice(1)}
+            />
+            <BotDot className={cn("size-5", botColor("", h).text)} />
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; onDeleted: () => void }) {
   const [name, setName] = useState(bot.name)
   const [instructions, setInstructions] = useState(bot.instructions)
   const [model, setModel] = useState(bot.model ?? "")
   const [effort, setEffort] = useState(bot.effort ?? "")
+  const [hue, setHue] = useState(bot.hue ?? "")
   const [result, setResult] = useState<SaveResult>(null)
   const [confirm, setConfirm] = useState(false)
   const defaults = useDefaults()
@@ -701,10 +736,14 @@ function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; o
     setInstructions(bot.instructions)
     setModel(bot.model ?? "")
     setEffort(bot.effort ?? "")
-  }, [bot.id, bot.name, bot.instructions, bot.model, bot.effort])
+    setHue(bot.hue ?? "")
+  }, [bot.id, bot.name, bot.instructions, bot.model, bot.effort, bot.hue])
   const save = async () => {
     try {
-      await api.updateBot(bot.id, isRoom ? { name, instructions } : { name, instructions, model, effort })
+      await api.updateBot(
+        bot.id,
+        isRoom ? { name, instructions } : { name, instructions, model, effort, ...(hue && { hue }) },
+      )
       setResult(saved(isRoom ? "Saved." : "Saved. Applies from the next turn."))
     } catch (e) {
       setResult(failed((e as Error).message))
@@ -725,6 +764,7 @@ function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; o
         <Label htmlFor="bot-name">Name</Label>
         <Input id="bot-name" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
+      {!isRoom && <HueSwatches hue={hue} onHue={setHue} />}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="bot-instructions">{isRoom ? "Purpose" : "Instructions"}</Label>
         <Textarea

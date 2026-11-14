@@ -29,7 +29,6 @@ import {
   Sparkles,
   Square,
   TerminalSquare,
-  Users,
   Wrench,
   X,
 } from "lucide-react"
@@ -70,6 +69,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
 import { BotDot } from "@/components/bot-dot"
+import { TeamDots } from "@/components/team-dots"
 import { cn } from "@/lib/utils"
 import { colorId } from "@/lib/bot-color"
 import { useBotColor } from "@/components/bot-colors"
@@ -605,11 +605,8 @@ export function EntryView({
             open && "border-attention rounded-l-none border-l-2 pl-2",
           )}
         >
-          <div
-            className={cn("grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold", color.avatar)}
-            aria-hidden
-          >
-            {speaker.charAt(0).toUpperCase()}
+          <div className="flex w-7 shrink-0 justify-center">
+            <BotDot className={cn("size-5", color.text)} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-0.5 flex items-baseline gap-2">
@@ -685,7 +682,7 @@ export type Suggestion = {
 export function SuggestionIcon({ s }: { s: Suggestion }) {
   const botColor = useBotColor()
   if (s.kind === "bot") return <BotDot className={cn("mt-0.5 size-3.5 shrink-0", s.botId && botColor(s.botId).text)} />
-  if (s.kind === "everyone") return <Users className="mt-0.5 size-3.5 shrink-0" />
+  if (s.kind === "everyone") return <TeamDots className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
   if (s.kind === "command") return <TerminalSquare className="mt-0.5 size-3.5 shrink-0" />
   return <Sparkles className="mt-0.5 size-3.5 shrink-0" />
 }

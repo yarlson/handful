@@ -165,8 +165,9 @@ func (s *session) write(line []byte) error {
 // stopCommand stops only c's run, and c's message when it still waits in
 // Claude Code's queue. When the run does not end within stopWait, or the
 // interrupt cannot be sent, the process stops. It returns c's outcome. A
-// run that already ended gets no interrupt: Claude Code would apply it to
-// the next run and drop the messages queued behind that.
+// run that already ended gets no interrupt: it has nothing left to stop, and
+// with cancel_queued the interrupt drops the messages still in Claude Code's
+// queue, which belong to other turns.
 func (r *Runner) stopCommand(s *session, c *command) outcome {
 	select {
 	case out := <-c.done:

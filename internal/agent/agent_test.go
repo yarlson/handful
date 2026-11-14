@@ -410,11 +410,11 @@ background)
 turn-stop)
   # As Claude Code 2.1.325 does: an interrupt control request on stdin ends
   # only the model's current run, with an error result, and the process and its background
-  # tasks go on. The first message starts a background task. A message that says "hang" runs a
-  # tool until an interrupt comes; one that says "wake" ends at once, and the model's wake for
-  # the task then runs until an interrupt; one that says "finish" ends the task, and the wake
-  # reports it. "finish" wins, for a prompt that also quotes an earlier message. Interrupt lines
-  # go to stdin.log.
+  # tasks go on. The first message starts a background task. A message that says "HANG" runs a
+  # tool until an interrupt comes; one that says "WAKE" ends at once, and the model's wake for
+  # the task then runs until an interrupt; one that says "FINISH" ends the task, and the wake
+  # reports it. "FINISH" wins, for a prompt that also quotes an earlier message. The words are in
+  # capitals because a room's prompt has them in lower case. Interrupt lines go to stdin.log.
   echo $$ > "$dir/pid"
   stopped() {
     IFS= read -r stop
@@ -431,7 +431,7 @@ turn-stop)
       echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"t1","task_type":"local_bash","description":"Build the site"}]}'
     fi
     case "$input" in
-    *finish*)
+    *FINISH*)
       result "pong"
       lifecycle completed
       echo '{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","summary":"Background command \"Build the site\" completed (exit code 0)"}'
@@ -439,8 +439,8 @@ turn-stop)
       init
       result "the site is built"
       ;;
-    *wake*) result "pong"; lifecycle completed; init; stopped ;;
-    *hang*)
+    *WAKE*) result "pong"; lifecycle completed; init; stopped ;;
+    *HANG*)
       echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"fg","name":"Bash","input":{"command":"make test"}}]},"parent_tool_use_id":null}'
       stopped
       lifecycle cancelled

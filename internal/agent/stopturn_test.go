@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -42,6 +43,18 @@ func (h *harness) waitTaskTurn(t *testing.T, key sessionKey) {
 	})
 }
 
+// waitMessageTurnGone waits until no message turn of botID is in the running list. A message
+// turn before a task turn leaves the list a moment after it ends; until then StopTurn finds it too.
+func (h *harness) waitMessageTurnGone(t *testing.T, botID string) {
+	t.Helper()
+	waitFor(t, "the message turn leaves the running list", func() bool {
+		h.runner.mu.Lock()
+		defer h.runner.mu.Unlock()
+		_, ok := h.runner.running[botID]
+		return !ok
+	})
+}
+
 // #37: Stop turn ends only the running turn; the process and its background task go on, the
 // next message goes to the same process, and the task's report still wakes the bot.
 func TestStopTurnEndsOnlyTheTurnAndTheBackgroundTaskGoesOn(t *testing.T) {
@@ -50,7 +63,7 @@ func TestStopTurnEndsOnlyTheTurnAndTheBackgroundTaskGoesOn(t *testing.T) {
 	bot := h.newBot(t)
 	h.start(t)
 	ctx := context.Background()
-	turn, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "build the site and hang", "n1")
+	turn, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "build the site and HANG", "n1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +88,7 @@ func TestStopTurnEndsOnlyTheTurnAndTheBackgroundTaskGoesOn(t *testing.T) {
 		t.Fatal("a second StopTurn returned true; want false, with no turn running")
 	}
 
-	next, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "finish", "n2")
+	next, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "FINISH", "n2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,15 +102,17 @@ func TestStopTurnEndsOnlyTheTurnAndTheBackgroundTaskGoesOn(t *testing.T) {
 }
 
 // #37: Stop turn ends a task turn, the bot's wake for a background task, without the process;
-// a message queued behind it stays, and the next message goes to the same process.
+// the process outlives the stop's fallback wait, the next message goes to the same process, and
+// the task's report still comes.
 func TestStopTurnEndsATaskTurnAndKeepsTheProcess(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "turn-stop")
+	h.runner.stopWait = 100 * time.Millisecond
 	bot := h.newBot(t)
 	h.start(t)
 	ctx := context.Background()
 	h.startBackgroundTask(t, bot)
-	wake, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "wake", "n2")
+	wake, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "WAKE", "n2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,17 +130,100 @@ func TestStopTurnEndsATaskTurnAndKeepsTheProcess(t *testing.T) {
 		t.Fatalf("stdin after the stop = %q; want an interrupt that keeps queued messages", stop)
 	}
 	waitFor(t, "the task turn ends", func() bool { return !h.runner.Running(bot.ID) })
+	// The stop's fallback timer runs out during this wait; the turn it watched has ended.
+	time.Sleep(3 * h.runner.stopWait)
 	if !h.runner.HasSession(bot.ID) || !processAlive(h.pid(t)) {
-		t.Fatal("the process ended with the task turn; want it to go on for its background task")
+		t.Fatalf("the process ended %v after the task turn stopped; want it to go on for its background task", 3*h.runner.stopWait)
 	}
-	next, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "finish", "n3")
+	next, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "FINISH", "n3")
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.waitTurnStatus(t, next, bot.ID, "done")
+	h.waitEntry(t, bot.ID, isEvent("task"))
 	if calls := h.argsLog(t); len(calls) != 1 {
 		t.Fatalf("claude started %d times; want once", len(calls))
 	}
+}
+
+// #37: a stopped task turn leaves no mark on the process: Stop turn stops the next task turn too.
+func TestStopTurnStopsTheNextTaskTurnToo(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "turn-stop")
+	bot := h.newBot(t)
+	h.start(t)
+	ctx := context.Background()
+	key := sessionKey{botID: bot.ID}
+	h.startBackgroundTask(t, bot)
+	wake, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "WAKE", "n2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.waitTurnStatus(t, wake, bot.ID, "done")
+	h.waitTaskTurn(t, key)
+	if !h.runner.StopTurn(bot.ID) {
+		t.Fatal("StopTurn returned false for the first task turn")
+	}
+	first := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return isEvent("interrupted")(e) && e.TurnID != wake })
+	waitFor(t, "the first task turn ends", func() bool { return !h.runner.Running(bot.ID) })
+
+	again, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "WAKE", "n3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.waitTurnStatus(t, again, bot.ID, "done")
+	h.waitTaskTurn(t, key)
+	h.waitMessageTurnGone(t, bot.ID)
+	if !h.runner.StopTurn(bot.ID) {
+		t.Fatal("StopTurn returned false for the second task turn")
+	}
+	second := h.waitEntry(t, bot.ID, func(e core.Entry) bool {
+		return isEvent("interrupted")(e) && e.TurnID != wake && e.TurnID != again && e.TurnID != first.TurnID
+	})
+	h.waitTurnStatus(t, second.TurnID, bot.ID, "interrupted")
+}
+
+// waitRoomTurnsDone waits until botID has done turns in roomID.
+func (h *harness) waitRoomTurnsDone(t *testing.T, botID, roomID string, turns int) {
+	t.Helper()
+	waitFor(t, fmt.Sprintf("%d done turns in the room", turns), func() bool {
+		var done int
+		err := h.conn.QueryRowContext(context.Background(), `SELECT count(*) FROM turns WHERE bot_id = ? AND room_id = ? AND status = 'done'`, botID, roomID).Scan(&done)
+		return err == nil && done == turns
+	})
+}
+
+// #37: Stop turn in a bot's own chat leaves the bot's task turn in a room running; Stop turn in
+// the room stops it.
+func TestStopTurnStopsARoomsTaskTurnOnlyFromTheRoom(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "turn-stop")
+	ctx := context.Background()
+	ana := h.newNamedBot(t, "Ana")
+	room, err := h.svc.CreateRoom(ctx, "Plan", "", []string{ana.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.start(t)
+	if _, _, err := h.svc.SubmitUserMessage(ctx, room.ID, "build the site", "n1"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitRoomTurnsDone(t, ana.ID, room.ID, 1)
+	waitFor(t, "Ana's first turn is over", func() bool { return !h.runner.Running(ana.ID) })
+	if _, _, err := h.svc.SubmitUserMessage(ctx, room.ID, "WAKE", "n2"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitRoomTurnsDone(t, ana.ID, room.ID, 2)
+	h.waitTaskTurn(t, sessionKey{botID: ana.ID, roomID: room.ID})
+	h.waitMessageTurnGone(t, ana.ID)
+	if h.runner.StopTurn(ana.ID) {
+		t.Fatal("StopTurn in Ana's own chat stopped her task turn in the room")
+	}
+	if !h.runner.StopTurn(room.ID) {
+		t.Fatal("StopTurn in the room returned false for Ana's task turn there")
+	}
+	note := h.waitEntry(t, room.ID, isEvent("interrupted"))
+	h.waitTurnStatus(t, note.TurnID, ana.ID, "interrupted")
 }
 
 // #37: when Claude Code does not end the run after the interrupt, the process stops after
@@ -158,14 +256,7 @@ func TestStopTurnStopsTheProcessWhenClaudeIgnoresTheInterrupt(t *testing.T) {
 		h.start(t)
 		task := h.taskTurnRunning(t, bot.ID)
 		h.waitTaskTurn(t, sessionKey{botID: bot.ID})
-		// The message turn before the task turn leaves the running list a moment after it ends;
-		// until then StopTurn finds it too.
-		waitFor(t, "the message turn leaves the running list", func() bool {
-			h.runner.mu.Lock()
-			defer h.runner.mu.Unlock()
-			_, ok := h.runner.running[bot.ID]
-			return !ok
-		})
+		h.waitMessageTurnGone(t, bot.ID)
 		if !h.runner.StopTurn(bot.ID) {
 			t.Fatal("StopTurn returned false for a running task turn")
 		}

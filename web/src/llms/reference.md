@@ -107,6 +107,7 @@ Chats:
 - `GET /api/media/{name}`: a file of a message.
 - `POST /api/entries/{entry id}/reactions` with `{"emoji", "on"}`: put a reaction on a `user`, `bot` or `agent` entry (`"on": true`) or take it off (`"on": false`). `emoji` is one of 👍 👎 ❤️ 😂 👀 ✅. Returns 200 and the entry. Setting a reaction that is already on, or removing one that is off, changes nothing. Returns 400 for another emoji or another kind of entry, and 404 for an unknown entry. A reaction wakes no bot.
 - `POST /api/bots/{id}/interrupt`: stop the running turn. Returns `{"stopped": true|false}`.
+- `POST /api/bots/{id}/stop-turn`: stop only the running turn of a bot's or a room's chat; background tasks and the team's board go on. Returns `{"stopped": true|false}`.
 - `POST /api/bots/{id}/clear`: start a fresh context. Returns 204, or 409 while the bot works or has background tasks.
 - `POST /api/bots/{id}/compact`: queue a compaction after the current turn. Returns 202 with `{"queued"}`.
 

@@ -32,10 +32,16 @@ export function findKey(
 // speakerOf names who wrote a search result: the user, the bot or room member, or the other
 // bot of a direct message.
 export function speakerOf(e: Entry, chatName: string): string {
-  if (e.kind === "user") return "You"
-  if (e.kind === "bot") return e.body.speakerName ?? chatName
-  if (e.kind === "agent" && e.body.direction === "in") return e.body.peerName
-  return chatName
+  switch (e.kind) {
+    case "user":
+      return "You"
+    case "bot":
+      return e.body.speakerName ?? chatName
+    case "agent":
+      return e.body.direction === "in" ? e.body.peerName : chatName
+    default:
+      return chatName
+  }
 }
 
 // textOf is the text that the search looked in.

@@ -260,3 +260,9 @@ test("Stop turn posts to its own route, and Stop keeps its route", async () => {
     { method: "POST", url: "/api/bots/b1/interrupt", body: {} },
   ])
 })
+
+test("a chat search sends its query encoded, so that & # % and spaces stay text", async () => {
+  const calls = stubFetch(200)
+  await api.searchEntries("b1", "50% & #2 a+b")
+  assert.deepEqual(calls, [{ method: "GET", url: "/api/bots/b1/search?q=50%25%20%26%20%232%20a%2Bb", body: undefined }])
+})

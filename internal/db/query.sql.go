@@ -4444,6 +4444,54 @@ func (q *Queries) SearchArtifacts(ctx context.Context, arg SearchArtifactsParams
 	return items, nil
 }
 
+const searchEntries = `-- name: SearchEntries :many
+SELECT bot_id, seq, rev, id, kind, turn_id, body, created_at FROM entries
+WHERE bot_id = ?1 AND kind IN ('user', 'bot', 'agent')
+  AND contains_fold(json_extract(body, '$.text'), CAST(?2 AS TEXT))
+ORDER BY seq DESC
+LIMIT ?3
+`
+
+type SearchEntriesParams struct {
+	BotID string `json:"bot_id"`
+	Query string `json:"query"`
+	Limit int64  `json:"limit"`
+}
+
+// A chat's newest user, bot and agent messages whose text contains a query,
+// with no case, newest first. contains_fold is Handful's function (search.go).
+func (q *Queries) SearchEntries(ctx context.Context, arg SearchEntriesParams) ([]Entry, error) {
+	rows, err := q.db.QueryContext(ctx, searchEntries, arg.BotID, arg.Query, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Entry
+	for rows.Next() {
+		var i Entry
+		if err := rows.Scan(
+			&i.BotID,
+			&i.Seq,
+			&i.Rev,
+			&i.ID,
+			&i.Kind,
+			&i.TurnID,
+			&i.Body,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setBotHue = `-- name: SetBotHue :exec
 INSERT INTO bot_hues (bot_id, hue) VALUES (?, ?)
 ON CONFLICT (bot_id) DO UPDATE SET hue = excluded.hue

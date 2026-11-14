@@ -77,6 +77,15 @@
   --duration-base: 150ms;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
+  /* Code tokens, each at least 4.5:1 on --muted. */
+  --code-comment: oklch(0.439 0 0);
+  --code-keyword: oklch(0.491 0.27 292.581);
+  --code-string: oklch(0.527 0.154 150.069);
+  --code-number: oklch(0.555 0.163 48.998);
+  --code-title: oklch(0.488 0.243 264.376);
+  --code-type: oklch(0.52 0.105 223.128);
+  --code-attr: oklch(0.514 0.222 16.935);
+  --code-meta: oklch(0.518 0.253 323.949);
 }
 
 .dark {
@@ -107,6 +116,14 @@
   --ring: oklch(0.556 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
+  --code-comment: oklch(0.708 0 0);
+  --code-keyword: oklch(0.811 0.111 293.571);
+  --code-string: oklch(0.871 0.15 154.449);
+  --code-number: oklch(0.879 0.169 91.605);
+  --code-title: oklch(0.809 0.105 251.813);
+  --code-type: oklch(0.865 0.127 207.078);
+  --code-attr: oklch(0.81 0.117 11.638);
+  --code-meta: oklch(0.833 0.145 321.434);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -165,10 +182,9 @@
   border-radius: calc(var(--radius) * 0.6);
   padding: 0.1em 0.3em;
 }
+/* The code block around the pre gives it its background, border and header. */
 .markdown pre {
-  background: var(--muted);
-  border-radius: calc(var(--radius) * 0.8);
-  padding: 0.6rem;
+  padding: 0.6rem 0.75rem;
   overflow-x: auto;
 }
 .markdown pre code {
@@ -220,4 +236,72 @@
   border-left: 2px solid var(--border);
   padding-left: 0.75rem;
   color: var(--muted-foreground);
+}
+/* The user's bubble has the primary colour, so its inline code, quotes and rules take the text colour. */
+.markdown-on-primary .markdown :not(pre) > code {
+  background: color-mix(in oklab, currentColor 18%, transparent);
+}
+.markdown-on-primary .markdown blockquote {
+  color: inherit;
+  border-color: color-mix(in oklab, currentColor 40%, transparent);
+}
+.markdown-on-primary .markdown :is(th, td, hr) {
+  border-color: color-mix(in oklab, currentColor 30%, transparent);
+}
+.markdown-on-primary .table-block > button:not(:hover) {
+  color: inherit;
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--code-comment);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag {
+  color: var(--code-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol {
+  color: var(--code-string);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-bullet {
+  color: var(--code-number);
+}
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: var(--code-title);
+}
+.hljs-type,
+.hljs-built_in,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--code-type);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--code-attr);
+}
+.hljs-meta {
+  color: var(--code-meta);
+}
+.hljs-addition {
+  color: var(--success-foreground);
+}
+.hljs-deletion {
+  color: var(--destructive);
+}
+.hljs-section,
+.hljs-strong {
+  font-weight: 600;
+}
+.hljs-emphasis {
+  font-style: italic;
 }

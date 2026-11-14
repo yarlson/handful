@@ -3,6 +3,7 @@ import { encode } from "uqr"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useLoad } from "@/components/bot-panel"
+import { copyLabel, useCopy } from "@/components/copy"
 import { api, type PairRequest, type PhoneAccess } from "@/lib/api"
 import {
   codeGroups,
@@ -38,22 +39,20 @@ export function Qr({ text, label }: { text: string; label: string }) {
   return <img src={src} alt={label} className="size-44 shrink-0 rounded-md bg-white [image-rendering:pixelated]" />
 }
 
-// CopyButton copies text and says so for two seconds.
+// CopyButton copies text and says so for two seconds. Each one stands right after the element
+// that shows its text, which a failed copy selects.
 function CopyButton({ text, label = "Copy", what }: { text: string; label?: string; what: string }) {
-  const [copied, setCopied] = useState(false)
+  const [state, copy] = useCopy()
+  const button = useRef<HTMLButtonElement>(null)
   return (
     <Button
+      ref={button}
       size="xs"
       variant="outline"
       aria-label={`${label}: ${what}`}
-      onClick={() =>
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-          setTimeout(() => setCopied(false), 2000)
-        })
-      }
+      onClick={() => copy(text, () => button.current?.previousElementSibling)}
     >
-      {copied ? "Copied" : label}
+      {copyLabel(state, label)}
     </Button>
   )
 }

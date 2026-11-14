@@ -180,7 +180,10 @@ test("a code block has a header with its language, Wrap and Copy; inline code ha
   assert.match(html, /<span class="[^"]*font-mono[^"]*">go<\/span>/)
   const buttons = html.match(/<button[^>]*>/g) ?? []
   assert.match(buttons[0] ?? "", /aria-pressed="false"[^>]*title="Wrap long lines"/)
-  assert.match(html, /<button[^>]*>.*Copy<\/button>/)
+  const copy = html.match(/<button(?:(?!<\/button>).)*Copy(?:(?!<\/button>).)*<\/button>/g)?.at(-1) ?? ""
+  assert.match(copy, /<span class="col-start-1 row-start-1">Copy<\/span>/, "the idle label shows")
+  assert.match(copy, /class="[^"]*invisible">Copied</, "a hidden label keeps the button's width")
+  assert.match(copy, /class="[^"]*invisible">Copy failed</)
   for (const button of buttons) {
     assert.include(button, "aria-pressed:bg-foreground/10", "a pressed or hovered button shows on the muted header")
     assert.include(button, "hover:bg-foreground/10")

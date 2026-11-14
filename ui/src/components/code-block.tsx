@@ -81,6 +81,8 @@ function useFade(ref: RefObject<HTMLElement | null>, code: string, wrap: boolean
 export const onMuted =
   "hover:bg-foreground/10 aria-pressed:bg-foreground/10 aria-pressed:text-foreground dark:hover:bg-foreground/10"
 
+const copyStates: CopyState[] = ["idle", "copied", "failed"]
+
 const fade = "pointer-events-none absolute inset-y-0 w-8 from-muted to-transparent"
 
 // CodeBlock is a markdown code block with a header: its language, Wrap and Copy. Copy gives the
@@ -108,7 +110,15 @@ export function CodeBlock({ node, children }: { node?: Element; children?: React
           <WrapText /> Wrap
         </Button>
         <Button size="xs" variant="ghost" className={onMuted} onClick={() => copy(code, () => pre.current)}>
-          <CopyIcon state={state} /> {copyLabel(state, "Copy")}
+          <CopyIcon state={state} />
+          {/* Every label takes the same cell, so the button keeps the widest label's width and Wrap stays put. */}
+          <span className="grid text-left">
+            {copyStates.map((s) => (
+              <span key={s} className={cn("col-start-1 row-start-1", s !== state && "invisible")}>
+                {copyLabel(s, "Copy")}
+              </span>
+            ))}
+          </span>
         </Button>
       </div>
       <div className="relative overflow-hidden rounded-b-lg">

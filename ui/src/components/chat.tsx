@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react"
 import Markdown, { type Components } from "react-markdown"
+import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
 import {
   AlertTriangle,
@@ -19,7 +20,6 @@ import {
   ArrowUpRight,
   Check,
   ChevronRight,
-  Copy,
   Loader2,
   Lock,
   Paperclip,
@@ -68,6 +68,8 @@ import { Button, touchArea } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { MediaGallery } from "@/components/media"
+import { CodeBlock, CopyIcon, onMuted, TableBlock } from "@/components/code-block"
+import { copyLabel, useCopy } from "@/components/copy"
 import { BotDot } from "@/components/bot-dot"
 import { TeamDots } from "@/components/team-dots"
 import { cn } from "@/lib/utils"
@@ -89,8 +91,10 @@ function time(ms: number) {
 // markdownComponents opens links to other sites in a new tab, so the app
 // stays open. The desktop app sends such links to the default browser. An
 // image from another site doesn't load: it shows as a link to it, which the
-// user can open.
+// user can open. Code blocks and tables get Copy.
 const markdownComponents: Components = {
+  pre: ({ node, children }) => <CodeBlock node={node}>{children}</CodeBlock>,
+  table: ({ node, children }) => <TableBlock node={node}>{children}</TableBlock>,
   img: ({ node: _node, src, alt, ...props }) => {
     const url = typeof src === "string" ? src : undefined
     if (isLocalImage(url, window.location.origin)) return <img src={url} alt={alt} {...props} />
@@ -113,10 +117,15 @@ const markdownComponents: Components = {
     ),
 }
 
-export function MarkdownText({ text }: { text: string }) {
+const botPlugins = [remarkGfm]
+// A user's message keeps the line breaks the user typed.
+const userPlugins = [remarkGfm, remarkBreaks]
+
+// MarkdownText renders markdown. Raw HTML in it shows as text. breaks keeps every typed line break.
+export function MarkdownText({ text, breaks = false }: { text: string; breaks?: boolean }) {
   return (
     <div className="markdown text-sm leading-relaxed">
-      <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <Markdown remarkPlugins={breaks ? userPlugins : botPlugins} components={markdownComponents}>
         {text}
       </Markdown>
     </div>
@@ -163,11 +172,31 @@ function ActivityRow({
         <span className="text-foreground/80 shrink-0 font-medium">{b.subagent ? `↳ ${b.tool}` : b.tool}</span>
         <span className="truncate font-mono">{b.summary}</span>
       </button>
-      {open && b.output && (
-        <pre className="bg-muted mt-1 ml-5 max-h-60 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
-          {b.output}
-        </pre>
-      )}
+      {open && b.output && <ToolOutput output={b.output} />}
+    </div>
+  )
+}
+
+// ToolOutput is a tool run's output, with Copy.
+function ToolOutput({ output }: { output: string }) {
+  const [state, copy] = useCopy()
+  const pre = useRef<HTMLPreElement>(null)
+  return (
+    <div className="relative mt-1 ml-5">
+      <pre
+        ref={pre}
+        className="bg-muted max-h-60 overflow-auto rounded-md p-2 pr-20 font-mono text-xs whitespace-pre-wrap"
+      >
+        {output}
+      </pre>
+      <Button
+        size="xs"
+        variant="ghost"
+        className={cn(onMuted, "bg-muted text-foreground/80 absolute top-1 right-1")}
+        onClick={() => copy(output, () => pre.current)}
+      >
+        <CopyIcon state={state} /> {copyLabel(state, "Copy")}
+      </Button>
     </div>
   )
 }
@@ -402,34 +431,26 @@ function taskLabel(t: BackgroundTask) {
   return t.bot ? `${t.bot}: ${t.description}` : t.description
 }
 
-// CopyButton copies a message's markdown to the clipboard and shows the
-// result for a moment. It stays hidden until its message is hovered or focused.
+// CopyButton copies a message's markdown and shows the result for a moment. On a desktop it
+// stays hidden until its message is hovered or focused; on a touch screen it shows at rest.
 function CopyButton({ text }: { text: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle")
-  useEffect(() => {
-    if (state === "idle") return
-    const timer = setTimeout(() => setState("idle"), 2000)
-    return () => clearTimeout(timer)
-  }, [state])
-  const copy = () =>
-    navigator.clipboard.writeText(text).then(
-      () => setState("copied"),
-      () => setState("failed"),
-    )
-  const label = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : "Copy message"
+  const [state, copy] = useCopy()
+  const button = useRef<HTMLButtonElement>(null)
+  const label = copyLabel(state, "Copy message")
   return (
     <Button
+      ref={button}
       size="icon-xs"
       variant="ghost"
       aria-label={label}
       title={label}
       className={cn(
-        "text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100",
+        "text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100",
         state !== "idle" && "opacity-100",
       )}
-      onClick={() => void copy()}
+      onClick={() => copy(text, () => button.current?.closest(".group\\/message")?.querySelector(".markdown"))}
     >
-      {state === "copied" ? <Check /> : state === "failed" ? <X /> : <Copy />}
+      <CopyIcon state={state} />
     </Button>
   )
 }
@@ -580,8 +601,8 @@ export function EntryView({
             </div>
           )}
           {entry.body.text && (
-            <div className="bg-primary text-primary-foreground max-w-[75%] rounded-2xl rounded-br-sm px-3.5 py-2 text-sm whitespace-pre-wrap">
-              {entry.body.text}
+            <div className="markdown-on-primary bg-primary text-primary-foreground max-w-[75%] min-w-0 rounded-2xl rounded-br-sm px-3.5 py-2">
+              <MarkdownText text={entry.body.text} breaks />
             </div>
           )}
           {(entry.body.text || (entry.body.media && entry.body.media.length > 0)) && (

@@ -175,6 +175,33 @@
 .markdown h3 {
   font-weight: 600;
 }
+.markdown h1 {
+  font-size: 1.125rem;
+}
+.markdown h2 {
+  font-size: 1rem;
+}
+.markdown h3 {
+  font-size: 0.875rem;
+}
+.markdown :is(h1, h2, h3) + * {
+  margin-top: 0.25em;
+}
+.markdown > * + :is(h1, h2, h3) {
+  margin-top: 1em;
+}
+.markdown .task-list-item {
+  list-style: none;
+}
+.markdown .task-list-item input {
+  margin-right: 0.4em;
+  vertical-align: -0.1em;
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin-block: 1em;
+}
 .markdown table {
   border-collapse: collapse;
   font-size: 0.9em;

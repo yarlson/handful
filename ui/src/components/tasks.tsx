@@ -287,7 +287,7 @@ export function BudgetSection({ team, budget, act }: { team: Bot; budget: Budget
   const rights = useRights()
   return (
     <section aria-labelledby="budget-heading" className="flex flex-col gap-1.5 text-xs">
-      <h3 id="budget-heading" className="text-muted-foreground font-medium uppercase">
+      <h3 id="budget-heading" className="text-muted-foreground font-medium">
         Today
       </h3>
       <p>
@@ -755,7 +755,7 @@ export function AcrossTeams({
       <div className="flex max-w-5xl flex-col gap-5 overflow-y-auto p-4 max-md:px-3">
         {error && <p className="text-destructive text-xs">{error}</p>}
         <section aria-labelledby="needs-you-heading" className="flex flex-col gap-1.5">
-          <h3 id="needs-you-heading" className="text-muted-foreground text-xs font-medium uppercase">
+          <h3 id="needs-you-heading" className="text-muted-foreground text-xs font-medium">
             Needs you ({count})
           </h3>
           {count === 0 ? (
@@ -782,7 +782,7 @@ export function AcrossTeams({
           )}
         </section>
         <section aria-labelledby="teams-heading" className="flex flex-col gap-1.5">
-          <h3 id="teams-heading" className="text-muted-foreground text-xs font-medium uppercase">
+          <h3 id="teams-heading" className="text-muted-foreground text-xs font-medium">
             Teams
           </h3>
           {teams.length === 0 ? (

@@ -515,7 +515,7 @@ function chatInLocation() {
 // SectionTitle heads a sidebar section; without onAction, as on a phone, it has no add button.
 function SectionTitle({ title, action, onAction }: { title: string; action: string; onAction?: () => void }) {
   return (
-    <div className="text-muted-foreground mt-3 flex min-h-6 items-center justify-between px-2 text-xs font-medium uppercase">
+    <div className="text-muted-foreground mt-3 flex min-h-6 items-center justify-between px-2 text-xs font-medium">
       {title}
       {onAction && (
         <Button size="icon" variant="ghost" className="size-6 max-md:size-11" aria-label={action} onClick={onAction}>

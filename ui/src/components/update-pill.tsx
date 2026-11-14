@@ -123,7 +123,7 @@ function Icon({ s }: { s: UpdaterState }) {
 // dot: green for a running turn, blue for background tasks.
 function BotRows({ running, bots, now }: { running: RunningBot[]; bots: Bot[]; now: number }) {
   return (
-    <ul className="flex flex-col gap-1.5 rounded-lg border p-2.5 text-[13px]">
+    <ul className="flex flex-col gap-1.5 rounded-lg border p-2.5 text-sm">
       {running.map((r) => {
         const known = bots.find((b) => b.id === r.botId)
         return (
@@ -238,7 +238,7 @@ export function Body({
           Stop {running.length} running {running.length === 1 ? "bot" : "bots"}?
         </p>
         <BotRows running={running} bots={bots} now={now} />
-        <p className="text-muted-foreground text-[13px]">Restarting now stops their running turns.</p>
+        <p className="text-muted-foreground text-sm">Restarting now stops their running turns.</p>
         <div className="flex gap-2">
           <Button size="sm" onClick={a.updateWhenIdle} data-main>
             Update when they finish
@@ -260,7 +260,7 @@ export function Body({
       <>
         <p className="text-sm font-medium">Still working after {s.drainMinutes} min</p>
         <BotRows running={running} bots={bots} now={now} />
-        <p className="text-muted-foreground text-[13px]">Restart now stops them, or wait longer.</p>
+        <p className="text-muted-foreground text-sm">Restart now stops them, or wait longer.</p>
         <div className="flex gap-2">
           <Button size="sm" onClick={a.waitLonger} data-main>
             Wait {s.drainMinutes} more min
@@ -278,7 +278,7 @@ export function Body({
         <>
           <p className="text-sm font-medium">Handful {s.version} is ready</p>
           <SubLine s={s} />
-          <p className="text-muted-foreground text-[13px]">Restart Handful to finish updating.</p>
+          <p className="text-muted-foreground text-sm">Restart Handful to finish updating.</p>
           <Button size="sm" className="self-start" onClick={a.restartNow} data-main>
             Restart now
           </Button>
@@ -293,7 +293,7 @@ export function Body({
       <>
         <p className="text-sm font-medium">Handful {s.version} is ready</p>
         <SubLine s={s} />
-        <p className="text-[13px]">{running.length === 1 ? "1 bot is" : `${running.length} bots are`} working:</p>
+        <p className="text-sm">{running.length === 1 ? "1 bot is" : `${running.length} bots are`} working:</p>
         <BotRows running={running} bots={bots} now={now} />
         <div className="flex gap-2">
           <Button size="sm" onClick={a.updateWhenIdle} data-main>
@@ -321,9 +321,7 @@ export function Body({
         <p className="text-sm font-medium">
           Updating after {running.length} {running.length === 1 ? "bot finishes" : "bots finish"}
         </p>
-        <p className="text-muted-foreground -mt-2 text-[13px]">
-          New turns wait. Teams pause their tasks for the update.
-        </p>
+        <p className="text-muted-foreground -mt-2 text-sm">New turns wait. Teams pause their tasks for the update.</p>
         <BotRows running={running} bots={bots} now={now} />
         <progress
           aria-label="Time left before Handful asks you"
@@ -331,7 +329,7 @@ export function Body({
           max={s.drainMinutes}
           className="h-1.5 w-full appearance-none overflow-hidden rounded-full bg-muted [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-info"
         />
-        <p className="text-muted-foreground text-[13px] tabular-nums">
+        <p className="text-muted-foreground text-sm tabular-nums">
           {left} of {s.drainMinutes} min left. Handful restarts on its own when they finish; if the limit passes, it
           asks you first.
         </p>
@@ -351,7 +349,7 @@ export function Body({
     return (
       <>
         <p className="text-sm font-medium">Update failed</p>
-        <p className="text-muted-foreground text-[13px]">{errorReason(s)}</p>
+        <p className="text-muted-foreground text-sm">{errorReason(s)}</p>
         <div className="flex gap-2">
           <Button size="sm" onClick={a.retry} data-main>
             Try again
@@ -368,7 +366,7 @@ export function Body({
     return (
       <>
         <p className="text-sm font-medium">Handful {s.version} is out</p>
-        <p className="text-muted-foreground text-[13px]">
+        <p className="text-muted-foreground text-sm">
           This copy was built locally, so it can't update itself. Download the release, or pull and rebuild:
         </p>
         <code className="bg-muted rounded-md px-2 py-1 font-mono text-xs">git pull &amp;&amp; make build</code>

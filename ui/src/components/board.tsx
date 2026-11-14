@@ -489,7 +489,7 @@ function Heading({
 }) {
   return (
     <div className="flex min-h-7 items-center gap-2">
-      <h3 id={id} className="text-muted-foreground text-xs font-medium uppercase">
+      <h3 id={id} className="text-muted-foreground text-xs font-medium">
         {children}
         {count !== undefined && ` (${count})`}
       </h3>
@@ -540,7 +540,7 @@ export function BoardView({
           aria-labelledby="needs-heading"
           className="flex flex-col gap-2 rounded-lg border border-attention/50 p-2.5"
         >
-          <h3 id="needs-heading" className="text-xs font-medium text-attention-foreground uppercase">
+          <h3 id="needs-heading" className="text-muted-foreground text-xs font-medium">
             Needs you ({needs.length})
           </h3>
           <ul className="flex flex-col divide-y divide-attention/20">
@@ -610,7 +610,7 @@ export function BoardView({
       </section>
       {earlier.length > 0 && (
         <details className="group/earlier">
-          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center max-md:min-h-11 gap-1 text-xs font-medium uppercase">
+          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center max-md:min-h-11 gap-1 text-xs font-medium">
             <ChevronRight aria-hidden className="size-3.5 transition-transform group-open/earlier:rotate-90" />
             Earlier ({earlier.length})
           </summary>

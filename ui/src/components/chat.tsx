@@ -162,7 +162,7 @@ function ActivityRow({
         <span className="truncate font-mono">{b.summary}</span>
       </button>
       {open && b.output && (
-        <pre className="bg-muted mt-1 ml-5 max-h-60 overflow-auto rounded-md p-2 font-mono text-[11px] whitespace-pre-wrap">
+        <pre className="bg-muted mt-1 ml-5 max-h-60 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
           {b.output}
         </pre>
       )}
@@ -289,7 +289,7 @@ function ApprovalCard({ entry }: { entry: Extract<Entry, { kind: "approval" }> }
 // whole instructions, so that the user can read what they confirm. It has no
 // scroll box of its own: nothing that the setup creates is out of sight.
 function SetupSummary({ setup }: { setup: SetupProposal }) {
-  const heading = "text-muted-foreground mb-1 text-xs font-medium uppercase"
+  const heading = "text-muted-foreground mb-1 text-xs font-medium"
   return (
     <div className="space-y-3 text-sm">
       {setup.bots.length > 0 && (

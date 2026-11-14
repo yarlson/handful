@@ -8,6 +8,7 @@ const css = readFileSync(join(root, "index.css"), "utf8")
 // State colours come from the attention, info and success tokens; bot colours are the one palette.
 const RAW_COLOUR = /\b(?:amber|blue|emerald)-\d{2,3}\b/
 const EXEMPT = new Set(["lib/bot-color.ts"])
+const PIXEL_TEXT = /\btext-\[\d+(?:\.\d+)?px\]/
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -49,6 +50,17 @@ test("the scan finds a raw amber, blue or emerald class and passes the state tok
 
 test("no component uses a raw amber, blue or emerald colour class", () => {
   assert.deepEqual(sourceHits(RAW_COLOUR), [])
+})
+
+test("the scan finds a pixel text size and passes the type scale", () => {
+  assert.deepEqual(hits(PIXEL_TEXT, "x.tsx", '<p className="text-muted-foreground text-[13px]">'), [
+    'x.tsx:1: <p className="text-muted-foreground text-[13px]">',
+  ])
+  assert.deepEqual(hits(PIXEL_TEXT, "x.tsx", 'className="text-xs text-[0.85em] text-[var(--x)]"'), [])
+})
+
+test("no component sets its text size in pixels", () => {
+  assert.deepEqual(sourceHits(PIXEL_TEXT), [])
 })
 
 test("reduced motion stops every animation and transition", () => {

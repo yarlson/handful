@@ -75,7 +75,7 @@ function Tile({ name, kind, fill }: { name: string; kind: MediaKind; fill: boole
         className={cn("block", fill ? "size-full object-cover" : "max-h-80 max-w-full object-contain")}
       />
       {kind === "gif" && (
-        <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1 text-[10px] font-semibold text-white">
+        <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1 text-xs font-semibold text-white">
           GIF
         </span>
       )}

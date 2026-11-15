@@ -75,8 +75,13 @@ export function lastChat(): ChatPlace | null {
   }
   // Stryker disable next-line ConditionalExpression: without it, null parses as the address /null, which is not a chat's
   if (!url) return null
-  const address = URL.parse(url, PLACE_ORIGIN)
-  return address?.origin === PLACE_ORIGIN ? chatPlace(address.pathname, address.search) : null
+  let address: URL
+  try {
+    address = new URL(url, PLACE_ORIGIN)
+  } catch {
+    return null
+  }
+  return address.origin === PLACE_ORIGIN ? chatPlace(address.pathname, address.search) : null
 }
 
 type PanelBot = { kind: string; team?: unknown }

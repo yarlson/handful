@@ -1,5 +1,5 @@
 import { afterEach, assert, test, vi } from "vitest"
-import { clampPanel, clampSidebar, loadStored, loadWidth, panelLayout, saveStored } from "./layout"
+import { SIDEBAR_WIDTH_KEY, clampPanel, clampSidebar, loadStored, loadWidth, panelLayout, saveStored } from "./layout"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -43,7 +43,7 @@ test("where the sidebar leaves no room for a 280 px panel and a 480 px chat, the
   assert.equal(panelLayout(1247, 484, 320).mode, "overlay")
 })
 
-test("below 64rem the panel covers the chat, at most the window less 48 px; below md it is a sheet", () => {
+test("below 64rem the panel covers the chat at its set width; below md it is a sheet", () => {
   assert.deepEqual(panelLayout(1023, 0, 320), { mode: "overlay", width: 320, max: 560 })
   assert.deepEqual(panelLayout(800, 0, 560), { mode: "overlay", width: 560, max: 560 })
   assert.deepEqual(panelLayout(768, 244, 279), { mode: "overlay", width: 280, max: 560 })
@@ -64,6 +64,11 @@ test("a stored width comes back clamped, and a missing or broken one gives the i
   assert.equal(loadWidth("w", clampPanel, 320), 300)
   saveStored("w", "wide")
   assert.equal(loadWidth("w", clampPanel, 320), 320, "not a number")
+})
+
+test("a sidebar width stored by an earlier version still loads", () => {
+  vi.stubGlobal("localStorage", { getItem: (k: string) => (k === "handful.sidebarWidth" ? "300" : null) })
+  assert.equal(loadWidth(SIDEBAR_WIDTH_KEY, clampSidebar, 240), 300)
 })
 
 test("storage that refuses reads and writes loses the choice, without an error", () => {

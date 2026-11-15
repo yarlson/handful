@@ -13,8 +13,6 @@ export const STEP = 16
 // a full-screen sheet and the sidebar a drawer.
 const WIDE = 1024
 const NARROW = 768
-// OVERLAY_GAP is the strip of the chat that a panel over it leaves visible.
-const OVERLAY_GAP = 48
 
 export const SIDEBAR_WIDTH_KEY = "handful.sidebarWidth"
 export const PANEL_WIDTH_KEY = "handful.panelWidth"
@@ -42,10 +40,7 @@ export type PanelLayout = { mode: "inline" | "overlay" | "sheet"; width: number;
 export function panelLayout(windowWidth: number, sidebar: number, set: number): PanelLayout {
   if (windowWidth < NARROW) return { mode: "sheet", width: windowWidth, max: windowWidth }
   const max = Math.min(PANEL.max, windowWidth - sidebar - SEPARATOR - CHAT_MIN)
-  if (windowWidth < WIDE || max < PANEL.min) {
-    const over = Math.min(PANEL.max, windowWidth - OVERLAY_GAP)
-    return { mode: "overlay", width: clamp(set, PANEL.min, over), max: over }
-  }
+  if (windowWidth < WIDE || max < PANEL.min) return { mode: "overlay", width: clampPanel(set), max: PANEL.max }
   return { mode: "inline", width: clamp(set, PANEL.min, max), max }
 }
 

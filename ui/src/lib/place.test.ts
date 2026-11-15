@@ -34,6 +34,7 @@ test("an address that is not a chat's has no chat place", () => {
   assert.isNull(chatPlace("/settings/general", "?tab=memory"))
   assert.isNull(chatPlace("/needs-you", ""))
   assert.isNull(chatPlace(`/chat/${chat}/more`, ""))
+  assert.isNull(chatPlace(`/settings/chat/${chat}`, ""))
   assert.isNull(chatPlace("/chat/", ""))
 })
 

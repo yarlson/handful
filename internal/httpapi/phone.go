@@ -30,6 +30,7 @@ var phoneRoutes = []struct{ pattern, scope string }{
 	{"GET /api/bots", core.ScopeView},
 	{"GET /api/bots/{id}", core.ScopeView},
 	{"GET /api/bots/{id}/entries", core.ScopeView},
+	{"GET /api/bots/{id}/entries/{entryId}", core.ScopeView},
 	{"GET /api/bots/{id}/search", core.ScopeView},
 	{"GET /api/media/{name}", core.ScopeView},
 	{"GET /api/teams/{id}/board", core.ScopeView},

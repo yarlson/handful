@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import { ArrowLeft } from "lucide-react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { X } from "lucide-react"
 import { api } from "@/lib/api"
 import {
   bannerText,
@@ -271,6 +271,14 @@ export function TextField({
           onBlur={done}
           onKeyDown={(e) => {
             if (e.key === "Enter") done()
+          }}
+          // Escape puts back the saved value before it closes Settings. Settings' Escape listener
+          // is native on an ancestor and runs before React's bubble handlers, so this one captures.
+          onKeyDownCapture={(e) => {
+            if (e.key !== "Escape" || unchanged(text, v.value)) return
+            e.preventDefault()
+            setText(String(v.value))
+            f.setError(null)
           }}
         />
         {after}
@@ -605,21 +613,22 @@ function storeSaved(saved: SavedValues): SavedValues {
 export function SettingsPage({
   section,
   onSection,
-  onBack,
+  onClose,
   onManageConnectors,
   restartRev = 0,
   pairRev = 0,
-  top,
+  menu = null,
 }: {
   // restartRev changes with each restart event from the server; the page reloads on it.
   restartRev?: number
   // pairRev changes with each pairing event; Phones reloads on it.
   pairRev?: number
-  // top shows above the section, such as a phone's pair request.
-  top?: ReactNode
+  // menu is the button that opens the sidebar, where the sidebar is hidden.
+  menu?: ReactNode
   section: Section
   onSection: (s: Section) => void
-  onBack: () => void
+  // onClose goes back to the chat; Escape does too.
+  onClose: () => void
   onManageConnectors: () => void
 }) {
   const [view, setView] = useState<SettingsView | null>(null)
@@ -632,6 +641,45 @@ export function SettingsPage({
   const [resetError, setResetError] = useState<string | null>(null)
   const [copyState, copy] = useCopy()
   const pathShown = useRef<HTMLElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  // The keyboard goes to the heading when Settings open, so Escape and Tab work at once.
+  useEffect(() => heading.current?.focus({ preventScroll: true }), [])
+  // closesOnEscape: a dialog of Settings is in a portal, so its Escape closes only the dialog.
+  const closesOnEscape = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el) return
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "Escape" || e.defaultPrevented) return
+        e.preventDefault()
+        onClose()
+      }
+      el.addEventListener("keydown", onKey)
+      return () => el.removeEventListener("keydown", onKey)
+    },
+    [onClose],
+  )
+  // frame is the page around its body: a header with the title and Close.
+  const frame = (body: ReactNode) => (
+    <section ref={closesOnEscape} aria-labelledby="settings-heading" className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3">
+        {menu}
+        <h1 id="settings-heading" ref={heading} tabIndex={-1} className="flex-1 text-lg font-semibold outline-none">
+          Settings
+        </h1>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="shrink-0 max-md:size-11"
+          aria-label="Close settings"
+          title="Close settings"
+          onClick={onClose}
+        >
+          <X />
+        </Button>
+      </header>
+      {body}
+    </section>
+  )
   // The keys this page saved: a pending key it didn't save changed on disk.
   const [saved, setSaved] = useState(loadSaved)
   const load = () =>
@@ -695,10 +743,10 @@ export function SettingsPage({
     }
   }
   if (!view) {
-    return (
+    return frame(
       <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
         {loadError ? `Couldn't load the settings: ${loadError}` : "Loading settings…"}
-      </div>
+      </div>,
     )
   }
   const locked = Boolean(view.file.error)
@@ -708,17 +756,9 @@ export function SettingsPage({
   const updates = updateKeys(view.build)
   const disk = diskNotice(view, diskChanges(view, saved))
   const title = SECTIONS.find((s) => s.id === section)?.label ?? "General"
-  return (
-    <div className="bg-background text-foreground relative flex h-dvh min-w-0 flex-1 overflow-clip max-md:flex-col">
-      <aside className="flex w-52 shrink-0 flex-col gap-3 border-r px-2 py-4 max-md:w-full max-md:gap-1 max-md:border-r-0 max-md:border-b max-md:pt-[max(0.5rem,env(safe-area-inset-top))] max-md:pb-0">
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 text-xs max-md:min-h-11 max-md:text-sm"
-          onClick={onBack}
-        >
-          <ArrowLeft className="size-3.5" /> Back to chats
-        </button>
-        <h1 className="px-2 text-sm font-semibold">Settings</h1>
+  return frame(
+    <div className="relative flex min-h-0 min-w-0 flex-1 max-md:flex-col">
+      <aside className="flex w-52 shrink-0 flex-col gap-3 border-r px-2 py-4 max-md:w-full max-md:gap-1 max-md:border-r-0 max-md:border-b max-md:pt-1 max-md:pb-0">
         <nav
           aria-label="Settings sections"
           className="flex flex-col gap-0.5 max-md:-mx-2 max-md:flex-row max-md:overflow-x-auto max-md:px-2"
@@ -747,8 +787,7 @@ export function SettingsPage({
           ))}
         </nav>
       </aside>
-      <main className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5 max-md:px-4">
-        {top && <div className="-mx-8 -mt-5 mb-5 max-md:-mx-4">{top}</div>}
+      <div className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5 max-md:px-4">
         <div className="max-w-[680px]">
           {restart.state === "now" && (
             <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">
@@ -835,7 +874,7 @@ export function SettingsPage({
             </div>
           )}
           <section aria-labelledby="settings-title">
-            <h2 id="settings-title" className="text-lg font-semibold">
+            <h2 id="settings-title" className="text-base font-semibold">
               {title}
             </h2>
             {section === "general" && (
@@ -1037,7 +1076,7 @@ export function SettingsPage({
             )}
           </section>
         </div>
-      </main>
+      </div>
       <RestartDialog
         running={running.bots}
         now={running.at}
@@ -1049,6 +1088,6 @@ export function SettingsPage({
           void restart.restart(when)
         }}
       />
-    </div>
+    </div>,
   )
 }

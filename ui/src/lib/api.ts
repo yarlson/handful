@@ -264,6 +264,20 @@ export type ServerEvent =
   | { type: "restart"; state: "waiting" | "cancelled" | "expired" | "restarting" }
   | { type: "pair" }
 
+// ApiError is a request that failed, with its HTTP status.
+export class ApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+// isNotFound tells whether an error is the server's 404.
+export function isNotFound(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 404
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -279,7 +293,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     } catch {
       // The body is not JSON; keep the status message.
     }
-    throw new Error(errorMessage(message))
+    throw new ApiError(errorMessage(message), res.status)
   }
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
@@ -422,6 +436,9 @@ export const api = {
   // ones match too.
   searchEntries: (id: string, q: string) =>
     request<{ entries: Entry[]; more: boolean }>("GET", `/api/bots/${id}/search?q=${encodeURIComponent(q)}`),
+  // entry returns one entry of a chat; an entry of another chat, or none, is a 404.
+  entry: (id: string, entryId: string) =>
+    request<Entry>("GET", `/api/bots/${id}/entries/${encodeURIComponent(entryId)}`),
   // entryWindow returns a chat's newest limit entries, below seq before when given, in chat order.
   entryWindow: (id: string, limit: number, before?: number) =>
     request<{ entries: Entry[] }>(

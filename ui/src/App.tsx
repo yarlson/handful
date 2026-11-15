@@ -6,6 +6,8 @@ import {
   AlertTriangle,
   MessageCircleQuestion,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRight,
   PauseCircle,
   Plug,
@@ -15,12 +17,12 @@ import {
   ShieldQuestion,
 } from "lucide-react"
 import { BotHuesProvider, ChatIcon } from "@/components/bot-colors"
-import { api, type Bot, type Entry } from "@/lib/api"
+import { api, isNotFound, type Bot, type Entry } from "@/lib/api"
 import { type Link, linkLabel } from "@/lib/connection"
 import { useHandful } from "@/lib/store"
 import { Chat } from "@/components/chat"
 import { BotPanel, useLoad } from "@/components/bot-panel"
-import { useNarrow } from "@/lib/narrow"
+import { useNarrow, useWindowWidth } from "@/lib/narrow"
 import { BUILDER } from "@/lib/starts"
 import { MoveNotice } from "@/components/move-notice"
 import { NowChip } from "@/components/board"
@@ -54,7 +56,24 @@ import { PairAgain, PairBanner, PairPage, usePairRequest } from "@/components/ph
 import { rightsOf } from "@/lib/phones"
 import { needsKey, phoneSession, useSession } from "@/lib/session"
 import { KeyPage } from "@/components/key-page"
-import { findKey, matchesName } from "@/lib/search"
+import { matchesName, modKey } from "@/lib/search"
+import {
+  clampPanel,
+  clampSidebar,
+  loadStored,
+  loadWidth,
+  PANEL,
+  PANEL_WIDTH_KEY,
+  panelLayout,
+  saveStored,
+  SEPARATOR,
+  SIDEBAR,
+  SIDEBAR_COLLAPSED_KEY,
+  SIDEBAR_WIDTH_KEY,
+  STEP,
+} from "@/lib/layout"
+import { chatPlace, chatUrl, lastChat, panelTabs, saveLastChat, type PanelTab, type Reading } from "@/lib/place"
+import { Reader } from "@/components/reader"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
 const NEEDS_YOU_PATH = "/needs-you"
@@ -484,42 +503,77 @@ function BotList({
   )
 }
 
-// MAC says the chat search opens with ⌘F, not Ctrl+F.
+// MAC says the shortcuts use ⌘, not Ctrl.
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent)
+const SIDEBAR_SHORTCUT = MAC ? "⌘B" : "Ctrl+B"
+const SIDEBAR_KEYS = MAC ? "Meta+B" : "Control+B"
 
-const sidebarWidthKey = "handful.sidebarWidth"
-const sidebarWidth = { min: 180, max: 480, initial: 240 }
+// READER is the history state of an address that opened the reader, so that closing it goes
+// back instead of adding an address.
+const READER = { reader: true }
 
-function clampWidth(w: number) {
-  return Math.round(Math.min(sidebarWidth.max, Math.max(sidebarWidth.min, w)))
+// here is the address bar's path and query.
+function here() {
+  return { path: location.pathname, search: location.search }
 }
 
-// The sidebar width is a per-browser preference. Storage can be unavailable
-// (for example in a private window); the width then resets on reload.
-function loadSidebarWidth() {
-  try {
-    const saved = Number(localStorage.getItem(sidebarWidthKey))
-    return saved ? clampWidth(saved) : sidebarWidth.initial
-  } catch {
-    return sidebarWidth.initial
-  }
-}
-
-function saveSidebarWidth(w: number) {
-  try {
-    localStorage.setItem(sidebarWidthKey, String(w))
-  } catch {
-    // Not saved: the width resets on reload, which is acceptable.
-  }
-}
-
-// A chat's address is /chat/<bot id>. Bot ids are UUIDs, so they need no encoding.
-function chatPath(id: string) {
-  return `/chat/${id}`
-}
-
-function chatInLocation() {
-  return /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1] ?? null
+// ResizeHandle is the separator at one edge of the element it controls, and sets that element's
+// width: by drag, by the arrow keys STEP pixels a press, and back to initial on a double-click.
+// edge is the side of the element the handle is on.
+function ResizeHandle({
+  label,
+  controls,
+  edge,
+  width,
+  min,
+  max,
+  initial,
+  onWidth,
+}: {
+  label: string
+  controls: string
+  edge: "left" | "right"
+  width: number
+  min: number
+  max: number
+  initial: number
+  onWidth: (w: number) => void
+}) {
+  const dragging = useRef(false)
+  const set = (w: number) => onWidth(Math.round(Math.min(max, Math.max(min, w))))
+  const grows = edge === "right" ? "ArrowRight" : "ArrowLeft"
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-controls={controls}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Drag to resize; double-click to reset"
+      className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l max-md:hidden"
+      onPointerDown={(e) => {
+        e.preventDefault()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        dragging.current = true
+      }}
+      onPointerMove={(e) => {
+        if (dragging.current) set(edge === "right" ? e.clientX : window.innerWidth - e.clientX)
+      }}
+      onPointerUp={(e) => {
+        dragging.current = false
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return
+        e.preventDefault()
+        set(width + (e.key === grows ? STEP : -STEP))
+      }}
+      onDoubleClick={() => set(initial)}
+    />
+  )
 }
 
 // SidebarFilter narrows the sidebar's chats by name. Escape clears a filter that is set and goes
@@ -634,25 +688,52 @@ export function App() {
   const session = useSession()
   const rights = rightsOf(session)
   const pair = usePairRequest(pairRev, rights.computer)
-  const [width, setWidth] = useState(loadSidebarWidth)
-  const resizing = useRef(false)
-  useEffect(() => saveSidebarWidth(width), [width])
-  const [selected, setSelected] = useState<string | null>(chatInLocation)
-  // path is the address bar's path; /settings… shows the Settings page instead of the chats.
-  const [path, setPath] = useState(() => location.pathname)
+  const [width, setWidth] = useState(() => loadWidth(SIDEBAR_WIDTH_KEY, clampSidebar, SIDEBAR.initial))
+  useEffect(() => saveStored(SIDEBAR_WIDTH_KEY, String(width)), [width])
+  // collapsed hides the sidebar above md, until its button or Mod+B shows it again.
+  const [collapsed, setCollapsed] = useState(() => loadStored(SIDEBAR_COLLAPSED_KEY) === "1")
+  useEffect(() => saveStored(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0"), [collapsed])
+  // panelWidth is the width the user set; the panel shows narrower where the chat needs room.
+  const [panelWidth, setPanelWidth] = useState(() => loadWidth(PANEL_WIDTH_KEY, clampPanel, PANEL.initial))
+  useEffect(() => saveStored(PANEL_WIDTH_KEY, String(panelWidth)), [panelWidth])
+  // where is the address bar. /settings… shows Settings in the main area; a chat's address says
+  // what is open in it (place.ts).
+  const [where, setWhere] = useState(here)
+  // go moves the address bar to an address of the app. A replaced address keeps its history
+  // state.
+  const go = useCallback((to: string, how: "push" | "replace" = "push", state: unknown = null) => {
+    if (to !== location.pathname + location.search) {
+      if (how === "push") history.pushState(state, "", to)
+      else history.replaceState(history.state, "", to)
+    }
+    setWhere(here())
+  }, [])
+  const [selected, setSelected] = useState<string | null>(
+    () => chatPlace(location.pathname, location.search)?.chat ?? null,
+  )
   const [creating, setCreating] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
   const [creatingTeam, setCreatingTeam] = useState(false)
   const [connectors, setConnectors] = useState(false)
-  // Below 64rem the panel covers the chat, so a narrow window starts with it closed.
-  const [panel, setPanel] = useState(() => window.matchMedia("(min-width: 64rem)").matches)
+  const narrow = useNarrow()
+  const windowWidth = useWindowWidth()
+  const addressed = chatPlace(where.path, where.search)
+  // place is what the address says is open in the selected chat.
+  const place = addressed?.chat === selected ? addressed : null
+  const lay = panelLayout(windowWidth, narrow || collapsed ? 0 : width + SEPARATOR, panelWidth)
+  // over says the panel covers the chat, so it closes on Escape and on a choice.
+  const over = lay.mode !== "inline"
+  // The panel starts open where it fits beside the chat, and where the address names its tab.
+  const [panel, setPanel] = useState(() => !over || Boolean(place?.tab))
   // drawer: on a narrow window the sidebar is a drawer over the page; above md it is always shown.
   const [drawer, setDrawer] = useState(false)
-  const narrow = useNarrow()
   const [filter, setFilter] = useState("")
   // search is the open chat search: its chat, and a count that each open request raises.
   const [search, setSearch] = useState<{ chat: string; n: number } | null>(null)
+  // listsRev changes when the reader deletes an item, so the panel's lists load again.
+  const [listsRev, setListsRev] = useState(0)
   const menuButton = useRef<HTMLButtonElement>(null)
+  const collapseButton = useRef<HTMLButtonElement>(null)
   const sidebar = useRef<HTMLElement | null>(null)
   const menu = narrow ? (
     <Button
@@ -667,6 +748,21 @@ export function App() {
     >
       <Menu />
     </Button>
+  ) : collapsed ? (
+    <Button
+      ref={menuButton}
+      size="icon"
+      variant="ghost"
+      className="-ml-2 shrink-0"
+      aria-label="Open sidebar"
+      title={`Open sidebar (${SIDEBAR_SHORTCUT})`}
+      aria-keyshortcuts={SIDEBAR_KEYS}
+      aria-expanded={false}
+      aria-controls="app-sidebar"
+      onClick={() => setCollapsed(false)}
+    >
+      <PanelLeftOpen />
+    </Button>
   ) : null
   // The keyboard goes into the drawer when it opens, and back to the menu button when it closes.
   const drawerWasOpen = useRef(false)
@@ -675,6 +771,30 @@ export function App() {
     else if (drawerWasOpen.current) menuButton.current?.focus()
     drawerWasOpen.current = drawer
   }, [drawer])
+  // A sidebar button that hides itself takes the keyboard with it; it goes to the button that
+  // undoes the change.
+  const wasCollapsed = useRef(collapsed)
+  useEffect(() => {
+    if (collapsed === wasCollapsed.current) return
+    wasCollapsed.current = collapsed
+    // A hidden sidebar can still hold the focus until the browser's next frame.
+    const active = document.activeElement
+    const lost = !active || active === document.body || (collapsed && sidebar.current?.contains(active))
+    if (lost) (collapsed ? menuButton : collapseButton).current?.focus()
+  }, [collapsed])
+  // Mod+B, matched by the key's place so that it works on any layout, shows or hides the sidebar.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!modKey(e, "KeyB", MAC)) return
+      // A dialog holds the keyboard; the sidebar behind it stays as it is.
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) return
+      e.preventDefault()
+      if (narrow) setDrawer((d) => !d)
+      else setCollapsed((c) => !c)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [narrow])
   // closesDrawerOnEscape makes Escape inside the drawer close it.
   const closesDrawerOnEscape = useCallback((el: HTMLElement | null) => {
     sidebar.current = el
@@ -685,6 +805,12 @@ export function App() {
     el.addEventListener("keydown", onKey)
     return () => el.removeEventListener("keydown", onKey)
   }, [])
+  // closePanel closes the panel and takes its tab out of the address.
+  const closePanel = useCallback(() => {
+    setPanel(false)
+    const p = chatPlace(location.pathname, location.search)
+    if (p?.tab) go(chatUrl({ ...p, tab: null }), "replace")
+  }, [go])
   // The keyboard goes into the panel when it opens over the chat, or when the control that opened
   // it left the page (the Now chip); it goes back to the panel button when the panel closes and
   // took the keyboard with it.
@@ -693,30 +819,32 @@ export function App() {
   const panelWasOpen = useRef(panel)
   useEffect(() => {
     const lost = !document.activeElement || document.activeElement === document.body
-    const over = !window.matchMedia("(min-width: 64rem)").matches
     if (panel && !panelWasOpen.current && (over || lost))
       panelBox.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus()
     if (!panel && panelWasOpen.current && lost) panelButton.current?.focus()
     panelWasOpen.current = panel
-  }, [panel])
+  }, [panel, over])
   // panelKeys makes Escape inside the panel close it where it covers the chat.
-  const panelKeys = useCallback((el: HTMLElement | null) => {
-    panelBox.current = el
-    if (!el) return
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape" && !window.matchMedia("(min-width: 64rem)").matches) setPanel(false)
-    }
-    el.addEventListener("keydown", onKey)
-    return () => el.removeEventListener("keydown", onKey)
-  }, [])
+  const panelKeys = useCallback(
+    (el: HTMLElement | null) => {
+      panelBox.current = el
+      if (!el || !over) return
+      const onKey = (e: globalThis.KeyboardEvent) => {
+        if (e.key === "Escape" && !e.defaultPrevented) closePanel()
+      }
+      el.addEventListener("keydown", onKey)
+      return () => el.removeEventListener("keydown", onKey)
+    },
+    [over, closePanel],
+  )
   // screen is what the main area shows: the selected chat, its team's inbox, Waiting for you or Across teams.
   const [screen, setScreen] = useState<"chat" | "inbox" | "waiting" | "across">(() =>
     location.pathname === NEEDS_YOU_PATH ? "waiting" : "chat",
   )
-  const [show, setShow] = useState<{ tab: string; n: number } | undefined>()
-  const showTab = (tab: string) => {
+  const showTab = (tab: PanelTab) => {
+    if (!selected) return
     setPanel(true)
-    setShow((s) => ({ tab, n: (s?.n ?? 0) + 1 }))
+    go(chatUrl({ chat: selected, tab }))
     // The settings tab renders after this click; then its model select takes focus.
     if (tab === "settings") requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
   }
@@ -724,18 +852,22 @@ export function App() {
   const aliases = defaults?.modelAliases ?? FALLBACK_ALIASES
 
   // showScreen shows a screen of the main area; in a narrow window the drawer closes on the choice.
-  // Waiting for you has its own address; leaving it goes back to the chat's.
+  // Waiting for you has its own address; another screen leaves it, and Settings, for the chat's.
   const showScreen = (s: typeof screen) => {
     setScreen(s)
     setDrawer(false)
-    const needsYou = location.pathname === NEEDS_YOU_PATH
-    if (s === "waiting" && !needsYou) history.pushState(null, "", NEEDS_YOU_PATH)
-    if (s !== "waiting" && needsYou) history.pushState(null, "", selected ? chatPath(selected) : "/")
-    setPath(location.pathname)
+    if (s === "waiting") {
+      if (location.pathname !== NEEDS_YOU_PATH) go(NEEDS_YOU_PATH)
+    } else if (location.pathname === NEEDS_YOU_PATH || isSettingsPath(location.pathname))
+      go(selected ? chatUrl({ chat: selected }) : "/")
   }
-  const openChat = (id: string) => {
-    if (location.pathname !== chatPath(id)) history.pushState(null, "", chatPath(id))
-    setPath(location.pathname)
+  // openChat opens a chat, with the panel on tab when it is given. Without it the panel keeps
+  // its tab.
+  const openChat = (id: string, asked: PanelTab | null = panel ? (place?.tab ?? null) : null) => {
+    const target = bots.find((b) => b.id === id)
+    const tab = target && panelTabs(target, rights.computer).some((t) => t.tab === asked) ? asked : null
+    go(chatUrl({ chat: id, tab }))
+    if (tab) setPanel(true)
     showScreen("chat")
     setSelected(id)
   }
@@ -750,9 +882,8 @@ export function App() {
     }) // An error or mismatch entry's "Open settings" asks for the bot's settings.
   useEffect(() => {
     const open = (e: Event) => {
-      const id = (e as CustomEvent<string>).detail
-      if (id !== selected) openChat(id)
-      showTab("settings")
+      openChat((e as CustomEvent<string>).detail, "settings")
+      requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
     }
     window.addEventListener(OPEN_SETTINGS, open)
     return () => window.removeEventListener(OPEN_SETTINGS, open)
@@ -760,9 +891,10 @@ export function App() {
 
   useEffect(() => {
     const onPopState = () => {
-      setPath(location.pathname)
-      const id = chatInLocation()
-      if (id) setSelected(id)
+      setWhere(here())
+      const p = chatPlace(location.pathname, location.search)
+      if (p) setSelected(p.chat)
+      if (p?.tab) setPanel(true)
       if (location.pathname === NEEDS_YOU_PATH) setScreen("waiting")
       else setScreen((s) => (s === "waiting" ? "chat" : s))
     }
@@ -773,11 +905,23 @@ export function App() {
     if (bots.length === 0 || bots.some((b) => b.id === selected)) return
     // Replace, not push: otherwise Back returns to the missing chat, which opens the first chat again.
     if (!isSettingsPath(location.pathname) && location.pathname !== NEEDS_YOU_PATH)
-      history.replaceState(null, "", chatPath(bots[0].id))
+      go(chatUrl({ chat: bots[0].id }), "replace")
     setSelected(bots[0].id)
-  }, [bots, selected])
+  }, [bots, selected, go])
   useEffect(() => select(selected), [selected, select])
+  // Settings close back to the last chat shown.
+  useEffect(() => {
+    const p = chatPlace(where.path, where.search)
+    if (p) saveLastChat(p)
+  }, [where])
 
+  // closeSettings goes back to the last chat shown, which a full load of Settings did not select.
+  const closeSettings = () => {
+    const p = lastChat()
+    if (!p) return go(selected ? chatUrl({ chat: selected }) : "/")
+    go(chatUrl(p))
+    setSelected(p.chat)
+  }
   const bot = bots.find((b) => b.id === selected)
   const subtitle = bot ? chatSubtitle(bot) : ""
   const agents = bots.filter((b) => b.kind !== "room")
@@ -802,15 +946,53 @@ export function App() {
 
   // view is what the main area shows; only a chat has the side panel.
   const view =
-    screen === "across"
-      ? "across"
-      : screen === "inbox" && bot?.team
-        ? "inbox"
-        : screen === "waiting" && waiting.data
-          ? "waiting"
-          : bot
-            ? "chat"
-            : "empty"
+    isSettingsPath(where.path) && rights.computer
+      ? "settings"
+      : screen === "across"
+        ? "across"
+        : screen === "inbox" && bot?.team
+          ? "inbox"
+          : screen === "waiting" && waiting.data
+            ? "waiting"
+            : bot
+              ? "chat"
+              : "empty"
+  const reading = view === "chat" ? (place?.reading ?? null) : null
+  // openReader shows an artifact or a skill over the chat. A panel over the chat closes, also in
+  // the address that Back returns to, and an inline panel stays on its tab.
+  const openReader = (r: Reading) => {
+    if (!selected) return
+    if (over) closePanel()
+    const to = chatUrl({ chat: selected, tab: over ? null : (place?.tab ?? null), reading: r })
+    if (reading) go(to, "replace")
+    else go(to, "push", READER)
+  }
+  const closeReader = () => {
+    if ((history.state as typeof READER | null)?.reader) return history.back()
+    const p = chatPlace(location.pathname, location.search)
+    if (p) go(chatUrl({ ...p, reading: null }), "replace")
+  }
+  // post is a post that a link opened. The chat shows it once the server has it; a post the chat
+  // doesn't have leaves the address and says so.
+  const post = view === "chat" ? (place?.post ?? null) : null
+  const [postFound, setPostFound] = useState<string | null>(null)
+  useEffect(() => {
+    if (!selected || !post) return
+    let live = true
+    api.entry(selected, post).then(
+      () => live && setPostFound(`${selected}:${post}`),
+      (e: Error) => {
+        if (!live) return
+        if (!isNotFound(e)) return setError(e.message)
+        const p = chatPlace(location.pathname, location.search)
+        if (p) go(chatUrl({ ...p, post: null }), "replace")
+        setError("Not found. The linked message was deleted or is in another chat.")
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [selected, post, go, setError])
   const searchN = view === "chat" && search?.chat === selected ? search.n : 0
   const openSearch = useCallback(
     () => setSearch((s) => (selected ? { chat: selected, n: (s?.chat === selected ? s.n : 0) + 1 } : null)),
@@ -819,7 +1001,7 @@ export function App() {
   useEffect(() => {
     if (view !== "chat") return
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (!findKey(e, MAC)) return
+      if (!modKey(e, "KeyF", MAC)) return
       e.preventDefault()
       openSearch()
     }
@@ -829,31 +1011,9 @@ export function App() {
   // A drain that the updater didn't start is a settings restart.
   const pause = pauseLabel(update.state?.state === "waiting" || update.state?.state === "limit")
 
-  if (path === "/pair") return <PairPage paired={session.phone && !session.lost} />
+  if (where.path === "/pair") return <PairPage paired={session.phone && !session.lost} />
   if (session.lost) return <PairAgain />
   if (needsKey(session)) return <KeyPage keyFile={session.keyFile ?? ""} onSaved={phoneSession.recheck} />
-  if (isSettingsPath(path) && rights.computer) {
-    return (
-      <>
-        <SettingsPage
-          top={<PairBanner request={pair.request} onDecided={pair.reload} />}
-          pairRev={pairRev}
-          section={sectionOfPath(path)}
-          onSection={(s) => {
-            history.replaceState(null, "", `/settings/${s}`)
-            setPath(location.pathname)
-          }}
-          onBack={() => {
-            history.pushState(null, "", selected ? chatPath(selected) : "/")
-            setPath(location.pathname)
-          }}
-          onManageConnectors={() => setConnectors(true)}
-          restartRev={restartRev}
-        />
-        <ConnectorsDialog open={connectors} onOpenChange={setConnectors} bots={agents} />
-      </>
-    )
-  }
 
   const layout = (
     <div className="bg-background text-foreground relative flex h-dvh overflow-clip">
@@ -866,13 +1026,27 @@ export function App() {
         className={cn(
           "bg-sidebar text-sidebar-foreground flex shrink-0 flex-col",
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[min(20rem,85vw)]! max-md:pt-[env(safe-area-inset-top)] max-md:shadow-xl",
-          narrow && !drawer && "hidden",
+          (narrow ? !drawer : collapsed) && "hidden",
         )}
         style={{ width }}
         ref={closesDrawerOnEscape}
       >
-        <div className="flex items-center px-3 py-3">
+        <div className="flex items-center justify-between px-3 py-3">
           <img src="/logo.svg" alt="Handful" className="size-7 rounded-[6px] dark:ring-1 dark:ring-white/10" />
+          <Button
+            ref={collapseButton}
+            size="icon-sm"
+            variant="ghost"
+            className="max-md:hidden"
+            aria-label="Collapse sidebar"
+            title={`Collapse sidebar (${SIDEBAR_SHORTCUT})`}
+            aria-keyshortcuts={SIDEBAR_KEYS}
+            aria-expanded
+            aria-controls="app-sidebar"
+            onClick={() => setCollapsed(true)}
+          >
+            <PanelLeftClose />
+          </Button>
         </div>
         {moved.data?.show && rights.computer && (
           <MoveNotice
@@ -886,10 +1060,10 @@ export function App() {
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
           <button
             type="button"
-            aria-current={screen === "across" ? "page" : undefined}
+            aria-current={view === "across" ? "page" : undefined}
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              screen === "across"
+              view === "across"
                 ? "bg-sidebar-foreground/10 font-medium"
                 : "hover:bg-muted transition-colors duration-(--duration-fast)",
             )}
@@ -905,10 +1079,10 @@ export function App() {
           </button>
           <button
             type="button"
-            aria-current={screen === "waiting" ? "page" : undefined}
+            aria-current={view === "waiting" ? "page" : undefined}
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              screen === "waiting"
+              view === "waiting"
                 ? "bg-sidebar-foreground/10 font-medium"
                 : "hover:bg-muted transition-colors duration-(--duration-fast)",
             )}
@@ -933,9 +1107,9 @@ export function App() {
                   />
                   <BotList
                     items={sec.items}
-                    selected={selected}
+                    selected={view === "settings" ? null : selected}
                     unread={unread}
-                    onSelect={openChat}
+                    onSelect={(id) => openChat(id)}
                     onReorder={filtered ? undefined : (ids) => void reorder(ids)}
                   />
                 </div>
@@ -958,39 +1132,28 @@ export function App() {
         <SidebarFooter
           link={link}
           onConnectors={rights.computer ? () => setConnectors(true) : undefined}
-          onSettings={rights.computer ? () => openSettingsPage("general") : undefined}
+          onSettings={
+            rights.computer
+              ? () => {
+                  setDrawer(false)
+                  openSettingsPage("general")
+                }
+              : undefined
+          }
         />
       </aside>
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        aria-valuemin={sidebarWidth.min}
-        aria-valuemax={sidebarWidth.max}
-        aria-valuenow={width}
-        tabIndex={0}
-        title="Drag to resize; double-click to reset"
-        className="hover:bg-primary/30 focus-visible:bg-primary/40 w-1 shrink-0 cursor-col-resize border-l max-md:hidden"
-        onPointerDown={(e) => {
-          e.preventDefault()
-          e.currentTarget.setPointerCapture(e.pointerId)
-          resizing.current = true
-        }}
-        onPointerMove={(e) => {
-          if (resizing.current) setWidth(clampWidth(e.clientX))
-        }}
-        onPointerUp={(e) => {
-          resizing.current = false
-          e.currentTarget.releasePointerCapture(e.pointerId)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-            e.preventDefault()
-            setWidth((w) => clampWidth(w + (e.key === "ArrowRight" ? 16 : -16)))
-          }
-        }}
-        onDoubleClick={() => setWidth(sidebarWidth.initial)}
-      />
+      {!collapsed && (
+        <ResizeHandle
+          label="Resize sidebar"
+          controls="app-sidebar"
+          edge="right"
+          width={width}
+          min={SIDEBAR.min}
+          max={SIDEBAR.max}
+          initial={SIDEBAR.initial}
+          onWidth={setWidth}
+        />
+      )}
 
       <main className="flex min-w-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -1014,7 +1177,17 @@ export function App() {
               .
             </div>
           )}
-          {view === "across" ? (
+          {view === "settings" ? (
+            <SettingsPage
+              menu={menu}
+              pairRev={pairRev}
+              section={sectionOfPath(where.path)}
+              onSection={(s) => go(`/settings/${s}`, "replace")}
+              onClose={closeSettings}
+              onManageConnectors={() => setConnectors(true)}
+              restartRev={restartRev}
+            />
+          ) : view === "across" ? (
             <AcrossScreen
               menu={menu}
               needs={needs.data ?? []}
@@ -1023,7 +1196,7 @@ export function App() {
               teams={teams}
               version={taskKey}
               chatName={chatName}
-              onOpen={openChat}
+              onOpen={(id) => openChat(id)}
               onChange={needs.reload}
             />
           ) : view === "inbox" && bot?.team ? (
@@ -1043,7 +1216,7 @@ export function App() {
               menu={menu}
               waiting={waiting.data}
               bots={bots}
-              onOpen={openChat}
+              onOpen={(id) => openChat(id)}
               onAnswer={(chatId, q) => {
                 setAnswer(chatId, q)
                 openChat(chatId)
@@ -1052,9 +1225,13 @@ export function App() {
               onChange={waiting.reload}
             />
           ) : bot ? (
-            <>
-              <header className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3">
-                {menu}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <header
+                inert={reading !== null}
+                className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3"
+              >
+                {/* The reader covers this header and shows the menu button, which has one ref. */}
+                {!reading && menu}
                 <ChatIcon chat={bot} />
                 <span className="max-w-[60%] shrink-0 truncate font-medium max-md:max-w-[30%]" title={bot.name}>
                   {bot.name}
@@ -1108,12 +1285,14 @@ export function App() {
                   ref={panelButton}
                   className="shrink-0 max-md:size-11"
                   aria-label="Toggle panel"
-                  onClick={() => setPanel((v) => !v)}
+                  aria-expanded={panel}
+                  aria-controls="chat-panel"
+                  onClick={() => (panel ? closePanel() : setPanel(true))}
                 >
                   <PanelRight />
                 </Button>
               </header>
-              <div className="flex min-h-0 flex-1">
+              <div inert={reading !== null} className="flex min-h-0 flex-1">
                 <Chat
                   bot={bot}
                   entries={entries}
@@ -1129,6 +1308,7 @@ export function App() {
                   onAnswer={(q) => setAnswer(bot.id, q)}
                   search={searchN}
                   onCloseSearch={() => setSearch(null)}
+                  post={post && postFound === `${bot.id}:${post}` ? post : null}
                   mentionables={
                     bot.kind === "room"
                       ? (bot.members ?? [])
@@ -1136,10 +1316,32 @@ export function App() {
                   }
                 />
               </div>
-            </>
+              {reading && (
+                <Reader
+                  key={`${reading.kind}:${reading.id}`}
+                  reading={reading}
+                  chat={bot.id}
+                  agents={agents}
+                  teams={teams}
+                  menu={menu}
+                  onClose={closeReader}
+                  onGone={() => {
+                    closeReader()
+                    setError("Not found. The linked artifact or skill was deleted or never existed.")
+                  }}
+                  onDeleted={() => {
+                    closeReader()
+                    setListsRev((n) => n + 1)
+                  }}
+                />
+              )}
+            </div>
           ) : (
-            <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-              Create a bot to start.
+            <div className="flex flex-1 flex-col">
+              {menu && <header className="flex h-12 items-center px-4 max-md:h-14 max-md:px-3">{menu}</header>}
+              <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+                Create a bot to start.
+              </div>
             </div>
           )}
           {view !== "chat" && update.state && shown(update.state) && (
@@ -1149,23 +1351,45 @@ export function App() {
           )}
         </div>
         {view === "chat" && bot && panel && (
-          <aside
-            aria-label="Chat panel"
-            className="bg-sidebar text-sidebar-foreground flex w-80 shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-md:border-l-0 max-md:pt-[env(safe-area-inset-top)]"
-            ref={panelKeys}
-          >
-            <BotPanel
-              bot={bot}
-              agents={agents}
-              version={transcript?.rev ?? 0}
-              onDeleted={() => setSelected(null)}
-              show={show}
-              teams={teams}
-              onOpenInbox={() => setScreen("inbox")}
-              paused={draining ? pause : null}
-              onClose={() => setPanel(false)}
-            />
-          </aside>
+          <>
+            {!over && (
+              <ResizeHandle
+                label="Resize panel"
+                controls="chat-panel"
+                edge="left"
+                width={lay.width}
+                min={PANEL.min}
+                max={lay.max}
+                initial={PANEL.initial}
+                onWidth={setPanelWidth}
+              />
+            )}
+            <aside
+              id="chat-panel"
+              aria-label="Chat panel"
+              style={lay.mode === "sheet" ? undefined : { width: lay.width }}
+              className={cn(
+                "bg-sidebar text-sidebar-foreground flex shrink-0 flex-col",
+                lay.mode === "overlay" && "absolute inset-y-0 right-0 z-30 border-l shadow-xl",
+                lay.mode === "sheet" && "fixed inset-0 z-50 w-full pt-[env(safe-area-inset-top)]",
+              )}
+              ref={panelKeys}
+            >
+              <BotPanel
+                bot={bot}
+                agents={agents}
+                version={(transcript?.rev ?? 0) + listsRev}
+                onDeleted={() => setSelected(null)}
+                tab={place?.tab ?? null}
+                onTab={(tab) => go(chatUrl({ ...(place ?? { chat: bot.id }), tab }))}
+                onRead={openReader}
+                teams={teams}
+                onOpenInbox={() => setScreen("inbox")}
+                paused={draining ? pause : null}
+                onClose={over ? closePanel : undefined}
+              />
+            </aside>
+          </>
         )}
       </main>
       <ConnectorsDialog open={connectors} onOpenChange={setConnectors} bots={agents} />

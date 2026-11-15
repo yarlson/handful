@@ -1,5 +1,5 @@
 import { afterEach, assert, test, vi } from "vitest"
-import { api, onKeyLost } from "./api.ts"
+import { api, isNotFound, onKeyLost } from "./api.ts"
 
 type Call = { method: string; url: string; body: unknown }
 
@@ -127,6 +127,21 @@ test("a failed request without a server error throws its status", async () => {
   vi.stubGlobal("fetch", async () => Response.json({}, { status: 502 }))
   const err = await api.board("t1").catch((e: Error) => e)
   assert.strictEqual((err as Error).message, "GET /api/teams/t1/board failed with 502")
+  assert.isFalse(isNotFound(err), "a 502")
+})
+
+test("a 404 is not found, and a thrown error without a status is not", async () => {
+  vi.stubGlobal("fetch", async () => Response.json({ error: "entry e1 not found" }, { status: 404 }))
+  const err = await api.entry("b1", "e1").catch((e: Error) => e)
+  assert.isTrue(isNotFound(err))
+  assert.strictEqual((err as Error).message, "entry e1 not found")
+  assert.isFalse(isNotFound(new Error("Failed to fetch")))
+})
+
+test("one entry is read from its chat's route, with its id encoded", async () => {
+  const calls = stubFetch(200)
+  await api.entry("b1", "e/1?")
+  assert.deepEqual(calls, [{ method: "GET", url: "/api/bots/b1/entries/e%2F1%3F", body: undefined }])
 })
 
 test("a message carries the draft's nonce, its files and the questions it answers", async () => {

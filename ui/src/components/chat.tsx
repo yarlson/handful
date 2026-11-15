@@ -26,6 +26,7 @@ import {
   FilePen,
   FileText,
   Globe,
+  Link as LinkIcon,
   Loader2,
   Lock,
   Paperclip,
@@ -98,6 +99,7 @@ import { ChatSearch } from "@/components/chat-search"
 import { answersFor, questionOf, stateLabel, type Asked, type OpenQuestion } from "@/lib/questions"
 import { ScrollFollower, ScrollMemory, type Intent, type Item } from "@/lib/scroll"
 import { emptyText, expiryText, retryOf, type TranscriptStatus } from "@/lib/transcript"
+import { postUrl } from "@/lib/place"
 import { clock, daySeparators, fullDate } from "@/lib/dates"
 import { offersStarts, STARTS } from "@/lib/starts"
 import { Stamp } from "@/components/stamp"
@@ -790,10 +792,41 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+// LinkButton copies the link to a message, which opens its chat and shows the message. It shows
+// like CopyButton.
+function LinkButton({ chat, entryId }: { chat: string; entryId: string }) {
+  const [state, copy] = useCopy()
+  const label = copyLabel(state, "Copy link")
+  return (
+    <Button
+      size="icon-xs"
+      variant="ghost"
+      aria-label={label}
+      title={label}
+      className={cn(
+        "text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100",
+        state !== "idle" && "opacity-100",
+      )}
+      onClick={() => copy(postUrl(location.origin, chat, entryId))}
+    >
+      {state === "idle" ? <LinkIcon /> : <CopyIcon state={state} />}
+    </Button>
+  )
+}
+
 // Reactions shows the user's reactions on a message as chips, with a picker
 // to add one. A click on a chip removes it. The message updates when the
 // server sends the changed entry; reactions never wake a bot.
-function Reactions({ entryId, reactions, copyText }: { entryId: string; reactions?: string[]; copyText?: string }) {
+function Reactions({
+  entry,
+  reactions,
+  copyText,
+}: {
+  entry: Pick<Entry, "id" | "botId">
+  reactions?: string[]
+  copyText?: string
+}) {
+  const entryId = entry.id
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const rights = useRights()
@@ -830,6 +863,7 @@ function Reactions({ entryId, reactions, copyText }: { entryId: string; reaction
         ),
       )}
       {copyText && <CopyButton text={copyText} />}
+      <LinkButton chat={entry.botId} entryId={entryId} />
       {rights.send && (
         <Popover.Root open={open} onOpenChange={setOpen}>
           <Popover.Trigger asChild>
@@ -897,7 +931,7 @@ function AgentMessage({ entry }: { entry: Extract<Entry, { kind: "agent" }> }) {
         </div>
         <MarkdownText text={b.text} />
       </Card>
-      {b.text && <Reactions entryId={entry.id} reactions={b.reactions} copyText={b.text} />}
+      {b.text && <Reactions entry={entry} reactions={b.reactions} copyText={b.text} />}
     </div>
   )
 }
@@ -953,7 +987,7 @@ export function EntryView({
             </div>
           )}
           {(entry.body.text || (entry.body.media && entry.body.media.length > 0)) && (
-            <Reactions entryId={entry.id} reactions={entry.body.reactions} copyText={entry.body.text} />
+            <Reactions entry={entry} reactions={entry.body.reactions} copyText={entry.body.text} />
           )}
         </div>
       )
@@ -1011,7 +1045,7 @@ export function EntryView({
               </div>
             )}
             {(entry.body.text || (entry.body.media && entry.body.media.length > 0)) && (
-              <Reactions entryId={entry.id} reactions={entry.body.reactions} copyText={entry.body.text} />
+              <Reactions entry={entry} reactions={entry.body.reactions} copyText={entry.body.text} />
             )}
           </div>
         </div>
@@ -1610,6 +1644,7 @@ export function Chat({
   pause = "Paused for update",
   search = 0,
   onCloseSearch = () => {},
+  post = null,
 }: {
   bot: Bot
   // entries are the loaded window of the chat: its newest entries and the older pages loaded.
@@ -1635,6 +1670,8 @@ export function Chat({
   // search opens the chat search when above 0, and each new value moves the keyboard into it.
   search?: number
   onCloseSearch?: () => void
+  // post is a post of this chat that a link opened: the chat shows and marks it once.
+  post?: string | null
 }) {
   // The chat's open questions, for the strip; reloaded as the transcript changes.
   const [questions, setQuestions] = useState<OpenQuestion[]>([])
@@ -1811,6 +1848,18 @@ export function Chat({
       if (!found && jumping.current === entryId) jumping.current = null
     })
   }
+  const postShown = useRef<string | null>(null)
+  const loaded = entries.length > 0
+  useEffect(() => {
+    // A post that leaves the address shows again when it comes back, as by Back.
+    if (!post) postShown.current = null
+    const key = `${bot.id}:${post}`
+    if (!post || !loaded || postShown.current === key) return
+    postShown.current = key
+    jumpTo(post)
+    // jumpTo reads the rows of this render; the post and the chat are the trigger.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id, post, loaded])
   // A wheel, key or touch input that scrolls up unpins the chat before its scroll arrives,
   // even a trackpad step too small to leave the bottom.
   useEffect(() => {

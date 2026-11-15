@@ -1,7 +1,7 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, assert, test, vi } from "vitest"
-import { isNarrow, narrowQuery, useNarrow, watchNarrow } from "./narrow"
+import { isNarrow, narrowQuery, useNarrow, useWindowWidth, watchNarrow, watchWidth } from "./narrow"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -45,4 +45,29 @@ test("watching the breakpoint listens for changes until it is stopped", () => {
 test("a server render is not narrow", () => {
   const Probe = () => String(useNarrow())
   assert.equal(renderToStaticMarkup(createElement(Probe)), "false")
+})
+
+// resizable stubs a window innerWidth wide that records the listeners added and removed.
+function resizable(innerWidth: number) {
+  const listeners: string[] = []
+  vi.stubGlobal("window", {
+    innerWidth,
+    addEventListener: (type: string) => listeners.push(`+${type}`),
+    removeEventListener: (type: string) => listeners.push(`-${type}`),
+  })
+  return listeners
+}
+
+test("watching the width listens for resizes until it is stopped", () => {
+  const listeners = resizable(1024)
+  const stop = watchWidth(() => {})
+  assert.deepEqual(listeners, ["+resize"])
+  stop()
+  assert.deepEqual(listeners, ["+resize", "-resize"])
+})
+
+test("the window's width is its inner width in CSS pixels", () => {
+  resizable(1024)
+  const Probe = () => String(useWindowWidth())
+  assert.equal(renderToStaticMarkup(createElement(Probe)), "1024")
 })

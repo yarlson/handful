@@ -112,6 +112,7 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	mux.HandleFunc("PATCH /api/bots/{id}", s.updateBot)
 	mux.HandleFunc("DELETE /api/bots/{id}", s.deleteBot)
 	mux.HandleFunc("GET /api/bots/{id}/entries", s.listEntries)
+	mux.HandleFunc("GET /api/bots/{id}/entries/{entryId}", s.chatEntry)
 	mux.HandleFunc("GET /api/bots/{id}/search", s.searchEntries)
 	mux.HandleFunc("POST /api/bots/{id}/messages", s.sendMessage)
 	mux.HandleFunc("GET /api/media/{name}", s.media)
@@ -513,6 +514,16 @@ func (s *server) entryWindow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+// chatEntry returns one entry of a chat, for a link to a post.
+func (s *server) chatEntry(w http.ResponseWriter, r *http.Request) {
+	e, err := s.svc.ChatEntry(r.Context(), r.PathValue("id"), r.PathValue("entryId"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, e)
 }
 
 // searchEntries finds the messages of a chat whose text contains the query q.

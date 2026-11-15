@@ -628,6 +628,19 @@ func (s *Service) GetEntry(ctx context.Context, id string) (Entry, error) {
 	return toEntry(row), nil
 }
 
+// ChatEntry returns entry id of chat botID. An entry of another chat is not found, so a link
+// to a post opens only in its own chat.
+func (s *Service) ChatEntry(ctx context.Context, botID, id string) (Entry, error) {
+	e, err := s.GetEntry(ctx, id)
+	if err != nil {
+		return Entry{}, err
+	}
+	if e.BotID != botID {
+		return Entry{}, notFound("entry", id)
+	}
+	return e, nil
+}
+
 // Entries returns entries changed after rev, oldest change first.
 func (s *Service) Entries(ctx context.Context, botID string, afterRev int64, limit int) ([]Entry, error) {
 	if limit <= 0 || limit > 1000 {

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Play, Trash2, X } from "lucide-react"
-import { api, type Artifact, type Bot, type Memory, type Routine, type Skill, type TeamSettings } from "@/lib/api"
+import { api, type Bot, type Memory, type Routine, type TeamSettings } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
 import { latestOnly } from "@/lib/latest"
-import { MarkdownText } from "@/components/chat"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
@@ -22,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { budgetError, decisionError, inboxError } from "@/lib/tasks"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
+import { panelTabs, shownTab, type PanelTab, type Reading } from "@/lib/place"
 import { contextLine, usageKey, type Usage } from "@/lib/usage"
 import { cn } from "@/lib/utils"
 import { botColor, hues } from "@/lib/bot-color"
@@ -29,7 +29,6 @@ import { ChatIcon } from "@/components/bot-colors"
 import { BotDot } from "@/components/bot-dot"
 import { useRights } from "@/lib/session"
 import { BoardTab } from "@/components/board"
-import { SendTaskDialog } from "@/components/tasks"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 import { forgetHistory, withStorage } from "@/lib/history"
@@ -220,25 +219,8 @@ function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
   )
 }
 
-function SkillsTab({ version }: { version: number }) {
-  const { data, error, reload, setError } = useLoad(() => api.skills(), String(version))
-  const [open, setOpen] = useState<Skill | null>(null)
-  const show = async (id: string) => {
-    try {
-      setOpen(await api.skill(id))
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-  const remove = async (id: string) => {
-    try {
-      await api.deleteSkill(id)
-      setOpen(null)
-      reload()
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
+function SkillsTab({ version, onRead }: { version: number; onRead: (r: Reading) => void }) {
+  const { data, error } = useLoad(() => api.skills(), String(version))
   return (
     <div className="flex flex-col gap-2">
       {error && <p className="text-destructive text-xs">{error}</p>}
@@ -252,61 +234,23 @@ function SkillsTab({ version }: { version: number }) {
           key={s.id}
           type="button"
           className="hover:bg-muted transition-colors duration-(--duration-fast) rounded-md border p-2 text-left text-sm"
-          onClick={() => void show(s.id)}
+          onClick={() => onRead({ kind: "skill", id: s.id })}
         >
           <span className="font-medium">{s.name}</span>
           <p className="text-muted-foreground text-xs">{s.description}</p>
         </button>
       ))}
-      <Dialog open={open !== null} onOpenChange={(v) => !v && setOpen(null)}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{open?.name}</DialogTitle>
-            <DialogDescription>{open?.description}</DialogDescription>
-          </DialogHeader>
-          <pre className="bg-muted max-h-[60vh] overflow-auto rounded-md p-3 font-mono text-xs whitespace-pre-wrap">
-            {open?.body}
-          </pre>
-          <DialogFooter>
-            <Button variant="destructive" onClick={() => open && void remove(open.id)}>
-              Delete for all bots
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
 
-// ArtifactsTab lists the documents that all bots share. Bots write them; the
-// user reads and deletes them here.
-function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: number; teams: Bot[] }) {
+// ArtifactsTab lists the documents that all bots share. Bots write them; the user reads, sends
+// and deletes them in the reader.
+function ArtifactsTab({ agents, version, onRead }: { agents: Bot[]; version: number; onRead: (r: Reading) => void }) {
   const when = useWhen()
-  // handing is the artifact the user hands to a team.
-  const [handing, setHanding] = useState<string | null>(null)
   const [kind, setKind] = useState("")
   const [query, setQuery] = useState("")
-  const { data, error, reload, setError } = useLoad(() => api.artifacts({ kind, query }), `${version}:${kind}:${query}`)
-  const [open, setOpen] = useState<Artifact | null>(null)
-  const [confirm, setConfirm] = useState(false)
-  const rights = useRights()
-  const show = async (id: string) => {
-    try {
-      setConfirm(false)
-      setOpen(await api.artifact(id))
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-  const remove = async (id: string) => {
-    try {
-      await api.deleteArtifact(id)
-      setOpen(null)
-      reload()
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
+  const { data, error } = useLoad(() => api.artifacts({ kind, query }), `${version}:${kind}:${query}`)
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
@@ -344,7 +288,7 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
           key={a.id}
           type="button"
           className="hover:bg-muted transition-colors duration-(--duration-fast) rounded-md border p-2 text-left text-sm"
-          onClick={() => void show(a.id)}
+          onClick={() => onRead({ kind: "artifact", id: a.id })}
         >
           <span className="font-medium">{a.title}</span>
           <div className="mt-1 flex items-center gap-1 text-xs">
@@ -355,76 +299,6 @@ function ArtifactsTab({ agents, version, teams }: { agents: Bot[]; version: numb
           </div>
         </button>
       ))}
-      <Dialog open={open !== null} onOpenChange={(v) => !v && setOpen(null)}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{open?.title}</DialogTitle>
-            <DialogDescription>
-              {open && `${open.kind} from ${artifactAuthor(open.authorId, agents)}, updated ${when(open.updatedAt)}`}
-            </DialogDescription>
-          </DialogHeader>
-          {(open?.tags.length ?? 0) > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {open?.tags.map((t) => (
-                <Badge key={t} variant="outline">
-                  {t}
-                </Badge>
-              ))}
-            </div>
-          )}
-          {open?.links.map((l) => (
-            <a
-              key={l}
-              href={l}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="truncate text-xs text-info-foreground underline"
-            >
-              {l}
-            </a>
-          ))}
-          <div className="max-h-[60vh] overflow-auto rounded-md border p-3 text-sm">
-            <MarkdownText text={open?.content ?? ""} />
-          </div>
-          <DialogFooter className={cn(!rights.computer && "hidden")}>
-            {confirm ? (
-              <>
-                <Button variant="ghost" onClick={() => setConfirm(false)}>
-                  Cancel
-                </Button>
-                <Button variant="destructive" onClick={() => open && void remove(open.id)}>
-                  Delete for all bots
-                </Button>
-              </>
-            ) : (
-              <>
-                {teams.length > 0 && (
-                  <Button
-                    variant="outline"
-                    aria-haspopup="dialog"
-                    onClick={() => {
-                      setHanding(open?.id ?? null)
-                      setOpen(null)
-                    }}
-                  >
-                    Send to a team…
-                  </Button>
-                )}
-                <Button variant="destructive" onClick={() => setConfirm(true)}>
-                  Delete
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <SendTaskDialog
-        open={handing !== null}
-        onOpenChange={(v) => !v && setHanding(null)}
-        from={null}
-        teams={teams}
-        artifactIds={handing ? [handing] : []}
-      />
     </div>
   )
 }
@@ -881,7 +755,9 @@ export function BotPanel({
   agents,
   version,
   onDeleted,
-  show,
+  tab,
+  onTab,
+  onRead,
   teams = [],
   onOpenInbox,
   paused,
@@ -889,7 +765,7 @@ export function BotPanel({
 }: {
   bot: Bot
   agents: Bot[]
-  // onClose closes the panel; its button shows only where the panel covers the chat (below 64rem).
+  // onClose closes the panel; its button shows only where the panel covers the chat.
   onClose?: () => void
   // teams are the app's teams, to send tasks to.
   teams?: Bot[]
@@ -899,116 +775,49 @@ export function BotPanel({
   paused?: string | null
   version: number
   onDeleted: () => void
-  // show asks for a tab; its n changes with every ask, so the same tab can be asked again.
-  show?: { tab: string; n: number }
+  // tab is the tab asked for; the panel shows its first tab when it has no such tab.
+  tab: PanelTab | null
+  onTab: (tab: PanelTab) => void
+  // onRead opens an artifact or a skill in the reader.
+  onRead: (r: Reading) => void
 }) {
-  // A new ask remounts the tabs on the asked tab.
-  const first = show?.tab ?? (bot.kind === "room" ? (bot.team ? "board" : "members") : "memory")
-  const key = `${bot.id}:${show?.n ?? 0}`
   const rights = useRights()
-  if (!rights.computer) {
-    // A phone has the team's Work, or else the artifacts; the other tabs change settings.
-    const tab = bot.team ? "board" : "artifacts"
-    return (
-      <Tabs key={key} defaultValue={tab} className="flex h-full flex-col gap-0">
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3 max-md:h-14">
-          <TabsList className="bg-sidebar-foreground/5 w-full max-md:h-12">
-            <TabsTrigger value={tab}>{bot.team ? "Work" : "Artifacts"}</TabsTrigger>
-          </TabsList>
-          {onClose && (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="shrink-0 lg:hidden max-md:size-11"
-              aria-label="Close panel"
-              onClick={onClose}
-            >
-              <X />
-            </Button>
-          )}
-        </div>
-        <div className="relative min-h-0 flex-1 overflow-y-auto p-3">
-          <TabsContent value={tab}>
-            {bot.team ? (
-              <BoardTab team={bot} version={version} teams={teams} onOpenInbox={onOpenInbox} paused={paused} />
-            ) : (
-              <ArtifactsTab agents={agents} version={version} teams={teams} />
-            )}
-          </TabsContent>
-        </div>
-      </Tabs>
-    )
-  }
-  if (bot.kind === "room") {
-    return (
-      <Tabs key={key} defaultValue={first} className="flex h-full flex-col gap-0">
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3 max-md:h-14">
-          <TabsList className="bg-sidebar-foreground/5 w-full max-md:h-12">
-            {bot.team && <TabsTrigger value="board">Work</TabsTrigger>}
-            <TabsTrigger value="members">Members</TabsTrigger>
-            {bot.team && <TabsTrigger value="memory">Memory</TabsTrigger>}
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-          </TabsList>
-          {onClose && (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="shrink-0 lg:hidden max-md:size-11"
-              aria-label="Close panel"
-              onClick={onClose}
-            >
-              <X />
-            </Button>
-          )}
-        </div>
-        <div className="relative min-h-0 flex-1 overflow-y-auto p-3">
-          <TabsContent value="members">
-            <MembersTab room={bot} agents={agents} />
-          </TabsContent>
-          {bot.team && (
-            <TabsContent value="board">
-              <BoardTab team={bot} version={version} teams={teams} onOpenInbox={onOpenInbox} paused={paused} />
-            </TabsContent>
-          )}
-          {bot.team && (
-            <TabsContent value="memory">
-              <MemoryTab bot={bot} version={version} />
-            </TabsContent>
-          )}
-          <TabsContent value="settings">
-            <SettingsTab bot={bot} version={version} onDeleted={onDeleted} />
-          </TabsContent>
-        </div>
-      </Tabs>
-    )
+  const tabs = panelTabs(bot, rights.computer)
+  const shown = shownTab(tabs, tab)
+  const content = (t: PanelTab) => {
+    switch (t) {
+      case "board":
+        return <BoardTab team={bot} version={version} teams={teams} onOpenInbox={onOpenInbox} paused={paused} />
+      case "members":
+        return <MembersTab room={bot} agents={agents} />
+      case "memory":
+        return <MemoryTab bot={bot} version={version} />
+      case "routines":
+        return <RoutinesTab bot={bot} version={version} />
+      case "skills":
+        return <SkillsTab version={version} onRead={onRead} />
+      case "artifacts":
+        return <ArtifactsTab agents={agents} version={version} onRead={onRead} />
+      case "settings":
+        return <SettingsTab bot={bot} version={version} onDeleted={onDeleted} />
+    }
   }
   return (
-    <Tabs key={key} defaultValue={first} className="flex h-full flex-col gap-0">
+    <Tabs value={shown} onValueChange={(v) => onTab(v as PanelTab)} className="flex h-full flex-col gap-0">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3 max-md:h-14">
         <TabsList className="bg-sidebar-foreground/5 w-full max-md:h-12">
-          {/* text-xs fits five tabs into the panel's width; below 64rem, less padding also
-              fits the Close panel button beside them. */}
-          <TabsTrigger value="memory" className="text-xs max-lg:px-0.5">
-            Memory
-          </TabsTrigger>
-          <TabsTrigger value="routines" className="text-xs max-lg:px-0.5">
-            Routines
-          </TabsTrigger>
-          <TabsTrigger value="skills" className="text-xs max-lg:px-0.5">
-            Skills
-          </TabsTrigger>
-          <TabsTrigger value="artifacts" className="text-xs max-lg:px-0.5">
-            Artifacts
-          </TabsTrigger>
-          <TabsTrigger value="settings" className="text-xs max-lg:px-0.5">
-            Settings
-          </TabsTrigger>
+          {/* text-xs fits five tabs into the panel's narrowest width, beside the Close panel button. */}
+          {tabs.map((t) => (
+            <TabsTrigger key={t.tab} value={t.tab} className={cn(tabs.length > 4 && "px-0.5 text-xs")}>
+              {t.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
         {onClose && (
           <Button
             size="icon-sm"
             variant="ghost"
-            className="shrink-0 lg:hidden max-md:size-11"
+            className="shrink-0 max-md:size-11"
             aria-label="Close panel"
             onClick={onClose}
           >
@@ -1017,20 +826,8 @@ export function BotPanel({
         )}
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto p-3">
-        <TabsContent value="memory">
-          <MemoryTab bot={bot} version={version} />
-        </TabsContent>
-        <TabsContent value="routines">
-          <RoutinesTab bot={bot} version={version} />
-        </TabsContent>
-        <TabsContent value="skills">
-          <SkillsTab version={version} />
-        </TabsContent>
-        <TabsContent value="artifacts">
-          <ArtifactsTab agents={agents} version={version} teams={teams} />
-        </TabsContent>
-        <TabsContent value="settings">
-          <SettingsTab bot={bot} version={version} onDeleted={onDeleted} />
+        <TabsContent key={`${bot.id}:${shown}`} value={shown}>
+          {content(shown)}
         </TabsContent>
       </div>
     </Tabs>

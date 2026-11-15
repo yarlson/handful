@@ -21,3 +21,18 @@ export function watchNarrow(onChange: () => void): () => void {
 export function useNarrow(): boolean {
   return useSyncExternalStore(watchNarrow, isNarrow, () => false)
 }
+
+function watchWidth(onChange: () => void): () => void {
+  window.addEventListener("resize", onChange)
+  return () => window.removeEventListener("resize", onChange)
+}
+
+// useWindowWidth re-renders a component when the window's width changes, and gives it in CSS
+// pixels.
+export function useWindowWidth(): number {
+  return useSyncExternalStore(
+    watchWidth,
+    () => window.innerWidth,
+    () => window.innerWidth,
+  )
+}

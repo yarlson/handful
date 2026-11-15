@@ -945,18 +945,17 @@ export function App() {
   const chatName = (id: string) => bots.find((b) => b.id === id)?.name ?? "a deleted chat"
 
   // view is what the main area shows; only a chat has the side panel.
-  const view =
-    isSettingsPath(where.path) && rights.computer
-      ? "settings"
-      : screen === "across"
-        ? "across"
-        : screen === "inbox" && bot?.team
-          ? "inbox"
-          : screen === "waiting" && waiting.data
-            ? "waiting"
-            : bot
-              ? "chat"
-              : "empty"
+  const view = isSettingsPath(where.path)
+    ? "settings"
+    : screen === "across"
+      ? "across"
+      : screen === "inbox" && bot?.team
+        ? "inbox"
+        : screen === "waiting" && waiting.data
+          ? "waiting"
+          : bot
+            ? "chat"
+            : "empty"
   const reading = view === "chat" ? (place?.reading ?? null) : null
   // openReader shows an artifact or a skill over the chat. A panel over the chat closes, also in
   // the address that Back returns to, and an inline panel stays on its tab.
@@ -1132,14 +1131,10 @@ export function App() {
         <SidebarFooter
           link={link}
           onConnectors={rights.computer ? () => setConnectors(true) : undefined}
-          onSettings={
-            rights.computer
-              ? () => {
-                  setDrawer(false)
-                  openSettingsPage("general")
-                }
-              : undefined
-          }
+          onSettings={() => {
+            setDrawer(false)
+            openSettingsPage(rights.computer ? "general" : "appearance")
+          }}
         />
       </aside>
       {!collapsed && (
@@ -1179,6 +1174,7 @@ export function App() {
           )}
           {view === "settings" ? (
             <SettingsPage
+              computer={rights.computer}
               menu={menu}
               pairRev={pairRev}
               section={sectionOfPath(where.path)}

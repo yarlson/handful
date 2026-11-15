@@ -73,7 +73,6 @@ const desktopOnly = [
   'aria-label="New bot"',
   'aria-label="New team"',
   'aria-label="New room"',
-  'aria-label="Settings"',
   'aria-label="Connectors"',
   "Sonnet",
 ]
@@ -115,11 +114,13 @@ test("/pair is the pair page, with an empty code field when the link brought no 
   assert.include(html, ">Pair</button>")
 })
 
-test("a phone has no Settings page: /settings shows the chats", () => {
-  session.value = { phone: true, scope: "chat+approve", device: "Pixel 8" }
+test("a phone's Settings has only Appearance, at any /settings path", () => {
+  session.value = { phone: true, scope: "view", device: "Pixel 8" }
   const html = render("/settings/phones")
-  assert.notInclude(html, "Back to chats")
-  assert.include(html, 'aria-label="Chats"')
+  assert.include(html, 'aria-label="Settings"')
+  assert.match(html, /<h2 id="settings-title"[^>]*>Appearance<\/h2>/)
+  assert.include(html, 'id="settings-theme"')
+  for (const section of [">General<", ">Phones<", ">Runtime<"]) assert.notInclude(html, section, section)
 })
 
 test("a browser on the computer without Handful's key gets the key page, with the key file's path", () => {

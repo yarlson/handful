@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, assert, test, vi } from "vitest"
 import type { SettingsView, Value } from "../lib/settings.ts"
-import { Chips, RestartBanner, SelectField, SwitchField, TextField } from "./settings.tsx"
+import { AppearanceSection, Chips, RestartBanner, SelectField, SwitchField, TextField } from "./settings.tsx"
 
 const v = (x: Partial<Value>): Value => ({
   value: "",
@@ -143,4 +143,20 @@ test("in the desktop app a source build's banner still offers the restart, throu
   )
   assert.include(html, "Restart server…")
   assert.notInclude(html, "./bin/handful")
+})
+
+test("Appearance shows this browser's stored choice in a labelled select per setting", () => {
+  const stored: Record<string, string> = { "handful.theme": "dark", "handful.textSize": "large" }
+  vi.stubGlobal("localStorage", { getItem: (k: string) => stored[k] ?? null })
+  const html = renderToStaticMarkup(<AppearanceSection />)
+  for (const [id, label, chosen] of [
+    ["settings-theme", "Theme", "Dark"],
+    ["settings-chatWidth", "Chat width", "Normal"],
+    ["settings-textSize", "Text size", "Large"],
+  ]) {
+    assert.include(html, `<label for="${id}" class="text-sm font-medium">${label}</label>`)
+    assert.match(html, new RegExp(`<select id="${id}" aria-describedby="${id}-help"`))
+    assert.match(html, new RegExp(`<option value="[a-z]+" selected="">${chosen}</option>`), id)
+  }
+  assert.include(html, ">System</option>")
 })

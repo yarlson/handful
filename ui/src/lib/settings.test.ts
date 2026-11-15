@@ -229,6 +229,7 @@ test("each section and setting has its name", () => {
     SECTIONS.map((x) => [x.id, x.label]),
     [
       ["general", "General"],
+      ["appearance", "Appearance"],
       ["updates", "Updates"],
       ["connectors", "Connectors"],
       ["phones", "Phones"],

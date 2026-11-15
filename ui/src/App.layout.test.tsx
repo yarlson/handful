@@ -132,6 +132,13 @@ test("an address with an artifact opens the reader over the chat, which the keyb
   assert.match(main, /<header inert=""/)
 })
 
+test("with the reader open, only the reader shows the button that opens the sidebar, so the keyboard comes back to it", () => {
+  // A static render is never narrow, so the collapsed sidebar's button stands for the drawer's.
+  const main = mainOf(render(1440, "/chat/web?artifact=a1", { "handful.sidebarCollapsed": "1" }))
+  assert.equal(main.split('aria-label="Open sidebar"').length - 1, 1, main)
+  assert.isAbove(main.indexOf('aria-label="Open sidebar"'), main.indexOf('<section aria-label="Loading artifact"'))
+})
+
 test("a stored collapsed sidebar stays hidden, with a button to open it", () => {
   const html = render(1440, "/chat/web", { "handful.sidebarCollapsed": "1" })
   assert.include(tag(html, 'id="app-sidebar"'), "hidden")

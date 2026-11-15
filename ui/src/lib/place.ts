@@ -49,6 +49,36 @@ export function artifactUrl(origin: string, chat: string, id: string) {
   return origin + chatUrl({ chat, reading: { kind: "artifact", id } })
 }
 
+// LAST_CHAT_KEY keeps the last chat address in sessionStorage, which a full load of the same
+// window keeps: the desktop app opens Settings with one.
+const LAST_CHAT_KEY = "handful.lastChat"
+
+// PLACE_ORIGIN resolves a remembered address; one that resolves to another origin is not a chat's.
+const PLACE_ORIGIN = "http://place.invalid"
+
+// saveLastChat remembers a chat's place, without its post, for Settings to close back to.
+export function saveLastChat(place: ChatPlace) {
+  try {
+    sessionStorage.setItem(LAST_CHAT_KEY, chatUrl({ ...place, post: null }))
+  } catch {
+    // Not kept: Settings then close to the selected chat.
+  }
+}
+
+// lastChat is the remembered chat's place, or null when there is none or it is not a chat's.
+export function lastChat(): ChatPlace | null {
+  let url: string | null = null
+  try {
+    url = sessionStorage.getItem(LAST_CHAT_KEY)
+  } catch {
+    // Not readable: no chat is remembered.
+  }
+  // Stryker disable next-line ConditionalExpression: without it, null parses as the address /null, which is not a chat's
+  if (!url) return null
+  const address = URL.parse(url, PLACE_ORIGIN)
+  return address?.origin === PLACE_ORIGIN ? chatPlace(address.pathname, address.search) : null
+}
+
 type PanelBot = { kind: string; team?: unknown }
 
 // panelTabs are the panel's tabs for a chat, in order. A phone has the team's Work, or else the

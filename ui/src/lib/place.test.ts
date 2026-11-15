@@ -1,5 +1,9 @@
-import { assert, test } from "vitest"
-import { artifactUrl, chatPlace, chatUrl, panelTabs, postUrl, shownTab } from "./place"
+import { afterEach, assert, test, vi } from "vitest"
+import { artifactUrl, chatPlace, chatUrl, lastChat, panelTabs, postUrl, saveLastChat, shownTab } from "./place"
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 const chat = "6f1c2b9e-0d1a-4c55-9a43-1f2e3d4c5b6a"
 
@@ -82,4 +86,46 @@ test("the panel shows the tab asked when it has it, else its first", () => {
   assert.equal(shownTab(room, "settings"), "settings")
   assert.equal(shownTab(room, "skills"), "members", "a room has no skills")
   assert.equal(shownTab(room, null), "members")
+})
+
+// session stubs sessionStorage with the entries given.
+function session(entries: Record<string, string> = {}) {
+  const store = new Map(Object.entries(entries))
+  vi.stubGlobal("sessionStorage", {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => store.set(k, v),
+  })
+  return store
+}
+
+test("the last chat's place is remembered for the window, without its post", () => {
+  const store = session()
+  assert.isNull(lastChat(), "nothing remembered")
+  saveLastChat({ chat, tab: "memory", reading: { kind: "artifact", id: "a1" }, post: "e9" })
+  assert.equal(store.get("handful.lastChat"), `/chat/${chat}?tab=memory&artifact=a1`)
+  assert.deepEqual(lastChat(), { chat, tab: "memory", reading: { kind: "artifact", id: "a1" }, post: null })
+  saveLastChat({ chat, tab: null, reading: null, post: null })
+  assert.deepEqual(lastChat(), { chat, tab: null, reading: null, post: null })
+})
+
+test("a remembered address that is not a chat's is not used", () => {
+  session({ "handful.lastChat": "/settings/general" })
+  assert.isNull(lastChat())
+  session({ "handful.lastChat": "//example.com/chat/x" })
+  assert.isNull(lastChat())
+  session({ "handful.lastChat": "//[" })
+  assert.isNull(lastChat(), "not an address")
+})
+
+test("storage that refuses reads and writes remembers no chat, without an error", () => {
+  vi.stubGlobal("sessionStorage", {
+    getItem: () => {
+      throw new Error("denied")
+    },
+    setItem: () => {
+      throw new Error("denied")
+    },
+  })
+  saveLastChat({ chat, tab: null, reading: null, post: null })
+  assert.isNull(lastChat())
 })

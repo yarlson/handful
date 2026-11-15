@@ -272,6 +272,14 @@ export function TextField({
           onKeyDown={(e) => {
             if (e.key === "Enter") done()
           }}
+          // Escape puts back the saved value before it closes Settings. Settings' Escape listener
+          // is native on an ancestor and runs before React's bubble handlers, so this one captures.
+          onKeyDownCapture={(e) => {
+            if (e.key !== "Escape" || unchanged(text, v.value)) return
+            e.preventDefault()
+            setText(String(v.value))
+            f.setError(null)
+          }}
         />
         {after}
       </div>

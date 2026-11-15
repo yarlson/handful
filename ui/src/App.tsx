@@ -72,7 +72,7 @@ import {
   SIDEBAR_WIDTH_KEY,
   STEP,
 } from "@/lib/layout"
-import { chatPlace, chatUrl, type PanelTab, type Reading } from "@/lib/place"
+import { chatPlace, chatUrl, lastChat, panelTabs, saveLastChat, type PanelTab, type Reading } from "@/lib/place"
 import { Reader } from "@/components/reader"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
@@ -786,6 +786,8 @@ export function App() {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (!modKey(e, "KeyB", MAC)) return
+      // A dialog holds the keyboard; the sidebar behind it stays as it is.
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) return
       e.preventDefault()
       if (narrow) setDrawer((d) => !d)
       else setCollapsed((c) => !c)
@@ -842,7 +844,7 @@ export function App() {
   const showTab = (tab: PanelTab) => {
     if (!selected) return
     setPanel(true)
-    go(chatUrl({ chat: selected, tab }), "replace")
+    go(chatUrl({ chat: selected, tab }))
     // The settings tab renders after this click; then its model select takes focus.
     if (tab === "settings") requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
   }
@@ -861,7 +863,9 @@ export function App() {
   }
   // openChat opens a chat, with the panel on tab when it is given. Without it the panel keeps
   // its tab.
-  const openChat = (id: string, tab: PanelTab | null = panel ? (place?.tab ?? null) : null) => {
+  const openChat = (id: string, asked: PanelTab | null = panel ? (place?.tab ?? null) : null) => {
+    const target = bots.find((b) => b.id === id)
+    const tab = target && panelTabs(target, rights.computer).some((t) => t.tab === asked) ? asked : null
     go(chatUrl({ chat: id, tab }))
     if (tab) setPanel(true)
     showScreen("chat")
@@ -905,13 +909,19 @@ export function App() {
     setSelected(bots[0].id)
   }, [bots, selected, go])
   useEffect(() => select(selected), [selected, select])
-  // lastChat is the last chat address shown, without its post: Settings close back to it.
-  const lastChat = useRef<string | null>(null)
+  // Settings close back to the last chat shown.
   useEffect(() => {
     const p = chatPlace(where.path, where.search)
-    if (p) lastChat.current = chatUrl({ ...p, post: null })
+    if (p) saveLastChat(p)
   }, [where])
 
+  // closeSettings goes back to the last chat shown, which a full load of Settings did not select.
+  const closeSettings = () => {
+    const p = lastChat()
+    if (!p) return go(selected ? chatUrl({ chat: selected }) : "/")
+    go(chatUrl(p))
+    setSelected(p.chat)
+  }
   const bot = bots.find((b) => b.id === selected)
   const subtitle = bot ? chatSubtitle(bot) : ""
   const agents = bots.filter((b) => b.kind !== "room")
@@ -1173,7 +1183,7 @@ export function App() {
               pairRev={pairRev}
               section={sectionOfPath(where.path)}
               onSection={(s) => go(`/settings/${s}`, "replace")}
-              onClose={() => go(lastChat.current ?? (selected ? chatUrl({ chat: selected }) : "/"))}
+              onClose={closeSettings}
               onManageConnectors={() => setConnectors(true)}
               restartRev={restartRev}
             />
@@ -1220,7 +1230,8 @@ export function App() {
                 inert={reading !== null}
                 className="flex h-12 items-center gap-2 border-b px-4 max-md:h-14 max-md:px-3"
               >
-                {menu}
+                {/* The reader covers this header and shows the menu button, which has one ref. */}
+                {!reading && menu}
                 <ChatIcon chat={bot} />
                 <span className="max-w-[60%] shrink-0 truncate font-medium max-md:max-w-[30%]" title={bot.name}>
                   {bot.name}
@@ -1370,7 +1381,7 @@ export function App() {
                 version={(transcript?.rev ?? 0) + listsRev}
                 onDeleted={() => setSelected(null)}
                 tab={place?.tab ?? null}
-                onTab={(tab) => go(chatUrl({ ...(place ?? { chat: bot.id }), tab }), "replace")}
+                onTab={(tab) => go(chatUrl({ ...(place ?? { chat: bot.id }), tab }))}
                 onRead={openReader}
                 teams={teams}
                 onOpenInbox={() => setScreen("inbox")}

@@ -1851,6 +1851,8 @@ export function Chat({
   const postShown = useRef<string | null>(null)
   const loaded = entries.length > 0
   useEffect(() => {
+    // A post that leaves the address shows again when it comes back, as by Back.
+    if (!post) postShown.current = null
     const key = `${bot.id}:${post}`
     if (!post || !loaded || postShown.current === key) return
     postShown.current = key

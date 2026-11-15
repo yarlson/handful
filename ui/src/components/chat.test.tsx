@@ -181,7 +181,35 @@ test("an open question is marked in words and offers Answer; a closed one says h
     "No longer needed",
   )
   assert.include(renderToStaticMarkup(<EntryView entry={ask("dismissed")} chat={solo} skillIds={[]} />), "Dismissed")
-  assert.notInclude(renderToStaticMarkup(<EntryView entry={post(solo)} chat={solo} skillIds={[]} />), 'id="entry-')
+})
+
+test("each message is a place to go to: its element has the entry's id and takes the focus from code", () => {
+  const user: Entry = { ...base, botId: solo.id, id: "u1", kind: "user", body: { text: "hi" } }
+  const agent: Entry = {
+    ...base,
+    botId: solo.id,
+    id: "a1",
+    kind: "agent",
+    body: { text: "hi", direction: "in", peerId: "p", peerName: "Lead", priority: false },
+  }
+  const tool: Entry = {
+    ...base,
+    botId: solo.id,
+    id: "t1",
+    kind: "activity",
+    body: { tool: "Read", summary: "a.go", status: "done", subagent: false },
+  }
+  for (const [entry, id] of [
+    [user, "u1"],
+    [{ ...post(solo), id: "b1" }, "b1"],
+    [agent, "a1"],
+  ] as const) {
+    assert.match(
+      renderToStaticMarkup(<EntryView entry={entry} chat={solo} skillIds={[]} />),
+      new RegExp(`^<div id="entry-${id}" tabindex="-1"`),
+    )
+  }
+  assert.notInclude(renderToStaticMarkup(<EntryView entry={tool} chat={solo} skillIds={[]} />), 'id="entry-')
 })
 
 const user = (text: string): Entry => ({ ...base, id: "u", botId: solo.id, kind: "user", body: { text } })

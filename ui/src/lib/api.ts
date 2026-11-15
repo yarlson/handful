@@ -418,6 +418,10 @@ export const api = {
   deleteBot: (id: string) => request<void>("DELETE", `/api/bots/${id}`),
   entries: (id: string, afterRev: number) =>
     request<{ entries: Entry[] }>("GET", `/api/bots/${id}/entries?after=${afterRev}`).then((r) => r.entries),
+  // searchEntries returns a chat's messages that contain q, newest first; more says that older
+  // ones match too.
+  searchEntries: (id: string, q: string) =>
+    request<{ entries: Entry[]; more: boolean }>("GET", `/api/bots/${id}/search?q=${encodeURIComponent(q)}`),
   // entryWindow returns a chat's newest limit entries, below seq before when given, in chat order.
   entryWindow: (id: string, limit: number, before?: number) =>
     request<{ entries: Entry[] }>(

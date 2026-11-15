@@ -10,6 +10,7 @@ import {
   PauseCircle,
   Plug,
   Plus,
+  Search,
   Settings as SettingsIcon,
   ShieldQuestion,
 } from "lucide-react"
@@ -53,6 +54,7 @@ import { PairAgain, PairBanner, PairPage, usePairRequest } from "@/components/ph
 import { rightsOf } from "@/lib/phones"
 import { needsKey, phoneSession, useSession } from "@/lib/session"
 import { KeyPage } from "@/components/key-page"
+import { findKey, matchesName } from "@/lib/search"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
 const NEEDS_YOU_PATH = "/needs-you"
@@ -333,14 +335,15 @@ export function SidebarItem({
   selected: boolean
   unread: boolean
   onSelect: () => void
-  onKeyDown: (e: KeyboardEvent<HTMLButtonElement>) => void
+  // onKeyDown moves the item; without it the item does not move.
+  onKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void
 }) {
   return (
     <button
       type="button"
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+      aria-keyshortcuts={onKeyDown && "Alt+ArrowUp Alt+ArrowDown"}
       aria-current={selected ? "page" : undefined}
       className={cn(
         "relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
@@ -395,6 +398,7 @@ export function SidebarItem({
 
 // BotList is one sortable sidebar section. Items move by drag and drop
 // within the section, or with Alt+ArrowUp / Alt+ArrowDown on a focused item.
+// Without onReorder, as while the sidebar is filtered, they do not move.
 function BotList({
   items,
   selected,
@@ -406,7 +410,7 @@ function BotList({
   selected: string | null
   unread: Set<string>
   onSelect: (id: string) => void
-  onReorder: (ids: string[]) => void
+  onReorder?: (ids: string[]) => void
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [insertAt, setInsertAt] = useState<number | null>(null)
@@ -415,7 +419,7 @@ function BotList({
     const ids = items.map((b) => b.id)
     const [id] = ids.splice(from, 1)
     ids.splice(to > from ? to - 1 : to, 0, id)
-    if (ids.join() !== items.map((b) => b.id).join()) onReorder(ids)
+    if (ids.join() !== items.map((b) => b.id).join()) onReorder?.(ids)
   }
   // dropIndex is where a dragged item lands: before item i in its upper half, after it otherwise.
   const dropIndex = (e: DragEvent<HTMLDivElement>, i: number) => {
@@ -431,7 +435,7 @@ function BotList({
       {items.map((b, i) => (
         <div
           key={b.id}
-          draggable
+          draggable={onReorder !== undefined}
           className={cn("relative", dragId === b.id && "opacity-50")}
           onDragStart={(e) => {
             setDragId(b.id)
@@ -464,18 +468,24 @@ function BotList({
             selected={b.id === selected}
             unread={unread.has(b.id)}
             onSelect={() => onSelect(b.id)}
-            onKeyDown={(e) => {
-              if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return
-              e.preventDefault()
-              const to = e.key === "ArrowUp" ? i - 1 : i + 2
-              if (to >= 0 && to <= items.length) move(i, to)
-            }}
+            onKeyDown={
+              onReorder &&
+              ((e) => {
+                if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return
+                e.preventDefault()
+                const to = e.key === "ArrowUp" ? i - 1 : i + 2
+                if (to >= 0 && to <= items.length) move(i, to)
+              })
+            }
           />
         </div>
       ))}
     </div>
   )
 }
+
+// MAC says the chat search opens with ⌘F, not Ctrl+F.
+const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent)
 
 const sidebarWidthKey = "handful.sidebarWidth"
 const sidebarWidth = { min: 180, max: 480, initial: 240 }
@@ -510,6 +520,36 @@ function chatPath(id: string) {
 
 function chatInLocation() {
   return /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1] ?? null
+}
+
+// SidebarFilter narrows the sidebar's chats by name. Escape clears a filter that is set and goes
+// no further, so the drawer closes only on the next Escape.
+function SidebarFilter({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const clearsOnEscape = useCallback(
+    (el: HTMLInputElement | null) => {
+      if (!el) return
+      const onKey = (e: globalThis.KeyboardEvent) => {
+        if (e.key !== "Escape" || el.value === "") return
+        e.stopPropagation()
+        onChange("")
+      }
+      el.addEventListener("keydown", onKey)
+      return () => el.removeEventListener("keydown", onKey)
+    },
+    [onChange],
+  )
+  return (
+    <div className="px-2 pb-1">
+      <Input
+        ref={clearsOnEscape}
+        aria-label="Filter chats"
+        placeholder="Filter chats"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="max-md:h-11"
+      />
+    </div>
+  )
 }
 
 // SectionTitle heads a sidebar section; without onAction, as on a phone, it has no add button.
@@ -609,6 +649,9 @@ export function App() {
   // drawer: on a narrow window the sidebar is a drawer over the page; above md it is always shown.
   const [drawer, setDrawer] = useState(false)
   const narrow = useNarrow()
+  const [filter, setFilter] = useState("")
+  // search is the open chat search: its chat, and a count that each open request raises.
+  const [search, setSearch] = useState<{ chat: string; n: number } | null>(null)
   const menuButton = useRef<HTMLButtonElement>(null)
   const sidebar = useRef<HTMLElement | null>(null)
   const menu = narrow ? (
@@ -740,6 +783,13 @@ export function App() {
   const agents = bots.filter((b) => b.kind !== "room")
   const rooms = bots.filter((b) => b.kind === "room" && !b.team)
   const teams = bots.filter((b) => b.team)
+  const named = (list: Bot[]) => list.filter((b) => matchesName(b.name, filter))
+  const sections = [
+    { title: "Bots", action: "New bot", items: named(agents), onAction: () => setCreating(true) },
+    { title: "Teams", action: "New team", items: named(teams), onAction: () => setCreatingTeam(true) },
+    { title: "Rooms", action: "New room", items: named(rooms), onAction: () => setCreatingRoom(true) },
+  ]
+  const filtered = filter.trim() !== ""
   const transcript = selected ? transcripts.get(selected) : undefined
   const entries = transcript?.entries ?? NO_ENTRIES
   const waiting = useLoad(() => api.waiting(), waitingKey(bots))
@@ -761,6 +811,21 @@ export function App() {
           : bot
             ? "chat"
             : "empty"
+  const searchN = view === "chat" && search?.chat === selected ? search.n : 0
+  const openSearch = useCallback(
+    () => setSearch((s) => (selected ? { chat: selected, n: (s?.chat === selected ? s.n : 0) + 1 } : null)),
+    [selected],
+  )
+  useEffect(() => {
+    if (view !== "chat") return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!findKey(e, MAC)) return
+      e.preventDefault()
+      openSearch()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [view, openSearch])
   // A drain that the updater didn't start is a settings restart.
   const pause = pauseLabel(update.state?.state === "waiting" || update.state?.state === "limit")
 
@@ -817,6 +882,7 @@ export function App() {
             onRename={(t, name) => void api.updateBot(t.id, { name }).catch((e: Error) => moved.setError(e.message))}
           />
         )}
+        {bots.length > 0 && <SidebarFilter value={filter} onChange={setFilter} />}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
           <button
             type="button"
@@ -856,42 +922,28 @@ export function App() {
               </Badge>
             )}
           </button>
-          <SectionTitle
-            title="Bots"
-            action="New bot"
-            onAction={rights.computer ? () => setCreating(true) : undefined}
-          />
-          <BotList
-            items={agents}
-            selected={selected}
-            unread={unread}
-            onSelect={openChat}
-            onReorder={(ids) => void reorder(ids)}
-          />
-          <SectionTitle
-            title="Teams"
-            action="New team"
-            onAction={rights.computer ? () => setCreatingTeam(true) : undefined}
-          />
-          <BotList
-            items={teams}
-            selected={selected}
-            unread={unread}
-            onSelect={openChat}
-            onReorder={(ids) => void reorder(ids)}
-          />
-          <SectionTitle
-            title="Rooms"
-            action="New room"
-            onAction={rights.computer ? () => setCreatingRoom(true) : undefined}
-          />
-          <BotList
-            items={rooms}
-            selected={selected}
-            unread={unread}
-            onSelect={openChat}
-            onReorder={(ids) => void reorder(ids)}
-          />
+          {sections.map(
+            (sec) =>
+              (!filtered || sec.items.length > 0) && (
+                <div key={sec.title} className="flex flex-col gap-0.5">
+                  <SectionTitle
+                    title={sec.title}
+                    action={sec.action}
+                    onAction={rights.computer ? sec.onAction : undefined}
+                  />
+                  <BotList
+                    items={sec.items}
+                    selected={selected}
+                    unread={unread}
+                    onSelect={openChat}
+                    onReorder={filtered ? undefined : (ids) => void reorder(ids)}
+                  />
+                </div>
+              ),
+          )}
+          {filtered && sections.every((sec) => sec.items.length === 0) && (
+            <p className="text-muted-foreground mt-3 px-2 text-sm">No matches</p>
+          )}
           {bots.length === 0 && rights.computer && (
             <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreating(true)}>
               <Plus /> Create your first bot
@@ -1041,6 +1093,18 @@ export function App() {
                 <Button
                   size="icon"
                   variant="ghost"
+                  className="shrink-0 max-md:size-11"
+                  aria-label="Search this chat"
+                  title={`Search this chat (${MAC ? "⌘F" : "Ctrl+F"})`}
+                  aria-keyshortcuts={MAC ? "Meta+F" : "Control+F"}
+                  aria-expanded={searchN > 0}
+                  onClick={openSearch}
+                >
+                  <Search />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
                   ref={panelButton}
                   className="shrink-0 max-md:size-11"
                   aria-label="Toggle panel"
@@ -1063,6 +1127,8 @@ export function App() {
                   pause={pause}
                   pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
                   onAnswer={(q) => setAnswer(bot.id, q)}
+                  search={searchN}
+                  onCloseSearch={() => setSearch(null)}
                   mentionables={
                     bot.kind === "room"
                       ? (bot.members ?? [])

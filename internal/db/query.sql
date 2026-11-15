@@ -50,6 +50,15 @@ WHERE bot_id = ? AND seq < ?
 ORDER BY seq DESC
 LIMIT ?;
 
+-- name: SearchEntries :many
+-- A chat's newest user, bot and agent messages whose text contains a query,
+-- with no case, newest first. contains_fold is Handful's function (search.go).
+SELECT * FROM entries
+WHERE bot_id = sqlc.arg(bot_id) AND kind IN ('user', 'bot', 'agent')
+  AND contains_fold(json_extract(body, '$.text'), CAST(sqlc.arg(query) AS TEXT))
+ORDER BY seq DESC
+LIMIT sqlc.arg(limit);
+
 -- name: ListEntriesAfterRev :many
 SELECT * FROM entries
 WHERE bot_id = ? AND rev > ?

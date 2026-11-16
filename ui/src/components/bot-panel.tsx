@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Confirm } from "@/components/confirm"
 import { OptionSelect } from "@/components/option-select"
 import { RadioGroup } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
@@ -120,6 +121,11 @@ const scopeLabel: Record<Memory["scope"], string> = {
   user: "shared",
 }
 
+// revealed shows a row's control on hover, on keyboard focus, on touch screens and while
+// its confirm is open.
+const revealed =
+  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 data-[state=open]:opacity-100"
+
 // MemoryFact is one remembered fact: its text, tier, scope, author and date, and Forget.
 export function MemoryFact({
   fact: m,
@@ -127,7 +133,7 @@ export function MemoryFact({
   onForget,
 }: {
   fact: Memory
-  when: (ms: number) => string
+  when: (ms: number | null) => string
   onForget: () => void
 }) {
   return (
@@ -141,15 +147,11 @@ export function MemoryFact({
           <span className="text-muted-foreground text-xs">{when(m.createdAt)}</span>
         </div>
       </div>
-      <Button
-        size="icon"
-        variant="ghost"
-        aria-label="Forget"
-        className="opacity-0 group-hover:opacity-100"
-        onClick={onForget}
-      >
-        <Trash2 />
-      </Button>
+      <Confirm question="Forget this fact?" action="Forget" onConfirm={onForget}>
+        <Button size="icon" variant="ghost" aria-label="Forget" className={revealed}>
+          <Trash2 />
+        </Button>
+      </Confirm>
     </div>
   )
 }
@@ -182,6 +184,45 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
   )
 }
 
+// RoutineItem is one routine: its name, prompt, schedule and next run, with its actions.
+export function RoutineItem({
+  routine: r,
+  when,
+  onEnabled,
+  onRun,
+  onDelete,
+}: {
+  routine: Routine
+  when: (ms: number | null) => string
+  onEnabled: (enabled: boolean) => void
+  onRun: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="rounded-md border p-2 text-sm">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 font-medium">{r.name}</span>
+        <Switch aria-label="Enabled" checked={r.enabled} onCheckedChange={onEnabled} />
+      </div>
+      <p className="text-muted-foreground mt-1 text-xs">{r.prompt}</p>
+      <div className="mt-2 flex items-center gap-2 text-xs">
+        <code className="bg-sidebar-foreground/5 shrink-0 rounded-sm px-1 whitespace-nowrap">{r.schedule}</code>
+        <span className="text-muted-foreground min-w-0">next {r.enabled ? when(r.nextRunAt) : "paused"}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-end gap-1">
+        <Button size="xs" variant="ghost" onClick={onRun}>
+          <Play /> Run now
+        </Button>
+        <Confirm question="Delete this routine?" action="Delete" onConfirm={onDelete}>
+          <Button size="xs" variant="ghost" aria-label="Delete routine">
+            <Trash2 />
+          </Button>
+        </Confirm>
+      </div>
+    </div>
+  )
+}
+
 function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
   const when = useWhen()
   const { data, error, reload, setError } = useLoad(() => api.routines(bot.id), `${bot.id}:${version}`)
@@ -202,34 +243,14 @@ function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
         </p>
       )}
       {data?.map((r: Routine) => (
-        <div key={r.id} className="rounded-md border p-2 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="flex-1 font-medium">{r.name}</span>
-            <Switch
-              aria-label="Enabled"
-              checked={r.enabled}
-              onCheckedChange={(v) => void act(() => api.setRoutineEnabled(r.id, v))}
-            />
-          </div>
-          <p className="text-muted-foreground mt-1 text-xs">{r.prompt}</p>
-          <div className="mt-2 flex items-center gap-2 text-xs">
-            <code className="bg-sidebar-foreground/5 shrink-0 rounded-sm px-1 whitespace-nowrap">{r.schedule}</code>
-            <span className="text-muted-foreground min-w-0">next {r.enabled ? when(r.nextRunAt) : "paused"}</span>
-          </div>
-          <div className="mt-1 flex items-center justify-end gap-1">
-            <Button size="xs" variant="ghost" onClick={() => void act(() => api.runRoutine(r.id))}>
-              <Play /> Run now
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              aria-label="Delete routine"
-              onClick={() => void act(() => api.deleteRoutine(r.id))}
-            >
-              <Trash2 />
-            </Button>
-          </div>
-        </div>
+        <RoutineItem
+          key={r.id}
+          routine={r}
+          when={when}
+          onEnabled={(v) => void act(() => api.setRoutineEnabled(r.id, v))}
+          onRun={() => void act(() => api.runRoutine(r.id))}
+          onDelete={() => void act(() => api.deleteRoutine(r.id))}
+        />
       ))}
     </div>
   )

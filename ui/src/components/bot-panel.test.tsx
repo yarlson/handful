@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
-import type { Bot } from "@/lib/api"
+import type { Bot, Routine } from "@/lib/api"
 import { failed, saved } from "@/lib/save"
-import { AllowedTools, MemoryFact, SaveNote, SettingsTab } from "./bot-panel.tsx"
+import { AllowedTools, MemoryFact, RoutineItem, SaveNote, SettingsTab } from "./bot-panel.tsx"
 
 test("a save that worked shows as a plain note", () => {
   const html = renderToStaticMarkup(<SaveNote result={saved()} />)
@@ -84,4 +84,48 @@ test("allowed tools show each tool with its own Revoke", () => {
   const html = renderToStaticMarkup(<AllowedTools grants={["Bash(go test:*)"]} onRevoke={() => {}} />)
   assert.include(html, 'aria-label="Revoke Bash(go test:*)"')
   assert.notInclude(html, "None.")
+})
+
+const fact = {
+  id: "m1",
+  scope: "agent",
+  tier: "profile",
+  fact: "Ships on Fridays",
+  learnedBy: "bot",
+  createdAt: 1,
+} as const
+
+test("Forget opens a confirm instead of forgetting at once", () => {
+  const html = renderToStaticMarkup(<MemoryFact fact={fact} when={() => "today"} onForget={() => {}} />)
+  const forget = html.match(/<button[^>]*aria-label="Forget"[^>]*>/)?.[0] ?? ""
+  assert.include(forget, 'aria-haspopup="dialog"')
+})
+
+test("Forget shows on keyboard focus, on touch screens and while its confirm is open", () => {
+  const html = renderToStaticMarkup(<MemoryFact fact={fact} when={() => "today"} onForget={() => {}} />)
+  const forget = html.match(/<button[^>]*aria-label="Forget"[^>]*>/)?.[0] ?? ""
+  assert.include(forget, "focus-visible:opacity-100")
+  assert.include(forget, "pointer-coarse:opacity-100")
+  assert.include(forget, "data-[state=open]:opacity-100")
+})
+
+const routine: Routine = {
+  id: "r1",
+  botId: "bot-ana",
+  name: "Brief",
+  prompt: "Brief me",
+  schedule: "17 9 * * 1-5",
+  enabled: true,
+  nextRunAt: 1,
+  lastRunAt: null,
+  lastRunBy: "",
+  createdAt: 1,
+}
+
+test("Delete routine opens a confirm instead of deleting at once", () => {
+  const html = renderToStaticMarkup(
+    <RoutineItem routine={routine} when={() => "today"} onEnabled={() => {}} onRun={() => {}} onDelete={() => {}} />,
+  )
+  const remove = html.match(/<button[^>]*aria-label="Delete routine"[^>]*>/)?.[0] ?? ""
+  assert.include(remove, 'aria-haspopup="dialog"')
 })

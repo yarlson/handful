@@ -51,7 +51,7 @@ test("a team chip says when members override the team's model", () => {
   assert.include(html, "Open members.")
 })
 
-test("the fields are labelled selects whose first option names what they inherit", () => {
+test("the fields are labelled selects that show what they inherit by default", () => {
   const html = renderToStaticMarkup(
     <ModelEffortFields
       id="bot"
@@ -65,12 +65,11 @@ test("the fields are labelled selects whose first option names what they inherit
   )
   assert.include(html, '<label data-slot="label" class')
   assert.match(html, /for="bot-model"/)
-  assert.match(html, /<select id="bot-model"/)
+  assert.match(html, /<button[^>]*role="combobox"[^>]*id="bot-model"/)
   assert.match(html, /for="bot-effort"/)
-  assert.include(html, "Default — Sonnet (from config)")
-  assert.include(html, "Default (model&#x27;s own)")
-  assert.include(html, "Custom model ID…")
-  assert.include(html, "Extra high (xhigh)")
+  assert.match(html, /<button[^>]*role="combobox"[^>]*id="bot-effort"/)
+  assert.include(html, ">Default — Sonnet (from config)</span>")
+  assert.include(html, ">Default (model&#x27;s own)</span>")
   assert.notInclude(html, "nearest lower")
 })
 
@@ -91,7 +90,8 @@ test("a custom model shows its labelled field, and an error is tied to it", () =
   assert.include(html, 'aria-invalid="true"')
   assert.include(html, 'aria-describedby="bot-model-error"')
   assert.include(html, 'id="bot-model-error"')
-  assert.include(html, "Default — Claude Code&#x27;s default")
+  assert.include(html, ">Custom model ID…</span>")
+  assert.include(html, ">Max</span>")
   assert.include(html, "nearest lower")
 })
 

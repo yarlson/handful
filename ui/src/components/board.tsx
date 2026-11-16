@@ -39,6 +39,7 @@ import { BotDot } from "@/components/bot-dot"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, attentionBar } from "@/components/ui/card"
+import { Disclosure } from "@/components/ui/collapsible"
 import {
   awaitsAnswer,
   canWithdraw,
@@ -253,12 +254,11 @@ export function StepDetails({ team, item }: { team: Bot; item: Item }) {
       )}
       {history && <ItemHistory id={historyId} item={item} />}
       {item.note && (item.state === "blocked" || item.state === "dropped") && <p className="text-xs">{item.note}</p>}
-      <details className="text-xs">
-        <summary className="text-muted-foreground cursor-pointer">Details</summary>
+      <Disclosure className="text-xs" label="Details">
         <p className="mt-1 whitespace-pre-wrap">{item.brief}</p>
         <p className="text-muted-foreground mt-1 whitespace-pre-wrap">Done when: {item.acceptance}</p>
         {item.result && <p className="mt-1 whitespace-pre-wrap">Result: {item.result}</p>}
-      </details>
+      </Disclosure>
     </div>
   )
 }
@@ -616,11 +616,7 @@ export function BoardView({
         )}
       </section>
       {earlier.length > 0 && (
-        <details className="group/earlier">
-          <summary className="text-muted-foreground hover:text-foreground flex min-h-7 cursor-pointer list-none items-center max-md:min-h-11 gap-1 text-xs font-medium">
-            <ChevronRight aria-hidden className="size-3.5 transition-transform group-open/earlier:rotate-90" />
-            Earlier ({earlier.length})
-          </summary>
+        <Disclosure triggerClassName="text-xs font-medium" label={`Earlier (${earlier.length})`}>
           <ul className="mt-1.5 flex flex-col gap-1.5">
             {earlier.map((g) =>
               g.teamId === team.id ? (
@@ -630,7 +626,7 @@ export function BoardView({
               ),
             )}
           </ul>
-        </details>
+        </Disclosure>
       )}
       {(data.budget || (data.offTask?.count ?? 0) > 0) && (
         <footer className="flex flex-col gap-3 border-t pt-3">

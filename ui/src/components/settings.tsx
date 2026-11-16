@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 import { api } from "@/lib/api"
 import {
@@ -53,6 +53,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { OptionSelect } from "@/components/option-select"
+import { Disclosure } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 import { PhonesSection } from "@/components/phones"
 import { copyLabel, useCopy } from "@/components/copy"
@@ -81,9 +83,6 @@ export function openSettingsPage(section: Section = "general") {
   history.pushState(null, "", `/settings/${section}`)
   window.dispatchEvent(new PopStateEvent("popstate"))
 }
-
-const selectClass =
-  "border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
 
 // lockProps disables a control. A value a flag sets stays in the tab order instead, marked
 // aria-disabled, so a screen reader still reaches the line that says why; its onChange ignores
@@ -340,6 +339,7 @@ export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: 
   const f = useField(k, save)
   const disabled = locked || v.source === "flag"
   const err = f.error ?? v.error
+  const lock = lockProps(locked, v, `${id}-help${err ? ` ${id}-error` : ""}`)
   const saveCustom = () => {
     if (unchanged(text, v.value)) {
       f.setError(null)
@@ -351,15 +351,18 @@ export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: 
   }
   return (
     <Row id={id} label={LABELS[k]} chips={<Chips v={v} />} help={helpOf(k)}>
-      <select
+      <OptionSelect
         id={id}
-        className={selectClass}
         value={custom ? CUSTOM : String(v.value)}
-        {...lockProps(locked, v, `${id}-help${err ? ` ${id}-error` : ""}`)}
-        aria-invalid={err && !custom ? true : undefined}
-        onChange={(e) => {
-          if (v.source === "flag") return
-          const next = e.target.value
+        options={[
+          ...options.map(([value, label]) => ({ value, label })),
+          ...(k === "model" ? [{ value: CUSTOM, label: "Custom model ID…" }] : []),
+        ]}
+        describedBy={lock["aria-describedby"]}
+        disabled={locked}
+        readOnly={v.source === "flag"}
+        invalid={Boolean(err && !custom)}
+        onChange={(next) => {
           if (next === CUSTOM) {
             setCustom(true)
             return
@@ -368,14 +371,7 @@ export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: 
           f.setError(null)
           void f.commit(next === "" ? null : next)
         }}
-      >
-        {options.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-        {k === "model" && <option value={CUSTOM}>Custom model ID…</option>}
-      </select>
+      />
       {custom && (
         <Input
           aria-label="Custom model ID"
@@ -640,8 +636,8 @@ export function AppearanceSection() {
     addEventListener("storage", reread)
     return () => removeEventListener("storage", reread)
   }, [])
-  const pick = (key: keyof Appearance) => (e: ChangeEvent<HTMLSelectElement>) => {
-    const next = choose(appearance, key, e.target.value)
+  const pick = (key: keyof Appearance) => (value: string) => {
+    const next = choose(appearance, key, value)
     setAppearance(next)
     showAppearance(document.documentElement, next, matchMedia("(prefers-color-scheme: dark)").matches)
   }
@@ -652,19 +648,13 @@ export function AppearanceSection() {
       </p>
       {APPEARANCE_ROWS.map((row) => (
         <Row key={row.key} id={`settings-${row.key}`} label={row.label} help={row.help}>
-          <select
+          <OptionSelect
             id={`settings-${row.key}`}
-            aria-describedby={`settings-${row.key}-help`}
-            className={selectClass}
+            describedBy={`settings-${row.key}-help`}
             value={appearance[row.key]}
+            options={row.options}
             onChange={pick(row.key)}
-          >
-            {row.options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          />
         </Row>
       ))}
     </>
@@ -704,6 +694,7 @@ export function SettingsPage({
   const [asking, setAsking] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
+  const [advanced, setAdvanced] = useState(false)
   const [copyState, copy] = useCopy()
   const pathShown = useRef<HTMLElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -973,11 +964,14 @@ export function SettingsPage({
           {val("maxParallel") && (
             <TextField k="maxParallel" v={val("maxParallel") as Value} save={save} locked={locked} />
           )}
-          <details
+          <Disclosure
             className="border-t pt-3"
-            open={Boolean(val("claude") && (pending(val("claude") as Value) || val("claude")?.error))}
+            triggerClassName="text-sm"
+            label="Advanced"
+            // A value waiting for a restart or failing keeps Advanced open, so it shows.
+            open={advanced || Boolean(val("claude") && (pending(val("claude") as Value) || val("claude")?.error))}
+            onOpenChange={setAdvanced}
           >
-            <summary className="text-muted-foreground cursor-pointer text-sm">Advanced</summary>
             {val("claude") && (
               <TextField
                 k="claude"
@@ -1003,7 +997,7 @@ export function SettingsPage({
                 }
               />
             )}
-          </details>
+          </Disclosure>
         </>
       )}
       {section === "updates" && (

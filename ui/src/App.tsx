@@ -50,6 +50,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Disclosure } from "@/components/ui/collapsible"
+import { OptionSelect } from "@/components/option-select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { PairAgain, PairBanner, PairPage, usePairRequest } from "@/components/phones"
@@ -134,8 +136,7 @@ function NewBotDialog({
             onChange={(e) => setInstructions(e.target.value)}
           />
         </div>
-        <details className="text-sm">
-          <summary className="cursor-pointer">Model and effort (optional)</summary>
+        <Disclosure className="text-sm" label="Model and effort (optional)">
           <div className="mt-3 flex flex-col gap-3">
             <ModelEffortFields
               id="new"
@@ -154,7 +155,7 @@ function NewBotDialog({
               defaults={defaults}
             />
           </div>
-        </details>
+        </Disclosure>
         {error && <output className="text-destructive text-sm">{error}</output>}
         <DialogFooter>
           <Button disabled={!name.trim()} onClick={() => void create()}>
@@ -312,19 +313,23 @@ function NewTeamDialog({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="team-lead">Lead</Label>
-          <select
+          <OptionSelect
             id="team-lead"
-            className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
             disabled={members.length === 0}
             value={leadId}
-            onChange={(e) => setLead(e.target.value)}
-          >
-            {members.map((id) => (
-              <option key={id} value={id}>
-                {agents.find((a) => a.id === id)?.name}
-              </option>
-            ))}
-          </select>
+            options={members.flatMap((id) => {
+              const a = agents.find((b) => b.id === id)
+              if (!a) return []
+              const label = (
+                <>
+                  <ChatIcon chat={a} />
+                  {a.name}
+                </>
+              )
+              return [{ value: id, label }]
+            })}
+            onChange={setLead}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="team-agreement">Working agreement (optional)</Label>

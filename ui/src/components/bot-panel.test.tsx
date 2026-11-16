@@ -38,12 +38,15 @@ const agent: Bot = {
 const settings = (bot: Bot) => renderToStaticMarkup(<SettingsTab bot={bot} version={0} onDeleted={() => {}} />)
 // swatches returns the hue of each colour swatch and whether it is picked.
 const swatches = (html: string) =>
-  [...html.matchAll(/<input type="radio"[^>]*name="bot-hue"( checked="")? value="(\w+)"/g)].map((m) => [m[2], !!m[1]])
+  [...html.matchAll(/<button type="button" role="radio" aria-checked="(true|false)"[^>]*value="(\w+)"/g)].map((m) => [
+    m[2],
+    m[1] === "true",
+  ])
 
 test("a bot's settings show the five colours with its stored one picked", () => {
   const html = settings(agent)
-  assert.include(html, "<legend")
-  assert.include(html, ">Colour</legend>")
+  assert.include(html, '<span id="bot-hue-label" class="mb-1 text-sm font-medium">Colour</span>')
+  assert.match(html, /<div role="radiogroup"[^>]*aria-labelledby="bot-hue-label"/)
   assert.deepEqual(swatches(html), [
     ["sky", false],
     ["emerald", false],

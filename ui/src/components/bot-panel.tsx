@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { RadioGroup as RadioGroupPrimitive } from "radix-ui"
 import { Play, Trash2, X } from "lucide-react"
 import { api, type Bot, type Memory, type Routine, type TeamSettings } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
@@ -16,6 +17,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { OptionSelect } from "@/components/option-select"
+import { RadioGroup } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -254,19 +257,13 @@ function ArtifactsTab({ agents, version, onRead }: { agents: Bot[]; version: num
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
-        <select
-          aria-label="Kind"
-          className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+        <OptionSelect
+          label="Kind"
+          className="w-auto shrink-0"
           value={kind}
-          onChange={(e) => setKind(e.target.value)}
-        >
-          <option value="">All kinds</option>
-          {ARTIFACT_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
+          options={[{ value: "", label: "All kinds" }, ...ARTIFACT_KINDS.map((k) => ({ value: k, label: k }))]}
+          onChange={setKind}
+        />
         <Input
           aria-label="Search artifacts"
           placeholder="Search"
@@ -430,18 +427,20 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
     <div className="flex flex-col gap-3 border-t pt-3">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="team-settings-lead">Lead</Label>
-        <select
+        <OptionSelect
           id="team-settings-lead"
-          className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
           value={lead}
-          onChange={(e) => setLead(e.target.value)}
-        >
-          {(team.members ?? []).map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
+          options={members.map((m) => {
+            const label = (
+              <>
+                <ChatIcon chat={{ id: m.id, kind: "agent" }} />
+                {m.name}
+              </>
+            )
+            return { value: m.id, label }
+          })}
+          onChange={setLead}
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="team-settings-agreement">Working agreement</Label>
@@ -566,29 +565,27 @@ export function ContextNote({ usage }: { usage: Usage | null | undefined }) {
 // HueSwatches picks a bot's colour from the palette; the choice saves with the other settings.
 function HueSwatches({ hue, onHue }: { hue: string; onHue: (hue: string) => void }) {
   return (
-    <fieldset className="flex flex-col gap-1.5">
-      <legend className="mb-1 text-sm font-medium">Colour</legend>
-      <div className="flex gap-1">
-        {hues.map((h) => (
-          <label
-            key={h}
-            title={h[0].toUpperCase() + h.slice(1)}
-            className="has-focus-visible:ring-ring/50 has-checked:border-foreground hover:bg-muted grid size-9 cursor-pointer place-items-center rounded-full border-2 border-transparent transition-colors has-focus-visible:ring-3"
-          >
-            <input
-              type="radio"
-              name="bot-hue"
+    <div className="flex flex-col gap-1.5">
+      <span id="bot-hue-label" className="mb-1 text-sm font-medium">
+        Colour
+      </span>
+      <RadioGroup aria-labelledby="bot-hue-label" className="flex gap-1" value={hue} onValueChange={onHue}>
+        {hues.map((h) => {
+          const name = h[0].toUpperCase() + h.slice(1)
+          return (
+            <RadioGroupPrimitive.Item
+              key={h}
               value={h}
-              checked={hue === h}
-              onChange={() => onHue(h)}
-              className="sr-only"
-              aria-label={h[0].toUpperCase() + h.slice(1)}
-            />
-            <BotDot className={cn("size-5", botColor("", h).text)} />
-          </label>
-        ))}
-      </div>
-    </fieldset>
+              title={name}
+              aria-label={name}
+              className="focus-visible:ring-ring/50 data-[state=checked]:border-foreground hover:bg-muted grid size-9 cursor-pointer place-items-center rounded-full border-2 border-transparent transition-colors outline-none focus-visible:ring-3"
+            >
+              <BotDot className={cn("size-5", botColor("", h).text)} />
+            </RadioGroupPrimitive.Item>
+          )
+        })}
+      </RadioGroup>
+    </div>
   )
 }
 

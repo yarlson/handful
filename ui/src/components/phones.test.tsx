@@ -78,7 +78,9 @@ test("P3: the scopes, with Chat and approve once chosen, and what a phone can do
     `A phone can send messages to your bots. A bot can then use any tools you've already always-allowed for it. A phone can never choose "Always allow" or change settings.`,
   ])
     assert.include(t, line)
-  assert.match(html, /<input type="radio"[^>]*name="phone-scope" checked=""\/><span><strong>Chat and approve once/)
+  assert.match(html, /<div role="radiogroup"[^>]*aria-labelledby="phone-scope-label"/)
+  assert.match(html, /role="radio" aria-checked="true"(?:(?!<label)[^])*<span><strong>Chat and approve once/)
+  assert.equal(html.match(/aria-checked="true"/g)?.length, 1)
   assert.include(t, "Pair a phone")
 })
 

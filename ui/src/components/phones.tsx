@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { encode } from "uqr"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useLoad } from "@/components/bot-panel"
 import { copyLabel, useCopy } from "@/components/copy"
 import { useNow } from "@/components/now"
@@ -192,20 +193,29 @@ export function TurnOn({ phone, onDone }: { phone: PhoneAccess; onDone: () => vo
         <strong>Phone access is off.</strong> Turn it on to use Handful from your phone. Handful opens one extra address
         on this computer and never listens on your network.
       </p>
-      <fieldset className="flex flex-col gap-1.5">
-        <legend className="mb-1 text-sm font-medium">The way in</legend>
-        {(
-          [
-            ["cloudflare", "Cloudflare Tunnel"],
-            ["tailscale", "Tailscale"],
-          ] as const
-        ).map(([id, name]) => (
-          <label key={id} className="flex min-h-8 items-center gap-2 text-sm max-md:min-h-11">
-            <input type="radio" name="phone-proxy" checked={proxy === id} onChange={() => setProxy(id)} />
-            {name}
-          </label>
-        ))}
-      </fieldset>
+      <div className="flex flex-col gap-1.5">
+        <span id="phone-proxy-label" className="mb-1 text-sm font-medium">
+          The way in
+        </span>
+        <RadioGroup
+          aria-labelledby="phone-proxy-label"
+          className="gap-1.5"
+          value={proxy}
+          onValueChange={(v) => setProxy(v as Proxy)}
+        >
+          {(
+            [
+              ["cloudflare", "Cloudflare Tunnel"],
+              ["tailscale", "Tailscale"],
+            ] as const
+          ).map(([id, name]) => (
+            <label key={id} className="flex min-h-8 cursor-pointer items-center gap-2 text-sm max-md:min-h-11">
+              <RadioGroupItem value={id} />
+              {name}
+            </label>
+          ))}
+        </RadioGroup>
+      </div>
       {proxy === "cloudflare" ? (
         <CloudflareText addr={phone.addr} host={host} />
       ) : (
@@ -304,23 +314,26 @@ export function Pairing({ phone, onChange }: { phone: PhoneAccess; onChange: () 
           Pair a phone
         </Button>
       )}
-      <fieldset className="flex flex-col gap-1">
-        <legend className="mb-1 font-medium">What this phone may do:</legend>
-        {SCOPES.map((s) => (
-          <label key={s.id} className="flex min-h-8 items-start gap-2 max-md:min-h-11">
-            <input
-              type="radio"
-              name="phone-scope"
-              className="mt-1"
-              checked={scope === s.id}
-              onChange={() => void choose(s.id)}
-            />
-            <span>
-              <strong>{s.name}</strong> — {s.help}
-            </span>
-          </label>
-        ))}
-      </fieldset>
+      <div className="flex flex-col gap-1">
+        <span id="phone-scope-label" className="mb-1 font-medium">
+          What this phone may do:
+        </span>
+        <RadioGroup
+          aria-labelledby="phone-scope-label"
+          className="gap-1"
+          value={scope}
+          onValueChange={(v) => void choose(v as Scope)}
+        >
+          {SCOPES.map((s) => (
+            <label key={s.id} className="flex min-h-8 cursor-pointer items-start gap-2 max-md:min-h-11">
+              <RadioGroupItem value={s.id} className="mt-0.5" />
+              <span>
+                <strong>{s.name}</strong> — {s.help}
+              </span>
+            </label>
+          ))}
+        </RadioGroup>
+      </div>
       <p className="text-muted-foreground">
         A phone can send messages to your bots. A bot can then use any tools you've already always-allowed for it. A
         phone can never choose "Always allow" or change settings.

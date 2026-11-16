@@ -28,7 +28,7 @@ import { MoveNotice } from "@/components/move-notice"
 import { NowChip } from "@/components/board"
 import { AcrossScreen, InboxScreen } from "@/components/tasks"
 import { tasksKey } from "@/lib/tasks"
-import { openSettingsPage, SettingsPage } from "@/components/settings"
+import { openSettingsPage, settingsBridge, SettingsPage } from "@/components/settings"
 import { isSettingsPath, pauseLabel, sectionOfPath } from "@/lib/settings"
 import { UpdatePill, useUpdate } from "@/components/update-pill"
 import { shown } from "@/lib/updates"
@@ -50,6 +50,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Disclosure } from "@/components/ui/collapsible"
+import { OptionSelect } from "@/components/option-select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { PairAgain, PairBanner, PairPage, usePairRequest } from "@/components/phones"
@@ -78,6 +80,8 @@ import {
 } from "@/lib/layout"
 import { chatPlace, chatUrl, lastChat, panelTabs, saveLastChat, type PanelTab, type Reading } from "@/lib/place"
 import { Reader } from "@/components/reader"
+import { AreaBoundary } from "@/components/area-boundary"
+import { DiscardDialog, UnsavedEdits } from "@/components/leave"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
 const NEEDS_YOU_PATH = "/needs-you"
@@ -134,8 +138,7 @@ function NewBotDialog({
             onChange={(e) => setInstructions(e.target.value)}
           />
         </div>
-        <details className="text-sm">
-          <summary className="cursor-pointer">Model and effort (optional)</summary>
+        <Disclosure className="text-sm" label="Model and effort (optional)">
           <div className="mt-3 flex flex-col gap-3">
             <ModelEffortFields
               id="new"
@@ -154,7 +157,7 @@ function NewBotDialog({
               defaults={defaults}
             />
           </div>
-        </details>
+        </Disclosure>
         {error && <output className="text-destructive text-sm">{error}</output>}
         <DialogFooter>
           <Button disabled={!name.trim()} onClick={() => void create()}>
@@ -312,19 +315,23 @@ function NewTeamDialog({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="team-lead">Lead</Label>
-          <select
+          <OptionSelect
             id="team-lead"
-            className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
             disabled={members.length === 0}
             value={leadId}
-            onChange={(e) => setLead(e.target.value)}
-          >
-            {members.map((id) => (
-              <option key={id} value={id}>
-                {agents.find((a) => a.id === id)?.name}
-              </option>
-            ))}
-          </select>
+            options={members.flatMap((id) => {
+              const a = agents.find((b) => b.id === id)
+              if (!a) return []
+              const label = (
+                <>
+                  <ChatIcon chat={a} />
+                  {a.name}
+                </>
+              )
+              return [{ value: id, label }]
+            })}
+            onChange={setLead}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="team-agreement">Working agreement (optional)</Label>
@@ -681,6 +688,7 @@ export function App() {
     pairRev,
     select,
     loadOlder,
+    reloadChat,
     reveal,
     refreshBots,
     reorder,
@@ -709,6 +717,31 @@ export function App() {
       else history.replaceState(history.state, "", to)
     }
     setWhere(here())
+  }, [])
+  // unsaved says a view holds edits that leaving it drops; leave asks before it runs a move then.
+  const unsaved = useRef(false)
+  const reportUnsaved = useCallback((u: boolean) => {
+    unsaved.current = u
+  }, [])
+  const [leaving, setLeaving] = useState<(() => void) | null>(null)
+  const leave = useCallback((then: () => void) => {
+    if (unsaved.current) setLeaving(() => then)
+    else then()
+  }, [])
+  const discard = () => {
+    unsaved.current = false
+    setLeaving(null)
+    leaving?.()
+  }
+  // A reload or a closed tab asks the browser's own question. The desktop app has none: there it
+  // would cancel the reload without a word.
+  useEffect(() => {
+    if (settingsBridge()) return
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (unsaved.current) e.preventDefault()
+    }
+    window.addEventListener("beforeunload", onUnload)
+    return () => window.removeEventListener("beforeunload", onUnload)
   }, [])
   const [selected, setSelected] = useState<string | null>(
     () => chatPlace(location.pathname, location.search)?.chat ?? null,
@@ -796,11 +829,12 @@ export function App() {
     return () => el.removeEventListener("keydown", onKey)
   }, [])
   // closePanel closes the panel and takes its tab out of the address.
-  const closePanel = useCallback(() => {
+  const closePanelNow = useCallback(() => {
     setPanel(false)
     const p = chatPlace(location.pathname, location.search)
     if (p?.tab) go(chatUrl({ ...p, tab: null }), "replace")
   }, [go])
+  const closePanel = useCallback(() => leave(closePanelNow), [leave, closePanelNow])
   // The keyboard goes into the panel when it opens over the chat, or when the control that opened
   // it left the page (the Now chip); it goes back to the panel button when the panel closes and
   // took the keyboard with it.
@@ -831,19 +865,25 @@ export function App() {
   const [screen, setScreen] = useState<"chat" | "inbox" | "waiting" | "across">(() =>
     location.pathname === NEEDS_YOU_PATH ? "waiting" : "chat",
   )
+  // Unsaved edits are always in the Settings tab, so only a move away from it asks first.
   const showTab = (tab: PanelTab) => {
     if (!selected) return
+    if (tab !== "settings")
+      return leave(() => {
+        setPanel(true)
+        go(chatUrl({ chat: selected, tab }))
+      })
     setPanel(true)
     go(chatUrl({ chat: selected, tab }))
     // The settings tab renders after this click; then its model select takes focus.
-    if (tab === "settings") requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
+    requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
   }
   const defaults = useDefaults()
   const aliases = defaults?.modelAliases ?? FALLBACK_ALIASES
 
   // showScreen shows a screen of the main area; in a narrow window the drawer closes on the choice.
   // Waiting for you has its own address; another screen leaves it, and Settings, for the chat's.
-  const showScreen = (s: typeof screen) => {
+  const showScreenNow = (s: typeof screen) => {
     setScreen(s)
     setDrawer(false)
     if (s === "waiting") {
@@ -851,15 +891,20 @@ export function App() {
     } else if (location.pathname === NEEDS_YOU_PATH || isSettingsPath(location.pathname))
       go(selected ? chatUrl({ chat: selected }) : "/")
   }
+  const showScreen = (s: typeof screen) => leave(() => showScreenNow(s))
   // openChat opens a chat, with the panel on tab when it is given. Without it the panel keeps
   // its tab.
   const openChat = (id: string, asked: PanelTab | null = panel ? (place?.tab ?? null) : null) => {
     const target = bots.find((b) => b.id === id)
     const tab = target && panelTabs(target, rights.computer).some((t) => t.tab === asked) ? asked : null
-    go(chatUrl({ chat: id, tab }))
-    if (tab) setPanel(true)
-    showScreen("chat")
-    setSelected(id)
+    const open = () => {
+      go(chatUrl({ chat: id, tab }))
+      if (tab) setPanel(true)
+      showScreenNow("chat")
+      setSelected(id)
+    }
+    if (id === selected && tab === "settings") open()
+    else leave(open)
   }
   // The question that each chat's next message answers, set by an Answer button.
   const [answering, setAnswering] = useState(() => new Map<string, Asked>())
@@ -879,10 +924,20 @@ export function App() {
     return () => window.removeEventListener(OPEN_SETTINGS, open)
   })
 
+  // shownUrl is the address shown, which a Back or Forward that would drop unsaved edits restores.
+  const shownUrl = useRef(location.pathname + location.search)
+  useEffect(() => {
+    shownUrl.current = where.path + where.search
+  }, [where])
   useEffect(() => {
     const onPopState = () => {
-      setWhere(here())
       const p = chatPlace(location.pathname, location.search)
+      if (unsaved.current && !(p?.chat === selected && p.tab === "settings")) {
+        history.pushState(null, "", shownUrl.current)
+        setLeaving(() => () => history.back())
+        return
+      }
+      setWhere(here())
       if (p) setSelected(p.chat)
       if (p?.tab) setPanel(true)
       if (location.pathname === NEEDS_YOU_PATH) setScreen("waiting")
@@ -890,7 +945,7 @@ export function App() {
     }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
-  }, [])
+  }, [selected])
   useEffect(() => {
     if (bots.length === 0 || bots.some((b) => b.id === selected)) return
     // Replace, not push: otherwise Back returns to the missing chat, which opens the first chat again.
@@ -951,10 +1006,14 @@ export function App() {
   // the address that Back returns to, and an inline panel stays on its tab.
   const openReader = (r: Reading) => {
     if (!selected) return
-    if (over) closePanel()
-    const to = chatUrl({ chat: selected, tab: over ? null : (place?.tab ?? null), reading: r })
-    if (reading) go(to, "replace")
-    else go(to, "push", READER)
+    const open = () => {
+      if (over) closePanelNow()
+      const to = chatUrl({ chat: selected, tab: over ? null : (place?.tab ?? null), reading: r })
+      if (reading) go(to, "replace")
+      else go(to, "push", READER)
+    }
+    if (over) leave(open)
+    else open()
   }
   const closeReader = () => {
     if ((history.state as typeof READER | null)?.reader) return history.back()
@@ -1017,8 +1076,10 @@ export function App() {
       case "waiting":
         return showScreen("waiting")
       case "settings":
-        setDrawer(false)
-        return openSettingsPage(action.section)
+        return leave(() => {
+          setDrawer(false)
+          openSettingsPage(action.section)
+        })
       case "new":
         return { bot: setCreating, team: setCreatingTeam, room: setCreatingRoom }[action.what](true)
       case "sidebar":
@@ -1077,95 +1138,99 @@ export function App() {
             <PanelLeftClose />
           </Button>
         </div>
-        {moved.data?.show && rights.computer && (
-          <MoveNotice
-            teams={teams}
-            error={moved.error}
-            onDone={() => void api.closeMoveNotice().then(moved.reload, (e: Error) => moved.setError(e.message))}
-            onRename={(t, name) => void api.updateBot(t.id, { name }).catch((e: Error) => moved.setError(e.message))}
+        <AreaBoundary area="sidebar">
+          {moved.data?.show && rights.computer && (
+            <MoveNotice
+              teams={teams}
+              error={moved.error}
+              onDone={() => void api.closeMoveNotice().then(moved.reload, (e: Error) => moved.setError(e.message))}
+              onRename={(t, name) => void api.updateBot(t.id, { name }).catch((e: Error) => moved.setError(e.message))}
+            />
+          )}
+          {bots.length > 0 && <SidebarFilter value={filter} onChange={setFilter} />}
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
+            <button
+              type="button"
+              aria-current={view === "across" ? "page" : undefined}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
+                view === "across"
+                  ? "bg-sidebar-foreground/10 font-medium"
+                  : "hover:bg-muted transition-colors duration-(--duration-fast)",
+              )}
+              onClick={() => showScreen("across")}
+            >
+              <LayoutDashboard className="size-4 shrink-0" />
+              <span className="flex-1">Across teams</span>
+              {needsN > 0 && (
+                <Badge variant="attention" aria-label={`${needsN} need you`}>
+                  {needsN}
+                </Badge>
+              )}
+            </button>
+            <button
+              type="button"
+              aria-current={view === "waiting" ? "page" : undefined}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
+                view === "waiting"
+                  ? "bg-sidebar-foreground/10 font-medium"
+                  : "hover:bg-muted transition-colors duration-(--duration-fast)",
+              )}
+              onClick={() => showScreen("waiting")}
+            >
+              <Inbox className="size-4 shrink-0" />
+              <span className="flex-1">Waiting for you</span>
+              {waitingN > 0 && (
+                <Badge variant="attention" aria-label={`${waitingN} waiting`}>
+                  {waitingN}
+                </Badge>
+              )}
+            </button>
+            {sections.map(
+              (sec) =>
+                (!filtered || sec.items.length > 0) && (
+                  <div key={sec.title} className="flex flex-col gap-0.5">
+                    <SectionTitle
+                      title={sec.title}
+                      action={sec.action}
+                      onAction={rights.computer ? sec.onAction : undefined}
+                    />
+                    <BotList
+                      items={sec.items}
+                      selected={view === "settings" ? null : selected}
+                      unread={unread}
+                      onSelect={(id) => openChat(id)}
+                      onReorder={filtered ? undefined : (ids) => void reorder(ids)}
+                    />
+                  </div>
+                ),
+            )}
+            {filtered && sections.every((sec) => sec.items.length === 0) && (
+              <p className="text-muted-foreground mt-3 px-2 text-sm">No matches</p>
+            )}
+            {bots.length === 0 && rights.computer && (
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreating(true)}>
+                <Plus /> Create your first bot
+              </Button>
+            )}
+            {bots.length === 1 && bots[0].role === BUILDER && (
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => openChat(bots[0].id)}>
+                <ArrowRight /> Set up your bots with {bots[0].name}
+              </Button>
+            )}
+          </nav>
+          <SidebarFooter
+            link={link}
+            onConnectors={rights.computer ? () => setConnectors(true) : undefined}
+            onSettings={() =>
+              leave(() => {
+                setDrawer(false)
+                openSettingsPage(rights.computer ? "general" : "appearance")
+              })
+            }
           />
-        )}
-        {bots.length > 0 && <SidebarFilter value={filter} onChange={setFilter} />}
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
-          <button
-            type="button"
-            aria-current={view === "across" ? "page" : undefined}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              view === "across"
-                ? "bg-sidebar-foreground/10 font-medium"
-                : "hover:bg-muted transition-colors duration-(--duration-fast)",
-            )}
-            onClick={() => showScreen("across")}
-          >
-            <LayoutDashboard className="size-4 shrink-0" />
-            <span className="flex-1">Across teams</span>
-            {needsN > 0 && (
-              <Badge variant="attention" aria-label={`${needsN} need you`}>
-                {needsN}
-              </Badge>
-            )}
-          </button>
-          <button
-            type="button"
-            aria-current={view === "waiting" ? "page" : undefined}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              view === "waiting"
-                ? "bg-sidebar-foreground/10 font-medium"
-                : "hover:bg-muted transition-colors duration-(--duration-fast)",
-            )}
-            onClick={() => showScreen("waiting")}
-          >
-            <Inbox className="size-4 shrink-0" />
-            <span className="flex-1">Waiting for you</span>
-            {waitingN > 0 && (
-              <Badge variant="attention" aria-label={`${waitingN} waiting`}>
-                {waitingN}
-              </Badge>
-            )}
-          </button>
-          {sections.map(
-            (sec) =>
-              (!filtered || sec.items.length > 0) && (
-                <div key={sec.title} className="flex flex-col gap-0.5">
-                  <SectionTitle
-                    title={sec.title}
-                    action={sec.action}
-                    onAction={rights.computer ? sec.onAction : undefined}
-                  />
-                  <BotList
-                    items={sec.items}
-                    selected={view === "settings" ? null : selected}
-                    unread={unread}
-                    onSelect={(id) => openChat(id)}
-                    onReorder={filtered ? undefined : (ids) => void reorder(ids)}
-                  />
-                </div>
-              ),
-          )}
-          {filtered && sections.every((sec) => sec.items.length === 0) && (
-            <p className="text-muted-foreground mt-3 px-2 text-sm">No matches</p>
-          )}
-          {bots.length === 0 && rights.computer && (
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreating(true)}>
-              <Plus /> Create your first bot
-            </Button>
-          )}
-          {bots.length === 1 && bots[0].role === BUILDER && (
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => openChat(bots[0].id)}>
-              <ArrowRight /> Set up your bots with {bots[0].name}
-            </Button>
-          )}
-        </nav>
-        <SidebarFooter
-          link={link}
-          onConnectors={rights.computer ? () => setConnectors(true) : undefined}
-          onSettings={() => {
-            setDrawer(false)
-            openSettingsPage(rights.computer ? "general" : "appearance")
-          }}
-        />
+        </AreaBoundary>
       </aside>
       {!collapsed && (
         <ResizeHandle
@@ -1203,16 +1268,23 @@ export function App() {
             </div>
           )}
           {view === "settings" ? (
-            <SettingsPage
-              computer={rights.computer}
+            <AreaBoundary
+              area="settings"
+              resetKey={sectionOfPath(where.path)}
               menu={menu}
-              pairRev={pairRev}
-              section={sectionOfPath(where.path)}
-              onSection={(s) => go(`/settings/${s}`, "replace")}
-              onClose={closeSettings}
-              onManageConnectors={() => setConnectors(true)}
-              restartRev={restartRev}
-            />
+              close={{ label: "Close settings", onClose: closeSettings }}
+            >
+              <SettingsPage
+                computer={rights.computer}
+                menu={menu}
+                pairRev={pairRev}
+                section={sectionOfPath(where.path)}
+                onSection={(s) => go(`/settings/${s}`, "replace")}
+                onClose={closeSettings}
+                onManageConnectors={() => setConnectors(true)}
+                restartRev={restartRev}
+              />
+            </AreaBoundary>
           ) : view === "across" ? (
             <AcrossScreen
               menu={menu}
@@ -1321,47 +1393,57 @@ export function App() {
                 </Button>
               </header>
               <div inert={reading !== null} className="flex min-h-0 flex-1">
-                <Chat
-                  bot={bot}
-                  entries={entries}
-                  rev={transcript?.rev ?? 0}
-                  older={!(transcript?.complete ?? true)}
-                  onLoadOlder={() => void loadOlder(bot.id)}
-                  onReveal={(entryId) => reveal(bot.id, entryId)}
-                  status={transcriptStatus.get(bot.id) ?? "unloaded"}
-                  answering={answering.get(bot.id) ?? null}
-                  draining={draining}
-                  pause={pause}
-                  pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
-                  onAnswer={(q) => setAnswer(bot.id, q)}
-                  search={searchN}
-                  onCloseSearch={() => setSearch(null)}
-                  post={post && postFound === `${bot.id}:${post}` ? post : null}
-                  mentionables={
-                    bot.kind === "room"
-                      ? (bot.members ?? [])
-                      : agents.filter((a) => a.id !== bot.id).map((a) => ({ id: a.id, name: a.name }))
-                  }
-                />
+                <AreaBoundary area="chat" resetKey={bot.id} onReload={() => void reloadChat(bot.id)}>
+                  <Chat
+                    bot={bot}
+                    entries={entries}
+                    rev={transcript?.rev ?? 0}
+                    older={!(transcript?.complete ?? true)}
+                    onLoadOlder={() => void loadOlder(bot.id)}
+                    onReveal={(entryId) => reveal(bot.id, entryId)}
+                    status={transcriptStatus.get(bot.id) ?? "unloaded"}
+                    answering={answering.get(bot.id) ?? null}
+                    draining={draining}
+                    pause={pause}
+                    pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
+                    onAnswer={(q) => setAnswer(bot.id, q)}
+                    search={searchN}
+                    onCloseSearch={() => setSearch(null)}
+                    post={post && postFound === `${bot.id}:${post}` ? post : null}
+                    mentionables={
+                      bot.kind === "room"
+                        ? (bot.members ?? [])
+                        : agents.filter((a) => a.id !== bot.id).map((a) => ({ id: a.id, name: a.name }))
+                    }
+                  />
+                </AreaBoundary>
               </div>
               {reading && (
-                <Reader
-                  key={`${reading.kind}:${reading.id}`}
-                  reading={reading}
-                  chat={bot.id}
-                  agents={agents}
-                  teams={teams}
+                <AreaBoundary
+                  area="reader"
+                  resetKey={`${reading.kind}:${reading.id}`}
                   menu={menu}
-                  onClose={closeReader}
-                  onGone={() => {
-                    closeReader()
-                    setError("Not found. The linked artifact or skill was deleted or never existed.")
-                  }}
-                  onDeleted={() => {
-                    closeReader()
-                    setListsRev((n) => n + 1)
-                  }}
-                />
+                  close={{ label: "Back to chat", onClose: closeReader }}
+                  className="bg-background absolute inset-0 z-20"
+                >
+                  <Reader
+                    key={`${reading.kind}:${reading.id}`}
+                    reading={reading}
+                    chat={bot.id}
+                    agents={agents}
+                    teams={teams}
+                    menu={menu}
+                    onClose={closeReader}
+                    onGone={() => {
+                      closeReader()
+                      setError("Not found. The linked artifact or skill was deleted or never existed.")
+                    }}
+                    onDeleted={() => {
+                      closeReader()
+                      setListsRev((n) => n + 1)
+                    }}
+                  />
+                </AreaBoundary>
               )}
             </div>
           ) : (
@@ -1403,19 +1485,25 @@ export function App() {
               )}
               ref={panelKeys}
             >
-              <BotPanel
-                bot={bot}
-                agents={agents}
-                version={(transcript?.rev ?? 0) + listsRev}
-                onDeleted={() => setSelected(null)}
-                tab={place?.tab ?? null}
-                onTab={(tab) => go(chatUrl({ ...(place ?? { chat: bot.id }), tab }))}
-                onRead={openReader}
-                teams={teams}
-                onOpenInbox={() => setScreen("inbox")}
-                paused={draining ? pause : null}
-                onClose={over ? closePanel : undefined}
-              />
+              <AreaBoundary
+                area="panel"
+                resetKey={`${bot.id}:${place?.tab ?? ""}`}
+                close={{ label: "Close panel", onClose: closePanel }}
+              >
+                <BotPanel
+                  bot={bot}
+                  agents={agents}
+                  version={(transcript?.rev ?? 0) + listsRev}
+                  onDeleted={() => setSelected(null)}
+                  tab={place?.tab ?? null}
+                  onTab={(tab) => leave(() => go(chatUrl({ ...(place ?? { chat: bot.id }), tab })))}
+                  onRead={openReader}
+                  teams={teams}
+                  onOpenInbox={() => leave(() => setScreen("inbox"))}
+                  paused={draining ? pause : null}
+                  onClose={over ? closePanel : undefined}
+                />
+              </AreaBoundary>
             </aside>
           </>
         )}
@@ -1463,7 +1551,12 @@ export function App() {
           openChat(id)
         }}
       />
+      <DiscardDialog open={leaving !== null} onDiscard={discard} onKeep={() => setLeaving(null)} />
     </div>
   )
-  return <BotHuesProvider bots={bots}>{layout}</BotHuesProvider>
+  return (
+    <BotHuesProvider bots={bots}>
+      <UnsavedEdits value={reportUnsaved}>{layout}</UnsavedEdits>
+    </BotHuesProvider>
+  )
 }

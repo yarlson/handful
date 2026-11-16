@@ -122,7 +122,7 @@ test("the sections come in order: Now, Needs you, Next, Waiting on other teams, 
     'id="budget-heading"',
   ])
   // Earlier starts collapsed.
-  assert.match(html, /<details class="group\/earlier">/)
+  assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>(?:(?!<\/button>)[^])*Earlier \(/)
   for (const id of ["now", "needs", "next", "sent"]) {
     assert.match(html, new RegExp(`<section aria-labelledby="${id}-heading"`), id)
     assert.match(html, new RegExp(`<h3 id="${id}-heading"`), id)

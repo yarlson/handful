@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { openSettingsPage } from "@/components/settings"
 import { Label } from "@/components/ui/label"
+import { OptionSelect } from "@/components/option-select"
 import { cn } from "@/lib/utils"
 
 // FALLBACK_ALIASES name models before GET /api/defaults has answered.
@@ -50,8 +51,6 @@ export function useDefaults(): Defaults | null {
   }, [])
   return d
 }
-
-const selectClass = "border-input h-9 rounded-md border bg-transparent px-2 text-sm"
 
 // ModelEffortFields edits a model and an effort. "" inherits; the first option of each
 // select names what it would inherit and from where.
@@ -88,24 +87,19 @@ export function ModelEffortFields({
     <>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={`${id}-model`}>{modelLabel}</Label>
-        <select
+        <OptionSelect
           id={`${id}-model`}
-          className={selectClass}
           value={shown}
-          onChange={(e) => {
-            const v = e.target.value
+          options={[
+            { value: "", label: defaultModelOption(inherited.model, aliases) },
+            ...aliases.map((a) => ({ value: a, label: modelName(a, aliases) })),
+            { value: CUSTOM, label: "Custom model ID…" },
+          ]}
+          onChange={(v) => {
             setCustom(v === CUSTOM)
             onModel(v === CUSTOM ? (selectValue(model, aliases) === CUSTOM ? model : "") : v)
           }}
-        >
-          <option value="">{defaultModelOption(inherited.model, aliases)}</option>
-          {aliases.map((a) => (
-            <option key={a} value={a}>
-              {modelName(a, aliases)}
-            </option>
-          ))}
-          <option value={CUSTOM}>Custom model ID…</option>
-        </select>
+        />
         {custom && (
           <>
             <Label htmlFor={`${id}-model-custom`} className="text-muted-foreground text-xs">
@@ -130,14 +124,15 @@ export function ModelEffortFields({
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={`${id}-effort`}>{effortLabel}</Label>
-        <select id={`${id}-effort`} className={selectClass} value={effort} onChange={(e) => onEffort(e.target.value)}>
-          <option value="">{defaultEffortOption(inherited.effort)}</option>
-          {levels.map((l) => (
-            <option key={l} value={l}>
-              {effortName(l)}
-            </option>
-          ))}
-        </select>
+        <OptionSelect
+          id={`${id}-effort`}
+          value={effort}
+          options={[
+            { value: "", label: defaultEffortOption(inherited.effort) },
+            ...levels.map((l) => ({ value: l, label: effortName(l) })),
+          ]}
+          onChange={onEffort}
+        />
         {(effort === "xhigh" || effort === "max") && (
           <p className="text-muted-foreground text-xs">
             Models that don't support a level run at the nearest lower one.

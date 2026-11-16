@@ -938,6 +938,9 @@ func (s *server) listGrants(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if grants == nil {
+		grants = []string{}
+	}
 	writeJSON(w, http.StatusOK, grants)
 }
 

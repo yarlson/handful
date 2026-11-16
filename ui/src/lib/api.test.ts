@@ -57,6 +57,22 @@ test("starting the plan posts to its route", async () => {
   assert.deepEqual(calls, [{ method: "POST", url: "/api/teams/t1/goal-queue/start", body: {} }])
 })
 
+test("routine calls go to the server's routes with their bodies", async () => {
+  const calls = stubFetch(200)
+  await api.createRoutine("b1", { name: "Standup", prompt: "Sum up.", schedule: "@daily" })
+  await api.updateRoutine("r1", { schedule: "@every 2h" })
+  await api.updateRoutine("r1", { enabled: false })
+  assert.deepEqual(calls, [
+    {
+      method: "POST",
+      url: "/api/bots/b1/routines",
+      body: { name: "Standup", prompt: "Sum up.", schedule: "@daily" },
+    },
+    { method: "PATCH", url: "/api/routines/r1", body: { schedule: "@every 2h" } },
+    { method: "PATCH", url: "/api/routines/r1", body: { enabled: false } },
+  ])
+})
+
 test("task calls go to the server's routes with their bodies", async () => {
   const calls = stubFetch(200)
   await api.userTask("t1", { text: "Ship CSV export.", startNow: true })

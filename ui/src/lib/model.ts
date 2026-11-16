@@ -62,7 +62,7 @@ export function sourceName(source: ModelSource | GlobalSource): string {
   if (source === "config") return "config"
   if (source === "env") return "environment"
   if (source === "bot") return "this bot"
-  return "Claude Code's default"
+  return "Claude Code default"
 }
 
 // Inherited is what a value would be without the bot's (or team's) own setting.
@@ -70,7 +70,7 @@ export type Inherited = { value: string; source: ModelSource | GlobalSource }
 
 // defaultModelOption is the label of the select's first option, which inherits.
 export function defaultModelOption(inherited: Inherited, aliases: string[]): string {
-  if (!inherited.value) return "Default — Claude Code's default"
+  if (!inherited.value) return "Claude Code default"
   return `Default — ${modelName(inherited.value, aliases)} (from ${sourceName(inherited.source)})`
 }
 
@@ -124,7 +124,7 @@ export function sourceLine(e: Effective): string {
 // chipLabel is the full description of a bot's values, for the chip's aria-label and
 // tooltip. It names the full model ID when a run reported one, and a mismatch first.
 export function chipLabel(e: Effective, aliases: string[]): string {
-  const name = e.model ? modelName(e.model, aliases) : "Claude Code's default model"
+  const name = e.model ? modelName(e.model, aliases) : "Claude Code default"
   const id = e.modelId && e.modelId !== e.model ? ` (${e.modelId})` : ""
   const model = `Model ${name}${id}, ${originPhrase(e.modelSource)}.`
   const effort = e.effort
@@ -139,7 +139,7 @@ function originPhrase(s: ModelSource): string {
   if (s === "team") return "the team's default"
   if (s === "global") return "from global settings"
   if (s === "env") return "from the environment"
-  return "Claude Code's default"
+  return "from Claude Code"
 }
 
 // postTooltip describes the model and effort that wrote a post, or null for posts that
@@ -156,7 +156,7 @@ export function postTooltip(
     const id = body.modelId && body.modelId !== body.model && body.model ? ` (${body.modelId})` : ""
     parts.push(`Written with ${name}${id}`)
   } else {
-    parts.push("Written with Claude Code's default model")
+    parts.push("Written with the Claude Code default model")
   }
   if (body.effort) parts.push(`effort ${body.effort}`)
   return parts.join(" · ")

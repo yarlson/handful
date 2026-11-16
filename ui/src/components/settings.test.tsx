@@ -54,8 +54,9 @@ test("a flag-set value is disabled, chipped and explains the flag and the file",
   )
   assert.include(html, "Set by -effort")
   // It stays in the tab order, so the line that says why can be heard.
-  assert.match(html, /<select[^>]*id="setting-effort"[^>]*aria-disabled="true"/)
-  assert.notMatch(html, /<select[^>]*disabled=""/)
+  assert.match(html, /<button[^>]*role="combobox"[^>]*id="setting-effort"[^>]*aria-disabled="true"/)
+  assert.notMatch(html, /<button[^>]* disabled=""/)
+  assert.include(html, ">High</span>")
   assert.include(html, 'aria-describedby="setting-effort-help setting-effort-flag"')
   assert.include(html, 'id="setting-effort-flag"')
   assert.include(html, "<code")
@@ -155,8 +156,7 @@ test("Appearance shows this browser's stored choice in a labelled select per set
     ["settings-textSize", "Text size", "Large"],
   ]) {
     assert.include(html, `<label for="${id}" class="text-sm font-medium">${label}</label>`)
-    assert.match(html, new RegExp(`<select id="${id}" aria-describedby="${id}-help"`))
-    assert.match(html, new RegExp(`<option value="[a-z]+" selected="">${chosen}</option>`), id)
+    assert.match(html, new RegExp(`<button[^>]*role="combobox"[^>]* id="${id}" aria-describedby="${id}-help"`))
+    assert.match(html, new RegExp(`id="${id}"[^>]*><span data-slot="select-value"[^>]*>${chosen}</span>`), id)
   }
-  assert.include(html, ">System</option>")
 })

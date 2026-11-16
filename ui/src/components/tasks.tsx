@@ -51,6 +51,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { OptionSelect } from "@/components/option-select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -531,18 +532,16 @@ function InboxCard({ g, view }: { g: Goal; view: InboxContext }) {
       <div className="flex flex-wrap items-center gap-1.5">
         {g.needsUser && !typing && rights.computer && (
           <>
-            <select
-              aria-label={`Place in the plan: ${g.text}`}
-              className="border-input h-7 rounded-md border bg-transparent px-1 text-xs"
-              value={place}
-              onChange={(e) => setPlace(Number(e.target.value))}
-            >
-              {Array.from({ length: view.planned + 1 }, (_, i) => (
-                <option key={i} value={i + 1}>
-                  {`#${i + 1} in the plan`}
-                </option>
-              ))}
-            </select>
+            <OptionSelect
+              label={`Place in the plan: ${g.text}`}
+              className="w-auto"
+              value={String(place)}
+              options={Array.from({ length: view.planned + 1 }, (_, i) => ({
+                value: String(i + 1),
+                label: `#${i + 1} in the plan`,
+              }))}
+              onChange={(v) => setPlace(Number(v))}
+            />
             <Button
               size="sm"
               aria-label={`Take: ${g.text}`}
@@ -935,19 +934,13 @@ export function SendTaskDialog({
         </DialogHeader>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="send-task-to">Team</Label>
-          <select
+          <OptionSelect
             id="send-task-to"
-            className="border-input h-9 w-full min-w-0 truncate rounded-md border bg-transparent px-2 text-sm"
             value={to}
-            onChange={(e) => setTo(e.target.value)}
-          >
-            <option value="">Choose a team</option>
-            {targets.map((t) => (
-              <option key={t.id} value={t.id}>
-                {teamOption(t)}
-              </option>
-            ))}
-          </select>
+            placeholder="Choose a team"
+            options={targets.map((t) => ({ value: t.id, label: teamOption(t) }))}
+            onChange={setTo}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="send-task-text">What should the team do?</Label>

@@ -805,6 +805,17 @@ func TestTeamEndpointsCreateAndUpdateATeamAndShowItsMemory(t *testing.T) {
 	}
 }
 
+func TestGrantsOfABotWithoutGrantsAreAnEmptyList(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ana, err := svc.CreateBot(context.Background(), "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "GET", "/api/bots/"+ana.ID+"/grants", "", nil); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+		t.Fatalf("GET grants = %d %q; want 200 \"[]\\n\"", rec.Code, rec.Body)
+	}
+}
+
 func TestGoalEndpointsStartExtendAndEndAGoal(t *testing.T) {
 	h, svc := newTestHandler(t)
 	ctx := context.Background()

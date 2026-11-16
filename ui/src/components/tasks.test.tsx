@@ -91,8 +91,11 @@ test("a task its lead couldn't settle needs the user, who takes it at a place in
   assert.include(html, "needs you: Dee didn&#x27;t decide within 30 min")
   assert.include(html, 'aria-label="Take: Fix the scroll"')
   assert.include(html, 'aria-label="Place in the plan: Fix the scroll"')
-  assert.include(html, '<option value="1">#1 in the plan</option>')
-  assert.include(html, '<option value="3" selected="">#3 in the plan</option>')
+  // The place starts at the end of the plan.
+  assert.match(
+    html,
+    /aria-label="Place in the plan: Fix the scroll"[^>]*><span data-slot="select-value"[^>]*>#3 in the plan</,
+  )
   assert.include(html, 'aria-label="Push back: Fix the scroll"')
 })
 

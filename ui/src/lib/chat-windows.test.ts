@@ -141,6 +141,20 @@ test("a chat beyond the ones kept unloads, and loads its newest page again when 
   assert.equal(s.asked.at(-1), `k0 limit=${WINDOW_PAGE}`)
 })
 
+test("reload drops a loaded chat's window and loads its newest page again", async () => {
+  const s = fakeServer(range(1, 2))
+  void s.chats.select("c")
+  await s.release()
+  s.entries.push(e(3))
+  void s.chats.reload("c")
+  assert.isUndefined(s.chats.get("c"), "the old window is gone at once")
+  assert.isFalse(s.calls.windows.has("c"))
+  assert.deepEqual(s.calls.unloaded, ["c"])
+  await s.release()
+  assert.deepEqual(seqs(s.chats), [1, 2, 3])
+  assert.deepEqual(s.asked, [`c limit=${WINDOW_PAGE}`, `c limit=${WINDOW_PAGE}`])
+})
+
 test("a page that arrives after its chat unloaded changes nothing", async () => {
   const s = fakeServer(range(1, 2))
   void s.chats.select("c")

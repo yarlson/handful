@@ -141,6 +141,9 @@ export type Routine = {
   createdAt: number
 }
 
+// RoutineText is what the user types for a routine.
+export type RoutineText = { name: string; prompt: string; schedule: string }
+
 export type Artifact = {
   id: string
   kind: ArtifactKind
@@ -469,7 +472,10 @@ export const api = {
     request<void>("POST", `/api/bots/${id}/memory`, fact),
   deleteMemory: (id: string) => request<void>("DELETE", `/api/memory/${id}`),
   routines: (id: string) => request<Routine[]>("GET", `/api/bots/${id}/routines`),
-  setRoutineEnabled: (id: string, enabled: boolean) => request<Routine>("PATCH", `/api/routines/${id}`, { enabled }),
+  createRoutine: (botId: string, routine: RoutineText) =>
+    request<Routine>("POST", `/api/bots/${botId}/routines`, routine),
+  updateRoutine: (id: string, patch: Partial<RoutineText> & { enabled?: boolean }) =>
+    request<Routine>("PATCH", `/api/routines/${id}`, patch),
   runRoutine: (id: string) => request<{ turnId: string }>("POST", `/api/routines/${id}/run`, {}),
   deleteRoutine: (id: string) => request<void>("DELETE", `/api/routines/${id}`),
   skills: () => request<Skill[]>("GET", "/api/skills"),

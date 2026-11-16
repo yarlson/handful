@@ -82,6 +82,8 @@ export function useHandful() {
       }),
   )
   const loadOlder = useCallback((botId: string) => chats.loadOlder(botId), [chats])
+  // Stryker disable next-line all: this hook runs only in a browser, where the chat's Reload calls it; no unit test renders it
+  const reloadChat = useCallback((botId: string) => chats.reload(botId), [chats])
   const reveal = useCallback((botId: string, entryId: string) => chats.reveal(botId, entryId), [chats])
 
   const select = useCallback(
@@ -192,6 +194,7 @@ export function useHandful() {
     pairRev,
     select,
     loadOlder,
+    reloadChat,
     reveal,
     refreshBots,
     reorder,

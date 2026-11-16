@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Play, Trash2, X } from "lucide-react"
-import { api, type Bot, type Memory, type Routine, type TeamSettings } from "@/lib/api"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { RadioGroup as RadioGroupPrimitive } from "radix-ui"
+import { Pencil, Play, Plus, Trash2, X } from "lucide-react"
+import { api, type Bot, type Memory, type Routine, type RoutineText } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
 import { latestOnly } from "@/lib/latest"
 import { Badge } from "@/components/ui/badge"
@@ -16,10 +17,14 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Confirm } from "@/components/confirm"
+import { useUnsavedEdits } from "@/components/leave"
+import { OptionSelect } from "@/components/option-select"
+import { RadioGroup } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { budgetError, decisionError, inboxError } from "@/lib/tasks"
+import { draftOf, rebase, savePlan, unsaved, type BotDraft, type TeamDraft } from "@/lib/bot-settings"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { panelTabs, shownTab, type PanelTab, type Reading } from "@/lib/place"
 import { contextLine, usageKey, type Usage } from "@/lib/usage"
@@ -33,6 +38,7 @@ import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/c
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 import { forgetHistory, withStorage } from "@/lib/history"
 import { dateTime } from "@/lib/dates"
+import { fieldOfError, scheduleInWords, type RoutineField } from "@/lib/routines"
 import { useNow } from "@/components/now"
 
 // useWhen formats a time as a day and a time; its clock ticks each minute, so Today becomes
@@ -117,6 +123,41 @@ const scopeLabel: Record<Memory["scope"], string> = {
   user: "shared",
 }
 
+// revealed shows a row's control on hover, on keyboard focus, on touch screens and while
+// its confirm is open.
+const revealed =
+  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 data-[state=open]:opacity-100"
+
+// MemoryFact is one remembered fact: its text, tier, scope, author and date, and Forget.
+export function MemoryFact({
+  fact: m,
+  when,
+  onForget,
+}: {
+  fact: Memory
+  when: (ms: number | null) => string
+  onForget: () => void
+}) {
+  return (
+    <div className="group flex items-start gap-2 rounded-md border p-2 text-sm">
+      <div className="flex-1">
+        <p>{m.fact}</p>
+        <div className="mt-1 flex gap-1">
+          <Badge variant={m.tier === "profile" ? "default" : "secondary"}>{m.tier}</Badge>
+          <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
+          {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
+          <span className="text-muted-foreground text-xs">{when(m.createdAt)}</span>
+        </div>
+      </div>
+      <Confirm question="Forget this fact?" action="Forget" onConfirm={onForget}>
+        <Button size="icon" variant="ghost" aria-label="Forget" className={revealed}>
+          <Trash2 />
+        </Button>
+      </Confirm>
+    </div>
+  )
+}
+
 function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
   const when = useWhen()
   const { data, error, reload, setError } = useLoad(() => api.memory(bot.id), `${bot.id}:${version}`)
@@ -139,36 +180,171 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
         </p>
       )}
       {data?.map((m: Memory) => (
-        <div key={m.id} className="group flex items-start gap-2 rounded-md border p-2 text-sm">
-          <div className="flex-1">
-            <p>{m.fact}</p>
-            <div className="mt-1 flex gap-1">
-              <Badge variant={m.tier === "profile" ? "default" : "secondary"}>
-                {m.tier === "log" ? "journal" : m.tier}
-              </Badge>
-              <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
-              {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
-              <span className="text-muted-foreground text-xs">{when(m.createdAt)}</span>
-            </div>
-          </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Forget"
-            className="opacity-0 group-hover:opacity-100"
-            onClick={() => void remove(m.id)}
-          >
-            <Trash2 />
-          </Button>
-        </div>
+        <MemoryFact key={m.id} fact={m} when={when} onForget={() => void remove(m.id)} />
       ))}
     </div>
+  )
+}
+
+// RoutineItem is one routine: its name, prompt, schedule and next run, with its actions.
+export function RoutineItem({
+  routine: r,
+  when,
+  onEnabled,
+  onRun,
+  onEdit,
+  onDelete,
+}: {
+  routine: Routine
+  when: (ms: number | null) => string
+  onEnabled: (enabled: boolean) => void
+  onRun: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const words = scheduleInWords(r.schedule)
+  return (
+    <div className="rounded-md border p-2 text-sm">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 font-medium">{r.name}</span>
+        <Switch aria-label={`Enabled: ${r.name}`} checked={r.enabled} onCheckedChange={onEnabled} />
+      </div>
+      <p className="text-muted-foreground mt-1 text-xs">{r.prompt}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 text-xs">
+        {words ? (
+          <span title={r.schedule}>{words}</span>
+        ) : (
+          <code className="bg-sidebar-foreground/5 shrink-0 rounded-sm px-1 whitespace-nowrap">{r.schedule}</code>
+        )}
+        <span className="text-muted-foreground min-w-0">{r.enabled ? `next ${when(r.nextRunAt)}` : "Paused"}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-end gap-1">
+        <Button size="xs" variant="ghost" aria-label={`Run now: ${r.name}`} onClick={onRun}>
+          <Play /> Run now
+        </Button>
+        <Button size="xs" variant="ghost" aria-label={`Edit: ${r.name}`} onClick={onEdit}>
+          <Pencil /> Edit
+        </Button>
+        <Confirm question="Delete this routine?" action="Delete" onConfirm={onDelete}>
+          <Button size="xs" variant="ghost" aria-label={`Delete routine: ${r.name}`}>
+            <Trash2 />
+          </Button>
+        </Confirm>
+      </div>
+    </div>
+  )
+}
+
+const noRoutine: RoutineText = { name: "", prompt: "", schedule: "" }
+
+// RoutineForm creates or edits a routine. A server error shows next to the field it is about.
+export function RoutineForm({
+  routine = noRoutine,
+  onSave,
+  onCancel,
+}: {
+  routine?: RoutineText
+  onSave: (routine: RoutineText) => Promise<unknown>
+  onCancel: () => void
+}) {
+  const [text, setText] = useState(routine)
+  const [error, setError] = useState<{ field: RoutineField | null; message: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const id = useId()
+  const edit = (change: Partial<RoutineText>) => {
+    setText((t) => ({ ...t, ...change }))
+    setError(null)
+  }
+  const save = async () => {
+    setBusy(true)
+    try {
+      await onSave({ name: text.name.trim(), prompt: text.prompt.trim(), schedule: text.schedule.trim() })
+    } catch (e) {
+      const message = (e as Error).message
+      setError({ field: fieldOfError(message), message })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const fieldError = (field: RoutineField) =>
+    error?.field === field ? (
+      <p id={`${id}-${field}-error`} className="text-destructive text-xs">
+        {error.message}
+      </p>
+    ) : null
+  const invalid = (field: RoutineField, help?: string) => ({
+    "aria-invalid": error?.field === field || undefined,
+    "aria-describedby": [help, error?.field === field && `${id}-${field}-error`].filter(Boolean).join(" ") || undefined,
+  })
+  const words = scheduleInWords(text.schedule)
+  return (
+    <form
+      className="flex flex-col gap-3 rounded-md border p-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void save()
+      }}
+    >
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-name`}>Name</Label>
+        <Input
+          id={`${id}-name`}
+          value={text.name}
+          onChange={(e) => edit({ name: e.target.value })}
+          {...invalid("name")}
+        />
+        {fieldError("name")}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-prompt`}>What to do each time</Label>
+        <Textarea
+          id={`${id}-prompt`}
+          rows={3}
+          value={text.prompt}
+          onChange={(e) => edit({ prompt: e.target.value })}
+          {...invalid("prompt")}
+        />
+        {fieldError("prompt")}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-schedule`}>Schedule</Label>
+        <Input
+          id={`${id}-schedule`}
+          className="font-mono"
+          placeholder="17 9 * * 1-5"
+          value={text.schedule}
+          onChange={(e) => edit({ schedule: e.target.value })}
+          {...invalid("schedule", `${id}-schedule-help`)}
+        />
+        <p id={`${id}-schedule-help`} className="text-muted-foreground text-xs">
+          {text.schedule.trim() && words
+            ? words
+            : "Five cron fields (minute, hour, day of month, month, weekday), such as 17 9 * * 1-5, or @daily, @hourly or @every 2h. Times are this computer's."}
+        </p>
+        {fieldError("schedule")}
+      </div>
+      {error && error.field === null && <p className="text-destructive text-xs">{error.message}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={busy || !text.name.trim() || !text.prompt.trim() || !text.schedule.trim()}
+        >
+          Save
+        </Button>
+      </div>
+    </form>
   )
 }
 
 function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
   const when = useWhen()
   const { data, error, reload, setError } = useLoad(() => api.routines(bot.id), `${bot.id}:${version}`)
+  // editing is the id of the routine in its form, "new" for a new one, or null.
+  const [editing, setEditing] = useState<string | null>(null)
   const act = async (f: () => Promise<unknown>) => {
     try {
       await f()
@@ -177,44 +353,49 @@ function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
       setError((e as Error).message)
     }
   }
+  const saved = async (f: () => Promise<unknown>) => {
+    await f()
+    setEditing(null)
+    reload()
+  }
   return (
     <div className="flex flex-col gap-2">
+      {editing === "new" ? (
+        <RoutineForm
+          onSave={(text) => saved(() => api.createRoutine(bot.id, text))}
+          onCancel={() => setEditing(null)}
+        />
+      ) : (
+        <Button size="sm" variant="outline" className="self-start" onClick={() => setEditing("new")}>
+          <Plus /> New routine
+        </Button>
+      )}
       {error && <p className="text-destructive text-xs">{error}</p>}
-      {data?.length === 0 && (
+      {data?.length === 0 && editing !== "new" && (
         <p className="text-muted-foreground text-sm">
-          No routines. Ask {bot.name} for anything recurring, like "every weekday at 8:10, brief me".
+          No routines. Add one, or ask {bot.name} for anything recurring, like "every weekday at 8:10, brief me".
         </p>
       )}
-      {data?.map((r: Routine) => (
-        <div key={r.id} className="rounded-md border p-2 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="flex-1 font-medium">{r.name}</span>
-            <Switch
-              aria-label="Enabled"
-              checked={r.enabled}
-              onCheckedChange={(v) => void act(() => api.setRoutineEnabled(r.id, v))}
-            />
-          </div>
-          <p className="text-muted-foreground mt-1 text-xs">{r.prompt}</p>
-          <div className="mt-2 flex items-center gap-2 text-xs">
-            <code className="bg-sidebar-foreground/5 shrink-0 rounded-sm px-1 whitespace-nowrap">{r.schedule}</code>
-            <span className="text-muted-foreground min-w-0">next {r.enabled ? when(r.nextRunAt) : "paused"}</span>
-          </div>
-          <div className="mt-1 flex items-center justify-end gap-1">
-            <Button size="xs" variant="ghost" onClick={() => void act(() => api.runRoutine(r.id))}>
-              <Play /> Run now
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              aria-label="Delete routine"
-              onClick={() => void act(() => api.deleteRoutine(r.id))}
-            >
-              <Trash2 />
-            </Button>
-          </div>
-        </div>
-      ))}
+      {data?.map((r: Routine) =>
+        editing === r.id ? (
+          <RoutineForm
+            key={r.id}
+            routine={r}
+            onSave={(text) => saved(() => api.updateRoutine(r.id, text))}
+            onCancel={() => setEditing(null)}
+          />
+        ) : (
+          <RoutineItem
+            key={r.id}
+            routine={r}
+            when={when}
+            onEnabled={(v) => void act(() => api.updateRoutine(r.id, { enabled: v }))}
+            onRun={() => void act(() => api.runRoutine(r.id))}
+            onEdit={() => setEditing(r.id)}
+            onDelete={() => void act(() => api.deleteRoutine(r.id))}
+          />
+        ),
+      )}
     </div>
   )
 }
@@ -254,19 +435,13 @@ function ArtifactsTab({ agents, version, onRead }: { agents: Bot[]; version: num
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
-        <select
-          aria-label="Kind"
-          className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+        <OptionSelect
+          label="Kind"
+          className="w-auto shrink-0"
           value={kind}
-          onChange={(e) => setKind(e.target.value)}
-        >
-          <option value="">All kinds</option>
-          {ARTIFACT_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
+          options={[{ value: "", label: "All kinds" }, ...ARTIFACT_KINDS.map((k) => ({ value: k, label: k }))]}
+          onChange={setKind}
+        />
         <Input
           aria-label="Search artifacts"
           placeholder="Search"
@@ -388,60 +563,37 @@ const deleteNote = {
   team: "This deletes the team, its conversation, its team memory and its shared folder. The member bots stay.",
 }
 
-// TeamSettingsForm edits what a team adds to its room: the lead, the working agreement, the
-// turns per day, the decision time and the inbox limits. Its key changes with the saved
-// settings, which resets it.
-function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSettings }) {
-  const [lead, setLead] = useState(settings.leadId)
-  const [agreement, setAgreement] = useState(settings.agreement)
-  const [budget, setBudget] = useState(String(settings.dailyBudget ?? 0))
-  const [decision, setDecision] = useState(String(settings.decisionMinutes ?? 30))
-  const [inboxMax, setInboxMax] = useState(String(settings.inboxMax ?? 10))
-  const [perSender, setPerSender] = useState(String(settings.inboxPerSender ?? 3))
-  const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
-  const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
-  const [result, setResult] = useState<SaveResult>(null)
+// TeamFields edits what a team adds to its room: the lead, the working agreement, the turns
+// per day, the decision time, the inbox limits and the member defaults.
+function TeamFields({
+  team,
+  draft,
+  onDraft,
+}: {
+  team: Bot
+  draft: TeamDraft
+  onDraft: (edit: Partial<TeamDraft>) => void
+}) {
   const defaults = useDefaults()
   const members = team.members ?? []
-  const save = async () => {
-    try {
-      const badTask = budgetError(budget) ?? decisionError(decision) ?? inboxError(inboxMax, perSender)
-      if (badTask) {
-        setResult(failed(badTask))
-        return
-      }
-      // The lead goes only when it changed, so that a fallback lead does not replace the chosen one.
-      await api.updateTeam(team.id, {
-        ...(lead !== settings.leadId && { leadId: lead }),
-        agreement,
-        dailyBudget: Number(budget),
-        decisionMinutes: Number(decision),
-        inboxMax: Number(inboxMax),
-        inboxPerSender: Number(perSender),
-        defaultModel,
-        defaultEffort,
-      })
-      setResult(saved())
-    } catch (e) {
-      setResult(failed((e as Error).message))
-    }
-  }
   return (
     <div className="flex flex-col gap-3 border-t pt-3">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="team-settings-lead">Lead</Label>
-        <select
+        <OptionSelect
           id="team-settings-lead"
-          className="border-input h-9 rounded-md border bg-transparent px-2 text-sm"
-          value={lead}
-          onChange={(e) => setLead(e.target.value)}
-        >
-          {(team.members ?? []).map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
+          value={draft.leadId}
+          options={members.map((m) => {
+            const label = (
+              <>
+                <ChatIcon chat={{ id: m.id, kind: "agent" }} />
+                {m.name}
+              </>
+            )
+            return { value: m.id, label }
+          })}
+          onChange={(leadId) => onDraft({ leadId })}
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="team-settings-agreement">Working agreement</Label>
@@ -449,8 +601,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           id="team-settings-agreement"
           rows={5}
           placeholder="How the team works and when work is done."
-          value={agreement}
-          onChange={(e) => setAgreement(e.target.value)}
+          value={draft.agreement}
+          onChange={(e) => onDraft({ agreement: e.target.value })}
         />
         <p className="text-muted-foreground text-xs">
           In the team, it overrides each member's instructions on how work is done and checked.
@@ -463,9 +615,9 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           type="number"
           min={0}
           max={10000}
-          value={budget}
+          value={draft.budget}
           aria-describedby="team-settings-budget-help"
-          onChange={(e) => setBudget(e.target.value)}
+          onChange={(e) => onDraft({ budget: e.target.value })}
         />
         <p id="team-settings-budget-help" className="text-muted-foreground text-xs">
           Every turn of the team's members counts, chat included; the lead's decisions don't. At the limit the team
@@ -480,9 +632,9 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           type="number"
           min={5}
           max={1440}
-          value={decision}
+          value={draft.decision}
           aria-describedby="team-settings-decision-help"
-          onChange={(e) => setDecision(e.target.value)}
+          onChange={(e) => onDraft({ decision: e.target.value })}
         />
         <p id="team-settings-decision-help" className="text-muted-foreground text-xs">
           How long a task may wait in the inbox for the lead's decision, counting only time when the lead can act. After
@@ -501,8 +653,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
             min={1}
             max={50}
             className="w-16"
-            value={inboxMax}
-            onChange={(e) => setInboxMax(e.target.value)}
+            value={draft.inboxMax}
+            onChange={(e) => onDraft({ inboxMax: e.target.value })}
           />
           <Label htmlFor="team-settings-inbox-sender" className="font-normal">
             From one team, at most
@@ -513,8 +665,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
             min={1}
             max={50}
             className="w-16"
-            value={perSender}
-            onChange={(e) => setPerSender(e.target.value)}
+            value={draft.perSender}
+            onChange={(e) => onDraft({ perSender: e.target.value })}
           />
         </div>
         <p className="text-muted-foreground text-xs">
@@ -527,10 +679,10 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           id="team-default"
           modelLabel="Default model for members"
           effortLabel="Default effort for members"
-          model={defaultModel}
-          effort={defaultEffort}
-          onModel={setDefaultModel}
-          onEffort={setDefaultEffort}
+          model={draft.defaultModel}
+          effort={draft.defaultEffort}
+          onModel={(defaultModel) => onDraft({ defaultModel })}
+          onEffort={(defaultEffort) => onDraft({ defaultEffort })}
           inherited={
             defaults
               ? inheritedFromGlobal(defaults)
@@ -546,12 +698,6 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           members override the model.
         </p>
       </fieldset>
-      <div className="flex items-center gap-2">
-        <Button size="sm" onClick={() => void save()}>
-          Save team
-        </Button>
-        <SaveNote result={result} />
-      </div>
     </div>
   )
 }
@@ -566,58 +712,101 @@ export function ContextNote({ usage }: { usage: Usage | null | undefined }) {
 // HueSwatches picks a bot's colour from the palette; the choice saves with the other settings.
 function HueSwatches({ hue, onHue }: { hue: string; onHue: (hue: string) => void }) {
   return (
-    <fieldset className="flex flex-col gap-1.5">
-      <legend className="mb-1 text-sm font-medium">Colour</legend>
-      <div className="flex gap-1">
-        {hues.map((h) => (
-          <label
-            key={h}
-            title={h[0].toUpperCase() + h.slice(1)}
-            className="has-focus-visible:ring-ring/50 has-checked:border-foreground hover:bg-muted grid size-9 cursor-pointer place-items-center rounded-full border-2 border-transparent transition-colors has-focus-visible:ring-3"
-          >
-            <input
-              type="radio"
-              name="bot-hue"
+    <div className="flex flex-col gap-1.5">
+      <span id="bot-hue-label" className="mb-1 text-sm font-medium">
+        Colour
+      </span>
+      <RadioGroup aria-labelledby="bot-hue-label" className="flex gap-1" value={hue} onValueChange={onHue}>
+        {hues.map((h) => {
+          const name = h[0].toUpperCase() + h.slice(1)
+          return (
+            <RadioGroupPrimitive.Item
+              key={h}
               value={h}
-              checked={hue === h}
-              onChange={() => onHue(h)}
-              className="sr-only"
-              aria-label={h[0].toUpperCase() + h.slice(1)}
-            />
-            <BotDot className={cn("size-5", botColor("", h).text)} />
-          </label>
+              title={name}
+              aria-label={name}
+              className="focus-visible:ring-ring/50 data-[state=checked]:border-foreground hover:bg-muted grid size-9 cursor-pointer place-items-center rounded-full border-2 border-transparent transition-colors outline-none focus-visible:ring-3"
+            >
+              <BotDot className={cn("size-5", botColor("", h).text)} />
+            </RadioGroupPrimitive.Item>
+          )
+        })}
+      </RadioGroup>
+    </div>
+  )
+}
+
+// AllowedTools lists the tools a bot may use without asking, each with Revoke; null is
+// still loading.
+export function AllowedTools({ grants, onRevoke }: { grants: string[] | null; onRevoke: (grant: string) => void }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>Always allowed tools</Label>
+      {grants?.length === 0 && (
+        <p className="text-muted-foreground text-xs">None. Each command and file change asks first.</p>
+      )}
+      <div className="flex flex-wrap gap-1">
+        {grants?.map((g) => (
+          <Badge key={g} variant="secondary" className="gap-1">
+            {g}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="-mr-1.5 size-4 rounded-full"
+              aria-label={`Revoke ${g}`}
+              onClick={() => onRevoke(g)}
+            >
+              <X />
+            </Button>
+          </Badge>
         ))}
       </div>
-    </fieldset>
+    </div>
   )
 }
 
 export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; onDeleted: () => void }) {
-  const [name, setName] = useState(bot.name)
-  const [instructions, setInstructions] = useState(bot.instructions)
-  const [model, setModel] = useState(bot.model ?? "")
-  const [effort, setEffort] = useState(bot.effort ?? "")
-  const [hue, setHue] = useState(bot.hue ?? "")
+  // base is the saved values: the bot's, or what this tab saved before the bot reloads. A
+  // reload gives each field the user did not edit its new value.
+  const fresh = draftOf(bot)
+  const freshKey = JSON.stringify(fresh)
+  const [loaded, setLoaded] = useState(freshKey)
+  const [base, setBase] = useState(fresh)
+  const [draft, setDraft] = useState(fresh)
+  if (loaded !== freshKey) {
+    setLoaded(freshKey)
+    setBase(fresh)
+    setDraft(rebase(draft, base, fresh))
+  }
+  const dirty = unsaved(draft, base)
+  useUnsavedEdits(dirty)
   const [result, setResult] = useState<SaveResult>(null)
+  const edit = (e: Partial<BotDraft>) => {
+    setDraft((d) => ({ ...d, ...e }))
+    setResult(null)
+  }
+  const editTeam = (e: Partial<TeamDraft>) => {
+    setDraft((d) => ({ ...d, team: d.team && { ...d.team, ...e } }))
+    setResult(null)
+  }
   const [confirm, setConfirm] = useState(false)
   const defaults = useDefaults()
   const isRoom = bot.kind === "room"
   const what = bot.team ? "team" : isRoom ? "room" : "bot"
   const grants = useLoad(() => (isRoom ? Promise.resolve([]) : api.grants(bot.id)), `${bot.id}`)
   const usage = useLoad(() => (isRoom ? Promise.resolve(null) : api.usage(bot.id)), usageKey(bot, version))
-  useEffect(() => {
-    setName(bot.name)
-    setInstructions(bot.instructions)
-    setModel(bot.model ?? "")
-    setEffort(bot.effort ?? "")
-    setHue(bot.hue ?? "")
-  }, [bot.id, bot.name, bot.instructions, bot.model, bot.effort, bot.hue])
   const save = async () => {
+    const plan = savePlan(draft, base, isRoom)
+    if ("error" in plan) return setResult(failed(plan.error))
     try {
-      await api.updateBot(
-        bot.id,
-        isRoom ? { name, instructions } : { name, instructions, model, effort, ...(hue && { hue }) },
-      )
+      if (plan.bot) {
+        await api.updateBot(bot.id, plan.bot)
+        setBase((b) => ({ ...draft, team: b.team }))
+      }
+      if (plan.team) {
+        await api.updateTeam(bot.id, plan.team)
+        setBase(draft)
+      }
       setResult(saved(isRoom ? "Saved." : "Saved. Applies from the next turn."))
     } catch (e) {
       setResult(failed((e as Error).message))
@@ -636,16 +825,16 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
     <div className="flex flex-col gap-3 text-sm">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="bot-name">Name</Label>
-        <Input id="bot-name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input id="bot-name" value={draft.name} onChange={(e) => edit({ name: e.target.value })} />
       </div>
-      {!isRoom && <HueSwatches hue={hue} onHue={setHue} />}
+      {!isRoom && <HueSwatches hue={draft.hue} onHue={(hue) => edit({ hue })} />}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="bot-instructions">{isRoom ? "Purpose" : "Instructions"}</Label>
         <Textarea
           id="bot-instructions"
           rows={6}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
+          value={draft.instructions}
+          onChange={(e) => edit({ instructions: e.target.value })}
         />
       </div>
       {!isRoom && (
@@ -654,10 +843,10 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
           <ModelEffortFields
             key={bot.id}
             id="bot"
-            model={model}
-            effort={effort}
-            onModel={setModel}
-            onEffort={setEffort}
+            model={draft.model}
+            effort={draft.effort}
+            onModel={(model) => edit({ model })}
+            onEffort={(effort) => edit({ effort })}
             inherited={
               defaults
                 ? inheritedFromGlobal(defaults)
@@ -686,41 +875,16 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
           <ContextNote usage={usage.data} />
         </fieldset>
       )}
+      {bot.team && draft.team && <TeamFields team={bot} draft={draft.team} onDraft={editTeam} />}
       <div className="flex items-center gap-2">
-        <Button size="sm" onClick={() => void save()}>
+        <Button size="sm" disabled={!dirty} onClick={() => void save()}>
           Save
         </Button>
         <SaveNote result={result} />
       </div>
-      {bot.team && (
-        <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.dailyBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.decisionMinutes}:${bot.team.inboxMax}:${bot.team.inboxPerSender}`}
-          team={bot}
-          settings={bot.team}
-        />
+      {!isRoom && (
+        <AllowedTools grants={grants.data} onRevoke={(g) => void api.revokeGrant(bot.id, g).then(grants.reload)} />
       )}
-      <div className={isRoom ? "hidden" : "flex flex-col gap-1.5"}>
-        <Label>Always allowed tools</Label>
-        {grants.data?.length === 0 && (
-          <p className="text-muted-foreground text-xs">None. Each command and file change asks first.</p>
-        )}
-        <div className="flex flex-wrap gap-1">
-          {grants.data?.map((g) => (
-            <Badge key={g} variant="secondary" className="gap-1">
-              {g}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="-mr-1.5 size-4 rounded-full"
-                aria-label={`Revoke ${g}`}
-                onClick={() => void api.revokeGrant(bot.id, g).then(grants.reload)}
-              >
-                <X />
-              </Button>
-            </Badge>
-          ))}
-        </div>
-      </div>
       <div className="border-t pt-3">
         <Button size="sm" variant="destructive" onClick={() => setConfirm(true)}>
           Delete {what}

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui"
-import { Play, Trash2, X } from "lucide-react"
-import { api, type Bot, type Memory, type Routine } from "@/lib/api"
+import { Pencil, Play, Plus, Trash2, X } from "lucide-react"
+import { api, type Bot, type Memory, type Routine, type RoutineText } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
 import { latestOnly } from "@/lib/latest"
 import { Badge } from "@/components/ui/badge"
@@ -38,6 +38,7 @@ import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/c
 import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 import { forgetHistory, withStorage } from "@/lib/history"
 import { dateTime } from "@/lib/dates"
+import { fieldOfError, scheduleInWords, type RoutineField } from "@/lib/routines"
 import { useNow } from "@/components/now"
 
 // useWhen formats a time as a day and a time; its clock ticks each minute, so Today becomes
@@ -191,31 +192,41 @@ export function RoutineItem({
   when,
   onEnabled,
   onRun,
+  onEdit,
   onDelete,
 }: {
   routine: Routine
   when: (ms: number | null) => string
   onEnabled: (enabled: boolean) => void
   onRun: () => void
+  onEdit: () => void
   onDelete: () => void
 }) {
+  const words = scheduleInWords(r.schedule)
   return (
     <div className="rounded-md border p-2 text-sm">
       <div className="flex items-center gap-2">
         <span className="flex-1 font-medium">{r.name}</span>
-        <Switch aria-label="Enabled" checked={r.enabled} onCheckedChange={onEnabled} />
+        <Switch aria-label={`Enabled: ${r.name}`} checked={r.enabled} onCheckedChange={onEnabled} />
       </div>
       <p className="text-muted-foreground mt-1 text-xs">{r.prompt}</p>
-      <div className="mt-2 flex items-center gap-2 text-xs">
-        <code className="bg-sidebar-foreground/5 shrink-0 rounded-sm px-1 whitespace-nowrap">{r.schedule}</code>
-        <span className="text-muted-foreground min-w-0">next {r.enabled ? when(r.nextRunAt) : "paused"}</span>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 text-xs">
+        {words ? (
+          <span title={r.schedule}>{words}</span>
+        ) : (
+          <code className="bg-sidebar-foreground/5 shrink-0 rounded-sm px-1 whitespace-nowrap">{r.schedule}</code>
+        )}
+        <span className="text-muted-foreground min-w-0">{r.enabled ? `next ${when(r.nextRunAt)}` : "Paused"}</span>
       </div>
       <div className="mt-1 flex items-center justify-end gap-1">
-        <Button size="xs" variant="ghost" onClick={onRun}>
+        <Button size="xs" variant="ghost" aria-label={`Run now: ${r.name}`} onClick={onRun}>
           <Play /> Run now
         </Button>
+        <Button size="xs" variant="ghost" aria-label={`Edit: ${r.name}`} onClick={onEdit}>
+          <Pencil /> Edit
+        </Button>
         <Confirm question="Delete this routine?" action="Delete" onConfirm={onDelete}>
-          <Button size="xs" variant="ghost" aria-label="Delete routine">
+          <Button size="xs" variant="ghost" aria-label={`Delete routine: ${r.name}`}>
             <Trash2 />
           </Button>
         </Confirm>
@@ -224,9 +235,116 @@ export function RoutineItem({
   )
 }
 
+const noRoutine: RoutineText = { name: "", prompt: "", schedule: "" }
+
+// RoutineForm creates or edits a routine. A server error shows next to the field it is about.
+export function RoutineForm({
+  routine = noRoutine,
+  onSave,
+  onCancel,
+}: {
+  routine?: RoutineText
+  onSave: (routine: RoutineText) => Promise<unknown>
+  onCancel: () => void
+}) {
+  const [text, setText] = useState(routine)
+  const [error, setError] = useState<{ field: RoutineField | null; message: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const id = useId()
+  const edit = (change: Partial<RoutineText>) => {
+    setText((t) => ({ ...t, ...change }))
+    setError(null)
+  }
+  const save = async () => {
+    setBusy(true)
+    try {
+      await onSave({ name: text.name.trim(), prompt: text.prompt.trim(), schedule: text.schedule.trim() })
+    } catch (e) {
+      const message = (e as Error).message
+      setError({ field: fieldOfError(message), message })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const fieldError = (field: RoutineField) =>
+    error?.field === field ? (
+      <p id={`${id}-${field}-error`} className="text-destructive text-xs">
+        {error.message}
+      </p>
+    ) : null
+  const invalid = (field: RoutineField, help?: string) => ({
+    "aria-invalid": error?.field === field || undefined,
+    "aria-describedby": [help, error?.field === field && `${id}-${field}-error`].filter(Boolean).join(" ") || undefined,
+  })
+  const words = scheduleInWords(text.schedule)
+  return (
+    <form
+      className="flex flex-col gap-3 rounded-md border p-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void save()
+      }}
+    >
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-name`}>Name</Label>
+        <Input
+          id={`${id}-name`}
+          value={text.name}
+          onChange={(e) => edit({ name: e.target.value })}
+          {...invalid("name")}
+        />
+        {fieldError("name")}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-prompt`}>What to do each time</Label>
+        <Textarea
+          id={`${id}-prompt`}
+          rows={3}
+          value={text.prompt}
+          onChange={(e) => edit({ prompt: e.target.value })}
+          {...invalid("prompt")}
+        />
+        {fieldError("prompt")}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-schedule`}>Schedule</Label>
+        <Input
+          id={`${id}-schedule`}
+          className="font-mono"
+          placeholder="17 9 * * 1-5"
+          value={text.schedule}
+          onChange={(e) => edit({ schedule: e.target.value })}
+          {...invalid("schedule", `${id}-schedule-help`)}
+        />
+        <p id={`${id}-schedule-help`} className="text-muted-foreground text-xs">
+          {text.schedule.trim() && words
+            ? words
+            : "Five cron fields (minute, hour, day of month, month, weekday), such as 17 9 * * 1-5, or @daily, @hourly or @every 2h. Times are this computer's."}
+        </p>
+        {fieldError("schedule")}
+      </div>
+      {error && error.field === null && <p className="text-destructive text-xs">{error.message}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={busy || !text.name.trim() || !text.prompt.trim() || !text.schedule.trim()}
+        >
+          Save
+        </Button>
+      </div>
+    </form>
+  )
+}
+
 function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
   const when = useWhen()
   const { data, error, reload, setError } = useLoad(() => api.routines(bot.id), `${bot.id}:${version}`)
+  // editing is the id of the routine in its form, "new" for a new one, or null.
+  const [editing, setEditing] = useState<string | null>(null)
   const act = async (f: () => Promise<unknown>) => {
     try {
       await f()
@@ -235,24 +353,49 @@ function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
       setError((e as Error).message)
     }
   }
+  const saved = async (f: () => Promise<unknown>) => {
+    await f()
+    setEditing(null)
+    reload()
+  }
   return (
     <div className="flex flex-col gap-2">
+      {editing === "new" ? (
+        <RoutineForm
+          onSave={(text) => saved(() => api.createRoutine(bot.id, text))}
+          onCancel={() => setEditing(null)}
+        />
+      ) : (
+        <Button size="sm" variant="outline" className="self-start" onClick={() => setEditing("new")}>
+          <Plus /> New routine
+        </Button>
+      )}
       {error && <p className="text-destructive text-xs">{error}</p>}
-      {data?.length === 0 && (
+      {data?.length === 0 && editing !== "new" && (
         <p className="text-muted-foreground text-sm">
-          No routines. Ask {bot.name} for anything recurring, like "every weekday at 8:10, brief me".
+          No routines. Add one, or ask {bot.name} for anything recurring, like "every weekday at 8:10, brief me".
         </p>
       )}
-      {data?.map((r: Routine) => (
-        <RoutineItem
-          key={r.id}
-          routine={r}
-          when={when}
-          onEnabled={(v) => void act(() => api.setRoutineEnabled(r.id, v))}
-          onRun={() => void act(() => api.runRoutine(r.id))}
-          onDelete={() => void act(() => api.deleteRoutine(r.id))}
-        />
-      ))}
+      {data?.map((r: Routine) =>
+        editing === r.id ? (
+          <RoutineForm
+            key={r.id}
+            routine={r}
+            onSave={(text) => saved(() => api.updateRoutine(r.id, text))}
+            onCancel={() => setEditing(null)}
+          />
+        ) : (
+          <RoutineItem
+            key={r.id}
+            routine={r}
+            when={when}
+            onEnabled={(v) => void act(() => api.updateRoutine(r.id, { enabled: v }))}
+            onRun={() => void act(() => api.runRoutine(r.id))}
+            onEdit={() => setEditing(r.id)}
+            onDelete={() => void act(() => api.deleteRoutine(r.id))}
+          />
+        ),
+      )}
     </div>
   )
 }

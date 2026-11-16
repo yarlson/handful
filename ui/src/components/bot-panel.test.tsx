@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
 import type { Bot, Routine } from "@/lib/api"
 import { failed, saved } from "@/lib/save"
-import { AllowedTools, MemoryFact, RoutineItem, SaveNote, SettingsTab } from "./bot-panel.tsx"
+import { AllowedTools, MemoryFact, RoutineForm, RoutineItem, SaveNote, SettingsTab } from "./bot-panel.tsx"
 
 test("a save that worked shows as a plain note", () => {
   const html = renderToStaticMarkup(<SaveNote result={saved()} />)
@@ -138,10 +138,58 @@ const routine: Routine = {
   createdAt: 1,
 }
 
-test("Delete routine opens a confirm instead of deleting at once", () => {
-  const html = renderToStaticMarkup(
-    <RoutineItem routine={routine} when={() => "today"} onEnabled={() => {}} onRun={() => {}} onDelete={() => {}} />,
+const item = (r: Routine) =>
+  renderToStaticMarkup(
+    <RoutineItem
+      routine={r}
+      when={() => "today"}
+      onEnabled={() => {}}
+      onRun={() => {}}
+      onEdit={() => {}}
+      onDelete={() => {}}
+    />,
   )
-  const remove = html.match(/<button[^>]*aria-label="Delete routine"[^>]*>/)?.[0] ?? ""
+
+test("Delete routine opens a confirm instead of deleting at once", () => {
+  const remove = item(routine).match(/<button[^>]*aria-label="Delete routine: Brief"[^>]*>/)?.[0] ?? ""
   assert.include(remove, 'aria-haspopup="dialog"')
+})
+
+test("a routine shows its schedule in words, its next run and its actions", () => {
+  const html = item(routine)
+  assert.include(html, ">Weekdays at 09:17</span>")
+  assert.notInclude(html, "<code")
+  assert.include(html, "next today")
+  assert.include(html, "Run now")
+  assert.include(html, "Edit")
+})
+
+test("each routine's controls carry the routine's name, so rows tell apart", () => {
+  const html = item(routine)
+  for (const label of ["Enabled: Brief", "Run now: Brief", "Edit: Brief", "Delete routine: Brief"])
+    assert.include(html, `aria-label="${label}"`)
+})
+
+test("a routine whose schedule has no words shows the cron line", () => {
+  assert.match(item({ ...routine, schedule: "0 9,17 * * *" }), /<code[^>]*>0 9,17 \* \* \*<\/code>/)
+})
+
+test("a paused routine shows Paused instead of its next run", () => {
+  const html = item({ ...routine, enabled: false })
+  assert.include(html, "Paused")
+  assert.notInclude(html, "next today")
+})
+
+test("the routine form shows the routine and its schedule in words", () => {
+  const html = renderToStaticMarkup(<RoutineForm routine={routine} onSave={async () => {}} onCancel={() => {}} />)
+  assert.include(html, 'value="Brief"')
+  assert.include(html, ">Brief me</textarea>")
+  assert.include(html, 'value="17 9 * * 1-5"')
+  assert.include(html, "Weekdays at 09:17")
+})
+
+test("a new routine's form explains the schedule forms and cannot be saved empty", () => {
+  const html = renderToStaticMarkup(<RoutineForm onSave={async () => {}} onCancel={() => {}} />)
+  assert.include(html, "@every 2h")
+  assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""[^>]*>Save<\/button>/)
 })

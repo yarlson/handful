@@ -24,7 +24,7 @@ export function updated(page) {
 		}
 		if (history === "shallow") return null;
 		const top = git("rev-parse", "--show-toplevel");
-		return git("-C", top, "log", "-1", "--format=%cI", "--", page.file) || null;
+		return git("-C", top, "log", "-1", "--format=%cI", "--", `web/src/docs/${page.slug}.md`) || null;
 	} catch {
 		return null;
 	}

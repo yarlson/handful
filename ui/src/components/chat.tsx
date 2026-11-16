@@ -460,7 +460,13 @@ function ApprovalCard({
                 <Check /> Allow once
               </Button>
               {!phone && (
-                <Button size="sm" variant="secondary" disabled={busy} onClick={() => void decide("always")}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className={phoneButton(phone)}
+                  disabled={busy}
+                  onClick={() => void decide("always")}
+                >
                   Always allow {b.tool}
                 </Button>
               )}
@@ -1014,18 +1020,23 @@ export function EntryView({
             <div className="mb-0.5 flex items-baseline gap-2">
               {postTooltip(entry.body, FALLBACK_ALIASES) ? (
                 <Hint text={postTooltip(entry.body, FALLBACK_ALIASES)}>
-                  <button type="button" className={cn("cursor-default text-sm font-semibold", color.text)}>
+                  <button
+                    type="button"
+                    className={cn("min-w-0 cursor-default truncate text-sm font-semibold", color.text)}
+                  >
                     {speaker}
                   </button>
                 </Hint>
               ) : (
-                <span className={cn("text-sm font-semibold", color.text)}>{speaker}</span>
+                <span className={cn("min-w-0 truncate text-sm font-semibold", color.text)}>{speaker}</span>
               )}
-              <Stamp ms={entry.createdAt} className="text-muted-foreground text-xs" />
+              <Stamp ms={entry.createdAt} className="text-muted-foreground shrink-0 text-xs" />
               {open ? (
                 <Badge variant="attention">{stateLabel(qState)}</Badge>
               ) : (
-                stateLabel(qState) && <span className="text-muted-foreground text-xs">{stateLabel(qState)}</span>
+                stateLabel(qState) && (
+                  <span className="text-muted-foreground shrink-0 text-xs whitespace-nowrap">{stateLabel(qState)}</span>
+                )
               )}
               {open && onAnswer && (
                 <Button
@@ -1432,7 +1443,7 @@ function Composer({
             id="completion-list"
             role="listbox"
             aria-label={query?.mode !== "slash" ? "Mention a bot" : query.atStart ? "Commands and skills" : "Skills"}
-            className="bg-popover text-popover-foreground absolute bottom-full left-0 z-10 mb-2 max-h-72 w-96 overflow-y-auto rounded-lg border p-1 shadow-md"
+            className="bg-popover text-popover-foreground absolute bottom-full left-0 z-10 mb-2 max-h-72 w-96 max-w-full overflow-y-auto rounded-lg border p-1 shadow-md"
           >
             {suggestions.map((s, i) => (
               <li

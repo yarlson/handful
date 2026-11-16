@@ -82,6 +82,7 @@ import { chatPlace, chatUrl, lastChat, panelTabs, saveLastChat, type PanelTab, t
 import { Reader } from "@/components/reader"
 import { AreaBoundary } from "@/components/area-boundary"
 import { DiscardDialog, UnsavedEdits } from "@/components/leave"
+import { UsageBanner } from "@/components/usage-banner"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
 const NEEDS_YOU_PATH = "/needs-you"
@@ -1256,17 +1257,7 @@ export function App() {
               </Button>
             </div>
           )}
-          {pausedUntil && (
-            <div className="bg-attention-surface px-4 py-2 text-sm">
-              Claude usage limit reached. New turns wait until{" "}
-              {new Date(pausedUntil).toLocaleString([], {
-                weekday: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              .
-            </div>
-          )}
+          <UsageBanner pausedUntil={pausedUntil} />
           {view === "settings" ? (
             <AreaBoundary
               area="settings"

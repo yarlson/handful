@@ -183,6 +183,29 @@ test("an open question is marked in words and offers Answer; a closed one says h
   assert.include(renderToStaticMarkup(<EntryView entry={ask("dismissed")} chat={solo} skillIds={[]} />), "Dismissed")
 })
 
+test("a post header stays on one line: the name truncates, and the time and the question state keep their width", () => {
+  const ask = (questionState: "open" | "answered", model?: string): Entry => ({
+    ...base,
+    id: "q2",
+    botId: solo.id,
+    kind: "bot",
+    body: { text: "Ship it?", fallback: false, needsReply: true, question: "Ship it?", questionState, model },
+  })
+  const header = (entry: Entry) =>
+    /<div class="mb-0.5 flex items-baseline gap-2">(.*?)<\/div>/.exec(
+      renderToStaticMarkup(<EntryView entry={entry} chat={solo} skillIds={[]} onAnswer={() => {}} />),
+    )?.[1] ?? ""
+  const open = header(ask("open"))
+  assert.match(open, /<span class="min-w-0 truncate [^"]*">Solo<\/span>/)
+  assert.match(open, /<button type="button" class="[^"]*\bshrink-0\b[^"]*"[^>]*><time/)
+  assert.match(open, /data-variant="attention" class="[^"]*\bshrink-0\b[^"]*\bwhitespace-nowrap\b[^"]*">Open question</)
+  assert.match(
+    header(ask("open", "opus")),
+    /<button type="button" class="min-w-0 cursor-default truncate [^"]*"[^>]*>Solo<\/button>/,
+  )
+  assert.match(header(ask("answered")), /<span class="[^"]*\bshrink-0\b[^"]*\bwhitespace-nowrap\b[^"]*">Answered</)
+})
+
 test("each message is a place to go to: its element has the entry's id and takes the focus from code", () => {
   const user: Entry = { ...base, botId: solo.id, id: "u1", kind: "user", body: { text: "hi" } }
   const agent: Entry = {

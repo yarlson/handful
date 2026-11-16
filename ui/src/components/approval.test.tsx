@@ -67,8 +67,10 @@ test("on the computer an approval offers Always allow at every width", () => {
   assert.include(html, "Allow once")
   assert.include(html, ">Deny</button>")
   assert.notInclude(html, "can only be chosen on the computer")
-  // A narrow window makes the buttons tall, but keeps Always allow.
+  // A narrow window makes all three buttons 44 px tall, and keeps Always allow.
   assert.match(html, /class="[^"]*\bmax-md:h-11 max-md:flex-1\b[^"]*"[^>]*>.*?Allow once/)
+  assert.match(html, /class="[^"]*\bmax-md:h-11 max-md:flex-1\b[^"]*"[^>]*>Always allow Edit</)
+  assert.match(html, /class="[^"]*\bmax-md:h-11 max-md:flex-1\b[^"]*"[^>]*>Deny</)
 })
 
 test("a decided approval offers no buttons, on a phone too", () => {

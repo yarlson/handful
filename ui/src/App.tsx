@@ -80,6 +80,7 @@ import {
 } from "@/lib/layout"
 import { chatPlace, chatUrl, lastChat, panelTabs, saveLastChat, type PanelTab, type Reading } from "@/lib/place"
 import { Reader } from "@/components/reader"
+import { AreaBoundary } from "@/components/area-boundary"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
 const NEEDS_YOU_PATH = "/needs-you"
@@ -686,6 +687,7 @@ export function App() {
     pairRev,
     select,
     loadOlder,
+    reloadChat,
     reveal,
     refreshBots,
     reorder,
@@ -1082,95 +1084,97 @@ export function App() {
             <PanelLeftClose />
           </Button>
         </div>
-        {moved.data?.show && rights.computer && (
-          <MoveNotice
-            teams={teams}
-            error={moved.error}
-            onDone={() => void api.closeMoveNotice().then(moved.reload, (e: Error) => moved.setError(e.message))}
-            onRename={(t, name) => void api.updateBot(t.id, { name }).catch((e: Error) => moved.setError(e.message))}
+        <AreaBoundary area="sidebar">
+          {moved.data?.show && rights.computer && (
+            <MoveNotice
+              teams={teams}
+              error={moved.error}
+              onDone={() => void api.closeMoveNotice().then(moved.reload, (e: Error) => moved.setError(e.message))}
+              onRename={(t, name) => void api.updateBot(t.id, { name }).catch((e: Error) => moved.setError(e.message))}
+            />
+          )}
+          {bots.length > 0 && <SidebarFilter value={filter} onChange={setFilter} />}
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
+            <button
+              type="button"
+              aria-current={view === "across" ? "page" : undefined}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
+                view === "across"
+                  ? "bg-sidebar-foreground/10 font-medium"
+                  : "hover:bg-muted transition-colors duration-(--duration-fast)",
+              )}
+              onClick={() => showScreen("across")}
+            >
+              <LayoutDashboard className="size-4 shrink-0" />
+              <span className="flex-1">Across teams</span>
+              {needsN > 0 && (
+                <Badge variant="attention" aria-label={`${needsN} need you`}>
+                  {needsN}
+                </Badge>
+              )}
+            </button>
+            <button
+              type="button"
+              aria-current={view === "waiting" ? "page" : undefined}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
+                view === "waiting"
+                  ? "bg-sidebar-foreground/10 font-medium"
+                  : "hover:bg-muted transition-colors duration-(--duration-fast)",
+              )}
+              onClick={() => showScreen("waiting")}
+            >
+              <Inbox className="size-4 shrink-0" />
+              <span className="flex-1">Waiting for you</span>
+              {waitingN > 0 && (
+                <Badge variant="attention" aria-label={`${waitingN} waiting`}>
+                  {waitingN}
+                </Badge>
+              )}
+            </button>
+            {sections.map(
+              (sec) =>
+                (!filtered || sec.items.length > 0) && (
+                  <div key={sec.title} className="flex flex-col gap-0.5">
+                    <SectionTitle
+                      title={sec.title}
+                      action={sec.action}
+                      onAction={rights.computer ? sec.onAction : undefined}
+                    />
+                    <BotList
+                      items={sec.items}
+                      selected={view === "settings" ? null : selected}
+                      unread={unread}
+                      onSelect={(id) => openChat(id)}
+                      onReorder={filtered ? undefined : (ids) => void reorder(ids)}
+                    />
+                  </div>
+                ),
+            )}
+            {filtered && sections.every((sec) => sec.items.length === 0) && (
+              <p className="text-muted-foreground mt-3 px-2 text-sm">No matches</p>
+            )}
+            {bots.length === 0 && rights.computer && (
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreating(true)}>
+                <Plus /> Create your first bot
+              </Button>
+            )}
+            {bots.length === 1 && bots[0].role === BUILDER && (
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => openChat(bots[0].id)}>
+                <ArrowRight /> Set up your bots with {bots[0].name}
+              </Button>
+            )}
+          </nav>
+          <SidebarFooter
+            link={link}
+            onConnectors={rights.computer ? () => setConnectors(true) : undefined}
+            onSettings={() => {
+              setDrawer(false)
+              openSettingsPage(rights.computer ? "general" : "appearance")
+            }}
           />
-        )}
-        {bots.length > 0 && <SidebarFilter value={filter} onChange={setFilter} />}
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
-          <button
-            type="button"
-            aria-current={view === "across" ? "page" : undefined}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              view === "across"
-                ? "bg-sidebar-foreground/10 font-medium"
-                : "hover:bg-muted transition-colors duration-(--duration-fast)",
-            )}
-            onClick={() => showScreen("across")}
-          >
-            <LayoutDashboard className="size-4 shrink-0" />
-            <span className="flex-1">Across teams</span>
-            {needsN > 0 && (
-              <Badge variant="attention" aria-label={`${needsN} need you`}>
-                {needsN}
-              </Badge>
-            )}
-          </button>
-          <button
-            type="button"
-            aria-current={view === "waiting" ? "page" : undefined}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm max-md:py-3",
-              view === "waiting"
-                ? "bg-sidebar-foreground/10 font-medium"
-                : "hover:bg-muted transition-colors duration-(--duration-fast)",
-            )}
-            onClick={() => showScreen("waiting")}
-          >
-            <Inbox className="size-4 shrink-0" />
-            <span className="flex-1">Waiting for you</span>
-            {waitingN > 0 && (
-              <Badge variant="attention" aria-label={`${waitingN} waiting`}>
-                {waitingN}
-              </Badge>
-            )}
-          </button>
-          {sections.map(
-            (sec) =>
-              (!filtered || sec.items.length > 0) && (
-                <div key={sec.title} className="flex flex-col gap-0.5">
-                  <SectionTitle
-                    title={sec.title}
-                    action={sec.action}
-                    onAction={rights.computer ? sec.onAction : undefined}
-                  />
-                  <BotList
-                    items={sec.items}
-                    selected={view === "settings" ? null : selected}
-                    unread={unread}
-                    onSelect={(id) => openChat(id)}
-                    onReorder={filtered ? undefined : (ids) => void reorder(ids)}
-                  />
-                </div>
-              ),
-          )}
-          {filtered && sections.every((sec) => sec.items.length === 0) && (
-            <p className="text-muted-foreground mt-3 px-2 text-sm">No matches</p>
-          )}
-          {bots.length === 0 && rights.computer && (
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => setCreating(true)}>
-              <Plus /> Create your first bot
-            </Button>
-          )}
-          {bots.length === 1 && bots[0].role === BUILDER && (
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => openChat(bots[0].id)}>
-              <ArrowRight /> Set up your bots with {bots[0].name}
-            </Button>
-          )}
-        </nav>
-        <SidebarFooter
-          link={link}
-          onConnectors={rights.computer ? () => setConnectors(true) : undefined}
-          onSettings={() => {
-            setDrawer(false)
-            openSettingsPage(rights.computer ? "general" : "appearance")
-          }}
-        />
+        </AreaBoundary>
       </aside>
       {!collapsed && (
         <ResizeHandle
@@ -1208,16 +1212,23 @@ export function App() {
             </div>
           )}
           {view === "settings" ? (
-            <SettingsPage
-              computer={rights.computer}
+            <AreaBoundary
+              area="settings"
+              resetKey={sectionOfPath(where.path)}
               menu={menu}
-              pairRev={pairRev}
-              section={sectionOfPath(where.path)}
-              onSection={(s) => go(`/settings/${s}`, "replace")}
-              onClose={closeSettings}
-              onManageConnectors={() => setConnectors(true)}
-              restartRev={restartRev}
-            />
+              close={{ label: "Close settings", onClose: closeSettings }}
+            >
+              <SettingsPage
+                computer={rights.computer}
+                menu={menu}
+                pairRev={pairRev}
+                section={sectionOfPath(where.path)}
+                onSection={(s) => go(`/settings/${s}`, "replace")}
+                onClose={closeSettings}
+                onManageConnectors={() => setConnectors(true)}
+                restartRev={restartRev}
+              />
+            </AreaBoundary>
           ) : view === "across" ? (
             <AcrossScreen
               menu={menu}
@@ -1326,47 +1337,57 @@ export function App() {
                 </Button>
               </header>
               <div inert={reading !== null} className="flex min-h-0 flex-1">
-                <Chat
-                  bot={bot}
-                  entries={entries}
-                  rev={transcript?.rev ?? 0}
-                  older={!(transcript?.complete ?? true)}
-                  onLoadOlder={() => void loadOlder(bot.id)}
-                  onReveal={(entryId) => reveal(bot.id, entryId)}
-                  status={transcriptStatus.get(bot.id) ?? "unloaded"}
-                  answering={answering.get(bot.id) ?? null}
-                  draining={draining}
-                  pause={pause}
-                  pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
-                  onAnswer={(q) => setAnswer(bot.id, q)}
-                  search={searchN}
-                  onCloseSearch={() => setSearch(null)}
-                  post={post && postFound === `${bot.id}:${post}` ? post : null}
-                  mentionables={
-                    bot.kind === "room"
-                      ? (bot.members ?? [])
-                      : agents.filter((a) => a.id !== bot.id).map((a) => ({ id: a.id, name: a.name }))
-                  }
-                />
+                <AreaBoundary area="chat" resetKey={bot.id} onReload={() => void reloadChat(bot.id)}>
+                  <Chat
+                    bot={bot}
+                    entries={entries}
+                    rev={transcript?.rev ?? 0}
+                    older={!(transcript?.complete ?? true)}
+                    onLoadOlder={() => void loadOlder(bot.id)}
+                    onReveal={(entryId) => reveal(bot.id, entryId)}
+                    status={transcriptStatus.get(bot.id) ?? "unloaded"}
+                    answering={answering.get(bot.id) ?? null}
+                    draining={draining}
+                    pause={pause}
+                    pill={update.state && shown(update.state) ? <UpdatePill update={update} bots={bots} /> : null}
+                    onAnswer={(q) => setAnswer(bot.id, q)}
+                    search={searchN}
+                    onCloseSearch={() => setSearch(null)}
+                    post={post && postFound === `${bot.id}:${post}` ? post : null}
+                    mentionables={
+                      bot.kind === "room"
+                        ? (bot.members ?? [])
+                        : agents.filter((a) => a.id !== bot.id).map((a) => ({ id: a.id, name: a.name }))
+                    }
+                  />
+                </AreaBoundary>
               </div>
               {reading && (
-                <Reader
-                  key={`${reading.kind}:${reading.id}`}
-                  reading={reading}
-                  chat={bot.id}
-                  agents={agents}
-                  teams={teams}
+                <AreaBoundary
+                  area="reader"
+                  resetKey={`${reading.kind}:${reading.id}`}
                   menu={menu}
-                  onClose={closeReader}
-                  onGone={() => {
-                    closeReader()
-                    setError("Not found. The linked artifact or skill was deleted or never existed.")
-                  }}
-                  onDeleted={() => {
-                    closeReader()
-                    setListsRev((n) => n + 1)
-                  }}
-                />
+                  close={{ label: "Back to chat", onClose: closeReader }}
+                  className="bg-background absolute inset-0 z-20"
+                >
+                  <Reader
+                    key={`${reading.kind}:${reading.id}`}
+                    reading={reading}
+                    chat={bot.id}
+                    agents={agents}
+                    teams={teams}
+                    menu={menu}
+                    onClose={closeReader}
+                    onGone={() => {
+                      closeReader()
+                      setError("Not found. The linked artifact or skill was deleted or never existed.")
+                    }}
+                    onDeleted={() => {
+                      closeReader()
+                      setListsRev((n) => n + 1)
+                    }}
+                  />
+                </AreaBoundary>
               )}
             </div>
           ) : (
@@ -1408,19 +1429,25 @@ export function App() {
               )}
               ref={panelKeys}
             >
-              <BotPanel
-                bot={bot}
-                agents={agents}
-                version={(transcript?.rev ?? 0) + listsRev}
-                onDeleted={() => setSelected(null)}
-                tab={place?.tab ?? null}
-                onTab={(tab) => go(chatUrl({ ...(place ?? { chat: bot.id }), tab }))}
-                onRead={openReader}
-                teams={teams}
-                onOpenInbox={() => setScreen("inbox")}
-                paused={draining ? pause : null}
-                onClose={over ? closePanel : undefined}
-              />
+              <AreaBoundary
+                area="panel"
+                resetKey={`${bot.id}:${place?.tab ?? ""}`}
+                close={{ label: "Close panel", onClose: closePanel }}
+              >
+                <BotPanel
+                  bot={bot}
+                  agents={agents}
+                  version={(transcript?.rev ?? 0) + listsRev}
+                  onDeleted={() => setSelected(null)}
+                  tab={place?.tab ?? null}
+                  onTab={(tab) => go(chatUrl({ ...(place ?? { chat: bot.id }), tab }))}
+                  onRead={openReader}
+                  teams={teams}
+                  onOpenInbox={() => setScreen("inbox")}
+                  paused={draining ? pause : null}
+                  onClose={over ? closePanel : undefined}
+                />
+              </AreaBoundary>
             </aside>
           </>
         )}

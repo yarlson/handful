@@ -159,6 +159,12 @@ export class ChatWindows {
     }
   }
 
+  // reload drops chat id's window and loads its newest page again.
+  reload(id: string): Promise<void> {
+    this.unload(id)
+    return this.open(id)
+  }
+
   private unload(id: string) {
     this.loads.delete(id)
     this.changed()

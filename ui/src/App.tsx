@@ -59,7 +59,7 @@ import { KeyPage } from "@/components/key-page"
 import { matchesName } from "@/lib/search"
 import { MAC, shortcutKeys, shortcutLabel, shortcutOf, type ShortcutName } from "@/lib/shortcuts"
 import { commandsFor, type Command } from "@/lib/palette"
-import { choose, loadAppearance, THEME_KEY } from "@/lib/appearance"
+import { choose, loadAppearance, showAppearance, THEME_KEY } from "@/lib/appearance"
 import { CommandPalette } from "@/components/palette"
 import {
   clampPanel,
@@ -1027,11 +1027,14 @@ export function App() {
         return togglePanel()
       case "search":
         return openSearch()
-      case "theme":
-        choose(loadAppearance(), "theme", action.theme)
-        // main.tsx and an open Appearance section follow the storage event, which the browser
-        // fires only in the other tabs.
-        return void window.dispatchEvent(new StorageEvent("storage", { key: THEME_KEY }))
+      case "theme": {
+        const next = choose(loadAppearance(), "theme", action.theme)
+        // An open Appearance section rereads its selects on the storage event, which the browser
+        // fires only in the other tabs. That event also makes main.tsx show the stored choice, so
+        // the page shows next after it, even when storage refuses the write.
+        window.dispatchEvent(new StorageEvent("storage", { key: THEME_KEY }))
+        return showAppearance(document.documentElement, next, matchMedia("(prefers-color-scheme: dark)").matches)
+      }
     }
   }
   // A drain that the updater didn't start is a settings restart.

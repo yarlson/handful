@@ -28,10 +28,11 @@ export const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent)
 
 // shortcutOf names the shortcut that a key press is, or gives null. Ctrl on a Mac is not Mod, so
 // Ctrl+F still moves the cursor in a Mac text field. A key that an IME takes is no shortcut;
-// keyCode 229 marks it in browsers that don't set isComposing. AltGr, which some layouts need to
-// type a character, is Ctrl+Alt to the browser, so it is no shortcut either.
+// keyCode 229 marks it in browsers that don't set isComposing. Off a Mac, AltGr, which some
+// layouts need to type a character, is Ctrl+Alt to the browser, so it is no shortcut either. On a
+// Mac some browsers report AltGraph for every ⌥ press, and AltGr does not exist there.
 export function shortcutOf(e: KeyPress, mac: boolean): ShortcutName | null {
-  if (e.isComposing || e.keyCode === 229 || e.getModifierState("AltGraph")) return null
+  if (e.isComposing || e.keyCode === 229 || (!mac && e.getModifierState("AltGraph"))) return null
   const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
   if (!mod || e.shiftKey) return null
   const names = Object.keys(SHORTCUTS) as ShortcutName[]

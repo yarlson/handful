@@ -63,6 +63,11 @@ test("AltGr, which the browser reports as Ctrl+Alt, is no shortcut", () => {
   assert.isNull(shortcutOf(press("KeyB", { ctrlKey: true, altKey: true }, true), false))
 })
 
+test("on a Mac, a ⌥ press that the browser marks as AltGraph is still ⌥", () => {
+  assert.equal(shortcutOf(press("KeyB", { metaKey: true, altKey: true }, true), true), "panel")
+  assert.equal(shortcutOf(press("KeyK", { metaKey: true }, true), true), "palette")
+})
+
 test("a shortcut shows as ⌘ symbols on a Mac and as Ctrl+ names elsewhere", () => {
   assert.equal(shortcutLabel("palette", true), "⌘K")
   assert.equal(shortcutLabel("panel", true), "⌥⌘B")

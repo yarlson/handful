@@ -55,7 +55,7 @@ export function PaletteList({
   onActive: (i: number) => void
   onRun: (c: Command) => void
 }) {
-  if (rows.length === 0) return <p className="text-muted-foreground px-3 py-6 text-center text-sm">No matches</p>
+  if (rows.length === 0) return null
   const groups = [...new Set(rows.map((r) => r.group))]
   return (
     <div
@@ -66,14 +66,14 @@ export function PaletteList({
       aria-label="Commands"
       className="max-h-[min(24rem,60dvh)] overflow-y-auto p-1"
     >
-      {groups.map((g) => (
+      {groups.map((g, n) => (
         <div
           key={g}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="group"
-          aria-labelledby={`palette-group-${g}`}
+          aria-labelledby={`palette-group-${n}`}
         >
-          <div id={`palette-group-${g}`} className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-medium">
+          <div id={`palette-group-${n}`} className="text-muted-foreground px-2 pt-2 pb-1 text-xs font-medium">
             {g}
           </div>
           {rows.map((c, i) => {
@@ -93,9 +93,10 @@ export function PaletteList({
                 )}
                 onMouseMove={() => i !== active && onActive(i)}
                 onMouseDown={(e) => {
-                  // Keep the focus in the input, so it goes back where it was on close.
+                  // Keep the focus in the input, so the keys still work and the focus goes back
+                  // where it was on close.
                   e.preventDefault()
-                  onRun(c)
+                  if (e.button === 0) onRun(c)
                 }}
               >
                 <ActionIcon action={c.action} />
@@ -147,9 +148,11 @@ export function CommandPalette({
   }
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
-    if (shortcutOf(e.nativeEvent, MAC) === "palette") {
+    const shortcut = shortcutOf(e.nativeEvent, MAC)
+    if (shortcut) {
+      // The other shortcuts wait until the palette closes; the browser's own ⌘F and ⌘B stay off.
       e.preventDefault()
-      onOpenChange(false)
+      if (shortcut === "palette") onOpenChange(false)
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault()
       showActive(moveActive(shown, rows.length, e.key))
@@ -185,8 +188,8 @@ export function CommandPalette({
           <input
             role="combobox"
             aria-label="Find a chat or a command"
-            aria-expanded
-            aria-controls="palette-list"
+            aria-expanded={rows.length > 0}
+            aria-controls={rows.length > 0 ? "palette-list" : undefined}
             aria-autocomplete="list"
             aria-activedescendant={rows.length > 0 ? `palette-option-${shown}` : undefined}
             placeholder="Find a chat or a command"
@@ -202,6 +205,12 @@ export function CommandPalette({
           />
         </div>
         <PaletteList rows={rows} active={shown} theme={theme} onActive={setActive} onRun={run} />
+        {/* Kept in the page, so a screen reader announces the text when it appears. */}
+        <output aria-live="polite">
+          {rows.length === 0 && (
+            <span className="text-muted-foreground block px-3 py-6 text-center text-sm">No matches</span>
+          )}
+        </output>
         <p className="text-muted-foreground flex flex-wrap gap-x-3 border-t px-3 py-2 text-xs">
           <span>↑↓ to move</span>
           <span>Enter to run</span>

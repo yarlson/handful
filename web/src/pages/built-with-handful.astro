@@ -1,0 +1,179 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+const h2 = "mt-14 text-[1.5rem] font-[560] tracking-[-0.025em]";
+const p = "mt-4 text-pretty text-base text-ink-2";
+const list = "mt-4 space-y-3 text-pretty text-base text-ink-2";
+const link = "underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink";
+const github = "https://github.com/yarlson/handful";
+const th = "py-2 pr-4 text-left font-[550] text-ink align-top";
+const td = "border-t border-line py-2 pr-4 align-top";
+
+const teams = [
+	{
+		name: "Product",
+		members: "Product Lead, UX Designer, Visual Designer, GTM Lead, Market Researcher",
+		does: "Turns a request into a spec. Another member reviews each step. The team reads the code and does not change it.",
+	},
+	{
+		name: "Dev",
+		members: "Dev Lead, Full-Stack Dev, Desktop Dev, Site Dev, Reviewer, Release Manager, State Machine Scout",
+		does: "Builds each spec in pull requests. Reviewer reviews them. Release Manager merges what is approved and green, and cuts the release.",
+	},
+	{ name: "Support", members: "Support Lead, Support Agent, Bug Triager, Docs Writer", does: "Takes a bug report and sends it to Dev as a task." },
+	{ name: "Site", members: "GTM Lead, Site Dev, Reviewer, Release Manager", does: "Owns handful.dev. This page is its first task." },
+];
+
+const steps = [
+	"The person writes a request in a team's chat.",
+	"Product's lead splits it into steps: research, then a spec. Another member reviews each step.",
+	"Product's lead sends the spec to Dev as a task. It lands in Dev's inbox, and Dev's lead takes it.",
+	"Dev's lead splits it into steps. Each step has an owner and, in most cases, a reviewer.",
+	"The owner opens a pull request. Reviewer comments on it: approved, or changes requested.",
+	"Release Manager merges the pull request when it is approved and CI is green, and cuts a release.",
+	"Dev's lead closes the task. Product's lead, who sent it, approves it. The person approves the task that they started.",
+];
+
+const feature = [
+	{ time: "13:23", what: "One line from the person: redesign how bots use tokens." },
+	{ time: "13:23 to 15:12", what: "Product measures today's use and writes the spec. Reviewers ask for changes on both steps." },
+	{ time: "15:12", what: "Product sends the spec to Dev." },
+	{ time: "15:42", pr: 168, after: " opens. 15:50 changes requested. 16:03 approved. 16:06 merged." },
+	{ time: "16:23", pr: 169, after: " opens. 16:29 changes requested. 16:35 approved. 16:36 merged." },
+	{ time: "16:47", release: "v0.21.0", after: " is out, 3 hours and 24 minutes after the request." },
+];
+
+const bug = [
+	{ time: "07:20", what: "The person asks Support to check whether skills in a linked folder are skipped." },
+	{ time: "07:21", what: "Support sends the bug to Dev." },
+	{ time: "07:37", pr: 165, after: " opens. 07:42 changes requested: a broken link was not handled. 07:49 approved. 07:50 merged." },
+	{ time: "08:02", release: "v0.19.2", after: " is out, 42 minutes after the question." },
+];
+
+const timelines = [
+	{ title: "A feature, followed", note: "13 November 2026, times in UTC+2", rows: feature },
+	{ title: "A bug, followed", note: "13 November 2026", rows: bug },
+];
+---
+
+<Layout title="How Handful builds Handful" description="Four teams of bots write, review and release Handful, and one person approves. The numbers, two requests followed from message to release, and what went wrong.">
+	<Header />
+	<main class="mx-auto w-full max-w-3xl px-6 pb-24 pt-[clamp(1.5rem,6vh,4rem)] sm:px-10">
+		<h1 class="text-balance text-[clamp(2rem,4.4vw,3.25rem)] font-[560] leading-[1.08] tracking-[-0.04em]">How Handful builds Handful</h1>
+		<p class="mt-5 text-pretty text-lg text-ink-2">
+			Handful is built with Handful. Four teams of bots in its maker's own copy write the specs, the code, the reviews and this site. One person gives them tasks, answers their questions and approves the results. Some call such a setup a software factory. This one is small, and a task is not done until whoever asked for it approves it.
+		</p>
+		<p class={p}>This page gives numbers that you can check on GitHub, two requests followed from the first message to the release, and what went wrong.</p>
+
+		<h2 class={h2}>The teams</h2>
+		<div class="mt-4 overflow-x-auto">
+			<table class="w-full min-w-[34rem] text-pretty text-base text-ink-2">
+				<thead>
+					<tr><th class={th} scope="col">Team</th><th class={th} scope="col">Members</th><th class={th} scope="col">What it does</th></tr>
+				</thead>
+				<tbody>
+					{
+						teams.map((t) => (
+							<tr>
+								<th class={`${td} font-[550] text-ink text-left`} scope="row">{t.name}</th>
+								<td class={td}>{t.members}</td>
+								<td class={td}>{t.does}</td>
+							</tr>
+						))
+					}
+				</tbody>
+			</table>
+		</div>
+		<p class={p}>
+			A bot can be in more than one team: Reviewer and Release Manager work in Dev and in Site. Each team has a working agreement that its owner wrote. It says how the team works and when work is done.
+		</p>
+
+		<h2 class={h2}>How a change moves</h2>
+		<ol class={`${list} list-decimal pl-5`}>{steps.map((step) => <li>{step}</li>)}</ol>
+
+		{
+			timelines.map((t) => (
+				<>
+					<h2 class={h2}>
+						{t.title} <span class="text-base font-normal tracking-normal text-ink-3">({t.note})</span>
+					</h2>
+					<div class="mt-4 overflow-x-auto">
+						<table class="w-full min-w-[28rem] text-pretty text-base text-ink-2">
+							<thead>
+								<tr><th class={th} scope="col">Time</th><th class={th} scope="col">What happened</th></tr>
+							</thead>
+							<tbody>
+								{t.rows.map((row) => (
+									<tr>
+										<th class={`${td} whitespace-nowrap font-[550] text-ink text-left`} scope="row">{row.time}</th>
+										<td class={td}>
+											{"what" in row ? (
+												row.what
+											) : "pr" in row ? (
+												<>
+													<a href={`${github}/pull/${row.pr}`} class={link}>#{row.pr}</a>
+													{row.after}
+												</>
+											) : (
+												<>
+													<a href={`${github}/releases/tag/${row.release}`} class={link}>{row.release}</a>
+													{row.after}
+												</>
+											)}
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				</>
+			))
+		}
+		<p class="mt-4 text-sm text-ink-3">The request times come from the maker's Handful. The pull request and release times are on GitHub.</p>
+
+		<h2 class={h2}>The numbers</h2>
+		<p class={p}>Counted on GitHub at release v0.22.0, 16 November 2026.</p>
+		<ul class={`${list} list-disc pl-5`}>
+			<li>152 pull requests merged and 34 releases since the first commit on 7 November 2026.</li>
+			<li>The teams started on 9 November. Of the 129 pull requests from #54 on, a bot reviewed 124.</li>
+			<li>On 57 of them, the reviewer asked for changes before it approved.</li>
+			<li>Five were merged with no review comment: #59, #67, #141, #143 and #144.</li>
+			<li>The bots work through their maker's GitHub account. GitHub shows one author, and each review is a comment on the pull request, not a GitHub review.</li>
+		</ul>
+		<p class={p}>
+			<a href={`${github}/pulls?q=is%3Apr+is%3Amerged`} class={link}>The merged pull requests</a> · <a href={`${github}/releases`} class={link}>The releases</a>
+		</p>
+
+		<h2 class={h2}>What the person does</h2>
+		<ul class={`${list} list-disc pl-5`}>
+			<li>Writes each team's working agreement.</li>
+			<li>Sends tasks and answers the bots' questions.</li>
+			<li>Approves the results of their own tasks. A lead approves the results of the tasks that its team sent.</li>
+			<li>Decides which tools each bot may use without a card.</li>
+			<li>Sometimes merges or releases by hand.</li>
+		</ul>
+
+		<h2 class={h2}>What went wrong</h2>
+		<ul class={`${list} list-disc pl-5`}>
+			<li>13 of the 34 releases are patch releases.</li>
+			<li>
+				A review by a bot does not find everything. Pull request <a href={`${github}/pull/97`} class={link}>#97</a> was approved after two rounds of changes, with a check of the app's signing that could not work.
+				<a href={`${github}/pull/123`} class={link}>#123</a> fixed it a day later, in v0.12.1.
+			</li>
+			<li>The guides fell behind. The 13 pull requests of v0.22.0 changed the app, and none changed a user guide. The site team's first task was to write them again.</li>
+			<li>Support has had no outside user yet. Every bug report so far came from the maker.</li>
+			<li>The first 23 pull requests, on 7 and 8 November, are older than the teams.</li>
+		</ul>
+
+		<h2 class={h2}>What it cost</h2>
+		<p class={p}>Handful stores token counts, not prices. Every turn ran Claude Code on the maker's own subscription.</p>
+
+		<h2 class={h2}>Set up your own</h2>
+		<p class={p}>
+			<a href="/docs/first-steps/" class={link}>First steps</a> shows how to start Builder. Choose Software team in its first message: a lead, a developer and a reviewer.
+		</p>
+	</main>
+	<Footer />
+</Layout>

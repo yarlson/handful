@@ -45,11 +45,11 @@ A mark next to a chat says what is going on: **Working**, **Background tasks**, 
 
 The list groups the open questions by chat. Each group has the chat's name and **Open chat**. Each question shows who asks and when, with **Answer** and **Dismiss**. After **Dismiss**, **Undo** takes it back for 10 seconds. A device that may not send messages shows no **Answer** and no **Dismiss**.
 
-The section "Approvals and paused tasks" lists each chat with an open card, as "<name>: needs your approval", and each chat with a paused task, as "<name>: the task is paused". Click a line to open the chat.
+The section "Approvals and paused tasks" lists each chat with an open card, as "\<name>: needs your approval", and each chat with a paused task, as "\<name>: the task is paused". Click a line to open the chat.
 
 At the bottom, a line counts the questions answered or dismissed in the last 7 days. **Show** opens them. When nothing waits, the list says "Nothing is waiting for you."
 
-A chat with open questions also shows them above its message box, under "Open questions (N)". Each one has **Go to**, which jumps to the message, **Answer** and **Dismiss**. When there are many, the strip shows only the first, and "Show all N" opens the rest.
+A chat with open questions also shows them above its message box, under "Open questions (N)”. Each one has **Go to**, which jumps to the message, **Answer** and **Dismiss**. When there are many, the strip shows only the first, and "Show all N" opens the rest.
 
 ## Search this chat
 

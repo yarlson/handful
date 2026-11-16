@@ -12,7 +12,7 @@ You need Handful installed ([First steps](/docs/first-steps/)) and a folder with
 
 1. Open Builder's chat. On a new install, click **Software team** in its first message. The text "Set up a software team: a lead, a developer and a reviewer who change my code and check it with tests." goes into the message box. Later, write the same request yourself.
 2. Send it. Builder asks a few short questions. Tell it where your code is, for example `~/code/reports`, so that the folder goes into the team's purpose.
-3. Builder proposes the setup in the chat. When you agree, it shows the card "Create this setup?". Read the instructions of each bot and the team's working agreement on the card, then click **Create**.
+3. Builder proposes the setup in the chat. When you agree, it shows the card "Create this setup?”. Read the instructions of each bot and the team's working agreement on the card, then click **Create**.
 
 Builder's starter for this request is a team of three: a lead who plans and splits the work, a developer who writes code with tests, and a reviewer who checks each change. Its working agreement is "Tests pass, and another member reviews each change." Builder adapts names and size to your answers, so check the card.
 
@@ -57,7 +57,7 @@ Steps that do not depend on each other can run at the same time when different m
 
 A member asks before it runs a command or changes a file. The card shows the diff or the command. For the first task, answer each card with **Allow once** and read what the bots do.
 
-When you know the team, the button "Always allow <tool>", for example "Always allow Edit", saves cards. It is for one bot and one tool, and a phone does not show it:
+When you know the team, the button "Always allow \<tool>”, for example "Always allow Edit", saves cards. It is for one bot and one tool, and a phone does not show it:
 
 - Edit and Write for the developer are the usual choice. The card that remains is the command.
 - Bash for any bot lets that bot run every command without a card: tests, but also `git push`, a merge or a delete. Allow it only when you accept that.

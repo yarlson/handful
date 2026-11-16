@@ -26,7 +26,7 @@ The phone address opens at once, with no restart. The settings are saved in `con
 
 1. On the computer, click **Pair a phone**, and choose what the phone may do (below). Settings shows a QR code and the same code as text, such as `K7QM-2XPD-9WTR`. The code works once and ends after 5 minutes.
 2. On the phone, scan the QR code. It opens the pairing page on the phone address, with the code filled in. Or open the phone address, tap **Pair again** under "This phone isn't paired with Handful.", and type the code in **Pairing code**, in any case, with or without dashes. Give the phone a name, and tap **Pair**.
-3. On the computer, a request "<name> wants to pair as <scope>." shows at the top of the window, and first in **Needs you**. Click **Allow** within 2 minutes. The phone is paired.
+3. On the computer, a request "\<name> wants to pair as \<scope>." shows at the top of the window, and first in **Needs you**. Click **Allow** within 2 minutes. The phone is paired.
 
 After 5 wrong codes in 10 minutes, pairing pauses for 10 minutes.
 
@@ -44,7 +44,7 @@ A phone shows only the controls that its scope may use.
 
 What a phone never does:
 
-- choose "Always allow <tool>" on a card;
+- choose "Always allow \<tool>” on a card;
 - create a setup from Builder;
 - change settings, bots, teams, routines, memory, skills, connectors, or phone access itself. Those stay on the computer.
 

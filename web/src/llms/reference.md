@@ -60,7 +60,7 @@ Each `claude` process connects to Handful's MCP endpoint, `/mcp`, with a bearer 
   - `text`: the task in a line, the result, a question, an answer, a reason or a note. `brief` is for `send_task`, `propose`, `make_task`, `user_task` and `create`; `title`, `acceptance` and `depends_on` are for `create`.
   - `position`: for `take`, the task's place in the plan. `order`: for `order`, the ids of every task in the plan.
   - `until`: for `later`, when the task returns to the inbox, at most 7 days ahead.
-  - `waits_for`: for `send_task`, the id of your own step that waits on the task. `artifact_ids`: artifacts the other team needs; `user_task` takes it too.
+  - `waits_for`: for `send_task`, the id of your own step that waits on the task. `artifact_ids`: artifacts the other team needs.
   - `turn_ids`: for `make_task`, the ids of the team's turns that were on no task.
   - `owner_id`, `reviewer_id`: for `create` and `assign`, by the lead only.
 - `approve`: internal. Claude Code calls it through `--permission-prompt-tool` to show an approval card.

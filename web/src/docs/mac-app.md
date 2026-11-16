@@ -34,7 +34,7 @@ The server writes its log to `~/Library/Logs/Handful/server.log`. In **Settings*
 
 The app keeps itself up to date.
 
-- Once a day it checks the latest release on GitHub and downloads a new version in the background. A pill then shows the version, with the link "What's new in <version>". In a chat, the pill sits at the right, above the message box. In other views, it sits at the bottom right of the window.
+- Once a day it checks the latest release on GitHub and downloads a new version in the background. A pill then shows the version, with the link "What's new in \<version>”. In a chat, the pill sits at the right, above the message box. In other views, it sits at the bottom right of the window.
 - It installs an update only when you ask: **Restart now** in the pill, the update item in the **Handful** menu, or ⌘Q. Then the app and its server restart.
 - A restart stops the turns that run. So when bots work, the pill lists them and offers **Update when they finish**. While it waits, new turns wait, and teams pause their tasks for the update. After the same wait time, it asks you again: wait longer, or **Restart now**. It never restarts on its own while bots work.
 - **Later** hides the pill until the next launch or for a day. **Skip this version** hides it until a newer version comes out.

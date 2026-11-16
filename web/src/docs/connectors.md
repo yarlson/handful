@@ -37,7 +37,7 @@ A server without `headers` signs in with OAuth 2.1, with dynamic client registra
 
 - The **Connectors** list shows each server, its address, its bots and its state: "token in file", "needs sign-in", "connected" or "expired". **Reconnect** signs in again. **Disconnect** deletes the sign-in.
 - Handful keeps the sign-in tokens in `~/.handful/oauth/<name>.json`, which only you can read, and refreshes them before they expire.
-- While a server is not signed in, the bot works without it, and the chat says "<name> needs sign-in: open Connectors in the sidebar".
+- While a server is not signed in, the bot works without it, and the chat says "\<name> needs sign-in: open Connectors in the sidebar".
 - The sign-in address contains Handful's port. If you change `-addr`, connect again.
 
 A server without dynamic client registration needs a client that you register yourself:
@@ -67,5 +67,5 @@ For example, Slack's MCP server works with Slack's public client for Claude Code
 
 ## What a connector can do
 
-- A bot asks you with an approval card before it calls a connector tool. "Always allow <tool>" on the card is for that one tool of the server, not for the whole server.
+- A bot asks you with an approval card before it calls a connector tool. "Always allow \<tool>” on the card is for that one tool of the server, not for the whole server.
 - `bots` chooses the bots that load a server. It does not hide the tokens from other bots. Claude Code's file tools cannot read `connectors.json` or the sign-in tokens, but every bot runs as your user, so a command that you allow can. See [Security and data](/security/).

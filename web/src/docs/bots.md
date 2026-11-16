@@ -8,7 +8,7 @@ On the first start, Handful has one bot, Builder. It sets up bots, teams and roo
 
 1. Tell Builder what you want help with, or pick a start from its first message: **Personal assistant**, **Software team**, **Research desk** or **Writing studio**. A click puts the start's text in the message box, for you to change or send.
 2. Builder asks at most three short questions and proposes a setup in the chat.
-3. When you agree, Builder shows the setup on a card, "Create this setup?": each new bot with its instructions, and each team or room with its members. **Create** makes all of it at once. **Cancel** makes nothing. The card has no **Always allow**, so Builder asks you for every setup, and only the computer can create it, not a paired phone.
+3. When you agree, Builder shows the setup on a card, "Create this setup?”: each new bot with its instructions, and each team or room with its members. **Create** makes all of it at once. **Cancel** makes nothing. The card has no **Always allow**, so Builder asks you for every setup, and only the computer can create it, not a paired phone.
 
 - A setup adds at most 8 bots, 3 teams and 3 rooms, and each of its teams and rooms has 1 to 8 members. A new name must differ from the names of your bots, teams and rooms.
 - The new bots do not introduce themselves. Builder tells you where to start, for example to open a team and send it a task.
@@ -52,7 +52,7 @@ Type `/` at the start of a message, or after a space, to open a menu of skills. 
 
 ## Approve what a bot does
 
-A bot reads files and searches the web without asking. Before it runs a command, changes a file or calls a connector tool, it asks you with a card. In the bot's own chat, the card asks "Allow <tool>?". In a team or a room, it asks "Allow <bot> to use <tool>?". The card shows what the call does:
+A bot reads files and searches the web without asking. Before it runs a command, changes a file or calls a connector tool, it asks you with a card. In the bot's own chat, the card asks "Allow \<tool>?”. In a team or a room, it asks "Allow \<bot> to use \<tool>?”. The card shows what the call does:
 
 - a file edit: the path and the diff;
 - a new file: the path and its lines;
@@ -62,7 +62,7 @@ A bot reads files and searches the web without asking. Before it runs a command,
 The buttons:
 
 - **Allow once** lets this one call run.
-- "Always allow <tool>", for example "Always allow Edit", lets this bot use this tool from now on, without a card. It is for one bot and one tool. For a connector, it is for one tool, not the whole server. A phone does not show this button.
+- "Always allow \<tool>”, for example "Always allow Edit", lets this bot use this tool from now on, without a card. It is for one bot and one tool. For a connector, it is for one tool, not the whole server. A phone does not show this button.
 - **Deny** stops the call.
 
 An answered card folds to one line. A card that you do not answer expires after 4½ minutes, when the turn stops, or when the server restarts, and then says why.

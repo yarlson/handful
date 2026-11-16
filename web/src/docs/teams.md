@@ -147,7 +147,7 @@ The receiving team works on the task from its own budget. The sending team needs
 - Follow: the sending team's **Work** tab lists the tasks it sent in the last 30 days. The open ones are under **Waiting on other teams**, each with its state: in the other team's inbox, later, its place in the other team's plan, or being done, with its turns. A task that the receiving lead asked about, finished or pushed back moves to **Needs you**. The ones that are over (done, stopped or withdrawn) are under **Earlier**.
 - Act: in **Needs you**, **Answer…** replies to the receiver's question, **Approve** or **Ask for changes…** settles a task done at the other team, and **Dismiss** puts away a task that was pushed back, after you read the reason; it then moves to **Earlier**. Under **Waiting on other teams**, **Withdraw…** takes back a task that has not started.
 
-When a step of the sender's task waits on the sent task, the receiving lead sees "<team>'s task waits on this". If the task is pushed back, that step is blocked with the reason, and the sending lead plans again.
+When a step of the sender's task waits on the sent task, the receiving lead sees "\<team>’s task waits on this". If the task is pushed back, that step is blocked with the reason, and the sending lead plans again.
 
 ## Limits
 

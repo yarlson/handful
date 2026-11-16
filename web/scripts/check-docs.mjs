@@ -1,4 +1,4 @@
-// Checks that every bold label in the docs is text that the UI shows: the label, without a
+// Checks that the docs have no raw HTML and that every bold label in the docs is text that the UI shows: the label, without a
 // trailing "…", is a string in a non-test file of ui/src or desktop. Only labels are bold in the
 // docs. A label that the UI builds at run time is quoted in the docs, not bold. The UI source is
 // one level above web/.
@@ -30,6 +30,9 @@ for (const file of readdirSync(docsDir).filter((f) => f.endsWith(".md"))) {
 	lines.forEach((line, i) => {
 		if (line.trimStart().startsWith("```")) fenced = !fenced;
 		if (fenced) return;
+		// An unescaped <tag> outside code is raw HTML: Astro passes it through and the page shows nothing. <https://...> is an autolink.
+		const prose = line.split("`").filter((_, k) => k % 2 === 0).join(" ");
+		for (const [tag] of prose.matchAll(/(?<!\\)<(?!https?:)[A-Za-z/][^>]*>/g)) errors.push(`${file}:${i + 1}: raw HTML in the docs, escape it as \\${tag}`);
 		for (const [, raw] of line.matchAll(/\*\*([^*]+)\*\*/g)) {
 			const label = raw.replace(/…$/, "").trim();
 			if (!shown.includes(label)) errors.push(`${file}:${i + 1}: bold label not in the UI code: ${raw}`);

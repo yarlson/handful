@@ -42,7 +42,7 @@ On the first start, Handful has one bot, Builder. It sets up bots, teams and roo
 
 Builder's first message offers four starts: **Personal assistant**, **Software team**, **Research desk** and **Writing studio**. A click puts the start's text in the message box. Change the text or send it as it is. You can also write in your own words what you want help with.
 
-Builder asks a few questions and proposes a setup in the chat. When you agree, it shows the setup on a card, "Create this setup?", with each new bot and its instructions, and each team or room with its members. **Create** makes all of it at once. **Cancel** makes nothing.
+Builder asks a few questions and proposes a setup in the chat. When you agree, it shows the setup on a card, "Create this setup?”, with each new bot and its instructions, and each team or room with its members. **Create** makes all of it at once. **Cancel** makes nothing.
 
 For a team that changes code, go on with [Run a software team](/docs/software-team/).
 
@@ -54,10 +54,10 @@ You can send images and videos, and so can the bot.
 
 ### 3. Answer the first approval card
 
-A bot reads files and searches the web without asking. Before it runs a command, changes a file or calls a connector tool, it shows a card. In the bot's own chat, the card asks "Allow <tool>?". In a team or a room, it asks "Allow <bot> to use <tool>?". For a file change, the card shows the path and the diff. For a command, it shows what the command is for and the command itself.
+A bot reads files and searches the web without asking. Before it runs a command, changes a file or calls a connector tool, it shows a card. In the bot's own chat, the card asks "Allow \<tool>?”. In a team or a room, it asks "Allow \<bot> to use \<tool>?”. For a file change, the card shows the path and the diff. For a command, it shows what the command is for and the command itself.
 
 - **Allow once** lets this one call run.
-- "Always allow <tool>", for example "Always allow Edit", lets this bot use this tool from now on without a card. A phone does not show this button.
+- "Always allow \<tool>”, for example "Always allow Edit", lets this bot use this tool from now on without a card. A phone does not show this button.
 - **Deny** stops the call.
 
 A card that you do not answer expires after 4½ minutes. Bots run as your user, so a command that you allow can do anything that you can do. Read each card. [Security and data](/security/) has the whole list of limits.

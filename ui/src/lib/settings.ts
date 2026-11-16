@@ -122,11 +122,11 @@ const EFFORT_NAMES: Record<string, string> = {
   max: "Max",
 }
 
-// display words a value for the page: "Default (Claude Code's)", "Opus", "On", "4".
+// display words a value for the page: "Claude Code default", "Opus", "On", "4".
 export function display(key: Key, value: Plain | undefined): string {
   if (typeof value === "boolean") return value ? "On" : "Off"
   if (value === undefined || value === "") {
-    if (key === "model") return "Default (Claude Code's)"
+    if (key === "model") return "Claude Code default"
     if (key === "effort") return "Default (model's own)"
     return "Default"
   }

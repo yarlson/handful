@@ -71,13 +71,13 @@ test("each source has a name", () => {
     "config",
     "environment",
     "this bot",
-    "Claude Code's default",
+    "Claude Code default",
   ])
 })
 
 test("the Default options name what they inherit, and never an effort level nothing sets", () => {
   assert.equal(defaultModelOption({ value: "sonnet", source: "config" }, aliases), "Default — Sonnet (from config)")
-  assert.equal(defaultModelOption({ value: "", source: "claude-code" }, aliases), "Default — Claude Code's default")
+  assert.equal(defaultModelOption({ value: "", source: "claude-code" }, aliases), "Claude Code default")
   assert.equal(defaultEffortOption({ value: "high", source: "team" }), "Default — High (from team)")
   assert.equal(defaultEffortOption({ value: "", source: "claude-code" }), "Default (model's own)")
 })
@@ -120,7 +120,7 @@ test("a chip's label names each value with its source, the run's model ID and a 
   )
   assert.equal(
     chipLabel(eff({ modelSource: "claude-code" }), aliases),
-    "Model Claude Code's default model, Claude Code's default. Effort: Default (model's own).",
+    "Model Claude Code default, from Claude Code. Effort: Default (model's own).",
   )
   assert.equal(
     chipLabel(
@@ -156,7 +156,7 @@ test("a post's tooltip names the model and effort that wrote it, and old posts h
     "Written with claude-opus-5-5",
   )
   assert.equal(postTooltip({ modelId: "claude-opus-5-5" }, aliases), "Written with claude-opus-5-5")
-  assert.equal(postTooltip({ effort: "low" }, aliases), "Written with Claude Code's default model · effort low")
+  assert.equal(postTooltip({ effort: "low" }, aliases), "Written with the Claude Code default model · effort low")
 })
 
 test("a setup summary names only the values it sets", () => {

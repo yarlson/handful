@@ -306,7 +306,7 @@ export function TextField({
 }
 
 const MODELS: [string, string][] = [
-  ["", "Default (Claude Code's)"],
+  ["", "Claude Code default"],
   ["fable", "Fable"],
   ["opus", "Opus"],
   ["sonnet", "Sonnet"],

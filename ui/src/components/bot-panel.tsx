@@ -120,6 +120,40 @@ const scopeLabel: Record<Memory["scope"], string> = {
   user: "shared",
 }
 
+// MemoryFact is one remembered fact: its text, tier, scope, author and date, and Forget.
+export function MemoryFact({
+  fact: m,
+  when,
+  onForget,
+}: {
+  fact: Memory
+  when: (ms: number) => string
+  onForget: () => void
+}) {
+  return (
+    <div className="group flex items-start gap-2 rounded-md border p-2 text-sm">
+      <div className="flex-1">
+        <p>{m.fact}</p>
+        <div className="mt-1 flex gap-1">
+          <Badge variant={m.tier === "profile" ? "default" : "secondary"}>{m.tier}</Badge>
+          <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
+          {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
+          <span className="text-muted-foreground text-xs">{when(m.createdAt)}</span>
+        </div>
+      </div>
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Forget"
+        className="opacity-0 group-hover:opacity-100"
+        onClick={onForget}
+      >
+        <Trash2 />
+      </Button>
+    </div>
+  )
+}
+
 function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
   const when = useWhen()
   const { data, error, reload, setError } = useLoad(() => api.memory(bot.id), `${bot.id}:${version}`)
@@ -142,28 +176,7 @@ function MemoryTab({ bot, version }: { bot: Bot; version: number }) {
         </p>
       )}
       {data?.map((m: Memory) => (
-        <div key={m.id} className="group flex items-start gap-2 rounded-md border p-2 text-sm">
-          <div className="flex-1">
-            <p>{m.fact}</p>
-            <div className="mt-1 flex gap-1">
-              <Badge variant={m.tier === "profile" ? "default" : "secondary"}>
-                {m.tier === "log" ? "journal" : m.tier}
-              </Badge>
-              <Badge variant="outline">{scopeLabel[m.scope]}</Badge>
-              {m.learnedBy === "user" && <Badge variant="outline">from you</Badge>}
-              <span className="text-muted-foreground text-xs">{when(m.createdAt)}</span>
-            </div>
-          </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Forget"
-            className="opacity-0 group-hover:opacity-100"
-            onClick={() => void remove(m.id)}
-          >
-            <Trash2 />
-          </Button>
-        </div>
+        <MemoryFact key={m.id} fact={m} when={when} onForget={() => void remove(m.id)} />
       ))}
     </div>
   )
@@ -589,6 +602,35 @@ function HueSwatches({ hue, onHue }: { hue: string; onHue: (hue: string) => void
   )
 }
 
+// AllowedTools lists the tools a bot may use without asking, each with Revoke; null is
+// still loading.
+export function AllowedTools({ grants, onRevoke }: { grants: string[] | null; onRevoke: (grant: string) => void }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>Always allowed tools</Label>
+      {grants?.length === 0 && (
+        <p className="text-muted-foreground text-xs">None. Each command and file change asks first.</p>
+      )}
+      <div className="flex flex-wrap gap-1">
+        {grants?.map((g) => (
+          <Badge key={g} variant="secondary" className="gap-1">
+            {g}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="-mr-1.5 size-4 rounded-full"
+              aria-label={`Revoke ${g}`}
+              onClick={() => onRevoke(g)}
+            >
+              <X />
+            </Button>
+          </Badge>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; onDeleted: () => void }) {
   const [name, setName] = useState(bot.name)
   const [instructions, setInstructions] = useState(bot.instructions)
@@ -696,28 +738,9 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
           settings={bot.team}
         />
       )}
-      <div className={isRoom ? "hidden" : "flex flex-col gap-1.5"}>
-        <Label>Always allowed tools</Label>
-        {grants.data?.length === 0 && (
-          <p className="text-muted-foreground text-xs">None. Each command and file change asks first.</p>
-        )}
-        <div className="flex flex-wrap gap-1">
-          {grants.data?.map((g) => (
-            <Badge key={g} variant="secondary" className="gap-1">
-              {g}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="-mr-1.5 size-4 rounded-full"
-                aria-label={`Revoke ${g}`}
-                onClick={() => void api.revokeGrant(bot.id, g).then(grants.reload)}
-              >
-                <X />
-              </Button>
-            </Badge>
-          ))}
-        </div>
-      </div>
+      {!isRoom && (
+        <AllowedTools grants={grants.data} onRevoke={(g) => void api.revokeGrant(bot.id, g).then(grants.reload)} />
+      )}
       <div className="border-t pt-3">
         <Button size="sm" variant="destructive" onClick={() => setConfirm(true)}>
           Delete {what}

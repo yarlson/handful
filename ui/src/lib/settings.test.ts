@@ -91,7 +91,7 @@ test("pending keys come in the page's order, with their sections and the banner 
 })
 
 test("values read as words", () => {
-  assert.equal(display("model", ""), "Default (Claude Code's)")
+  assert.equal(display("model", ""), "Claude Code default")
   assert.equal(display("model", "opus"), "Opus")
   assert.equal(display("model", "claude-opus-5-5"), "claude-opus-5-5")
   assert.equal(display("effort", ""), "Default (model's own)")

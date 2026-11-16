@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { assert, test } from "vitest"
 import type { Bot } from "@/lib/api"
 import { failed, saved } from "@/lib/save"
-import { SaveNote, SettingsTab } from "./bot-panel.tsx"
+import { AllowedTools, MemoryFact, SaveNote, SettingsTab } from "./bot-panel.tsx"
 
 test("a save that worked shows as a plain note", () => {
   const html = renderToStaticMarkup(<SaveNote result={saved()} />)
@@ -59,4 +59,29 @@ test("a bot's settings show the five colours with its stored one picked", () => 
 
 test("a room's settings have no colour to pick", () => {
   assert.deepEqual(swatches(settings({ ...agent, kind: "room", hue: undefined })), [])
+})
+
+test("a fact in the log tier shows the tier's own name", () => {
+  const fact = {
+    id: "m1",
+    scope: "agent",
+    tier: "log",
+    fact: "Ships on Fridays",
+    learnedBy: "bot",
+    createdAt: 1,
+  } as const
+  const html = renderToStaticMarkup(<MemoryFact fact={fact} when={() => "today"} onForget={() => {}} />)
+  assert.match(html, />log<\/span>/)
+  assert.notInclude(html, "journal")
+})
+
+test("a bot with no allowed tools shows None", () => {
+  const html = renderToStaticMarkup(<AllowedTools grants={[]} onRevoke={() => {}} />)
+  assert.include(html, "None. Each command and file change asks first.")
+})
+
+test("allowed tools show each tool with its own Revoke", () => {
+  const html = renderToStaticMarkup(<AllowedTools grants={["Bash(go test:*)"]} onRevoke={() => {}} />)
+  assert.include(html, 'aria-label="Revoke Bash(go test:*)"')
+  assert.notInclude(html, "None.")
 })

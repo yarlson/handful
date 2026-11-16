@@ -61,6 +61,22 @@ test("a room's settings have no colour to pick", () => {
   assert.deepEqual(swatches(settings({ ...agent, kind: "room", hue: undefined })), [])
 })
 
+test("a team's settings have one Save for every field, off while nothing changed", () => {
+  const team: Bot = {
+    ...agent,
+    id: "team-dev",
+    kind: "room",
+    hue: undefined,
+    members: [{ id: "bot-ana", name: "Ana" }],
+    team: { leadId: "bot-ana", agreement: "", goalBudget: 0 },
+  }
+  const html = settings(team)
+  assert.include(html, 'id="team-settings-agreement"')
+  const saves = [...html.matchAll(/<button[^>]*>Save[^<]*<\/button>/g)].map((m) => m[0])
+  assert.lengthOf(saves, 1)
+  assert.include(saves[0], "disabled")
+})
+
 test("a fact in the log tier shows the tier's own name", () => {
   const fact = {
     id: "m1",

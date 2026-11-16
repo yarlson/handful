@@ -28,7 +28,7 @@ import { MoveNotice } from "@/components/move-notice"
 import { NowChip } from "@/components/board"
 import { AcrossScreen, InboxScreen } from "@/components/tasks"
 import { tasksKey } from "@/lib/tasks"
-import { openSettingsPage, SettingsPage } from "@/components/settings"
+import { openSettingsPage, settingsBridge, SettingsPage } from "@/components/settings"
 import { isSettingsPath, pauseLabel, sectionOfPath } from "@/lib/settings"
 import { UpdatePill, useUpdate } from "@/components/update-pill"
 import { shown } from "@/lib/updates"
@@ -81,6 +81,7 @@ import {
 import { chatPlace, chatUrl, lastChat, panelTabs, saveLastChat, type PanelTab, type Reading } from "@/lib/place"
 import { Reader } from "@/components/reader"
 import { AreaBoundary } from "@/components/area-boundary"
+import { DiscardDialog, UnsavedEdits } from "@/components/leave"
 
 // NEEDS_YOU_PATH opens Waiting for you, so a notification, a bookmark and Back reach it.
 const NEEDS_YOU_PATH = "/needs-you"
@@ -717,6 +718,31 @@ export function App() {
     }
     setWhere(here())
   }, [])
+  // unsaved says a view holds edits that leaving it drops; leave asks before it runs a move then.
+  const unsaved = useRef(false)
+  const reportUnsaved = useCallback((u: boolean) => {
+    unsaved.current = u
+  }, [])
+  const [leaving, setLeaving] = useState<(() => void) | null>(null)
+  const leave = useCallback((then: () => void) => {
+    if (unsaved.current) setLeaving(() => then)
+    else then()
+  }, [])
+  const discard = () => {
+    unsaved.current = false
+    setLeaving(null)
+    leaving?.()
+  }
+  // A reload or a closed tab asks the browser's own question. The desktop app has none: there it
+  // would cancel the reload without a word.
+  useEffect(() => {
+    if (settingsBridge()) return
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (unsaved.current) e.preventDefault()
+    }
+    window.addEventListener("beforeunload", onUnload)
+    return () => window.removeEventListener("beforeunload", onUnload)
+  }, [])
   const [selected, setSelected] = useState<string | null>(
     () => chatPlace(location.pathname, location.search)?.chat ?? null,
   )
@@ -803,11 +829,12 @@ export function App() {
     return () => el.removeEventListener("keydown", onKey)
   }, [])
   // closePanel closes the panel and takes its tab out of the address.
-  const closePanel = useCallback(() => {
+  const closePanelNow = useCallback(() => {
     setPanel(false)
     const p = chatPlace(location.pathname, location.search)
     if (p?.tab) go(chatUrl({ ...p, tab: null }), "replace")
   }, [go])
+  const closePanel = useCallback(() => leave(closePanelNow), [leave, closePanelNow])
   // The keyboard goes into the panel when it opens over the chat, or when the control that opened
   // it left the page (the Now chip); it goes back to the panel button when the panel closes and
   // took the keyboard with it.
@@ -838,19 +865,25 @@ export function App() {
   const [screen, setScreen] = useState<"chat" | "inbox" | "waiting" | "across">(() =>
     location.pathname === NEEDS_YOU_PATH ? "waiting" : "chat",
   )
+  // Unsaved edits are always in the Settings tab, so only a move away from it asks first.
   const showTab = (tab: PanelTab) => {
     if (!selected) return
+    if (tab !== "settings")
+      return leave(() => {
+        setPanel(true)
+        go(chatUrl({ chat: selected, tab }))
+      })
     setPanel(true)
     go(chatUrl({ chat: selected, tab }))
     // The settings tab renders after this click; then its model select takes focus.
-    if (tab === "settings") requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
+    requestAnimationFrame(() => document.getElementById("bot-model")?.focus())
   }
   const defaults = useDefaults()
   const aliases = defaults?.modelAliases ?? FALLBACK_ALIASES
 
   // showScreen shows a screen of the main area; in a narrow window the drawer closes on the choice.
   // Waiting for you has its own address; another screen leaves it, and Settings, for the chat's.
-  const showScreen = (s: typeof screen) => {
+  const showScreenNow = (s: typeof screen) => {
     setScreen(s)
     setDrawer(false)
     if (s === "waiting") {
@@ -858,15 +891,20 @@ export function App() {
     } else if (location.pathname === NEEDS_YOU_PATH || isSettingsPath(location.pathname))
       go(selected ? chatUrl({ chat: selected }) : "/")
   }
+  const showScreen = (s: typeof screen) => leave(() => showScreenNow(s))
   // openChat opens a chat, with the panel on tab when it is given. Without it the panel keeps
   // its tab.
   const openChat = (id: string, asked: PanelTab | null = panel ? (place?.tab ?? null) : null) => {
     const target = bots.find((b) => b.id === id)
     const tab = target && panelTabs(target, rights.computer).some((t) => t.tab === asked) ? asked : null
-    go(chatUrl({ chat: id, tab }))
-    if (tab) setPanel(true)
-    showScreen("chat")
-    setSelected(id)
+    const open = () => {
+      go(chatUrl({ chat: id, tab }))
+      if (tab) setPanel(true)
+      showScreenNow("chat")
+      setSelected(id)
+    }
+    if (id === selected && tab === "settings") open()
+    else leave(open)
   }
   // The question that each chat's next message answers, set by an Answer button.
   const [answering, setAnswering] = useState(() => new Map<string, Asked>())
@@ -886,10 +924,20 @@ export function App() {
     return () => window.removeEventListener(OPEN_SETTINGS, open)
   })
 
+  // shownUrl is the address shown, which a Back or Forward that would drop unsaved edits restores.
+  const shownUrl = useRef(location.pathname + location.search)
+  useEffect(() => {
+    shownUrl.current = where.path + where.search
+  }, [where])
   useEffect(() => {
     const onPopState = () => {
-      setWhere(here())
       const p = chatPlace(location.pathname, location.search)
+      if (unsaved.current && !(p?.chat === selected && p.tab === "settings")) {
+        history.pushState(null, "", shownUrl.current)
+        setLeaving(() => () => history.back())
+        return
+      }
+      setWhere(here())
       if (p) setSelected(p.chat)
       if (p?.tab) setPanel(true)
       if (location.pathname === NEEDS_YOU_PATH) setScreen("waiting")
@@ -897,7 +945,7 @@ export function App() {
     }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
-  }, [])
+  }, [selected])
   useEffect(() => {
     if (bots.length === 0 || bots.some((b) => b.id === selected)) return
     // Replace, not push: otherwise Back returns to the missing chat, which opens the first chat again.
@@ -958,10 +1006,14 @@ export function App() {
   // the address that Back returns to, and an inline panel stays on its tab.
   const openReader = (r: Reading) => {
     if (!selected) return
-    if (over) closePanel()
-    const to = chatUrl({ chat: selected, tab: over ? null : (place?.tab ?? null), reading: r })
-    if (reading) go(to, "replace")
-    else go(to, "push", READER)
+    const open = () => {
+      if (over) closePanelNow()
+      const to = chatUrl({ chat: selected, tab: over ? null : (place?.tab ?? null), reading: r })
+      if (reading) go(to, "replace")
+      else go(to, "push", READER)
+    }
+    if (over) leave(open)
+    else open()
   }
   const closeReader = () => {
     if ((history.state as typeof READER | null)?.reader) return history.back()
@@ -1024,8 +1076,10 @@ export function App() {
       case "waiting":
         return showScreen("waiting")
       case "settings":
-        setDrawer(false)
-        return openSettingsPage(action.section)
+        return leave(() => {
+          setDrawer(false)
+          openSettingsPage(action.section)
+        })
       case "new":
         return { bot: setCreating, team: setCreatingTeam, room: setCreatingRoom }[action.what](true)
       case "sidebar":
@@ -1169,10 +1223,12 @@ export function App() {
           <SidebarFooter
             link={link}
             onConnectors={rights.computer ? () => setConnectors(true) : undefined}
-            onSettings={() => {
-              setDrawer(false)
-              openSettingsPage(rights.computer ? "general" : "appearance")
-            }}
+            onSettings={() =>
+              leave(() => {
+                setDrawer(false)
+                openSettingsPage(rights.computer ? "general" : "appearance")
+              })
+            }
           />
         </AreaBoundary>
       </aside>
@@ -1440,10 +1496,10 @@ export function App() {
                   version={(transcript?.rev ?? 0) + listsRev}
                   onDeleted={() => setSelected(null)}
                   tab={place?.tab ?? null}
-                  onTab={(tab) => go(chatUrl({ ...(place ?? { chat: bot.id }), tab }))}
+                  onTab={(tab) => leave(() => go(chatUrl({ ...(place ?? { chat: bot.id }), tab })))}
                   onRead={openReader}
                   teams={teams}
-                  onOpenInbox={() => setScreen("inbox")}
+                  onOpenInbox={() => leave(() => setScreen("inbox"))}
                   paused={draining ? pause : null}
                   onClose={over ? closePanel : undefined}
                 />
@@ -1495,7 +1551,12 @@ export function App() {
           openChat(id)
         }}
       />
+      <DiscardDialog open={leaving !== null} onDiscard={discard} onKeep={() => setLeaving(null)} />
     </div>
   )
-  return <BotHuesProvider bots={bots}>{layout}</BotHuesProvider>
+  return (
+    <BotHuesProvider bots={bots}>
+      <UnsavedEdits value={reportUnsaved}>{layout}</UnsavedEdits>
+    </BotHuesProvider>
+  )
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui"
 import { Play, Trash2, X } from "lucide-react"
-import { api, type Bot, type Memory, type Routine, type TeamSettings } from "@/lib/api"
+import { api, type Bot, type Memory, type Routine } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
 import { latestOnly } from "@/lib/latest"
 import { Badge } from "@/components/ui/badge"
@@ -18,12 +18,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Confirm } from "@/components/confirm"
+import { useUnsavedEdits } from "@/components/leave"
 import { OptionSelect } from "@/components/option-select"
 import { RadioGroup } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { budgetError, decisionError, inboxError } from "@/lib/tasks"
+import { draftOf, rebase, savePlan, unsaved, type BotDraft, type TeamDraft } from "@/lib/bot-settings"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { panelTabs, shownTab, type PanelTab, type Reading } from "@/lib/place"
 import { contextLine, usageKey, type Usage } from "@/lib/usage"
@@ -419,51 +420,26 @@ const deleteNote = {
   team: "This deletes the team, its conversation, its team memory and its shared folder. The member bots stay.",
 }
 
-// TeamSettingsForm edits what a team adds to its room: the lead, the working agreement, the
-// turns per day, the decision time and the inbox limits. Its key changes with the saved
-// settings, which resets it.
-function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSettings }) {
-  const [lead, setLead] = useState(settings.leadId)
-  const [agreement, setAgreement] = useState(settings.agreement)
-  const [budget, setBudget] = useState(String(settings.dailyBudget ?? 0))
-  const [decision, setDecision] = useState(String(settings.decisionMinutes ?? 30))
-  const [inboxMax, setInboxMax] = useState(String(settings.inboxMax ?? 10))
-  const [perSender, setPerSender] = useState(String(settings.inboxPerSender ?? 3))
-  const [defaultModel, setDefaultModel] = useState(settings.defaultModel ?? "")
-  const [defaultEffort, setDefaultEffort] = useState(settings.defaultEffort ?? "")
-  const [result, setResult] = useState<SaveResult>(null)
+// TeamFields edits what a team adds to its room: the lead, the working agreement, the turns
+// per day, the decision time, the inbox limits and the member defaults.
+function TeamFields({
+  team,
+  draft,
+  onDraft,
+}: {
+  team: Bot
+  draft: TeamDraft
+  onDraft: (edit: Partial<TeamDraft>) => void
+}) {
   const defaults = useDefaults()
   const members = team.members ?? []
-  const save = async () => {
-    try {
-      const badTask = budgetError(budget) ?? decisionError(decision) ?? inboxError(inboxMax, perSender)
-      if (badTask) {
-        setResult(failed(badTask))
-        return
-      }
-      // The lead goes only when it changed, so that a fallback lead does not replace the chosen one.
-      await api.updateTeam(team.id, {
-        ...(lead !== settings.leadId && { leadId: lead }),
-        agreement,
-        dailyBudget: Number(budget),
-        decisionMinutes: Number(decision),
-        inboxMax: Number(inboxMax),
-        inboxPerSender: Number(perSender),
-        defaultModel,
-        defaultEffort,
-      })
-      setResult(saved())
-    } catch (e) {
-      setResult(failed((e as Error).message))
-    }
-  }
   return (
     <div className="flex flex-col gap-3 border-t pt-3">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="team-settings-lead">Lead</Label>
         <OptionSelect
           id="team-settings-lead"
-          value={lead}
+          value={draft.leadId}
           options={members.map((m) => {
             const label = (
               <>
@@ -473,7 +449,7 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
             )
             return { value: m.id, label }
           })}
-          onChange={setLead}
+          onChange={(leadId) => onDraft({ leadId })}
         />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -482,8 +458,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           id="team-settings-agreement"
           rows={5}
           placeholder="How the team works and when work is done."
-          value={agreement}
-          onChange={(e) => setAgreement(e.target.value)}
+          value={draft.agreement}
+          onChange={(e) => onDraft({ agreement: e.target.value })}
         />
         <p className="text-muted-foreground text-xs">
           In the team, it overrides each member's instructions on how work is done and checked.
@@ -496,9 +472,9 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           type="number"
           min={0}
           max={10000}
-          value={budget}
+          value={draft.budget}
           aria-describedby="team-settings-budget-help"
-          onChange={(e) => setBudget(e.target.value)}
+          onChange={(e) => onDraft({ budget: e.target.value })}
         />
         <p id="team-settings-budget-help" className="text-muted-foreground text-xs">
           Every turn of the team's members counts, chat included; the lead's decisions don't. At the limit the team
@@ -513,9 +489,9 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           type="number"
           min={5}
           max={1440}
-          value={decision}
+          value={draft.decision}
           aria-describedby="team-settings-decision-help"
-          onChange={(e) => setDecision(e.target.value)}
+          onChange={(e) => onDraft({ decision: e.target.value })}
         />
         <p id="team-settings-decision-help" className="text-muted-foreground text-xs">
           How long a task may wait in the inbox for the lead's decision, counting only time when the lead can act. After
@@ -534,8 +510,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
             min={1}
             max={50}
             className="w-16"
-            value={inboxMax}
-            onChange={(e) => setInboxMax(e.target.value)}
+            value={draft.inboxMax}
+            onChange={(e) => onDraft({ inboxMax: e.target.value })}
           />
           <Label htmlFor="team-settings-inbox-sender" className="font-normal">
             From one team, at most
@@ -546,8 +522,8 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
             min={1}
             max={50}
             className="w-16"
-            value={perSender}
-            onChange={(e) => setPerSender(e.target.value)}
+            value={draft.perSender}
+            onChange={(e) => onDraft({ perSender: e.target.value })}
           />
         </div>
         <p className="text-muted-foreground text-xs">
@@ -560,10 +536,10 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           id="team-default"
           modelLabel="Default model for members"
           effortLabel="Default effort for members"
-          model={defaultModel}
-          effort={defaultEffort}
-          onModel={setDefaultModel}
-          onEffort={setDefaultEffort}
+          model={draft.defaultModel}
+          effort={draft.defaultEffort}
+          onModel={(defaultModel) => onDraft({ defaultModel })}
+          onEffort={(defaultEffort) => onDraft({ defaultEffort })}
           inherited={
             defaults
               ? inheritedFromGlobal(defaults)
@@ -579,12 +555,6 @@ function TeamSettingsForm({ team, settings }: { team: Bot; settings: TeamSetting
           members override the model.
         </p>
       </fieldset>
-      <div className="flex items-center gap-2">
-        <Button size="sm" onClick={() => void save()}>
-          Save team
-        </Button>
-        <SaveNote result={result} />
-      </div>
     </div>
   )
 }
@@ -653,31 +623,47 @@ export function AllowedTools({ grants, onRevoke }: { grants: string[] | null; on
 }
 
 export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; onDeleted: () => void }) {
-  const [name, setName] = useState(bot.name)
-  const [instructions, setInstructions] = useState(bot.instructions)
-  const [model, setModel] = useState(bot.model ?? "")
-  const [effort, setEffort] = useState(bot.effort ?? "")
-  const [hue, setHue] = useState(bot.hue ?? "")
+  // base is the saved values: the bot's, or what this tab saved before the bot reloads. A
+  // reload gives each field the user did not edit its new value.
+  const fresh = draftOf(bot)
+  const freshKey = JSON.stringify(fresh)
+  const [loaded, setLoaded] = useState(freshKey)
+  const [base, setBase] = useState(fresh)
+  const [draft, setDraft] = useState(fresh)
+  if (loaded !== freshKey) {
+    setLoaded(freshKey)
+    setBase(fresh)
+    setDraft(rebase(draft, base, fresh))
+  }
+  const dirty = unsaved(draft, base)
+  useUnsavedEdits(dirty)
   const [result, setResult] = useState<SaveResult>(null)
+  const edit = (e: Partial<BotDraft>) => {
+    setDraft((d) => ({ ...d, ...e }))
+    setResult(null)
+  }
+  const editTeam = (e: Partial<TeamDraft>) => {
+    setDraft((d) => ({ ...d, team: d.team && { ...d.team, ...e } }))
+    setResult(null)
+  }
   const [confirm, setConfirm] = useState(false)
   const defaults = useDefaults()
   const isRoom = bot.kind === "room"
   const what = bot.team ? "team" : isRoom ? "room" : "bot"
   const grants = useLoad(() => (isRoom ? Promise.resolve([]) : api.grants(bot.id)), `${bot.id}`)
   const usage = useLoad(() => (isRoom ? Promise.resolve(null) : api.usage(bot.id)), usageKey(bot, version))
-  useEffect(() => {
-    setName(bot.name)
-    setInstructions(bot.instructions)
-    setModel(bot.model ?? "")
-    setEffort(bot.effort ?? "")
-    setHue(bot.hue ?? "")
-  }, [bot.id, bot.name, bot.instructions, bot.model, bot.effort, bot.hue])
   const save = async () => {
+    const plan = savePlan(draft, base, isRoom)
+    if ("error" in plan) return setResult(failed(plan.error))
     try {
-      await api.updateBot(
-        bot.id,
-        isRoom ? { name, instructions } : { name, instructions, model, effort, ...(hue && { hue }) },
-      )
+      if (plan.bot) {
+        await api.updateBot(bot.id, plan.bot)
+        setBase((b) => ({ ...draft, team: b.team }))
+      }
+      if (plan.team) {
+        await api.updateTeam(bot.id, plan.team)
+        setBase(draft)
+      }
       setResult(saved(isRoom ? "Saved." : "Saved. Applies from the next turn."))
     } catch (e) {
       setResult(failed((e as Error).message))
@@ -696,16 +682,16 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
     <div className="flex flex-col gap-3 text-sm">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="bot-name">Name</Label>
-        <Input id="bot-name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input id="bot-name" value={draft.name} onChange={(e) => edit({ name: e.target.value })} />
       </div>
-      {!isRoom && <HueSwatches hue={hue} onHue={setHue} />}
+      {!isRoom && <HueSwatches hue={draft.hue} onHue={(hue) => edit({ hue })} />}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="bot-instructions">{isRoom ? "Purpose" : "Instructions"}</Label>
         <Textarea
           id="bot-instructions"
           rows={6}
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
+          value={draft.instructions}
+          onChange={(e) => edit({ instructions: e.target.value })}
         />
       </div>
       {!isRoom && (
@@ -714,10 +700,10 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
           <ModelEffortFields
             key={bot.id}
             id="bot"
-            model={model}
-            effort={effort}
-            onModel={setModel}
-            onEffort={setEffort}
+            model={draft.model}
+            effort={draft.effort}
+            onModel={(model) => edit({ model })}
+            onEffort={(effort) => edit({ effort })}
             inherited={
               defaults
                 ? inheritedFromGlobal(defaults)
@@ -746,19 +732,13 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
           <ContextNote usage={usage.data} />
         </fieldset>
       )}
+      {bot.team && draft.team && <TeamFields team={bot} draft={draft.team} onDraft={editTeam} />}
       <div className="flex items-center gap-2">
-        <Button size="sm" onClick={() => void save()}>
+        <Button size="sm" disabled={!dirty} onClick={() => void save()}>
           Save
         </Button>
         <SaveNote result={result} />
       </div>
-      {bot.team && (
-        <TeamSettingsForm
-          key={`${bot.id}:${bot.team.leadId}:${bot.team.agreement}:${bot.team.dailyBudget}:${bot.team.defaultModel}:${bot.team.defaultEffort}:${bot.team.decisionMinutes}:${bot.team.inboxMax}:${bot.team.inboxPerSender}`}
-          team={bot}
-          settings={bot.team}
-        />
-      )}
       {!isRoom && (
         <AllowedTools grants={grants.data} onRevoke={(g) => void api.revokeGrant(bot.id, g).then(grants.reload)} />
       )}

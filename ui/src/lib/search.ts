@@ -19,17 +19,6 @@ export function searchable(query: string): string | null {
   return Array.from(q).length >= MIN_SEARCH ? q : null
 }
 
-// modKey tells whether a key press is Mod with the key at code, such as "KeyF" for the chat
-// search: ⌘ on a Mac, Ctrl elsewhere, so that Ctrl+F still moves the cursor in a Mac text
-// field. The key's place counts, not its letter, so it works in every keyboard layout.
-export function modKey(
-  e: { code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean },
-  code: string,
-  mac: boolean,
-): boolean {
-  return e.code === code && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey
-}
-
 // speakerOf names who wrote a search result: the user, the bot or room member, or the other
 // bot of a direct message.
 export function speakerOf(e: Entry, chatName: string): string {

@@ -1,5 +1,5 @@
 // Checks that every bold label in the docs is text that the UI shows: the label, without a
-// trailing "…", is a string in a non-test file of ui/src, desktop or cmd/handful. Only labels are bold in the
+// trailing "…", is a string in a non-test file of ui/src or desktop. Only labels are bold in the
 // docs. A label that the UI builds at run time is quoted in the docs, not bold. The UI source is
 // one level above web/.
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -19,7 +19,7 @@ function sourceFiles(dir) {
 	return found;
 }
 
-const text = ["ui/src", "desktop", "cmd/handful"].flatMap((dir) => sourceFiles(join(root, dir))).map((path) => readFileSync(path, "utf8")).join("\n");
+const text = ["ui/src", "desktop"].flatMap((dir) => sourceFiles(join(root, dir))).map((path) => readFileSync(path, "utf8")).join("\n");
 // The UI writes the ellipsis as "…" or as "&hellip;", and some quotes as entities.
 const shown = text.replace(/&hellip;/g, "…").replace(/&amp;/g, "&").replace(/\s+/g, " ");
 
@@ -28,7 +28,7 @@ for (const file of readdirSync(docsDir).filter((f) => f.endsWith(".md"))) {
 	const lines = readFileSync(join(docsDir, file), "utf8").split("\n");
 	let fenced = false;
 	lines.forEach((line, i) => {
-		if (line.startsWith("```")) fenced = !fenced;
+		if (line.trimStart().startsWith("```")) fenced = !fenced;
 		if (fenced) return;
 		for (const [, raw] of line.matchAll(/\*\*([^*]+)\*\*/g)) {
 			const label = raw.replace(/…$/, "").trim();

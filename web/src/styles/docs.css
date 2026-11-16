@@ -23,3 +23,9 @@
 .docs th { font-weight: 560; white-space: nowrap; }
 .docs tr:last-child td { border-bottom: 0; }
 .docs td code { white-space: nowrap; }
+
+/* A docs shot comes in light and dark, desktop and mobile (rehype-docs.mjs); the site's dark mode follows the system. */
+@media (min-width: 640px) { .docs img[data-size="m"] { display: none; } }
+@media (max-width: 639.98px) { .docs img[data-size="d"] { display: none; } }
+@media (prefers-color-scheme: dark) { .docs img[data-mode="light"] { display: none; } }
+@media (prefers-color-scheme: light) { .docs img[data-mode="dark"] { display: none; } }

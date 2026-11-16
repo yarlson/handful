@@ -54,13 +54,13 @@ Each `claude` process connects to Handful's MCP endpoint, `/mcp`, with a bearer 
 - `update_board`: work on the team's board in a turn in the team. See the Teams part of the docs above. In a lead's own chat with the user, it can only `list` the board and add a task with `user_task`.
   - `action`, for tasks: `send_task`, `take`, `order`, `ask`, `answer_task`, `later`, `pass_on`, `push_back`, `propose`, `make_task`, `close`, `approve`, `stop` and `withdraw`. For steps: `create`, `assign`, `submit`, `block`, `unblock`, `drop`, `pass` and `changes`. Also `list`.
   - `goal_id`: the task, for `take`, `ask`, `answer_task`, `later`, `pass_on`, `push_back`, `close`, `approve`, `stop` and `withdraw`, and for `changes` on a done task. `order` takes no `goal_id`: its `order` field lists the ids of every task in the plan.
-  - `user_task`: only in a lead's own chat. It adds a task that the user asked for, with `text`, `brief` and `team_id` (needed when the bot leads several teams). The task goes to the team's inbox. With `start_now` it becomes the Now task, or the first of the plan, and the user must have asked for that.
+  - `user_task`: only in a lead's own chat. It adds a task that the user asked for, with `text`, `brief`, `artifact_ids` and `team_id` (needed when the bot leads several teams). The task goes to the team's inbox. With `start_now` it becomes the Now task, or the first of the plan, and the user must have asked for that.
   - `item_id`: the step, for every step action except `create`.
   - `team_id`: for `send_task` and `pass_on`, the other team. For `list` and `user_task` in a lead's own chat, the team, when the bot leads several.
   - `text`: the task in a line, the result, a question, an answer, a reason or a note. `brief` is for `send_task`, `propose`, `make_task`, `user_task` and `create`; `title`, `acceptance` and `depends_on` are for `create`.
   - `position`: for `take`, the task's place in the plan. `order`: for `order`, the ids of every task in the plan.
   - `until`: for `later`, when the task returns to the inbox, at most 7 days ahead.
-  - `waits_for`: for `send_task`, the id of your own step that waits on the task. `artifact_ids`: artifacts the other team needs.
+  - `waits_for`: for `send_task`, the id of your own step that waits on the task. `artifact_ids`: artifacts the other team needs; `user_task` takes it too.
   - `turn_ids`: for `make_task`, the ids of the team's turns that were on no task.
   - `owner_id`, `reviewer_id`: for `create` and `assign`, by the lead only.
 - `approve`: internal. Claude Code calls it through `--permission-prompt-tool` to show an approval card.
@@ -91,7 +91,7 @@ Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `ro
 
 Bots:
 
-- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `hue` (a bot's colour; absent for rooms and teams), `model` and `effort` (a bot's own settings), `effective` (the model and effort that a bot's direct chat uses, with where each comes from; for a room, each member has its own `effective`), `members` (rooms), `team` (teams: `leadId`, `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval`, `question`, `goal` for a team with a paused task, or `model` for a model that needs a look), `openQuestions` (the open questions in the chat), `incomingHandoffs` (tasks that wait in a team's inbox), `running`, `tasks`, `createdAt` and `updatedAt`.
+- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `hue` (a bot's colour; absent for rooms and teams), `model` and `effort` (a bot's own settings), `effective` (the model and effort that a bot's direct chat uses, with where each comes from; for a room, each member has its own `effective`), `members` (rooms), `team` (teams: `leadId`, `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval`, `question`, `goal` for a team with a paused task, or `model` for a model that needs a look), `openQuestions` (how many open questions the chat has), `incomingHandoffs` (how many tasks wait in a team's inbox), `running`, `tasks`, `createdAt` and `updatedAt`.
 - `POST /api/bots` with `{"name", "instructions"}`: create a bot. Returns 201 and the bot.
 - `GET /api/bots/{id}`: one bot or room.
 - `PATCH /api/bots/{id}` with `{"name"?, "instructions"?, "model"?, "effort"?, "hue"?}`: change a bot.
@@ -110,10 +110,10 @@ Chats:
   - `media` is a list of base64-encoded files. `answers` lists the ids of open questions that the message answers.
   - The response is 202 with `{"turnId", "duplicate": false}`. A repeated `clientNonce` starts no second turn: it returns 200 with the first turn's id and `"duplicate": true`. The same `clientNonce` with other text returns 409.
 - `GET /api/media/{name}`: a file of a message.
-- `GET /api/questions`: what waits for you: `questions` (open questions), `approvals` (chats with a pending approval), `pausedGoals` (teams with a paused task), and the questions closed in the last 7 days (`closedRecently`, `closed`). `GET /api/bots/{id}/questions` lists the open questions of one chat.
+- `GET /api/questions`: what waits for you: `questions` (open questions), `approvals` (the number of chats with a pending approval), `pausedGoals` (the number of teams with a paused task), and the questions closed in the last 7 days (`closedRecently`, `closed`). `GET /api/bots/{id}/questions` lists the open questions of one chat.
 - `POST /api/entries/{id}/dismiss` closes an open question without an answer. `POST /api/entries/{id}/reopen` undoes that.
 - `POST /api/entries/{entry id}/reactions` with `{"emoji", "on"}`: put a reaction on a `user`, `bot` or `agent` entry (`"on": true`) or take it off (`"on": false`). `emoji` is one of 👍 👎 ❤️ 😂 👀 ✅. Returns 200 and the entry. Setting a reaction that is already on, or removing one that is off, changes nothing. Returns 400 for another emoji or another kind of entry, and 404 for an unknown entry. A reaction wakes no bot.
-- `POST /api/bots/{id}/interrupt`: stop the running turn, end the bot's `claude` processes with their background tasks, and, for a team, stop its board. Returns `{"stopped": true|false}`.
+- `POST /api/bots/{id}/interrupt`: stop the running turn, end the bot's `claude` processes with their background tasks, and, for a team, pause its active task. Returns `{"stopped": true|false}`.
 - `POST /api/bots/{id}/stop-turn`: stop only the running turn of a bot's or a room's chat; background tasks and the team's board go on. Returns `{"stopped": true|false}`.
 - `POST /api/bots/{id}/clear`: start a fresh context. Returns 204, or 409 while the bot works or has background tasks.
 - `POST /api/bots/{id}/compact`: queue a compaction after the current turn. Returns 202 with `{"queued"}`.

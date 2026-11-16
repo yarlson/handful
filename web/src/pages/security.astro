@@ -20,7 +20,7 @@ const code = "rounded bg-fill px-1 py-0.5 font-mono text-[0.875em]";
 		<h2 class={h2}>What leaves your computer</h2>
 		<ul class={list}>
 			<li>
-				<span class={term}>Claude Code's own traffic.</span> Each turn runs the Claude Code CLI, which talks to Anthropic with the account you signed in with. Handful does not read or store that login.
+				<span class={term}>Claude Code's own traffic.</span> Each turn runs the Claude Code CLI. It sends your prompts, what the bot's tools return and the model's answers to Anthropic, with the account that you signed in with. The terms of that account apply. Handful does not read or store that login.
 			</li>
 			<li>
 				<span class={term}>One update check a day.</span> The Mac app looks for a new release on GitHub once a day and installs it only when you say so. A copy built from source only tells you that a release is out. To turn the check off, put <code class={code}>"updates": &#123;"autoCheck": false&#125;</code> in <code class={code}>~/.handful/config.json</code>, or set <code class={code}>HANDFUL_NO_UPDATE_CHECK=1</code> for a copy built from source.
@@ -30,22 +30,36 @@ const code = "rounded bg-fill px-1 py-0.5 font-mono text-[0.875em]";
 			</li>
 			<li><span class={term}>What bots do.</span> A bot searches the web without asking. A command that you approve can go anywhere you can.</li>
 			<li>
+				<span class={term}>Phone access, when you turn it on.</span> It is off by default. Turned on, it opens a second address on this computer for a proxy: a Cloudflare Tunnel or Tailscale. With a Cloudflare Tunnel, Cloudflare sees your chats and approvals.
+			</li>
+			<li>
 				<span class={term}>Nothing else.</span> Handful has no account, no analytics and no server of its own. A picture from the web in a chat shows as a link; Handful does not load it.
 			</li>
 		</ul>
 
 		<h2 class={h2}>What a bot asks first</h2>
-		<p class="mt-4 text-pretty text-base text-ink-2">
-			A bot reads files and searches the web without asking. Before it runs a command, changes a file or uses a connector's tool, it shows you a card: Allow once, Always allow, or Deny. A card you do not answer expires after 4½ minutes, or when the bot stops working.
-		</p>
+		<div class="mt-4 space-y-4 text-pretty text-base text-ink-2">
+			<p>
+				A bot reads files and searches the web without asking. Before it runs a command, changes a file or uses a connector's tool, it shows you a card with the command, or the file and the diff: Allow once, Always allow, or Deny. Always allow is for one bot and one tool. A card that you do not answer expires after 4½ minutes, or when the bot stops working, and then says why.
+			</p>
+			<p>
+				A team's working agreement is an instruction to its bots. It is not a lock. The cards are the lock: a bot with Always allow for Bash runs any command without a card.
+			</p>
+			<p>
+				While a bot reviews a step, Handful denies it Edit and Write in that team. Bash can still change files, so do not always allow Bash for a bot that reviews.
+			</p>
+			<p>
+				A paired phone can read, chat, or allow once and deny, as you chose when you paired it. It never chooses Always allow. A phone that can chat can message your bots, and a bot then uses any tool that you already always allowed, with no card.
+			</p>
+		</div>
 
 		<h2 class={h2}>What Handful does not protect</h2>
 		<p class="mt-4 text-pretty text-base text-ink">Handful has no account or login. It is safe only on a computer that one person uses.</p>
 		<ul class={`${list} list-disc pl-5`}>
 			<li>It listens on loopback only, and it rejects requests from other hosts and other web origins.</li>
 			<li>Every write to the local API needs a key that Handful keeps in <code class={code}>~/.handful/ui-key</code>. The key stops code that does not know about it. Bots run as your user and can read the key, so it does not stop a bot, or a script that a command you approve runs, that sets out to use it.</li>
-			<li>Bots run as your user. A command that you approve can do anything that you can do, so read each card.</li>
-			<li>Bots are not isolated from each other. Any bot can read any file, including another bot's folder and the tokens of your connectors.</li>
+			<li>Bots run as your user. A command that you approve can do anything that you can do, so read each card. Commits, pull requests and comments that a bot makes come from your accounts.</li>
+			<li>Bots are not isolated from each other. Reading files needs no approval and has no path limit. Claude Code's file tools skip Handful's own secrets: the key, the connector tokens and the database. An approved Bash command can still read them.</li>
 			<li>A team keeps its members' work in one place. It is not a security boundary.</li>
 		</ul>
 

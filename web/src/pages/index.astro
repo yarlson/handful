@@ -9,28 +9,32 @@ import Proofs from "../components/Proofs.astro";
 import Shot from "../components/Shot.astro";
 import { macDownloadUrl } from "../release";
 import { aboutText, needs } from "../about";
-import approvalLight from "../assets/approval-light.png";
-import approvalDark from "../assets/approval-dark.png";
-import roomLight from "../assets/room-light.png";
-import roomDark from "../assets/room-dark.png";
-import approvalMLight from "../assets/approval-m-light.png";
-import approvalMDark from "../assets/approval-m-dark.png";
-import roomMLight from "../assets/room-m-light.png";
-import roomMDark from "../assets/room-m-dark.png";
-import inboxMLight from "../assets/inbox-m-light.png";
-import inboxMDark from "../assets/inbox-m-dark.png";
-import needsMLight from "../assets/needs-you-m-light.png";
-import needsMDark from "../assets/needs-you-m-dark.png";
+import teamLight from "../assets/team-light.png";
+import teamDark from "../assets/team-dark.png";
+import teamMLight from "../assets/team-m-light.png";
+import teamMDark from "../assets/team-m-dark.png";
 import inboxLight from "../assets/inbox-light.png";
 import inboxDark from "../assets/inbox-dark.png";
-import pushedLight from "../assets/pushed-back-light.png";
-import pushedDark from "../assets/pushed-back-dark.png";
-import needsLight from "../assets/needs-you-light.png";
-import needsDark from "../assets/needs-you-dark.png";
+import inboxMLight from "../assets/inbox-m-light.png";
+import inboxMDark from "../assets/inbox-m-dark.png";
+import reviewLight from "../assets/review-light.png";
+import reviewDark from "../assets/review-dark.png";
+import approvalLight from "../assets/approval-light.png";
+import approvalDark from "../assets/approval-dark.png";
+import approvalMLight from "../assets/approval-m-light.png";
+import approvalMDark from "../assets/approval-m-dark.png";
+import needsYouLight from "../assets/needs-you-light.png";
+import needsYouDark from "../assets/needs-you-dark.png";
+import needsYouMLight from "../assets/needs-you-m-light.png";
+import needsYouMDark from "../assets/needs-you-m-dark.png";
+import botLight from "../assets/bot-light.png";
+import botDark from "../assets/bot-dark.png";
+import botMLight from "../assets/bot-m-light.png";
+import botMDark from "../assets/bot-m-dark.png";
 
-const title = "Handful: open-source AI agents on your own computer. Runs Claude Code.";
+const title = "Handful: a small team of AI agents that builds and reviews code. You approve.";
 const description =
-	"Handful runs personal AI agents on your Mac or Linux computer. Each bot keeps its own chat, memory and routines, and a lead decides what a team does next. Handful runs Claude Code on your own subscription.";
+	"Handful is an open-source app for Mac and Linux. Give a team of bots a task: a lead splits it into steps, the members do them, another member can review each step, and you approve the result. It runs Claude Code on your own machine and your own subscription.";
 const site = Astro.site?.origin ?? "https://handful.dev";
 const jsonLd = {
 	"@context": "https://schema.org",
@@ -65,33 +69,41 @@ const visual = "mt-[clamp(2.5rem,5vw,4rem)]";
 const secondaryButton =
 	"inline-flex min-h-12 items-center justify-center rounded-[0.625rem] border border-line-strong px-5 text-[0.9375rem] font-[550] transition-colors hover:bg-hover active:bg-pressed";
 const block = "rounded-xl border border-line bg-fill";
+const link = "underline decoration-line-strong underline-offset-[3px] transition-colors hover:text-ink";
+
+const taskProofs = [
+	{ title: "The lead decides.", text: "A task in the inbox waits for the lead's decision. The lead has 30 minutes by default, and you set the time per team. After that, the task comes to you." },
+	{ title: "Members do the steps.", text: "Each step has a brief, acceptance criteria and one owner. Steps that do not depend on each other can run at the same time when different members own them." },
+	{ title: "Another member reviews.", text: "When your rules ask for a check, a second member reviews each step. While it reviews, Handful denies it Edit and Write. Every third request for changes blocks the step, and the lead decides." },
+	{ title: "Whoever asked approves.", text: "The lead closes the task with a result. You approve your tasks or ask for changes. Teams send tasks to each other the same way." },
+];
+
+const decideProofs = [
+	{ title: "Approval cards.", text: "Allow once, always allow that tool for that bot, or deny. A card that you do not answer expires after 4½ minutes." },
+	{ title: "Needs you.", text: "Results to approve, decisions that a lead did not make in time, tasks that are stuck, and budgets near or at their limit. Waiting for you lists the chats where a bot waits for you: an open approval card, a question or a paused task." },
+	{ title: "A daily budget.", text: "Set how many turns a team can use per day. At the limit it pauses until midnight or until you raise the limit." },
+	{ title: "From your phone.", text: "Pair a phone through your own Cloudflare Tunnel or Tailscale to read, chat or approve once. A phone never chooses Always allow." },
+];
 
 const botProofs = [
-	{ title: "Memory", text: "Facts from you or the bot, kept across conversations." },
-	{ title: "Routines", text: "A prompt on a schedule, in your local time." },
-	{ title: "Skills", text: "Saved procedures that every bot can run." },
-	{ title: "Approvals", text: "A bot asks before it runs a command or changes a file." },
-];
-
-const roomProofs = [
-	{ title: "Mention to wake", text: "@Name wakes one member. @here wakes them all." },
-	{ title: "One at a time", text: "Members answer in order, so nobody talks over anybody." },
-	{ title: "No chatter", text: "A bot's message wakes only the bots it mentions." },
-	{ title: "Busy bots catch up", text: "A member that works elsewhere answers when it is free." },
-];
-
-const teamProofs = [
-	{ title: "A lead", text: "Every task goes through the inbox. The lead has 30 minutes to decide. After that, the task comes to you." },
-	{ title: "Steps", text: "Each step has an owner and acceptance criteria. Steps that do not depend on each other run at the same time." },
-	{ title: "Review", text: "When the working agreement asks for a check, another member reviews each step before it is done." },
-	{ title: "A daily budget", text: "Set how many turns a team can use per day. At the limit, it pauses until midnight or until you raise it." },
+	{ title: "Memory.", text: "Facts from you or the bot, kept across conversations. You can read them, add one and forget one." },
+	{ title: "Routines.", text: "A prompt on a schedule, in your local time. Make and edit them in the Routines tab." },
+	{ title: "Skills.", text: "Saved procedures that every bot can run with /name." },
+	{ title: "Artifacts.", text: "Plans, reviews and reports that bots save for each other. All of your bots can read them." },
 ];
 
 const ownProofs = [
-	{ title: "Your subscription", text: "Each turn runs the Claude Code CLI on your machine, signed in by you." },
-	{ title: "Your files", text: "The SQLite database and every bot's folder are in ~/.handful." },
-	{ title: "One call home", text: "By itself, Handful goes online once a day, to look for a new release on GitHub. You can turn that off." },
-	{ title: "One person", text: "Handful has no login. Use it on a computer that one person uses." },
+	{ title: "Your subscription.", text: "Each turn runs the Claude Code CLI on your machine, signed in by you." },
+	{ title: "Your files.", text: "The SQLite database and every bot's folder are in ~/.handful." },
+	{ title: "One call home.", text: "By itself, Handful goes online once a day, to look for a new release on GitHub. You can turn that off." },
+	{ title: "Your account on GitHub.", text: "Bots run as your user. Their commits and pull requests come from your account." },
+];
+
+const limitProofs = [
+	{ title: "Not a sandbox.", text: "Bots run as your user. A command that you approve can do anything that you can do." },
+	{ title: "Not a shared server.", text: "Handful has no login. One person runs it on their own computer." },
+	{ title: "Not offline.", text: "Every turn runs Claude Code, which talks to Anthropic." },
+	{ title: "Not for Windows.", text: "Handful runs on macOS and Linux." },
 ];
 
 const changeProofs = [
@@ -111,9 +123,10 @@ const folder = [
 const forkCommands = ["gh repo fork yarlson/handful --clone", "cd handful && mise install && make build", "./bin/handful"];
 
 const numbers = [
-	{ value: "100", label: "pull requests merged" },
-	{ value: "18", label: "releases" },
-	{ value: "5", label: "days, 7 to 11 November 2026" },
+	{ value: "152", label: "pull requests merged" },
+	{ value: "34", label: "releases" },
+	{ value: "57 of 129", label: "pull requests from #54 on where the reviewer bot asked for changes" },
+	{ value: "10", label: "days, 7 to 16 November 2026" },
 ];
 ---
 
@@ -126,61 +139,36 @@ const numbers = [
 		<section class={`${wrap} flex flex-col items-center pb-[clamp(3.5rem,11vh,7rem)] pt-[clamp(1.5rem,6vh,4.5rem)] text-center`}>
 			<Mark id="hero-mark" size="clamp(6rem, 14vmin, 7rem)" variant="tile" />
 			<HeroMarkMotion />
-			<h1 class="mt-[clamp(1.25rem,3vh,1.75rem)] max-w-[16ch] text-balance text-[clamp(2.625rem,6.2vw,4.75rem)] font-[560] leading-[1.04] tracking-[-0.045em]">
-				A handful of bots that stay.
+			<h1 class="mt-[clamp(1.25rem,3vh,1.75rem)] max-w-[20ch] text-balance text-[clamp(2.25rem,5.2vw,4rem)] font-[560] leading-[1.06] tracking-[-0.045em]">
+				A team of bots does the work. A second bot reviews it. You approve it.
 			</h1>
-			<p class="mt-5 max-w-[48ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
-				Handful is an open-source app for your Mac or Linux machine. Each bot keeps its own chat, memory and routines. Put a few in a team, and a lead decides what they do next. Handful runs Claude Code on your own subscription.
+			<p class="mt-5 max-w-[56ch] text-pretty text-[clamp(1.0625rem,1.5vw,1.1875rem)] text-ink-2">
+				Handful is an open-source app for your Mac or Linux machine. You give a team a task and write its rules, for example "Tests pass, and another member reviews each change." The lead splits the task into steps, the members do them, and the result waits for your approval. Handful runs Claude Code on your own subscription.
 			</p>
 			<div class="mt-10 flex w-full justify-center">
 				<Install />
 			</div>
-			<p class="mt-6 text-sm font-[550] text-ink-2">Built by its own bots. 100 pull requests merged, as of 11 November 2026.</p>
+			<p class="mt-6 text-sm font-[550] text-ink-2">
+				Handful builds Handful: 152 pull requests merged and 34 releases from 7 to 16 November 2026. <a href="/built-with-handful/" class={link}>See how.</a>
+			</p>
+			<Shot
+				class="mt-[clamp(2.5rem,5vw,4rem)] w-full text-left"
+				light={teamLight}
+				dark={teamDark}
+				mobileLight={teamMLight}
+				mobileDark={teamMDark}
+				alt="The Web app team at work: the Work tab with the Now task Add a CSV export to reports, one step done, one in review and one to do"
+			/>
 		</section>
 
-		<!-- 2. Bot -->
+		<!-- 2. How a task moves -->
 		<section class={`bg-band ${chapter}`}>
 			<div class={wrap}>
 				<h2 class={heading}>
-					A bot is a chat, a memory and a folder. <span class="text-ink-2">It keeps all three from one conversation to the next.</span>
+					Every task goes through a lead. <span class="text-ink-2">Each step has one owner and can have a reviewer.</span>
 				</h2>
 				<p class={lead}>
-					Close the chat and come back next week. The bot still knows what you told it, still has its files, and ran its routines on schedule. Before it runs a command or changes a file, it asks.
-				</p>
-				<Shot
-					class={visual}
-					light={approvalLight}
-					dark={approvalDark}
-					mobileLight={approvalMLight}
-					mobileDark={approvalMDark}
-					alt="Builder asks before it edits a file: Allow Builder to use Edit? with the change to todo.md, and the buttons Allow once, Always allow Edit and Deny"
-				/>
-				<Proofs items={botProofs} />
-			</div>
-		</section>
-
-		<!-- 3. Rooms -->
-		<section class={chapter}>
-			<div class={wrap}>
-				<h2 class={heading}>
-					Rooms put several bots in one chat. <span class="text-ink-2">An @mention hands the work to the next bot.</span>
-				</h2>
-				<p class={lead}>
-					Members answer one at a time, so each one sees the earlier replies. Here, four bots ship a change: one writes it, one reviews it, one fixes it and one merges it.
-				</p>
-				<Shot class={visual} light={roomLight} dark={roomDark} mobileLight={roomMLight} mobileDark={roomMDark} alt="A room: Implementer, Reviewer, Fixer and Merger ship a change by mentioning each other" />
-				<Proofs items={roomProofs} />
-			</div>
-		</section>
-
-		<!-- 4. Teams -->
-		<section class={`bg-band ${chapter}`}>
-			<div class={wrap}>
-				<h2 class={heading}>
-					Bots can be a handful. <span class="text-ink-2">So every team has a lead who decides.</span>
-				</h2>
-				<p class={lead}>
-					Every task lands in the team's inbox, whether it comes from you, from another team or from a member. The lead takes it, asks the sender a question, puts it off, passes it to another team or pushes it back with a reason. Then the lead splits the task into steps, and the members do them.
+					A task from another team or from a member lands in the team's inbox. So does your own task, unless you start it at once. The lead takes a task, asks its sender a question, puts it off, passes it to another team or pushes it back with a reason. Then the lead splits it into steps.
 				</p>
 				<Shot
 					class={visual}
@@ -188,35 +176,107 @@ const numbers = [
 					dark={inboxDark}
 					mobileLight={inboxMLight}
 					mobileDark={inboxMDark}
-					alt="The Web app team's inbox: a task from you to decide by 14:30, and a task from Mobile whose clock is paused while Web Lead waits for an answer"
+					alt="The Web app team's inbox: a task from you with the time to decide by, and a task from Mobile whose clock is paused while Web Lead waits for an answer"
 				/>
 				<div class="mt-4 grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,5fr)] md:items-start">
 					<Shot
-						light={pushedLight}
-						dark={pushedDark}
+						light={reviewLight}
+						dark={reviewDark}
 						sizes="(min-width: 48rem) 18rem, calc(100vw - 3rem)"
-						alt="The Support team's Work tab: its task Write a guide for the CSV export is pushed back, with Web app's reason, this belongs to the Docs team"
+						alt="A step with one change request: Reviewer asked Developer for changes in round 1, because the export stops at 10,000 rows"
 					/>
-					<div>
-						<Shot
-							light={needsLight}
-							dark={needsDark}
-							mobileLight={needsMLight}
-							mobileDark={needsMDark}
-							sizes="(min-width: 48rem) 45rem, calc(100vw - 3rem)"
-							alt="Across teams: Needs you asks to approve that Add a CSV export to reports is done, and the Web app team works on Save report filters per user"
-						/>
-						<p class="mt-4 max-w-[52ch] text-pretty text-base text-ink-2">
-							You see one list, Needs you: results to approve, decisions a lead missed, and budgets that ran out.
-						</p>
-					</div>
+					<p class="max-w-[52ch] text-pretty text-base text-ink-2 md:pt-4">The reviewer passes a step or asks for changes. You read every round in the step's history.</p>
 				</div>
-				<Proofs items={teamProofs} />
+				<Proofs items={taskProofs} />
 			</div>
 		</section>
 
-		<!-- 5. Your own subscription -->
+		<!-- 3. You decide -->
 		<section class={chapter}>
+			<div class={wrap}>
+				<h2 class={heading}>
+					You decide what runs and what counts as done. <span class="text-ink-2">Handful asks, then waits.</span>
+				</h2>
+				<p class={lead}>
+					A bot reads files and searches the web without asking. Before it runs a command, changes a file or calls a connector tool, it shows you a card with the command or the diff. Two lists hold everything that waits for you.
+				</p>
+				<Shot
+					class={visual}
+					light={approvalLight}
+					dark={approvalDark}
+					mobileLight={approvalMLight}
+					mobileDark={approvalMDark}
+					alt="Developer asks before it edits a file: the card shows the path and the diff, with the buttons Allow once, Always allow Edit and Deny"
+				/>
+				<Shot
+					class="mt-4"
+					light={needsYouLight}
+					dark={needsYouDark}
+					mobileLight={needsYouMLight}
+					mobileDark={needsYouMDark}
+					sizes="(min-width: 72rem) 64rem, calc(100vw - 3rem)"
+					alt="Across teams: Needs you asks you to approve that Add a CSV export to reports is done in Web app"
+				/>
+				<Proofs items={decideProofs} />
+			</div>
+		</section>
+
+		<!-- 4. Handful builds Handful -->
+		<section class={`bg-band ${chapter}`}>
+			<div class={wrap}>
+				<h2 class={heading}>
+					Handful builds Handful. <span class="text-ink-2">Four teams of bots and one person.</span>
+				</h2>
+				<p class={lead}>
+					Teams of bots in its maker's own Handful write the specs, the code and the reviews of this app. A product team sends a spec to a dev team as a task. A reviewer bot reads the pull requests before they are merged, and a release bot merges and releases what is approved. One person sends the tasks and approves the results. It is a small software factory, and every pull request and every review comment is on GitHub for you to read.
+				</p>
+				<dl class={`${visual} grid gap-8 border-y border-line py-10 sm:grid-cols-2 lg:grid-cols-4`}>
+					{
+						numbers.map((n) => (
+							<div>
+								<dt class="sr-only">{n.label}</dt>
+								<dd class="text-[clamp(2.5rem,5vw,3.5rem)] font-[560] leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{n.value}</dd>
+								<dd class="mt-2 text-pretty text-base text-ink-2">{n.label}</dd>
+							</div>
+						))
+					}
+				</dl>
+				<p class="mt-6 max-w-[62ch] text-pretty text-base text-ink-2">
+					One request on 13 November: a one-line message at 13:23, a reviewed spec, two pull requests that the reviewer sent back once each, and release v0.21.0 at 16:47.
+				</p>
+				<p class="mt-4 max-w-[62ch] text-sm text-ink-3">
+					Counted on GitHub at release v0.22.0, 16 November 2026. A bot reviewed 124 of the 129. The bots work through their maker's GitHub account, so GitHub shows one author. Each review is a comment on the pull request.
+				</p>
+				<div class="mt-8 flex flex-col gap-3 sm:flex-row">
+					<a href="/built-with-handful/" class={secondaryButton}>How the teams work</a>
+					<a href="https://github.com/yarlson/handful/pulls?q=is%3Apr+is%3Amerged" class={secondaryButton}>The pull requests</a>
+				</div>
+			</div>
+		</section>
+
+		<!-- 5. A bot keeps its context -->
+		<section class={chapter}>
+			<div class={wrap}>
+				<h2 class={heading}>
+					A bot keeps its chat, its memory and its folder. <span class="text-ink-2">A team keeps its lessons.</span>
+				</h2>
+				<p class={lead}>
+					Close the app and come back later. Each bot still has its conversation, its files and the facts that it saved. After you approve a task, the lead is asked to save up to 5 lessons in the team's memory.
+				</p>
+				<Shot
+					class={visual}
+					light={botLight}
+					dark={botDark}
+					mobileLight={botMLight}
+					mobileDark={botMDark}
+					alt="A bot's chat: a group of three tool calls with the diff of an edit open, and a code block with its header"
+				/>
+				<Proofs items={botProofs} />
+			</div>
+		</section>
+
+		<!-- 6. Your own subscription -->
+		<section class={`bg-band ${chapter}`}>
 			<div class={wrap}>
 				<h2 class={heading}>
 					Runs Claude Code on your own subscription. <span class="text-ink-2">Nothing to sell you.</span>
@@ -224,7 +284,12 @@ const numbers = [
 				<p class={lead}>
 					You install Claude Code and sign in to it yourself, with your Claude subscription or an API key. Handful starts it on your machine for each turn and never touches your login. Handful sells no tokens and adds no fees, and there is no Handful account and no Handful cloud. The rest is a server and a folder on your disk.
 				</p>
-				<p class="mt-3 text-sm text-ink-3">What your plan includes is between you and Anthropic.</p>
+				<p class="mt-3 max-w-[62ch] text-sm text-ink-3">
+					What your plan includes is between you and Anthropic. For company code, sign in to Claude Code with the plan or API key that your company uses.
+				</p>
+				<p class="mt-1 max-w-[62ch] text-sm text-ink-3">
+					Claude Code sends your prompts and the model's answers to Anthropic. <a href="/security/" class={link}>Security</a> says what else leaves your computer.
+				</p>
 				<div class={`${visual} ${block} max-w-xl p-5 font-mono text-[0.875rem] leading-relaxed`} role="img" aria-label="The ~/.handful folder: bots, teams, AGENTS.md, connectors.json and config.json">
 					<p class="font-[550]">~/.handful</p>
 					<ul class="mt-2 space-y-1 pl-5">
@@ -242,7 +307,19 @@ const numbers = [
 			</div>
 		</section>
 
-		<!-- 6. Change it -->
+		<!-- 7. What Handful is not -->
+		<section class={chapter}>
+			<div class={wrap}>
+				<h2 class={heading}>What Handful is not.</h2>
+				<p class={lead}>Know the limits before you install it.</p>
+				<Proofs items={limitProofs} />
+				<p class="mt-8 text-base">
+					<a href="/security/" class={link}>Security has the whole list</a>
+				</p>
+			</div>
+		</section>
+
+		<!-- 8. Change it -->
 		<section class={`bg-band ${chapter}`}>
 			<div class={wrap}>
 				<h2 class={heading}>
@@ -253,6 +330,7 @@ const numbers = [
 					<p class="mt-3 text-sm text-ink-3">Building needs mise. Then open 127.0.0.1:7777.</p>
 				</div>
 				<Proofs items={changeProofs} />
+				<p class="mt-8 text-base text-ink-2">If this project stops, you still have the code and your data.</p>
 				<div class="mt-10 flex flex-col gap-3 sm:flex-row">
 					<a
 						href="https://github.com/yarlson/handful/fork"
@@ -265,33 +343,13 @@ const numbers = [
 			</div>
 		</section>
 
-		<!-- 7. Handful builds Handful -->
+		<!-- 9. Closing -->
 		<section class={chapter}>
-			<div class={wrap}>
-				<h2 class={heading}>Handful builds Handful.</h2>
-				<p class={lead}>Teams of bots in its maker's own Handful write this app, review it and release it. One person approves what they do.</p>
-				<dl class={`${visual} grid gap-8 border-y border-line py-10 sm:grid-cols-3`}>
-					{
-						numbers.map((n) => (
-							<div>
-								<dt class="sr-only">{n.label}</dt>
-								<dd class="text-[clamp(3rem,7vw,4.5rem)] font-[560] leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{n.value}</dd>
-								<dd class="mt-2 text-base text-ink-2">{n.label}</dd>
-							</div>
-						))
-					}
-				</dl>
-				<p class="mt-4 text-sm text-ink-3">Reviewed by bots. Approved by a person. Counted on 11 November 2026.</p>
-			</div>
-		</section>
-
-		<!-- 8. Closing -->
-		<section class={`bg-band ${chapter}`}>
 			<div class={`${wrap} flex flex-col items-center gap-6 text-center`}>
 				<Mark id="closing-mark" size="4.5rem" variant="tile-small" />
-				<h2 class={heading}>Give your bots somewhere to stay.</h2>
+				<h2 class={heading}>Start with one team and one task.</h2>
 				<p class="max-w-[52ch] text-pretty text-lg text-ink-2">
-					Handful is free and open source. Install it, sign in to Claude Code, and tell Builder, the first bot, what you want help with.
+					Handful is free and open source. Install it, sign in to Claude Code, and choose Software team in Builder's first message.
 				</p>
 				<div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
 					<a

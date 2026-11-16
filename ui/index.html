@@ -9,6 +9,18 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="manifest" href="/manifest.json" />
     <title>Handful</title>
+    <script>
+      // The stored theme shows from the first paint; the app's bundle runs after it.
+      // src/lib/appearance.ts owns the setting; appearance.test.ts runs this script.
+      ;(function () {
+        var theme = null
+        try {
+          theme = localStorage.getItem("handful.theme")
+        } catch (e) {}
+        var dark = theme === "dark" || (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
+        document.documentElement.classList.toggle("dark", dark)
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

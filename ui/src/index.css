@@ -75,6 +75,9 @@
   --radius: 0.625rem;
   --duration-fast: 100ms;
   --duration-base: 150ms;
+  /* The chat column's width and its messages' text size; Settings → Appearance changes them. */
+  --chat-width: 48rem;
+  --chat-text: 0.875rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   /* Code tokens, each at least 4.5:1 on --muted. */
@@ -86,6 +89,14 @@
   --code-type: oklch(0.52 0.105 223.128);
   --code-attr: oklch(0.514 0.222 16.935);
   --code-meta: oklch(0.518 0.253 323.949);
+}
+
+:root[data-chat-width="wide"] {
+  --chat-width: 64rem;
+}
+
+:root[data-text-size="large"] {
+  --chat-text: 1rem;
 }
 
 .dark {
@@ -196,14 +207,15 @@
 .markdown h3 {
   font-weight: 600;
 }
+/* Sizes relative to --chat-text: 18, 16 and 14 px at the Medium 14 px text. */
 .markdown h1 {
-  font-size: 1.125rem;
+  font-size: 1.2857em;
 }
 .markdown h2 {
-  font-size: 1rem;
+  font-size: 1.1429em;
 }
 .markdown h3 {
-  font-size: 0.875rem;
+  font-size: 1em;
 }
 .markdown :is(h1, h2, h3) + * {
   margin-top: 0.25em;

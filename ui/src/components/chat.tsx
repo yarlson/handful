@@ -149,7 +149,7 @@ const userPlugins = [remarkGfm, remarkBreaks]
 // MarkdownText renders markdown. Raw HTML in it shows as text. breaks keeps every typed line break.
 export function MarkdownText({ text, breaks = false }: { text: string; breaks?: boolean }) {
   return (
-    <div className="markdown text-sm leading-relaxed">
+    <div className="markdown text-(length:--chat-text) leading-relaxed">
       <Markdown remarkPlugins={breaks ? userPlugins : botPlugins} components={markdownComponents}>
         {text}
       </Markdown>
@@ -1556,7 +1556,7 @@ function Composer({
               aria-expanded={open}
               aria-controls={open ? "completion-list" : undefined}
               aria-activedescendant={open ? `completion-${active}` : undefined}
-              className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0 dark:bg-transparent max-md:max-h-32 max-md:min-h-11 max-md:text-base"
+              className="max-h-48 min-h-9 resize-none border-0 shadow-none focus-visible:ring-0 dark:bg-transparent md:text-(length:--chat-text) max-md:max-h-32 max-md:min-h-11 max-md:text-base"
               placeholder={
                 narrow
                   ? `Message ${bot.name}…`
@@ -2038,7 +2038,7 @@ export function Chat({
         className={cn("min-h-0 flex-1 overflow-y-auto outline-none [overflow-anchor:none]", pill && "pb-11")}
         onScroll={(e) => onScroll(e.currentTarget)}
       >
-        <div ref={column} className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6">
+        <div ref={column} className="mx-auto flex max-w-(--chat-width) flex-col gap-3 px-4 py-6">
           {entries.length === 0 && !starts && (
             <div className="text-muted-foreground text-center text-sm">
               {status === "ready" && <p className="text-foreground font-medium">{bot.name}</p>}
@@ -2110,7 +2110,7 @@ export function Chat({
         </div>
       </div>
       {!memory.pinned(bot.id) && (
-        <div className="pointer-events-none relative mx-auto w-full max-w-3xl">
+        <div className="pointer-events-none relative mx-auto w-full max-w-(--chat-width)">
           <Button
             size="icon"
             variant="outline"
@@ -2126,7 +2126,7 @@ export function Chat({
           </Button>
         </div>
       )}
-      <div className="@container relative mx-auto w-full max-w-3xl">
+      <div className="@container relative mx-auto w-full max-w-(--chat-width)">
         {pill}
         <QuestionStrip
           onGoTo={jumpTo}

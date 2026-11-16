@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react"
 import { X } from "lucide-react"
 import { api } from "@/lib/api"
+import {
+  CHAT_WIDTHS,
+  choose,
+  loadAppearance,
+  showAppearance,
+  TEXT_SIZES,
+  THEMES,
+  type Appearance,
+} from "@/lib/appearance"
 import {
   bannerText,
   check,
@@ -609,6 +618,59 @@ function storeSaved(saved: SavedValues): SavedValues {
   return saved
 }
 
+// APPEARANCE_ROWS are the rows of Appearance, one per setting.
+const APPEARANCE_ROWS: {
+  key: keyof Appearance
+  label: string
+  help: string
+  options: readonly { value: string; label: string }[]
+}[] = [
+  { key: "theme", label: "Theme", help: "System follows the light or dark mode of this device.", options: THEMES },
+  { key: "chatWidth", label: "Chat width", help: "Wide shows longer lines on a large screen.", options: CHAT_WIDTHS },
+  { key: "textSize", label: "Text size", help: "The size of messages and of the message box.", options: TEXT_SIZES },
+]
+
+// AppearanceSection is how this browser shows Handful. A change applies at once and is saved in
+// this browser only.
+export function AppearanceSection() {
+  const [appearance, setAppearance] = useState(loadAppearance)
+  // A choice stored in another tab shows here too; main.tsx applies it to the page.
+  useEffect(() => {
+    const reread = () => setAppearance(loadAppearance())
+    addEventListener("storage", reread)
+    return () => removeEventListener("storage", reread)
+  }, [])
+  const pick = (key: keyof Appearance) => (e: ChangeEvent<HTMLSelectElement>) => {
+    const next = choose(appearance, key, e.target.value)
+    setAppearance(next)
+    showAppearance(document.documentElement, next, matchMedia("(prefers-color-scheme: dark)").matches)
+  }
+  return (
+    <>
+      <p className="text-muted-foreground mt-1 mb-2 text-sm">
+        Saved in this browser only, so each computer and phone can look different.
+      </p>
+      {APPEARANCE_ROWS.map((row) => (
+        <Row key={row.key} id={`settings-${row.key}`} label={row.label} help={row.help}>
+          <select
+            id={`settings-${row.key}`}
+            aria-describedby={`settings-${row.key}-help`}
+            className={selectClass}
+            value={appearance[row.key]}
+            onChange={pick(row.key)}
+          >
+            {row.options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Row>
+      ))}
+    </>
+  )
+}
+
 // SettingsPage is the whole Settings page: its sections, and saving each value as it changes.
 export function SettingsPage({
   section,
@@ -618,7 +680,10 @@ export function SettingsPage({
   restartRev = 0,
   pairRev = 0,
   menu = null,
+  computer = true,
 }: {
+  // computer is false on a paired phone, which has only Appearance.
+  computer?: boolean
   // restartRev changes with each restart event from the server; the page reloads on it.
   restartRev?: number
   // pairRev changes with each pairing event; Phones reloads on it.
@@ -705,11 +770,12 @@ export function SettingsPage({
   }, [view?.restartWait])
   // A restart event (waiting, cancelled, expired) reloads the settings that report it.
   useEffect(() => {
-    if (restartRev > 0) void load()
+    if (computer && restartRev > 0) void load()
     // load reads only the API; restartRev is the trigger.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [restartRev])
   useEffect(() => {
+    if (!computer) return
     void load()
     api.version().then(
       (v) => setVersion(v.version),
@@ -719,7 +785,7 @@ export function SettingsPage({
       (c) => setConnectors(c.length),
       () => setConnectors(null),
     )
-  }, [])
+  }, [computer])
   const save: Save = async (key, value) => {
     try {
       const next = await api.patchSettings({ [key]: value })
@@ -742,6 +808,145 @@ export function SettingsPage({
       void restart.restart("now")
     }
   }
+  const shown: Section = computer ? section : "appearance"
+  const title = SECTIONS.find((s) => s.id === shown)?.label ?? "General"
+  // page lays out the sections beside the shown one: notices above its title, then body. dots
+  // marks the sections with a value that waits for a restart.
+  const page = (dots: Set<Section>, notices: ReactNode, body: ReactNode, after?: ReactNode) =>
+    frame(
+      <div className="relative flex min-h-0 min-w-0 flex-1 max-md:flex-col">
+        <aside className="flex w-52 shrink-0 flex-col gap-3 border-r px-2 py-4 max-md:w-full max-md:gap-1 max-md:border-r-0 max-md:border-b max-md:pt-1 max-md:pb-0">
+          <nav
+            aria-label="Settings sections"
+            className="flex flex-col gap-0.5 max-md:-mx-2 max-md:flex-row max-md:overflow-x-auto max-md:px-2"
+          >
+            {SECTIONS.filter((s) => computer || s.id === "appearance").map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                aria-current={s.id === shown ? "page" : undefined}
+                className={cn(
+                  "flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm max-md:shrink-0 max-md:gap-1.5 max-md:rounded-b-none max-md:px-3 max-md:py-3",
+                  s.id === shown
+                    ? "bg-muted font-medium"
+                    : "hover:bg-muted transition-colors duration-(--duration-fast)",
+                )}
+                onClick={() => onSection(s.id)}
+              >
+                {s.label}
+                {dots.has(s.id) && (
+                  <>
+                    <span className="size-1.5 rounded-full bg-attention-foreground" aria-hidden />
+                    <span className="sr-only">, restart required</span>
+                  </>
+                )}
+              </button>
+            ))}
+          </nav>
+        </aside>
+        <div className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5 max-md:px-4">
+          <div className="max-w-[680px]">
+            {notices}
+            <section aria-labelledby="settings-title">
+              <h2 id="settings-title" className="text-base font-semibold">
+                {title}
+              </h2>
+              {body}
+            </section>
+          </div>
+        </div>
+        {after}
+      </div>,
+    )
+  // notices are the restart and settings-file notices shown above every section.
+  const bridge = settingsBridge()
+  const notices = view && (
+    <>
+      {restart.state === "now" && (
+        <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">
+          Restarting… Handful is back in a few seconds.
+        </output>
+      )}
+      {restart.state === "draining" && view.restartWait && (
+        <output className="bg-muted mb-6 flex items-center gap-3 rounded-lg px-4 py-3 text-sm">
+          <span className="flex-1">
+            Handful restarts when the running bots finish. New turns wait. If they're still working in{" "}
+            {minutesUntil(view.restartWait.deadline, now)} min, it asks you again.
+          </span>
+          <Button size="sm" variant="outline" onClick={() => void restart.cancel()}>
+            Cancel restart
+          </Button>
+        </output>
+      )}
+      {restart.error && (
+        <p role="alert" className="text-destructive mb-4 text-sm">
+          {restart.error}
+        </p>
+      )}
+      {restart.state !== "now" && restart.state !== "draining" && view.restartExpired && (
+        <div
+          role="alert"
+          className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-attention/50 bg-attention-surface px-4 py-3 text-sm text-attention-foreground"
+        >
+          <span className="min-w-0 flex-1">
+            Bots were still working after {drainLimit(view)} min, so Handful didn't restart. Restart now stops their
+            turns.
+          </span>
+          <Button size="sm" variant="outline" onClick={() => void restart.restart("now")}>
+            Restart now
+          </Button>
+          <Button size="sm" onClick={() => void restart.restart("idle")}>
+            Wait {drainLimit(view)} more min
+          </Button>
+        </div>
+      )}
+      {restart.state !== "now" && restart.state !== "draining" && !view.restartExpired && (
+        <RestartBanner view={view} onRestart={() => void askRestart()} />
+      )}
+      {view.file.error && (
+        <div role="alert" className="border-destructive/40 text-destructive mb-6 rounded-lg border px-4 py-3 text-sm">
+          <p>config.json has an error: {view.file.error}. Fix it in an editor, or reset it.</p>
+          {resetError && <p className="mt-1">Couldn't reset the file: {resetError}</p>}
+          <div className="mt-2 flex gap-2">
+            {bridge && (
+              <Button size="sm" variant="outline" onClick={bridge.openFile}>
+                Open in editor
+              </Button>
+            )}
+            {resetting ? (
+              <>
+                <span className="text-foreground self-center text-xs">Replace config.json with an empty file?</span>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() =>
+                    void api.resetSettingsFile().then(
+                      (v) => {
+                        setView(v)
+                        setResetting(false)
+                      },
+                      (e: Error) => setResetError(e.message),
+                    )
+                  }
+                >
+                  Reset file
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setResetting(false)}>
+                  Keep it
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setResetting(true)}>
+                Reset file…
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  )
+  // Appearance belongs to this browser, so it shows before, or without, the server's settings.
+  if (shown === "appearance") return page(view ? pendingSections(view) : new Set(), notices, <AppearanceSection />)
   if (!view) {
     return frame(
       <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
@@ -752,342 +957,219 @@ export function SettingsPage({
   const locked = Boolean(view.file.error)
   const dots = pendingSections(view)
   const val = (k: Key) => view.values[k]
-  const bridge = settingsBridge()
   const updates = updateKeys(view.build)
   const disk = diskNotice(view, diskChanges(view, saved))
-  const title = SECTIONS.find((s) => s.id === section)?.label ?? "General"
-  return frame(
-    <div className="relative flex min-h-0 min-w-0 flex-1 max-md:flex-col">
-      <aside className="flex w-52 shrink-0 flex-col gap-3 border-r px-2 py-4 max-md:w-full max-md:gap-1 max-md:border-r-0 max-md:border-b max-md:pt-1 max-md:pb-0">
-        <nav
-          aria-label="Settings sections"
-          className="flex flex-col gap-0.5 max-md:-mx-2 max-md:flex-row max-md:overflow-x-auto max-md:px-2"
-        >
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              aria-current={s.id === section ? "page" : undefined}
-              className={cn(
-                "flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm max-md:shrink-0 max-md:gap-1.5 max-md:rounded-b-none max-md:px-3 max-md:py-3",
-                s.id === section
-                  ? "bg-muted font-medium"
-                  : "hover:bg-muted transition-colors duration-(--duration-fast)",
-              )}
-              onClick={() => onSection(s.id)}
-            >
-              {s.label}
-              {dots.has(s.id) && (
-                <>
-                  <span className="size-1.5 rounded-full bg-attention-foreground" aria-hidden />
-                  <span className="sr-only">, restart required</span>
-                </>
-              )}
-            </button>
-          ))}
-        </nav>
-      </aside>
-      <div className="relative min-w-0 flex-1 overflow-y-auto px-8 py-5 max-md:px-4">
-        <div className="max-w-[680px]">
-          {restart.state === "now" && (
-            <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">
-              Restarting… Handful is back in a few seconds.
-            </output>
+  return page(
+    dots,
+    notices,
+    <>
+      {section === "general" && (
+        <>
+          <p className="text-muted-foreground mt-1 mb-2 text-sm">
+            Defaults for every bot. A bot or team can set its own model and effort in its Settings tab.
+          </p>
+          {val("model") && <SelectField k="model" v={val("model") as Value} save={save} locked={locked} />}
+          {val("effort") && <SelectField k="effort" v={val("effort") as Value} save={save} locked={locked} />}
+          {val("maxParallel") && (
+            <TextField k="maxParallel" v={val("maxParallel") as Value} save={save} locked={locked} />
           )}
-          {restart.state === "draining" && view.restartWait && (
-            <output className="bg-muted mb-6 flex items-center gap-3 rounded-lg px-4 py-3 text-sm">
-              <span className="flex-1">
-                Handful restarts when the running bots finish. New turns wait. If they're still working in{" "}
-                {minutesUntil(view.restartWait.deadline, now)} min, it asks you again.
-              </span>
-              <Button size="sm" variant="outline" onClick={() => void restart.cancel()}>
-                Cancel restart
-              </Button>
-            </output>
-          )}
-          {restart.error && (
-            <p role="alert" className="text-destructive mb-4 text-sm">
-              {restart.error}
-            </p>
-          )}
-          {restart.state !== "now" && restart.state !== "draining" && view.restartExpired && (
-            <div
-              role="alert"
-              className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-attention/50 bg-attention-surface px-4 py-3 text-sm text-attention-foreground"
-            >
-              <span className="min-w-0 flex-1">
-                Bots were still working after {drainLimit(view)} min, so Handful didn't restart. Restart now stops their
-                turns.
-              </span>
-              <Button size="sm" variant="outline" onClick={() => void restart.restart("now")}>
-                Restart now
-              </Button>
-              <Button size="sm" onClick={() => void restart.restart("idle")}>
-                Wait {drainLimit(view)} more min
-              </Button>
-            </div>
-          )}
-          {restart.state !== "now" && restart.state !== "draining" && !view.restartExpired && (
-            <RestartBanner view={view} onRestart={() => void askRestart()} />
-          )}
-          {view.file.error && (
-            <div
-              role="alert"
-              className="border-destructive/40 text-destructive mb-6 rounded-lg border px-4 py-3 text-sm"
-            >
-              <p>config.json has an error: {view.file.error}. Fix it in an editor, or reset it.</p>
-              {resetError && <p className="mt-1">Couldn't reset the file: {resetError}</p>}
-              <div className="mt-2 flex gap-2">
-                {bridge && (
-                  <Button size="sm" variant="outline" onClick={bridge.openFile}>
-                    Open in editor
-                  </Button>
-                )}
-                {resetting ? (
-                  <>
-                    <span className="text-foreground self-center text-xs">Replace config.json with an empty file?</span>
+          <details
+            className="border-t pt-3"
+            open={Boolean(val("claude") && (pending(val("claude") as Value) || val("claude")?.error))}
+          >
+            <summary className="text-muted-foreground cursor-pointer text-sm">Advanced</summary>
+            {val("claude") && (
+              <TextField
+                k="claude"
+                v={val("claude") as Value}
+                save={save}
+                locked={locked}
+                mono
+                after={
+                  bridge && (
                     <Button
                       size="sm"
-                      variant="destructive"
+                      variant="outline"
+                      disabled={locked || val("claude")?.source === "flag"}
                       onClick={() =>
-                        void api.resetSettingsFile().then(
-                          (v) => {
-                            setView(v)
-                            setResetting(false)
-                          },
-                          (e: Error) => setResetError(e.message),
-                        )
+                        void bridge.chooseClaude().then((p) => {
+                          if (p) void save("claude", p)
+                        })
                       }
                     >
-                      Reset file
+                      Choose…
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setResetting(false)}>
-                      Keep it
+                  )
+                }
+              />
+            )}
+          </details>
+        </>
+      )}
+      {section === "updates" && (
+        <>
+          <p className="text-muted-foreground mt-1 mb-2 text-sm">
+            {view.build === "app" && `Handful ${version ?? ""} · signed release. Changes here apply without a restart.`}
+            {view.build === "adhoc" &&
+              "This copy was built locally, so it can't update itself. New releases show as a notice."}
+            {view.build === "source" && "This server was built from source. Update it by pulling and rebuilding."}
+          </p>
+          {updates.keys.map((k) => {
+            const v = val(k)
+            if (!v) return null
+            const off = locked || updates.disabled
+            return k === "updates.drainMinutes" ? (
+              <TextField key={k} k={k} v={v} save={save} locked={off} suffix="minutes, 5 to 240" />
+            ) : (
+              <SwitchField key={k} k={k} v={v} save={save} locked={off} />
+            )
+          })}
+          {view.build === "app" && updaterBridge() && (
+            <Row id="settings-check-now" label="Check now" help="Looks for a new release now." labels={false}>
+              <Button
+                size="sm"
+                aria-describedby="settings-check-now-help"
+                variant="outline"
+                className="self-start"
+                onClick={() => updaterBridge()?.check()}
+              >
+                Check for updates
+              </Button>
+            </Row>
+          )}
+        </>
+      )}
+      {section === "connectors" && (
+        <>
+          <p className="text-muted-foreground mt-1 mb-2 text-sm">
+            External MCP servers that bots can use. Each one is set up and signed in to in its own dialog.
+          </p>
+          <Row
+            id="settings-connectors"
+            label="Connectors"
+            labels={false}
+            help={
+              connectors === null
+                ? "Couldn't count the connectors."
+                : connectors === 1
+                  ? "1 connector is set up."
+                  : `${connectors} connectors are set up.`
+            }
+          >
+            <Button
+              size="sm"
+              aria-describedby="settings-connectors-help"
+              variant="outline"
+              className="self-start"
+              onClick={onManageConnectors}
+            >
+              Manage connectors…
+            </Button>
+          </Row>
+        </>
+      )}
+      {section === "phones" && (
+        <>
+          <p className="text-muted-foreground mt-1 mb-4 text-sm">
+            Use Handful from your phone, through a Cloudflare Tunnel or Tailscale.
+          </p>
+          <PhonesSection pairRev={pairRev} />
+        </>
+      )}
+      {section === "runtime" && (
+        <>
+          <p className="text-muted-foreground mt-1 mb-2 text-sm">
+            Set when the server starts, with command-line flags. The app sets these for you; shown here so you know
+            where things are.
+          </p>
+          <dl>
+            {view.runtime.map((r) => (
+              <div
+                key={r.key}
+                className="grid grid-cols-[minmax(0,1fr)_16rem] gap-4 border-b py-4 last:border-b-0 max-sm:grid-cols-1"
+              >
+                <dt className="min-w-0">
+                  <span className="text-sm font-medium">{runtimeLabel(r.key)}</span>
+                  {r.key === "addr" && (
+                    <span className="text-muted-foreground mt-1 block text-xs">
+                      Only this computer can reach Handful.
+                    </span>
+                  )}
+                </dt>
+                <dd className="flex min-w-0 flex-col gap-1">
+                  <span className="font-mono text-sm [overflow-wrap:anywhere]">
+                    {typeof r.value === "boolean" ? (r.value ? "On" : "Off") : shortPath(String(r.value))}
+                  </span>
+                  <span className="text-muted-foreground text-xs">{runtimeSource(r)}</span>
+                  {r.key === "log" && bridge && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground self-start text-xs underline"
+                      onClick={bridge.revealLog}
+                    >
+                      Reveal in Finder
+                    </button>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
+      {section === "file" && (
+        <>
+          <p className="text-muted-foreground mt-1 mb-4 text-sm">
+            This page reads and writes the same file. Editing it by hand still works.
+          </p>
+          {disk && (
+            <output className="mb-4 block rounded-lg border border-info/30 bg-info/10 px-4 py-3 text-sm text-info-foreground">
+              config.json changed on disk after the server started:{" "}
+              {disk.map((d, i) => (
+                <span key={d.key}>
+                  {i > 0 && "; "}
+                  <strong>{LABELS[d.key]}</strong>
+                  {d.text}
+                </span>
+              ))}
+              . {disk.length === 1 ? "It applies" : "They apply"} after a restart.
+            </output>
+          )}
+          <div className="grid grid-cols-[minmax(0,1fr)_16rem] gap-4 border-t py-4 max-sm:grid-cols-1">
+            <span className="text-sm font-medium">Location</span>
+            <div className="flex min-w-0 flex-col gap-2">
+              <code ref={pathShown} className="font-mono text-sm [overflow-wrap:anywhere]">
+                {shortPath(view.file.path)}
+              </code>
+              <div className="flex flex-wrap gap-2">
+                {bridge && (
+                  <>
+                    <Button size="sm" variant="outline" onClick={bridge.openFile}>
+                      Open in editor
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={bridge.revealFile}>
+                      Reveal in Finder
                     </Button>
                   </>
-                ) : (
-                  <Button size="sm" variant="outline" onClick={() => setResetting(true)}>
-                    Reset file…
-                  </Button>
                 )}
+                <Button size="sm" variant="outline" onClick={() => copy(view.file.path, () => pathShown.current)}>
+                  {copyLabel(copyState, "Copy path")}
+                </Button>
               </div>
             </div>
-          )}
-          <section aria-labelledby="settings-title">
-            <h2 id="settings-title" className="text-base font-semibold">
-              {title}
-            </h2>
-            {section === "general" && (
-              <>
-                <p className="text-muted-foreground mt-1 mb-2 text-sm">
-                  Defaults for every bot. A bot or team can set its own model and effort in its Settings tab.
-                </p>
-                {val("model") && <SelectField k="model" v={val("model") as Value} save={save} locked={locked} />}
-                {val("effort") && <SelectField k="effort" v={val("effort") as Value} save={save} locked={locked} />}
-                {val("maxParallel") && (
-                  <TextField k="maxParallel" v={val("maxParallel") as Value} save={save} locked={locked} />
-                )}
-                <details
-                  className="border-t pt-3"
-                  open={Boolean(val("claude") && (pending(val("claude") as Value) || val("claude")?.error))}
-                >
-                  <summary className="text-muted-foreground cursor-pointer text-sm">Advanced</summary>
-                  {val("claude") && (
-                    <TextField
-                      k="claude"
-                      v={val("claude") as Value}
-                      save={save}
-                      locked={locked}
-                      mono
-                      after={
-                        bridge && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={locked || val("claude")?.source === "flag"}
-                            onClick={() =>
-                              void bridge.chooseClaude().then((p) => {
-                                if (p) void save("claude", p)
-                              })
-                            }
-                          >
-                            Choose…
-                          </Button>
-                        )
-                      }
-                    />
-                  )}
-                </details>
-              </>
-            )}
-            {section === "updates" && (
-              <>
-                <p className="text-muted-foreground mt-1 mb-2 text-sm">
-                  {view.build === "app" &&
-                    `Handful ${version ?? ""} · signed release. Changes here apply without a restart.`}
-                  {view.build === "adhoc" &&
-                    "This copy was built locally, so it can't update itself. New releases show as a notice."}
-                  {view.build === "source" && "This server was built from source. Update it by pulling and rebuilding."}
-                </p>
-                {updates.keys.map((k) => {
-                  const v = val(k)
-                  if (!v) return null
-                  const off = locked || updates.disabled
-                  return k === "updates.drainMinutes" ? (
-                    <TextField key={k} k={k} v={v} save={save} locked={off} suffix="minutes, 5 to 240" />
-                  ) : (
-                    <SwitchField key={k} k={k} v={v} save={save} locked={off} />
-                  )
-                })}
-                {view.build === "app" && updaterBridge() && (
-                  <Row id="settings-check-now" label="Check now" help="Looks for a new release now." labels={false}>
-                    <Button
-                      size="sm"
-                      aria-describedby="settings-check-now-help"
-                      variant="outline"
-                      className="self-start"
-                      onClick={() => updaterBridge()?.check()}
-                    >
-                      Check for updates
-                    </Button>
-                  </Row>
-                )}
-              </>
-            )}
-            {section === "connectors" && (
-              <>
-                <p className="text-muted-foreground mt-1 mb-2 text-sm">
-                  External MCP servers that bots can use. Each one is set up and signed in to in its own dialog.
-                </p>
-                <Row
-                  id="settings-connectors"
-                  label="Connectors"
-                  labels={false}
-                  help={
-                    connectors === null
-                      ? "Couldn't count the connectors."
-                      : connectors === 1
-                        ? "1 connector is set up."
-                        : `${connectors} connectors are set up.`
-                  }
-                >
-                  <Button
-                    size="sm"
-                    aria-describedby="settings-connectors-help"
-                    variant="outline"
-                    className="self-start"
-                    onClick={onManageConnectors}
-                  >
-                    Manage connectors…
-                  </Button>
-                </Row>
-              </>
-            )}
-            {section === "phones" && (
-              <>
-                <p className="text-muted-foreground mt-1 mb-4 text-sm">
-                  Use Handful from your phone, through a Cloudflare Tunnel or Tailscale.
-                </p>
-                <PhonesSection pairRev={pairRev} />
-              </>
-            )}
-            {section === "runtime" && (
-              <>
-                <p className="text-muted-foreground mt-1 mb-2 text-sm">
-                  Set when the server starts, with command-line flags. The app sets these for you; shown here so you
-                  know where things are.
-                </p>
-                <dl>
-                  {view.runtime.map((r) => (
-                    <div
-                      key={r.key}
-                      className="grid grid-cols-[minmax(0,1fr)_16rem] gap-4 border-b py-4 last:border-b-0 max-sm:grid-cols-1"
-                    >
-                      <dt className="min-w-0">
-                        <span className="text-sm font-medium">{runtimeLabel(r.key)}</span>
-                        {r.key === "addr" && (
-                          <span className="text-muted-foreground mt-1 block text-xs">
-                            Only this computer can reach Handful.
-                          </span>
-                        )}
-                      </dt>
-                      <dd className="flex min-w-0 flex-col gap-1">
-                        <span className="font-mono text-sm [overflow-wrap:anywhere]">
-                          {typeof r.value === "boolean" ? (r.value ? "On" : "Off") : shortPath(String(r.value))}
-                        </span>
-                        <span className="text-muted-foreground text-xs">{runtimeSource(r)}</span>
-                        {r.key === "log" && bridge && (
-                          <button
-                            type="button"
-                            className="text-muted-foreground self-start text-xs underline"
-                            onClick={bridge.revealLog}
-                          >
-                            Reveal in Finder
-                          </button>
-                        )}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
-            )}
-            {section === "file" && (
-              <>
-                <p className="text-muted-foreground mt-1 mb-4 text-sm">
-                  This page reads and writes the same file. Editing it by hand still works.
-                </p>
-                {disk && (
-                  <output className="mb-4 block rounded-lg border border-info/30 bg-info/10 px-4 py-3 text-sm text-info-foreground">
-                    config.json changed on disk after the server started:{" "}
-                    {disk.map((d, i) => (
-                      <span key={d.key}>
-                        {i > 0 && "; "}
-                        <strong>{LABELS[d.key]}</strong>
-                        {d.text}
-                      </span>
-                    ))}
-                    . {disk.length === 1 ? "It applies" : "They apply"} after a restart.
-                  </output>
-                )}
-                <div className="grid grid-cols-[minmax(0,1fr)_16rem] gap-4 border-t py-4 max-sm:grid-cols-1">
-                  <span className="text-sm font-medium">Location</span>
-                  <div className="flex min-w-0 flex-col gap-2">
-                    <code ref={pathShown} className="font-mono text-sm [overflow-wrap:anywhere]">
-                      {shortPath(view.file.path)}
-                    </code>
-                    <div className="flex flex-wrap gap-2">
-                      {bridge && (
-                        <>
-                          <Button size="sm" variant="outline" onClick={bridge.openFile}>
-                            Open in editor
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={bridge.revealFile}>
-                            Reveal in Finder
-                          </Button>
-                        </>
-                      )}
-                      <Button size="sm" variant="outline" onClick={() => copy(view.file.path, () => pathShown.current)}>
-                        {copyLabel(copyState, "Copy path")}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
-        </div>
-      </div>
-      <RestartDialog
-        running={running.bots}
-        now={running.at}
-        limit={view ? drainLimit(view) : 30}
-        open={asking}
-        onOpenChange={setAsking}
-        onRestart={(when) => {
-          setAsking(false)
-          void restart.restart(when)
-        }}
-      />
-    </div>,
+          </div>
+        </>
+      )}
+    </>,
+    <RestartDialog
+      running={running.bots}
+      now={running.at}
+      limit={view ? drainLimit(view) : 30}
+      open={asking}
+      onOpenChange={setAsking}
+      onRestart={(when) => {
+        setAsking(false)
+        void restart.restart(when)
+      }}
+    />,
   )
 }

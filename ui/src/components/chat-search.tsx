@@ -83,7 +83,7 @@ export function ChatSearch({
             : `${shown.entries.length} ${shown.entries.length === 1 ? "message" : "messages"}`
   return (
     <search className="relative block border-b" ref={closesOnEscape}>
-      <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-2">
+      <div className="mx-auto flex max-w-(--chat-width) items-center gap-2 px-4 py-2">
         <Search className="text-muted-foreground size-4 shrink-0" aria-hidden />
         <Input
           ref={box}
@@ -112,7 +112,7 @@ export function ChatSearch({
         </Button>
       </div>
       {listed && shown && ("error" in shown || shown.entries.length > 0) && (
-        <div className="absolute inset-x-0 top-full z-20 mx-auto max-w-3xl px-4">
+        <div className="absolute inset-x-0 top-full z-20 mx-auto max-w-(--chat-width) px-4">
           <div className="bg-popover text-popover-foreground max-h-[min(26rem,60dvh)] overflow-y-auto rounded-b-lg border border-t-0 shadow-lg">
             {"error" in shown ? (
               <p role="alert" className="text-destructive px-3 py-2 text-sm">

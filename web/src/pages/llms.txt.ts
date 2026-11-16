@@ -1,27 +1,23 @@
 import type { APIRoute } from "astro";
 import { aboutText } from "../about";
 import { docModule, pages } from "../docs";
-import { docsHref, hidden, isExternal, targetFile } from "../docs-links.mjs";
 import reference from "../llms/reference.md?raw";
 
 // llms.txt is made at build from the same sources as the site: the summary of the footer, the
-// docs pages (the repo's README.md and docs/*.md, with their links made absolute), and
+// docs pages (web/src/docs/*.md, with their links made absolute), and
 // src/llms/reference.md for what the docs leave out, the bot tools and the local API.
 // scripts/check-llms.mjs checks the reference against the code.
 
 const linkPattern = /\]\(([^)\s]+)\)/g;
 
-// One docs page as text: images out, a paragraph that links a hidden page out, the title
+// One docs page as text: images out, the title
 // dropped, the other headings one level lower, and relative links made absolute.
 function pageText(page: (typeof pages)[number], origin: string) {
 	const body = docModule(page).rawContent().split("\n");
 	const text = body
 		.join("\n")
 		.split(/\n\s*\n/)
-		.filter((block) => {
-			if (/^!\[[^\]]*\]\([^)]*\)\s*$/.test(block.trim())) return false;
-			return ![...block.matchAll(linkPattern)].some(([, href]) => !isExternal(href) && hidden.has(targetFile(page.file, href)));
-		})
+		.filter((block) => !/^!\[[^\]]*\]\([^)]*\)\s*$/.test(block.trim()))
 		.join("\n\n");
 	let inFence = false;
 	return text
@@ -35,7 +31,7 @@ function pageText(page: (typeof pages)[number], origin: string) {
 				line.replace(linkPattern, (whole, href: string) => {
 					// An anchor in the page itself needs its page in the one file.
 					if (href.startsWith("#")) return `](${origin}/docs/${page.slug}/${href})`;
-					return isExternal(href) ? whole : `](${docsHref(page.file, href, origin)})`;
+					return href.startsWith("/") ? `](${origin}${href})` : whole;
 				}),
 			];
 		})

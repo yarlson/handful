@@ -33,11 +33,14 @@ export const linkGroups = [
 		title: "Docs",
 		links: [
 			{ label: "First steps", href: "/docs/first-steps/" },
-			{ label: "Bots", href: "/docs/bots/" },
+			{ label: "Run a software team", href: "/docs/software-team/" },
+			{ label: "Bots and rooms", href: "/docs/bots/" },
 			{ label: "Teams", href: "/docs/teams/" },
-			{ label: "Mac app", href: "/docs/mac-app/" },
-			{ label: "Configuration", href: "/docs/configuration/" },
+			{ label: "The window", href: "/docs/window/" },
+			{ label: "Phone access", href: "/docs/phone/" },
 			{ label: "Connectors", href: "/docs/connectors/" },
+			{ label: "Configuration", href: "/docs/configuration/" },
+			{ label: "Mac app", href: "/docs/mac-app/" },
 		],
 	},
 	{

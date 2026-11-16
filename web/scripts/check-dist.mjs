@@ -1,5 +1,5 @@
 // Fails the build when the old product name reaches the built site, whatever file it comes
-// from: the pages, the docs read from the repo's Markdown, llms.txt or the sitemap.
+// from: the pages, the docs read from web/src/docs, llms.txt or the sitemap.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -22,7 +22,7 @@ function scan(dir) {
 
 scan(dist);
 if (found.length) {
-	console.error(`The old product name is in the built site:\n${found.join("\n")}\nChange it where it comes from: a page, README.md or a file in docs/.`);
+	console.error(`The old product name is in the built site:\n${found.join("\n")}\nChange it where it comes from: a page or a file in web/src/docs/.`);
 	process.exit(1);
 }
 console.log("check-dist: no old product name in the built site");

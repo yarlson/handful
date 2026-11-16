@@ -51,12 +51,13 @@ Each `claude` process connects to Handful's MCP endpoint, `/mcp`, with a bearer 
   - `bots`: each with `name` and `instructions`, and optionally `model` and `effort`.
   - `teams`: each with `name`, `purpose`, `members` (bot names), `lead` (a member's name; the first member when empty), `agreement`, and optionally `default_model` and `default_effort`.
   - `rooms`: each with `name`, `purpose` and `members`.
-- `update_board`: work on the team's board, only in a turn in the team. See the Teams part of the docs above.
+- `update_board`: work on the team's board in a turn in the team. See the Teams part of the docs above. In a lead's own chat with the user, it can only `list` the board and add a task with `user_task`.
   - `action`, for tasks: `send_task`, `take`, `order`, `ask`, `answer_task`, `later`, `pass_on`, `push_back`, `propose`, `make_task`, `close`, `approve`, `stop` and `withdraw`. For steps: `create`, `assign`, `submit`, `block`, `unblock`, `drop`, `pass` and `changes`. Also `list`.
   - `goal_id`: the task, for `take`, `ask`, `answer_task`, `later`, `pass_on`, `push_back`, `close`, `approve`, `stop` and `withdraw`, and for `changes` on a done task. `order` takes no `goal_id`: its `order` field lists the ids of every task in the plan.
+  - `user_task`: only in a lead's own chat. It adds a task that the user asked for, with `text`, `brief` and `team_id` (needed when the bot leads several teams). The task goes to the team's inbox. With `start_now` it becomes the Now task, or the first of the plan, and the user must have asked for that.
   - `item_id`: the step, for every step action except `create`.
-  - `team_id`: for `send_task` and `pass_on`, the other team.
-  - `text`: the task in a line, the result, a question, an answer, a reason or a note. `brief`, `title`, `acceptance` and `depends_on` are for `send_task`, `propose`, `make_task` and `create`.
+  - `team_id`: for `send_task` and `pass_on`, the other team. For `list` and `user_task` in a lead's own chat, the team, when the bot leads several.
+  - `text`: the task in a line, the result, a question, an answer, a reason or a note. `brief` is for `send_task`, `propose`, `make_task`, `user_task` and `create`; `title`, `acceptance` and `depends_on` are for `create`.
   - `position`: for `take`, the task's place in the plan. `order`: for `order`, the ids of every task in the plan.
   - `until`: for `later`, when the task returns to the inbox, at most 7 days ahead.
   - `waits_for`: for `send_task`, the id of your own step that waits on the task. `artifact_ids`: artifacts the other team needs.
@@ -90,23 +91,29 @@ Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `ro
 
 Bots:
 
-- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `members` (rooms), `team` (teams: `leadId`, `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval`, `question`, `goal` for a team with a paused task, or `model` for a model that needs a look), `running`, `tasks`, `createdAt` and `updatedAt`.
+- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `hue` (a bot's colour; absent for rooms and teams), `model` and `effort` (a bot's own settings), `effective` (the model and effort that a bot's direct chat uses, with where each comes from; for a room, each member has its own `effective`), `members` (rooms), `team` (teams: `leadId`, `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval`, `question`, `goal` for a team with a paused task, or `model` for a model that needs a look), `openQuestions` (the open questions in the chat), `incomingHandoffs` (tasks that wait in a team's inbox), `running`, `tasks`, `createdAt` and `updatedAt`.
 - `POST /api/bots` with `{"name", "instructions"}`: create a bot. Returns 201 and the bot.
 - `GET /api/bots/{id}`: one bot or room.
-- `PATCH /api/bots/{id}` with `{"name"?, "instructions"?}`: change a bot.
+- `PATCH /api/bots/{id}` with `{"name"?, "instructions"?, "model"?, "effort"?, "hue"?}`: change a bot.
 - `DELETE /api/bots/{id}`: stop the bot's running turn, then delete it. Returns 204.
 - `PUT /api/bots/order` with `{"ids": [...]}`: set the order of one sidebar section: all bots, all teams or all plain rooms. Room members answer in the order of the bots section.
 
 Chats:
 
 - `GET /api/bots/{id}/entries?after=<rev>`: the entries of a chat that changed after `rev`, in `rev` order, at most 1000 at a time. Start with `after=0`.
+- `GET /api/bots/{id}/entries?limit=<n>&before=<seq>`: a window of a chat, to page back. `limit` is required. Without `before`, it gives the newest entries. Do not combine it with `after`.
+- `GET /api/bots/{id}/entries/{entry id}`: one entry of a chat, for a link to a post.
+- `GET /api/bots/{id}/search?q=<text>`: the user, bot and agent messages of a chat whose text contains `q` (2 to 200 characters, any case), newest first. Returns `{"entries", "more"}` with at most 50 entries; `more` says that older ones match too.
+- `GET /api/bots/{id}/usage`: `windowTokens` (the context window) and `last`, the tokens of the bot's latest recorded turn (`inputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `outputTokens`, `calls`, `contextTokens`, `cold`), or `null` before any turn.
 - `POST /api/bots/{id}/messages` with `{"text", "clientNonce", "media"?}`: send a message to a bot or a room.
   - `clientNonce` is required, 1 to 100 characters, and unique for each message.
-  - `media` is a list of base64-encoded files.
+  - `media` is a list of base64-encoded files. `answers` lists the ids of open questions that the message answers.
   - The response is 202 with `{"turnId", "duplicate": false}`. A repeated `clientNonce` starts no second turn: it returns 200 with the first turn's id and `"duplicate": true`. The same `clientNonce` with other text returns 409.
 - `GET /api/media/{name}`: a file of a message.
+- `GET /api/questions`: what waits for you: `questions` (open questions), `approvals` (chats with a pending approval), `pausedGoals` (teams with a paused task), and the questions closed in the last 7 days (`closedRecently`, `closed`). `GET /api/bots/{id}/questions` lists the open questions of one chat.
+- `POST /api/entries/{id}/dismiss` closes an open question without an answer. `POST /api/entries/{id}/reopen` undoes that.
 - `POST /api/entries/{entry id}/reactions` with `{"emoji", "on"}`: put a reaction on a `user`, `bot` or `agent` entry (`"on": true`) or take it off (`"on": false`). `emoji` is one of 👍 👎 ❤️ 😂 👀 ✅. Returns 200 and the entry. Setting a reaction that is already on, or removing one that is off, changes nothing. Returns 400 for another emoji or another kind of entry, and 404 for an unknown entry. A reaction wakes no bot.
-- `POST /api/bots/{id}/interrupt`: stop the running turn. Returns `{"stopped": true|false}`.
+- `POST /api/bots/{id}/interrupt`: stop the running turn, end the bot's `claude` processes with their background tasks, and, for a team, stop its board. Returns `{"stopped": true|false}`.
 - `POST /api/bots/{id}/stop-turn`: stop only the running turn of a bot's or a room's chat; background tasks and the team's board go on. Returns `{"stopped": true|false}`.
 - `POST /api/bots/{id}/clear`: start a fresh context. Returns 204, or 409 while the bot works or has background tasks.
 - `POST /api/bots/{id}/compact`: queue a compaction after the current turn. Returns 202 with `{"queued"}`.
@@ -120,8 +127,8 @@ Entries:
   - `bot`: a bot's message. `body` has `text`, `fallback`, `needsReply` and `media`. In a room, it also has `speakerId` and `speakerName`.
   - `agent`: a direct message between bots. `body` has `direction` (`in` or `out`), `peerId`, `peerName`, `text`, `priority`, and for `in`, `held`.
   - The bodies of `user`, `bot` and `agent` entries can also have `reactions`, your emoji on the message, in the order 👍 👎 ❤️ 😂 👀 ✅. The key is absent when the message has no reactions.
-  - `approval`: an approval card. `body` has `tool`, `input`, `status` (`pending`, `allowed`, `denied` or `expired`), `decision`, and in a room `bot`.
-  - `event` and `activity`: turn events and the tools that a bot used.
+  - `approval`: an approval card. `body` has `tool`, `input`, `status` (`pending`, `allowed`, `denied` or `expired`), `decision`, `decidedOn` (the paired phone that decided; absent for the computer), `expiry` (why a card expired: `limit`, `turn-ended` or `restart`; absent on older cards), and in a room `bot`.
+  - `event` and `activity`: turn events and the tools that a bot used. An `activity` body has `tool`, `summary`, `status` (`running`, `done` or `error`), `subagent`, `output`, and for an Edit or Write call `diff` (`added`, `removed`, `truncated` and `hunks`).
 
 Rooms:
 
@@ -175,7 +182,7 @@ Skills and connectors:
 - `GET /api/skills/{id}`: one skill, with its `body`.
 - `DELETE /api/skills/{id}`: delete a skill.
 - `GET /api/connectors`: the connectors from `connectors.json`.
-- `POST /api/connectors/{name}/connect`: start a sign-in. Returns `{"url"}` to open in a browser. The sign-in returns to `/oauth/callback`.
+- `POST /api/connectors/{name}/connect`: start a sign-in. Returns `{"url"}` to open in a browser. The sign-in returns to `GET /oauth/callback`.
 - `DELETE /api/connectors/{name}/token`: sign out and delete the tokens.
 
 Settings, session and phone access:
@@ -185,7 +192,9 @@ Settings, session and phone access:
 - `POST /api/drain` and `DELETE /api/drain`: stop and resume the start of new turns, for an update.
 - `GET /api/session`: whether the request carries Handful's key, and the key file's path when it does not. `POST /api/key` with `{"key"}` checks a pasted key and gives the browser the key's cookie.
 - `GET /api/phone`, `POST /api/phone/on` and `POST /api/phone/off`: phone access, which is off by default.
+- `GET /api/move-notice` tells whether the welcome notice of a move shows, and `POST /api/move-notice/close` records that you closed it.
 - `POST /api/phone/pairing`, `PATCH /api/phone/pairing` and `POST /api/phone/pairing/{id}`: start a pairing, set its scope, and approve or deny it.
+- A phone uses two more routes on the phone address, not on the local one: `POST /pair` with `{"code", "deviceName"}` sends the pairing code that the phone typed (202, and a claim cookie), and `GET /pair-status` polls for the decision: `{"state"}`, with the phone's session cookie set when you allow it.
 - `GET /api/phone/sessions`, `DELETE /api/phone/sessions` and `DELETE /api/phone/sessions/{id}`: list the paired phones, revoke all of them, or revoke one.
 
 Event stream:
@@ -198,6 +207,9 @@ Event stream:
   - `tasks`: a bot's background tasks changed. It has `botId` and `tasks`.
   - `bots`: the list of bots and rooms changed. Fetch `GET /api/bots` again.
   - `pause`: `pausedUntil` is when turns start again. It is absent when the pause ended.
+  - `drain`: `draining` says whether drain mode is on.
+  - `restart`: `state` is `waiting`, `cancelled`, `expired` or `restarting`.
+  - `pair`: a phone pairing or a phone session changed. Fetch `GET /api/phone` and `GET /api/phone/sessions` again.
 - A comment line, `: ping`, comes every 20 seconds.
 - A client that falls behind is disconnected. After each connect, fetch the entries after the highest `rev` that you have.
 

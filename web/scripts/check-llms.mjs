@@ -49,7 +49,7 @@ for (const action of retired) if (new RegExp(`\`${action}\``).test(toolSection))
 for (const [name, pattern] of [["/goal", /\/goal/g], ["deliver", /\bdeliver\b/g], ["start_goal", /start_goal/g], ["30 turns", /30 turns/g]]) {
 	for (const m of llms.matchAll(pattern)) {
 		const line = llms.slice(llms.lastIndexOf("\n", m.index) + 1, llms.indexOf("\n", m.index));
-		if (!(name === "/goal" && line.startsWith("`/goal` still works."))) errors.push(`old workflow in llms.txt: ${name}`);
+		if (!(name === "/goal" && line.startsWith("`/goal` still works"))) errors.push(`old workflow in llms.txt: ${name}`);
 	}
 }
 

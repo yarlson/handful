@@ -1,6 +1,6 @@
 import { assert, test } from "vitest"
 import type { Entry } from "./api"
-import { matchesName, modKey, searchable, snippetOf, speakerOf, textOf } from "./search"
+import { matchesName, searchable, snippetOf, speakerOf, textOf } from "./search"
 
 const base = { id: "e", botId: "b", seq: 1, rev: 1, turnId: "", createdAt: 0 }
 
@@ -19,32 +19,6 @@ test("the chat search starts from 2 characters, counted after trimming", () => {
   assert.isNull(searchable("😀"), "one character of two UTF-16 units")
   assert.equal(searchable(" ab "), "ab")
   assert.equal(searchable("я😀"), "я😀")
-})
-
-test("⌘F opens the search on a Mac and Ctrl+F elsewhere, by the key's place", () => {
-  const key = { code: "KeyF", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false }
-  assert.isTrue(modKey({ ...key, metaKey: true }, "KeyF", true))
-  assert.isFalse(modKey({ ...key, ctrlKey: true }, "KeyF", true), "Ctrl+F on a Mac moves the cursor")
-  assert.isTrue(modKey({ ...key, ctrlKey: true }, "KeyF", false))
-  assert.isFalse(modKey({ ...key, metaKey: true }, "KeyF", false))
-  assert.isFalse(modKey(key, "KeyF", true), "F alone")
-  assert.isFalse(modKey({ ...key, code: "KeyG", metaKey: true }, "KeyF", true))
-  assert.isFalse(modKey({ ...key, metaKey: true, ctrlKey: true }, "KeyF", true))
-  assert.isFalse(modKey({ ...key, ctrlKey: true, metaKey: true }, "KeyF", false))
-  assert.isFalse(modKey({ ...key, metaKey: true, altKey: true }, "KeyF", true))
-  assert.isFalse(modKey({ ...key, metaKey: true, shiftKey: true }, "KeyF", true))
-})
-
-test("⌘B and Ctrl+B match by the key's place, also on a layout where that key is not B", () => {
-  // Russian ЙЦУКЕН: the key at KeyB types "и".
-  const russian = { code: "KeyB", key: "и", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }
-  assert.isTrue(modKey(russian, "KeyB", true))
-  assert.isTrue(modKey({ ...russian, metaKey: false, ctrlKey: true }, "KeyB", false))
-  // Dvorak: the key that types "b" is at KeyN, so it is not the shortcut.
-  const dvorak = { ...russian, code: "KeyN", key: "b" }
-  assert.isFalse(modKey(dvorak, "KeyB", true))
-  assert.isFalse(modKey({ ...russian, altKey: true }, "KeyB", true))
-  assert.isFalse(modKey({ ...russian, metaKey: false, ctrlKey: true }, "KeyB", true), "Ctrl+B on a Mac")
 })
 
 test("a result's speaker is you, the bot or member, or the other bot of a direct message", () => {

@@ -56,7 +56,11 @@ import { PairAgain, PairBanner, PairPage, usePairRequest } from "@/components/ph
 import { rightsOf } from "@/lib/phones"
 import { needsKey, phoneSession, useSession } from "@/lib/session"
 import { KeyPage } from "@/components/key-page"
-import { matchesName, modKey } from "@/lib/search"
+import { matchesName } from "@/lib/search"
+import { MAC, shortcutKeys, shortcutLabel, shortcutOf, type ShortcutName } from "@/lib/shortcuts"
+import { commandsFor, type Command } from "@/lib/palette"
+import { choose, loadAppearance, showAppearance, THEME_KEY } from "@/lib/appearance"
+import { CommandPalette } from "@/components/palette"
 import {
   clampPanel,
   clampSidebar,
@@ -503,10 +507,8 @@ function BotList({
   )
 }
 
-// MAC says the shortcuts use ⌘, not Ctrl.
-const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent)
-const SIDEBAR_SHORTCUT = MAC ? "⌘B" : "Ctrl+B"
-const SIDEBAR_KEYS = MAC ? "Meta+B" : "Control+B"
+const SIDEBAR_SHORTCUT = shortcutLabel("sidebar", MAC)
+const SIDEBAR_KEYS = shortcutKeys("sidebar", MAC)
 
 // READER is the history state of an address that opened the reader, so that closing it goes
 // back instead of adding an address.
@@ -782,19 +784,7 @@ export function App() {
     const lost = !active || active === document.body || (collapsed && sidebar.current?.contains(active))
     if (lost) (collapsed ? menuButton : collapseButton).current?.focus()
   }, [collapsed])
-  // Mod+B, matched by the key's place so that it works on any layout, shows or hides the sidebar.
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (!modKey(e, "KeyB", MAC)) return
-      // A dialog holds the keyboard; the sidebar behind it stays as it is.
-      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) return
-      e.preventDefault()
-      if (narrow) setDrawer((d) => !d)
-      else setCollapsed((c) => !c)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [narrow])
+  const toggleSidebar = () => (narrow ? setDrawer((d) => !d) : setCollapsed((c) => !c))
   // closesDrawerOnEscape makes Escape inside the drawer close it.
   const closesDrawerOnEscape = useCallback((el: HTMLElement | null) => {
     sidebar.current = el
@@ -997,16 +987,56 @@ export function App() {
     () => setSearch((s) => (selected ? { chat: selected, n: (s?.chat === selected ? s.n : 0) + 1 } : null)),
     [selected],
   )
+  const togglePanel = () => (panel ? closePanel() : setPanel(true))
+  const [palette, setPalette] = useState(false)
+  // runShortcut does what a shortcut asks and tells whether it did anything; the panel and the
+  // search need an open chat.
+  const runShortcut = (name: ShortcutName): boolean => {
+    if (name === "palette") setPalette(true)
+    else if (name === "sidebar") toggleSidebar()
+    else if (view !== "chat") return false
+    else if (name === "panel") togglePanel()
+    else openSearch()
+    return true
+  }
   useEffect(() => {
-    if (view !== "chat") return
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (!modKey(e, "KeyF", MAC)) return
-      e.preventDefault()
-      openSearch()
+      const name = shortcutOf(e, MAC)
+      // A dialog holds the keyboard: the page behind it stays as it is, and the palette closes
+      // itself on Mod+K.
+      if (!name || (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]'))) return
+      if (runShortcut(name)) e.preventDefault()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [view, openSearch])
+  })
+  const runCommand = ({ action }: Command) => {
+    switch (action.kind) {
+      case "chat":
+        return openChat(action.chat.id)
+      case "waiting":
+        return showScreen("waiting")
+      case "settings":
+        setDrawer(false)
+        return openSettingsPage(action.section)
+      case "new":
+        return { bot: setCreating, team: setCreatingTeam, room: setCreatingRoom }[action.what](true)
+      case "sidebar":
+        return toggleSidebar()
+      case "panel":
+        return togglePanel()
+      case "search":
+        return openSearch()
+      case "theme": {
+        const next = choose(loadAppearance(), "theme", action.theme)
+        // An open Appearance section rereads its selects on the storage event, which the browser
+        // fires only in the other tabs. That event also makes main.tsx show the stored choice, so
+        // the page shows next after it, even when storage refuses the write.
+        window.dispatchEvent(new StorageEvent("storage", { key: THEME_KEY }))
+        return showAppearance(document.documentElement, next, matchMedia("(prefers-color-scheme: dark)").matches)
+      }
+    }
+  }
   // A drain that the updater didn't start is a settings restart.
   const pause = pauseLabel(update.state?.state === "waiting" || update.state?.state === "limit")
 
@@ -1268,8 +1298,8 @@ export function App() {
                   variant="ghost"
                   className="shrink-0 max-md:size-11"
                   aria-label="Search this chat"
-                  title={`Search this chat (${MAC ? "⌘F" : "Ctrl+F"})`}
-                  aria-keyshortcuts={MAC ? "Meta+F" : "Control+F"}
+                  title={`Search this chat (${shortcutLabel("search", MAC)})`}
+                  aria-keyshortcuts={shortcutKeys("search", MAC)}
                   aria-expanded={searchN > 0}
                   onClick={openSearch}
                 >
@@ -1281,9 +1311,11 @@ export function App() {
                   ref={panelButton}
                   className="shrink-0 max-md:size-11"
                   aria-label="Toggle panel"
+                  title={`Toggle panel (${shortcutLabel("panel", MAC)})`}
+                  aria-keyshortcuts={shortcutKeys("panel", MAC)}
                   aria-expanded={panel}
                   aria-controls="chat-panel"
-                  onClick={() => (panel ? closePanel() : setPanel(true))}
+                  onClick={togglePanel}
                 >
                   <PanelRight />
                 </Button>
@@ -1388,6 +1420,21 @@ export function App() {
           </>
         )}
       </main>
+      <CommandPalette
+        open={palette}
+        onOpenChange={setPalette}
+        commands={
+          palette
+            ? commandsFor({
+                chats: [...agents, ...teams, ...rooms],
+                computer: rights.computer,
+                chatOpen: view === "chat",
+              })
+            : []
+        }
+        theme={palette ? loadAppearance().theme : "system"}
+        onRun={runCommand}
+      />
       <ConnectorsDialog open={connectors} onOpenChange={setConnectors} bots={agents} />
       <NewTeamDialog
         open={creatingTeam}

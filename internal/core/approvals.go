@@ -131,11 +131,11 @@ type ApprovalRequest struct {
 // transcript and the call waits for a decision, ctx cancellation or the timeout.
 func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, string, error) {
 	botID, turnID, tool, input := req.BotID, req.TurnID, req.Tool, req.Input
-	grants, err := s.ToolGrants(ctx, botID)
+	granted, err := s.granted(ctx, req)
 	if err != nil {
 		return false, "", err
 	}
-	if slices.Contains(grants, tool) {
+	if granted {
 		return true, "", nil
 	}
 	// A call outside any turn, such as a background subagent's after its
@@ -168,6 +168,18 @@ func (s *Service) RequestApproval(ctx context.Context, req ApprovalRequest) (boo
 		return false, "The user did not answer the approval request in time.", nil
 	}
 	return decision != DecisionDeny, "The user denied this action.", nil
+}
+
+// granted reports whether a standing grant answers the request. A grant of
+// Write or Edit does not answer for a file that sets bots up: the user sees
+// each such change.
+func (s *Service) granted(ctx context.Context, req ApprovalRequest) (bool, error) {
+	grants, err := s.ToolGrants(ctx, req.BotID)
+	if err != nil || !slices.Contains(grants, req.Tool) {
+		return false, err
+	}
+	config, err := s.changesBotConfig(ctx, req)
+	return err == nil && !config, err
 }
 
 // awaitDecision waits for the decision on an approval card. It returns "" and

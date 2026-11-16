@@ -161,6 +161,8 @@ type Service struct {
 	// tempDirs are the temp folders a bot may attach files from, besides its
 	// workspace and the media folder.
 	tempDirs []string
+	// home is the user's home folder, which a "~" in a bot's file path names; "" when unknown.
+	home     string
 	defaults Defaults
 	// modelAttention holds the bots whose model failed or was replaced in
 	// their latest run, as the runner reports it.
@@ -198,7 +200,13 @@ func New(sqlDB *sql.DB, dataDir string, loc *time.Location, opts ...Option) (*Se
 	if err := os.MkdirAll(filepath.Join(dataDir, "media"), 0o700); err != nil {
 		return nil, fmt.Errorf("create media dir: %w", err)
 	}
+	// Without a home folder, a Write or Edit to a "~" path always shows a card (changesBotConfig).
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
 	s := &Service{
+		home:           home,
 		sqlDB:          sqlDB,
 		q:              db.New(sqlDB),
 		hub:            NewHub(),

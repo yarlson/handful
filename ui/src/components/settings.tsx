@@ -634,6 +634,12 @@ const APPEARANCE_ROWS: {
 // this browser only.
 export function AppearanceSection() {
   const [appearance, setAppearance] = useState(loadAppearance)
+  // A choice stored in another tab shows here too; main.tsx applies it to the page.
+  useEffect(() => {
+    const reread = () => setAppearance(loadAppearance())
+    addEventListener("storage", reread)
+    return () => removeEventListener("storage", reread)
+  }, [])
   const pick = (key: keyof Appearance) => (e: ChangeEvent<HTMLSelectElement>) => {
     const next = choose(appearance, key, e.target.value)
     setAppearance(next)
@@ -852,23 +858,9 @@ export function SettingsPage({
         {after}
       </div>,
     )
-  // Appearance belongs to this browser, so it shows before, or without, the server's settings.
-  if (shown === "appearance") return page(view ? pendingSections(view) : new Set(), null, <AppearanceSection />)
-  if (!view) {
-    return frame(
-      <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-        {loadError ? `Couldn't load the settings: ${loadError}` : "Loading settings…"}
-      </div>,
-    )
-  }
-  const locked = Boolean(view.file.error)
-  const dots = pendingSections(view)
-  const val = (k: Key) => view.values[k]
+  // notices are the restart and settings-file notices shown above every section.
   const bridge = settingsBridge()
-  const updates = updateKeys(view.build)
-  const disk = diskNotice(view, diskChanges(view, saved))
-  return page(
-    dots,
+  const notices = view && (
     <>
       {restart.state === "now" && (
         <output className="bg-muted mb-6 block rounded-lg px-4 py-3 text-sm">
@@ -951,7 +943,25 @@ export function SettingsPage({
           </div>
         </div>
       )}
-    </>,
+    </>
+  )
+  // Appearance belongs to this browser, so it shows before, or without, the server's settings.
+  if (shown === "appearance") return page(view ? pendingSections(view) : new Set(), notices, <AppearanceSection />)
+  if (!view) {
+    return frame(
+      <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+        {loadError ? `Couldn't load the settings: ${loadError}` : "Loading settings…"}
+      </div>,
+    )
+  }
+  const locked = Boolean(view.file.error)
+  const dots = pendingSections(view)
+  const val = (k: Key) => view.values[k]
+  const updates = updateKeys(view.build)
+  const disk = diskNotice(view, diskChanges(view, saved))
+  return page(
+    dots,
+    notices,
     <>
       {section === "general" && (
         <>

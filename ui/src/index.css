@@ -207,14 +207,15 @@
 .markdown h3 {
   font-weight: 600;
 }
+/* Sizes relative to --chat-text: 18, 16 and 14 px at the Medium 14 px text. */
 .markdown h1 {
-  font-size: 1.125rem;
+  font-size: 1.2857em;
 }
 .markdown h2 {
-  font-size: 1rem;
+  font-size: 1.1429em;
 }
 .markdown h3 {
-  font-size: 0.875rem;
+  font-size: 1em;
 }
 .markdown :is(h1, h2, h3) + * {
   margin-top: 0.25em;

@@ -71,9 +71,10 @@ export function showAppearance(root: Root, a: Appearance, systemDark: boolean) {
 type SystemScheme = Pick<MediaQueryList, "matches" | "addEventListener">
 
 // followAppearance shows the stored choice on root now, and again when the system's colour
-// scheme changes.
-export function followAppearance(root: Root, system: SystemScheme) {
+// scheme changes or another tab of this browser stores a choice (page's storage event).
+export function followAppearance(root: Root, system: SystemScheme, page: Pick<Window, "addEventListener">) {
   const show = () => showAppearance(root, loadAppearance(), system.matches)
   show()
   system.addEventListener("change", show)
+  page.addEventListener("storage", show)
 }

@@ -108,11 +108,24 @@ function fakeSystem(matches: boolean) {
   return system
 }
 
+// fakePage stands for window; store() fires its storage event, as another tab's write does.
+function fakePage() {
+  const listeners: (() => void)[] = []
+  return {
+    addEventListener: (type: string, listener: () => void) => {
+      if (type === "storage") listeners.push(listener)
+    },
+    store() {
+      for (const l of listeners) l()
+    },
+  }
+}
+
 test("with the System theme, the page follows the system's colour scheme as it changes", () => {
   store({ "handful.textSize": "large" })
   const root = fakeRoot()
   const system = fakeSystem(false)
-  followAppearance(root, system as unknown as MediaQueryList)
+  followAppearance(root, system as unknown as MediaQueryList, fakePage() as unknown as Window)
   assert.isFalse(root.classes.has("dark"))
   assert.equal(root.dataset.textSize, "large")
   system.turn(true)
@@ -126,7 +139,7 @@ test("a Light or Dark theme stays when the system's colour scheme changes", () =
     store({ "handful.theme": theme })
     const root = fakeRoot()
     const system = fakeSystem(theme === "light")
-    followAppearance(root, system as unknown as MediaQueryList)
+    followAppearance(root, system as unknown as MediaQueryList, fakePage() as unknown as Window)
     system.turn(theme !== "light")
     assert.equal(root.classes.has("dark"), theme === "dark", theme)
   }
@@ -136,7 +149,7 @@ test("a choice made after load shows on the next change of the system's colour s
   store({})
   const root = fakeRoot()
   const system = fakeSystem(false)
-  followAppearance(root, system as unknown as MediaQueryList)
+  followAppearance(root, system as unknown as MediaQueryList, fakePage() as unknown as Window)
   choose(defaults, "theme", "dark")
   system.turn(false)
   assert.isTrue(root.classes.has("dark"))
@@ -175,4 +188,18 @@ test("the index.html script follows the system when storage is blocked", () => {
   }
   assert.isTrue(runScript(blocked, true))
   assert.isFalse(runScript(blocked, false))
+})
+
+test("a choice another tab stores shows on the page's storage event", () => {
+  const map = store({})
+  const root = fakeRoot()
+  const page = fakePage()
+  followAppearance(root, fakeSystem(false) as unknown as MediaQueryList, page as unknown as Window)
+  map.set("handful.theme", "dark")
+  map.set("handful.chatWidth", "wide")
+  map.set("handful.textSize", "large")
+  page.store()
+  assert.isTrue(root.classes.has("dark"))
+  assert.equal(root.dataset.chatWidth, "wide")
+  assert.equal(root.dataset.textSize, "large")
 })

@@ -12,7 +12,7 @@ try {
   // Storage that the browser blocks holds no old keys.
 }
 
-followAppearance(document.documentElement, window.matchMedia("(prefers-color-scheme: dark)"))
+followAppearance(document.documentElement, window.matchMedia("(prefers-color-scheme: dark)"), window)
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

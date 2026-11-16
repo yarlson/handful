@@ -107,6 +107,7 @@ func TestAGrantedWriteOrEditElsewhereNeedsNoCard(t *testing.T) {
 		filepath.Join(svc.DataDir(), "notes", "skills", "x.md"),
 		filepath.Join(svc.DataDir(), "skillsx", "x.md"),
 		svc.DataDir() + "x/AGENTS.md",
+		svc.DataDir(),
 		"notes.md",
 		"~/media/x.png",
 	} {
@@ -139,27 +140,42 @@ func TestAGrantedFileCallResolvesItsPathAsTheOSDoes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "file.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	agents := filepath.Join(svc.DataDir(), "AGENTS.md")
+	if err := os.WriteFile(agents, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(agents, filepath.Join(ws, "agents.md")); err != nil {
+		t.Fatal(err)
+	}
 	for name, path := range map[string]string{
-		"a link to the data folder":              filepath.Join(ws, "data", "AGENTS.md"),
-		"a link to a skill folder not yet made":  filepath.Join(ws, "dangles"),
-		"a relative path in the working folder":  ".claude/skills/x/SKILL.md",
-		"a .. out of the working folder":         ws + "/../claude/CLAUDE.md",
-		"a .. after a missing folder":            ws + "/missing/../.claude/skills/x",
-		"a .. after a link, as the OS reads it":  filepath.Join(ws, "in-skills") + "/../x/SKILL.md",
-		"a .. after a link, cleaned before use":  filepath.Join(ws, "elsewhere") + "/../.claude/skills/x/SKILL.md",
-		"other letter case":                      filepath.Join(svc.DataDir(), "Skills", "x", "SKILL.md"),
-		"a ~ for the home folder":                "~/AGENTS.md",
-		"a link loop":                            filepath.Join(ws, "loop", "x"),
-		"a file used as a folder":                filepath.Join(ws, "file.txt", "x"),
-		"a file named in an unknown home folder": "~",
+		"a link to the data folder":                   filepath.Join(ws, "data", "AGENTS.md"),
+		"a link to a skill folder not yet made":       filepath.Join(ws, "dangles"),
+		"a relative path in the working folder":       ".claude/skills/x/SKILL.md",
+		"a .. out of the working folder":              ws + "/../claude/CLAUDE.md",
+		"a .. after a missing folder":                 ws + "/missing/../.claude/skills/x",
+		"a .. after a link, as the OS reads it":       filepath.Join(ws, "in-skills") + "/../x/SKILL.md",
+		"a .. after a link, cleaned before use":       filepath.Join(ws, "elsewhere") + "/../.claude/skills/x/SKILL.md",
+		"other letter case":                           filepath.Join(svc.DataDir(), "Skills", "x", "SKILL.md"),
+		"a folder in Unicode case folding":            filepath.Join(svc.DataDir(), "\u017fkills", "x", "SKILL.md"),
+		"a bots folder in Unicode case folding":       filepath.Join(svc.DataDir(), "bot\u017f", bot.ID, "claude", "CLAUDE.md"),
+		"a file not yet made in Unicode case folding": filepath.Join(svc.DataDir(), "AGENT\u017f.md"),
+		"a hard link to a protected file":             filepath.Join(ws, "agents.md"),
+		"a path that /proc resolves in the bot's run": "/proc/self/cwd/../claude/CLAUDE.md",
+		"a ~ for the home folder":                     "~/AGENTS.md",
+		"a link loop":                                 filepath.Join(ws, "loop", "x"),
+		"a file used as a folder":                     filepath.Join(ws, "file.txt", "x"),
 	} {
-		if name == "a file named in an unknown home folder" {
-			svc.home = ""
-		}
 		if !showsCard(t, svc, fileCall(bot, "", "Write", filePathInput(path))) {
 			t.Errorf("granted Write through %s (%s) ran with no card; want a card", name, path)
 		}
-		svc.home = svc.DataDir()
+	}
+}
+
+func TestAGrantedWriteToAHomePathWithNoKnownHomeFolderShowsACard(t *testing.T) {
+	svc, bot := grantedFileBot(t)
+	svc.home = ""
+	if !showsCard(t, svc, fileCall(bot, "", "Write", filePathInput("~"))) {
+		t.Error("granted Write of ~ with no known home folder ran with no card; want a card")
 	}
 }
 

@@ -66,12 +66,14 @@ func passedValue(value, source string) string {
 // childEnv is the environment of a claude process: base without the
 // subagent model and effort variables, and without the effort variable when
 // Handful passes --effort, which that variable would outrank. ANTHROPIC_MODEL
-// stays, since --model outranks it.
+// stays, since --model outranks it. CLAUDE_CODE_DISABLE_CLAUDE_MDS goes too: it
+// would keep out the shared and team instruction files, and a server started
+// from a bot's shell inherits it from older versions of Handful.
 func childEnv(base []string, effortFlag bool) []string {
 	out := make([]string, 0, len(base))
 	for _, kv := range base {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, envSubagentPrefix) || (effortFlag && name == core.EnvEffort) {
+		if strings.HasPrefix(name, envSubagentPrefix) || (effortFlag && name == core.EnvEffort) || name == "CLAUDE_CODE_DISABLE_CLAUDE_MDS" {
 			continue
 		}
 		out = append(out, kv)

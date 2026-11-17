@@ -49,12 +49,6 @@ type claudeRun struct {
 	DataDir string
 }
 
-// isolatedSettings is the --settings value for every claude run. It turns
-// off auto memory and the Co-Authored-By and "Generated with Claude Code"
-// lines that Claude Code adds to commits and pull requests, since
-// the bot's own Claude Code folder keeps the user's own attribution setting out.
-const isolatedSettings = `{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}`
-
 // handfulSecrets are the files and folders of the data folder that hold Handful's secrets:
 // its API key, the MCP configs of running bots with their per-run tokens, connector sign-ins
 // and settings, and the database with every copy of it: yargpt.db and its WAL files, the
@@ -62,10 +56,21 @@ const isolatedSettings = `{"autoMemoryEnabled":false,"attribution":{"commit":"",
 // to the data folder, in Claude Code's gitignore-style patterns; "*" stays in one folder.
 var handfulSecrets = []string{"ui-key", "run/**", "oauth/**", "connectors.json", "*.db*", "backup/**"}
 
-// turnSettings is the --settings value of a turn's run: isolatedSettings, plus rules that keep
-// Claude Code's file tools (Read, and Grep and Glob, which follow Read's rules) out of
-// handfulSecrets in dataDir. Bash, and the programs it runs, can still read them.
+// turnSettings is the --settings value of every claude run. It turns off auto memory and the
+// Co-Authored-By and "Generated with Claude Code" lines that Claude Code adds to commits and
+// pull requests, since the bot's own Claude Code folder keeps the user's own attribution
+// setting out. Its rules keep Claude Code's file tools (Read, and Grep and Glob, which follow
+// Read's rules) out of handfulSecrets in dataDir; Bash, and the programs it runs, can still
+// read them. claudeMdExcludes keeps out the instruction files above dataDir (outsideInstructions).
 func turnSettings(dataDir string) (string, error) {
+	abs, err := filepath.Abs(dataDir)
+	if err != nil {
+		return "", fmt.Errorf("find the absolute path of the data folder %s: %w", dataDir, err)
+	}
+	excludes := outsideInstructions(abs)
+	if real, err := filepath.EvalSymlinks(abs); err == nil && real != abs {
+		excludes = append(excludes, outsideInstructions(real)...)
+	}
 	// Claude Code checks a rule against a file's real path, so the folder's real path goes in.
 	if real, err := filepath.EvalSymlinks(dataDir); err == nil {
 		dataDir = real
@@ -79,11 +84,47 @@ func turnSettings(dataDir string) (string, error) {
 		"autoMemoryEnabled": false,
 		"attribution":       map[string]string{"commit": "", "pr": ""},
 		"permissions":       map[string][]string{"deny": deny},
+		"claudeMdExcludes":  excludes,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode the run's settings: %w", err)
 	}
 	return string(raw), nil
+}
+
+// outsideFiles are the instruction files that Claude Code loads from each folder above the
+// working folder, relative to that folder.
+var outsideFiles = []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude/CLAUDE.md", ".claude/AGENTS.md", ".claude/rules/**"}
+
+// outsideInstructions returns claudeMdExcludes patterns for the instruction files in every
+// folder above dataDir, an absolute path. These folders are above every working folder of a
+// bot too, and hold the user's own files, such as ~/CLAUDE.md and ~/.claude/CLAUDE.md, which
+// Claude Code would otherwise load into every bot.
+func outsideInstructions(dataDir string) []string {
+	var patterns []string
+	for dir := filepath.Dir(dataDir); ; dir = filepath.Dir(dir) {
+		for _, name := range outsideFiles {
+			patterns = append(patterns, strings.TrimSuffix(literalGlob(filepath.ToSlash(dir)), "/")+"/"+name)
+		}
+		if dir == filepath.Dir(dir) {
+			return patterns
+		}
+	}
+}
+
+// literalGlob puts each character that Claude Code's glob matcher reads as special in a
+// character class of its own, so a folder named "a (2)" matches only itself. A backslash
+// can't escape them: Claude Code turns every backslash in a pattern into "/".
+func literalGlob(path string) string {
+	var b strings.Builder
+	for _, c := range path {
+		if strings.ContainsRune("*?[{}()+@|$", c) {
+			b.WriteString("[" + string(c) + "]")
+			continue
+		}
+		b.WriteRune(c)
+	}
+	return b.String()
 }
 
 // AutocompactWindow is the context size, in tokens, at which Claude Code compacts a session's
@@ -93,8 +134,7 @@ const AutocompactWindow = 200000
 // args builds the claude CLI arguments; the prompt goes to stdin as a
 // userMessage. --setting-sources user,project loads the settings of the
 // bot's own Claude Code folder, which startSession sets, so the user's
-// personal settings and hooks stay out (startSession keeps CLAUDE.md files
-// out with an environment variable), and
+// personal settings and hooks stay out, and
 // --strict-mcp-config keeps out every MCP server that is not in the
 // MCPConfig file.
 func (r claudeRun) args() ([]string, error) {
@@ -171,7 +211,11 @@ func interruptMessage(id string, cancelQueued bool) []byte {
 // compactArgs starts claude on a stored session to run Claude Code's /compact,
 // which goes to stdin. The isolation flags match a normal turn; no tools or
 // MCP servers are needed.
-func compactArgs(sessionID, model, effort string) []string {
+func compactArgs(sessionID, model, effort, dataDir string) ([]string, error) {
+	settings, err := turnSettings(dataDir)
+	if err != nil {
+		return nil, err
+	}
 	args := []string{
 		"-p",
 		"--input-format", "stream-json",
@@ -179,10 +223,10 @@ func compactArgs(sessionID, model, effort string) []string {
 		"--verbose",
 		"--setting-sources", "project",
 		"--strict-mcp-config",
-		"--settings", isolatedSettings,
+		"--settings", settings,
 		"--resume", sessionID,
 	}
-	return appendModelEffort(args, model, effort)
+	return appendModelEffort(args, model, effort), nil
 }
 
 // appendModelEffort adds --model and --effort for the values that are set.

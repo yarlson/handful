@@ -58,3 +58,16 @@ func TestPromptChangesEscapesTheClosingTagInSectionText(t *testing.T) {
 		}
 	}
 }
+
+// AC12.2: after the upgrade, the first turn of a session that had the pasted global instructions
+// says where they went instead of "(removed)".
+func TestPromptChangesSaysTheGlobalInstructionsMovedToAFile(t *testing.T) {
+	t.Parallel()
+	known := "# You are Ana\nYour standing instructions override the global instructions (AGENTS.md)\n## Global instructions (AGENTS.md)\nUse tabs.\n## Memory\n- one\n"
+	current := "# You are Ana\nYour standing instructions override the global instructions in /d/AGENTS.md\n## Memory\n- one\n"
+	want := updateIntro + "# You are Ana\nYour standing instructions override the global instructions in /d/AGENTS.md\n\n" +
+		"## Global instructions (AGENTS.md)\nClaude Code now loads the global instructions from a file. When the first section above names that file, follow the copy that Claude Code loaded; it replaces the text that was here. When it names none, the user removed the global instructions.\n\n</context-update>\n"
+	if got := promptChanges(known, current); got != want {
+		t.Fatalf("promptChanges =\n%q\nwant\n%q", got, want)
+	}
+}

@@ -190,21 +190,22 @@ func TestBotsReadATasksStateInTheAppsWords(t *testing.T) {
 	wantText(t, "the sent tasks", sent, []string{`to team "Docs" [in the inbox]`}, []string{"[incoming]"})
 }
 
-// Audit finding 18 (the user's option A): every prompt variant tells the bot to read a repository's
-// CLAUDE.md and AGENTS.md, word for word, since claude doesn't load CLAUDE.md.
+// Audit finding 18 (the user's option A): every prompt variant tells the bot to read the CLAUDE.md
+// and AGENTS.md of a repository outside its working folder, word for word, since Claude Code loads
+// only the files above the working folder.
 func TestEveryPromptVariantSaysToReadARepositorysClaudeMD(t *testing.T) {
 	t.Parallel()
-	const line = "Claude Code does not load a project's CLAUDE.md; when you work in a repository, read its CLAUDE.md and AGENTS.md first."
+	const line = "Claude Code loads instruction files from your working directory, its parent folders and your own Claude Code folder; when you work in a repository elsewhere, read its CLAUDE.md and AGENTS.md first."
 	now := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	ana := core.Bot{ID: "a", Name: "Ana", Instructions: "Write code."}
 	team := core.Bot{ID: "t", Name: "Ship", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}, Team: &core.Team{LeadID: "a"}}
 	member := core.Bot{ID: "b", Name: "Bo"}
 	for what, pc := range map[string]promptContext{
 		"a bot":              {Bot: ana, Now: now},
-		"a bot with rules":   {Bot: ana, Global: "Use tabs.", Now: now},
+		"a bot with rules":   {Bot: ana, Shared: []string{"/data/AGENTS.md"}, Now: now},
 		"Builder":            {Bot: core.Bot{ID: "bl", Name: "Builder", Role: core.RoleBuilder}, Now: now},
 		"a team's lead":      {Bot: ana, Team: &team, Now: now},
-		"a team's member":    {Bot: member, Team: &team, Global: "Use tabs.", Now: now},
+		"a team's member":    {Bot: member, Team: &team, Shared: []string{"/data/AGENTS.md"}, Now: now},
 		"a bot with friends": {Bot: ana, Teammates: []core.Bot{member}, Rooms: []core.Bot{{ID: "r", Name: "Plan", Kind: core.KindRoom}}, Now: now},
 	} {
 		if got := systemPrompt(pc); strings.Count(got, line) != 1 {

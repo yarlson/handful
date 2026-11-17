@@ -18,9 +18,9 @@ func TestTheQuestionRuleAsksForSelfContainedQuestionsInEveryPrompt(t *testing.T)
 	team := &core.Bot{ID: "team-id", Name: "Ship", Members: []core.Member{{ID: "me-id", Name: "Fixer"}}, Team: &core.Team{LeadID: "me-id"}}
 	for _, c := range []struct {
 		team   *core.Bot
-		global string
-	}{{nil, ""}, {nil, "Be brief."}, {team, ""}, {team, "Be brief."}} {
-		got := systemPrompt(promptContext{Bot: core.Bot{ID: "me-id", Name: "Fixer"}, Now: now, Team: c.team, Global: c.global})
+		shared []string
+	}{{nil, nil}, {nil, []string{"/data/AGENTS.md"}}, {team, nil}, {team, []string{"/data/AGENTS.md"}}} {
+		got := systemPrompt(promptContext{Bot: core.Bot{ID: "me-id", Name: "Fixer"}, Now: now, Team: c.team, Shared: c.shared})
 		for _, want := range []string{
 			"Write the question so it stands on its own, because the user may not have read earlier messages",
 			"the options, each with a one-line consequence",
@@ -30,11 +30,11 @@ func TestTheQuestionRuleAsksForSelfContainedQuestionsInEveryPrompt(t *testing.T)
 			"give it a short question line; the app lists it as open until the user answers or dismisses it",
 		} {
 			if !strings.Contains(got, want) {
-				t.Errorf("team %v, global %q: prompt lacks %q", c.team != nil, c.global, want)
+				t.Errorf("team %v, shared %q: prompt lacks %q", c.team != nil, c.shared, want)
 			}
 		}
 		if strings.Contains(got, "The app then shows the user that you are waiting.") {
-			t.Errorf("team %v, global %q: the old sentence is still there", c.team != nil, c.global)
+			t.Errorf("team %v, shared %q: the old sentence is still there", c.team != nil, c.shared)
 		}
 	}
 }

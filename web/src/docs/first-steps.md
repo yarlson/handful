@@ -82,7 +82,7 @@ Close the app and come back later. Each bot still has:
 ## Good to know
 
 - You install Claude Code and sign in to it yourself. Handful starts it on your machine for each turn.
-- Your own Claude Code settings, hooks, `CLAUDE.md` files and MCP servers do not reach the bots. Use [global instructions](/docs/configuration/#global-instructions) and [connectors](/docs/connectors/) instead.
+- Your own Claude Code settings, hooks and MCP servers, and the `CLAUDE.md` files in your home folder and `~/.claude`, do not reach the bots. Use [global instructions](/docs/configuration/#global-instructions) and [connectors](/docs/connectors/) instead.
 - When a turn reaches your Claude usage limit, Handful starts no new turns until the limit resets. A banner shows when work resumes. Turns that already run go on, and the turn that hit the limit runs again after the reset.
 - After a restart of the server, turns that were running are marked interrupted, open approval cards expire, and background tasks are gone.
 - Handful keeps all its data in `~/.handful`.

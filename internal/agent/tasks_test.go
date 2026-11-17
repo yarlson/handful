@@ -16,19 +16,19 @@ func TestTeamPromptsCarryTheGatekeeperAndMemberTexts(t *testing.T) {
 	t.Parallel()
 	members := []core.Member{{ID: "ana", Name: "Ana"}, {ID: "bo", Name: "Bo"}}
 	team := &core.Bot{ID: "team", Name: "Ship", Members: members, Team: &core.Team{LeadID: "ana"}}
-	for _, global := range []string{"", "Be brief."} {
-		lead := systemPrompt(promptContext{Bot: core.Bot{ID: "ana", Name: "Ana"}, Team: team, Global: global})
-		member := systemPrompt(promptContext{Bot: core.Bot{ID: "bo", Name: "Bo"}, Team: team, Global: global})
-		solo := systemPrompt(promptContext{Bot: core.Bot{ID: "ana", Name: "Ana"}, Global: global})
+	for _, shared := range [][]string{nil, {"/data/AGENTS.md"}} {
+		lead := systemPrompt(promptContext{Bot: core.Bot{ID: "ana", Name: "Ana"}, Team: team, Shared: shared})
+		member := systemPrompt(promptContext{Bot: core.Bot{ID: "bo", Name: "Bo"}, Team: team, Shared: shared})
+		solo := systemPrompt(promptContext{Bot: core.Bot{ID: "ana", Name: "Ana"}, Shared: shared})
 		if !strings.Contains(lead, "- "+leadGatekeeper+"\n") || strings.Contains(member, leadGatekeeper) || strings.Contains(solo, leadGatekeeper) {
-			t.Errorf("global %q: the gatekeeper text must be in the lead's prompt only", global)
+			t.Errorf("shared %q: the gatekeeper text must be in the lead's prompt only", shared)
 		}
 		if !strings.Contains(member, "- "+memberWork+"\n") || strings.Contains(lead, memberWork) || strings.Contains(solo, memberWork) {
-			t.Errorf("global %q: the member text must be in a member's prompt only", global)
+			t.Errorf("shared %q: the member text must be in a member's prompt only", shared)
 		}
 		for _, old := range []string{"update_board hand_over", "update_board request", "start a goal with update_board start_goal"} {
 			if strings.Contains(lead, old) || strings.Contains(member, old) {
-				t.Errorf("global %q: a team prompt still points to %q", global, old)
+				t.Errorf("shared %q: a team prompt still points to %q", shared, old)
 			}
 		}
 	}

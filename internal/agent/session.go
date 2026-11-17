@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -53,6 +54,11 @@ type session struct {
 	writeMu  sync.Mutex // turns and stops write to stdin from their own goroutines
 	kill     context.CancelFunc
 	exited   chan struct{} // closed after the process exits and its turns are finished
+	dir      string        // the working folder of the process
+
+	// startInstructions are the instruction files the process loaded at its start, and
+	// instructions are the files as Handful last brought them to it. Guarded by Runner.mu.
+	startInstructions, instructions map[string]instructionStamp
 
 	// Guarded by Runner.mu.
 	open        bool                // stdin is open, so the session takes turns
@@ -151,6 +157,29 @@ func (r *Runner) sendCommand(ctx context.Context, key sessionKey, bot core.Bot, 
 	}
 	r.stopSession(s)
 	return <-c.done, nil
+}
+
+// withInstructionsUpdate puts the instructions update for the open process of key, if one runs,
+// after the timestamp line of prompt, and records that the process has the files now.
+func (r *Runner) withInstructionsUpdate(key sessionKey, prompt string) string {
+	r.mu.Lock()
+	s := r.sessions[key]
+	if s == nil || !s.open {
+		r.mu.Unlock()
+		return prompt
+	}
+	known := s.instructions
+	r.mu.Unlock()
+	current := loadedInstructions(r.svc.DataDir(), s.dir, r.svc.BotConfigDir(key.botID))
+	update := instructionsUpdate(known, current)
+	if update == "" {
+		return prompt
+	}
+	r.mu.Lock()
+	s.instructions = current
+	r.mu.Unlock()
+	timestamp, rest, _ := strings.Cut(prompt, "\n")
+	return timestamp + "\n" + update + rest
 }
 
 // write sends one stream-json line to the process. A pipe keeps only short
@@ -283,13 +312,10 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// Bundled skills such as "schedule" create cloud routines, which compete with Handful's own routines.
 	// The silent-turn reminder tells the model that the user waits for news,
 	// which is wrong for hidden routine and agent turns.
-	// Claude Code finds CLAUDE.md files by walking up from the workspace, which
-	// lies under the user's home, so ~/.claude/CLAUDE.md would reach every bot
-	// even with the bot's own Claude Code folder.
 	// The child also loses the variables that would override the model or
 	// effort that Handful picked (childEnv). The bot's folder variables come
 	// last, since a later value of a variable wins.
-	cmd.Env = append(childEnv(env, c.flags.effort != ""), "MCP_TOOL_TIMEOUT="+mcpToolTimeoutMs, "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1")
+	cmd.Env = append(childEnv(env, c.flags.effort != ""), "MCP_TOOL_TIMEOUT="+mcpToolTimeoutMs, "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0")
 	cmd.Env = append(cmd.Env, configEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
@@ -304,13 +330,14 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	}
 	stderr := &limitedBuffer{}
 	cmd.Stderr = stderr
+	instructions := loadedInstructions(r.svc.DataDir(), dir, r.svc.BotConfigDir(key.botID))
 	if err := cmd.Start(); err != nil {
 		return fail(fmt.Errorf("start %s: %w", r.cfg.ClaudePath, err))
 	}
 	// The record lets the next server end this process group if this one
 	// crashes, since only a clean stop signals it.
 	r.recordProcess(cmd.Process.Pid)
-	s := &session{key: key, bot: bot, token: token, claudeID: start.claudeID, prompt: start.prompt, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
+	s := &session{key: key, bot: bot, token: token, claudeID: start.claudeID, prompt: start.prompt, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), dir: dir, startInstructions: instructions, instructions: instructions, open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
 	r.mu.Lock()
 	r.sessions[key] = s
 	r.mu.Unlock()

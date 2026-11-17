@@ -126,7 +126,11 @@ func TestArgsPassModelAndEffortOnlyWhenSet(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for name, args := range map[string][]string{"turn": run, "compact": compactArgs("s", c.model, c.effort)} {
+		compact, err := compactArgs("s", c.model, c.effort, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, args := range map[string][]string{"turn": run, "compact": compact} {
 			for flag, want := range map[string]string{"--model": c.model, "--effort": c.effort} {
 				got, ok := flagValue(args, flag)
 				if ok != (want != "") || got != want {

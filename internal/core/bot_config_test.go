@@ -103,6 +103,7 @@ func TestAGrantedWriteOrEditElsewhereNeedsNoCard(t *testing.T) {
 		filepath.Join(svc.Workspace(bot.ID), "claude", "CLAUDE.md"),
 		filepath.Join(svc.Workspace(bot.ID), "AGENTS.md"),
 		svc.Workspace(bot.ID) + "/../workspace/notes.md",
+		svc.Workspace(bot.ID) + "/missing/../notes.md",
 		filepath.Join(svc.DataDir(), "bots", bot.ID, "claude.md"),
 		filepath.Join(svc.DataDir(), "bots", "CLAUDE.md"),
 		filepath.Join(svc.DataDir(), "notes", "skills", "x.md"),

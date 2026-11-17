@@ -111,6 +111,7 @@ Phone access lets you read and answer your bots from your phone. It is off by de
 |---|---|
 | The SQLite database | Bots, chats, memory, routines, teams, tasks and artifacts. |
 | `bots/<bot id>/workspace/` | Each bot's working folder. |
+| `bots/<bot id>/claude/` | Each bot's own Claude Code folder: its own skills in `skills/`, and the sessions and settings of Claude Code for this bot. Handful makes it at the bot's next turn. |
 | `teams/<team id>/workspace/` | Each team's shared folder. |
 | `skills/` | The skills that all bots share. |
 | `media/` | The images and videos of messages. |

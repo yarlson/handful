@@ -40,6 +40,7 @@ import { forgetHistory, withStorage } from "@/lib/history"
 import { dateTime } from "@/lib/dates"
 import { fieldOfError, scheduleInWords, type RoutineField } from "@/lib/routines"
 import { useNow } from "@/components/now"
+import { copyLabel, useCopy } from "@/components/copy"
 
 // useWhen formats a time as a day and a time; its clock ticks each minute, so Today becomes
 // Yesterday after midnight.
@@ -765,6 +766,28 @@ export function AllowedTools({ grants, onRevoke }: { grants: string[] | null; on
   )
 }
 
+// ConfigFolder shows the full path of a bot's own Claude Code folder, where its own skills go.
+export function ConfigFolder({ path }: { path: string }) {
+  const [copyState, copy] = useCopy()
+  const shown = useRef<HTMLElement>(null)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>Claude Code folder</Label>
+      <code ref={shown} className="font-mono text-xs [overflow-wrap:anywhere]">
+        {path}
+      </code>
+      <p className="text-muted-foreground text-xs">
+        Skills in its <code>skills</code> folder are for this bot only and win over shared skills with the same name.
+      </p>
+      <div>
+        <Button size="sm" variant="outline" onClick={() => copy(path, () => shown.current)}>
+          {copyLabel(copyState, "Copy path")}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: number; onDeleted: () => void }) {
   // base is the saved values: the bot's, or what this tab saved before the bot reloads. A
   // reload gives each field the user did not edit its new value.
@@ -885,6 +908,7 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
       {!isRoom && (
         <AllowedTools grants={grants.data} onRevoke={(g) => void api.revokeGrant(bot.id, g).then(grants.reload)} />
       )}
+      {bot.configDir && <ConfigFolder path={bot.configDir} />}
       <div className="border-t pt-3">
         <Button size="sm" variant="destructive" onClick={() => setConfirm(true)}>
           Delete {what}

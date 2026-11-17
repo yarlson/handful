@@ -183,3 +183,23 @@ func TestDefaultsEndpointShowsTheGlobalValuesAndChoices(t *testing.T) {
 		}
 	}
 }
+
+func TestABotsViewShowsItsClaudeCodeFolderAndARoomsShowsNone(t *testing.T) {
+	h, svc := newModelHandler(t, core.Defaults{})
+	var ana struct {
+		ID        string `json:"id"`
+		ConfigDir string `json:"configDir"`
+	}
+	if err := json.Unmarshal(do(h, "POST", "/api/bots", `{"name":"Ana"}`, jsonHeader).Body.Bytes(), &ana); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "GET", "/api/bots/"+ana.ID, "", nil)
+	want := filepath.Join(svc.DataDir(), "bots", ana.ID, "claude")
+	if err := json.Unmarshal(rec.Body.Bytes(), &ana); err != nil || ana.ConfigDir != want {
+		t.Fatalf("GET bot = %d %s; want configDir %q", rec.Code, rec.Body, want)
+	}
+	rec = do(h, "POST", "/api/rooms", `{"name":"Hall","memberIds":["`+ana.ID+`"]}`, jsonHeader)
+	if rec.Code != http.StatusCreated || strings.Contains(rec.Body.String(), "configDir") {
+		t.Fatalf("create room = %d %s; want no configDir", rec.Code, rec.Body)
+	}
+}

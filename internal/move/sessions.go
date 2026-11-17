@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+
+	"github.com/google/uuid"
 )
 
 // Claude Code keeps a folder's sessions in Projects under a key made of the
@@ -88,6 +90,58 @@ func (m *Mover) copySession(from, to string) error {
 		return err
 	}
 	return m.step()
+}
+
+// CopyTranscript copies Claude Code session sessionID, run in work folder
+// dir, from the Claude Code folder from to the Claude Code folder to: the
+// transcript and the folder of its subagents and tool output. It never
+// changes the originals and keeps a copy that exists. The transcript, copied
+// last, marks a whole copy, so a copy that stopped partway finishes on the
+// next call.
+func CopyTranscript(from, to, dir, sessionID string) error {
+	if !isSessionID(sessionID) {
+		return nil
+	}
+	// Claude Code names the folder by the real path of its working folder.
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	key, ok := sessionKey(dir)
+	if !ok {
+		return nil
+	}
+	src, dst := filepath.Join(from, "projects", key), filepath.Join(to, "projects", key)
+	transcript := sessionID + ".jsonl"
+	info, err := os.Stat(filepath.Join(src, transcript))
+	if errors.Is(err, fs.ErrNotExist) || exists(filepath.Join(dst, transcript)) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		return err
+	}
+	if exists(filepath.Join(src, sessionID)) && !exists(filepath.Join(dst, sessionID)) {
+		tmp := filepath.Join(dst, ".handful-copy-"+sessionID)
+		if err := os.RemoveAll(tmp); err != nil {
+			return err
+		}
+		if err := copyTree(filepath.Join(src, sessionID), tmp); err != nil {
+			return fmt.Errorf("copy the folder of Claude Code session %s: %w", sessionID, errors.Join(err, os.RemoveAll(tmp)))
+		}
+		if err := os.Rename(tmp, filepath.Join(dst, sessionID)); err != nil {
+			return err
+		}
+	}
+	return copyFile(filepath.Join(src, transcript), filepath.Join(dst, transcript), info.Mode().Perm())
+}
+
+// isSessionID reports whether id is a session ID in the form Claude Code
+// writes: a UUID in lowercase with hyphens.
+func isSessionID(id string) bool {
+	parsed, err := uuid.Parse(id)
+	return err == nil && parsed.String() == id
 }
 
 // copyTree copies the folder from to the new folder to with the same modes:

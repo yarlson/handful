@@ -267,6 +267,17 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// The process outlives the turn that starts it. stopSession, and
 	// stopSessions at shutdown, end it.
 	ctx, kill := context.WithCancel(context.Background())
+	fail := func(err error) (*session, error) {
+		kill()
+		r.tokens.revoke(token)
+		r.removeRunFiles(files)
+		return nil, err
+	}
+	env := r.environ()
+	configEnv, err := r.botConfigEnv(key.botID, dir, start.claudeID, env)
+	if err != nil {
+		return fail(err)
+	}
 	cmd := exec.CommandContext(ctx, r.cfg.ClaudePath, start.args...)
 	cmd.Dir = dir
 	// Bundled skills such as "schedule" create cloud routines, which compete with Handful's own routines.
@@ -274,19 +285,15 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// which is wrong for hidden routine and agent turns.
 	// Claude Code finds CLAUDE.md files by walking up from the workspace, which
 	// lies under the user's home, so ~/.claude/CLAUDE.md would reach every bot
-	// even with --setting-sources project.
+	// even with the bot's own Claude Code folder.
 	// The child also loses the variables that would override the model or
-	// effort that Handful picked (childEnv).
-	cmd.Env = append(childEnv(r.environ(), c.flags.effort != ""), "MCP_TOOL_TIMEOUT="+mcpToolTimeoutMs, "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1")
+	// effort that Handful picked (childEnv). The bot's folder variables come
+	// last, since a later value of a variable wins.
+	cmd.Env = append(childEnv(env, c.flags.effort != ""), "MCP_TOOL_TIMEOUT="+mcpToolTimeoutMs, "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1")
+	cmd.Env = append(cmd.Env, configEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
 	cmd.WaitDelay = processWaitDelay
-	fail := func(err error) (*session, error) {
-		kill()
-		r.tokens.revoke(token)
-		r.removeRunFiles(files)
-		return nil, err
-	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fail(fmt.Errorf("open claude stdin: %w", err))

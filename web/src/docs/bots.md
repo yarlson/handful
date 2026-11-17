@@ -65,7 +65,7 @@ The buttons:
 - "Always allow \<tool>”, for example "Always allow Edit", lets this bot use this tool from now on, without a card. It is for one bot and one tool. For a connector, it is for one tool, not the whole server. A phone does not show this button.
 - **Deny** stops the call.
 
-"Always allow Write" and "Always allow Edit" do not cover the files that set bots up: the shared skills in `~/.handful/skills/`, `~/.handful/AGENTS.md` and `~/.handful/CLAUDE.md`. A Write or Edit there always shows a card, also through a link such as `.claude/skills` in a bot's folder. A bot saves skills with `update_skill` and changes its instructions with `update_profile`, with no card.
+"Always allow Write" and "Always allow Edit" do not cover the files that set bots up: the shared skills in `~/.handful/skills/`, `~/.handful/AGENTS.md`, `~/.handful/CLAUDE.md` and each bot's Claude Code folder, `~/.handful/bots/<bot id>/claude/`. A Write or Edit there always shows a card, also through a link such as `.claude/skills` in a bot's folder. A bot saves skills with `update_skill` and changes its instructions with `update_profile`, with no card.
 
 An answered card folds to one line. A card that you do not answer expires after 4½ minutes, when the turn stops, or when the server restarts, and then says why.
 
@@ -112,6 +112,8 @@ Skills are `SKILL.md` files in `~/.handful/skills`. The **Skills** tab of the bo
 
 Handful sends your text to Claude Code as you wrote it, and Claude Code loads the skill. A plain room does not run skills: there `/<skill>` is text.
 
+A skill for one bot only goes in the `skills` folder of that bot's Claude Code folder, for example `~/.handful/bots/<bot id>/claude/skills/<skill>/SKILL.md`. The bot's settings show the full path of the folder. A bot's own skill wins over a shared skill with the same name. A new or changed skill applies from the bot's next turn. Skills in `~/.claude/skills` and settings in `~/.claude/settings.json` do not reach bots. Skills that Claude Code syncs from your Claude account, such as docx, pdf, pptx and xlsx, load in every bot.
+
 ## Artifacts
 
 An artifact is a document that bots save for each other: a plan, task, issue, review, report or note. All of your bots can read all artifacts. A bot passes an artifact's id in a message instead of a file path.
@@ -133,6 +135,7 @@ Open the bot panel, then **Settings**:
 - The model and effort (see [Model and effort](/docs/configuration/#model-and-effort)). A change applies from the next turn.
 - How much context the bot carries and how its last turn went, for example "Context: 142k of 200k · last turn: 3 calls, from cache". "rebuilt the cache" means that the turn wrote the bot's context to the cache again, which costs more. That happens after a long pause, and always on the first turn of a fresh context.
 - **Always allowed tools**, each with a × to take it back.
+- **Claude Code folder**, the full path of the bot's own Claude Code folder, with **Copy path**. Its `skills` folder holds the skills that only this bot uses (see [Skills](#skills)). The bot uses the login of your own Claude Code. If a bot says that it is not logged in, run `claude` in a terminal and log in with `/login`. With an API key, set `ANTHROPIC_API_KEY` in the environment that starts Handful.
 - "Delete bot", which deletes the bot's chat, its own memory, its routines and its folder. Shared memory and skills stay.
 
 ## Rooms

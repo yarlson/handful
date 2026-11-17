@@ -559,6 +559,7 @@ type outcome struct {
 	stderr      string
 
 	modelNotFound bool  // Claude Code could not run the requested model
+	authFailed    bool  // Claude Code found no valid login
 	usageLimit    bool  // Claude Code reported the usage_limit_reached API error
 	limitResetsAt int64 // Unix seconds when the usage limit resets; 0 when not reported
 }
@@ -566,9 +567,10 @@ type outcome struct {
 func (o outcome) failed() bool { return o.exitErr != nil || o.resultError }
 
 // noteAPIError records a usage limit error of an assistant or result event,
-// and a model that Claude Code could not run.
+// a model that Claude Code could not run, and a failed login.
 func (o *outcome) noteAPIError(ev streamEvent) {
 	o.modelNotFound = o.modelNotFound || ev.Error == modelNotFound
+	o.authFailed = o.authFailed || ev.Error == authenticationFailed
 	if ev.APIError != usageLimitError {
 		return
 	}
@@ -588,7 +590,7 @@ func (o outcome) hitUsageLimit() bool {
 func (o outcome) errorText() string {
 	for _, s := range []string{o.resultText, o.stderr} {
 		if s = strings.TrimSpace(s); s != "" {
-			return truncate(s, 1000)
+			return notLoggedInHint(o.authFailed) + truncate(s, 1000)
 		}
 	}
 	if o.exitErr != nil {

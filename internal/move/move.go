@@ -2,7 +2,8 @@
 // ~/.yargpt, to Handful's, ~/.handful (Handful is YarGPT's new name), and
 // back again (spec ad09e72c §4.3, §4.4). Every step looks at the disk first
 // and does only what is missing, so a run that a crash cut short finishes on
-// the next one.
+// the next one. CopyTranscript copies a bot's Claude Code session into the
+// bot's own Claude Code folder in the same way.
 package move
 
 import (

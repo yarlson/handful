@@ -56,7 +56,7 @@ done
 printf '%s\n<<SYSTEM>>%s\n<<STDIN>>%s\n<<END>>\n' "$*" "$system" "$input" >> "$dir/args.log"
 rmdir "$dir/args.lock"
 trap - EXIT
-env | grep -E '^(CLAUDE_CODE_(SILENT_TURN_REMINDER|DISABLE_CLAUDE_MDS|EFFORT_LEVEL|SUBAGENT_[A-Z_]*)|ANTHROPIC_MODEL)=' | sort > "$dir/env.log"
+env | grep -E '^(CLAUDE_CODE_(SILENT_TURN_REMINDER|DISABLE_CLAUDE_MDS|EFFORT_LEVEL|SUBAGENT_[A-Z_]*)|CLAUDE_CONFIG_DIR|CLAUDE_SECURESTORAGE_CONFIG_DIR|ANTHROPIC_MODEL)=' | sort > "$dir/env.log"
 lifecycle() {
   uuid=$(printf '%s' "$input" | sed -n 's/.*"uuid":"\([^"]*\)".*/\1/p')
   echo "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$uuid\",\"state\":\"$1\"}"
@@ -100,6 +100,14 @@ replay)
   # Claude Code's recorded stream in FAKE_STREAM, with the turn's uuid for COMMAND_UUID.
   uuid=$(printf '%s' "$input" | sed -n 's/.*"uuid":"\([^"]*\)".*/\1/p')
   sed "s/COMMAND_UUID/$uuid/g" "$FAKE_STREAM"
+  ;;
+not-logged-in)
+  # As Claude Code 2.1.326 does without a login.
+  lifecycle started
+  init
+  echo '{"type":"assistant","error":"authentication_failed","message":{"content":[{"type":"text","text":"Not logged in · Please run /login"}]},"parent_tool_use_id":null}'
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}'
+  lifecycle completed
   ;;
 error)
   # The turn fails: Claude Code ends it with an error result.
@@ -482,12 +490,13 @@ func (s *syncBuffer) String() string {
 }
 
 // testEnviron is the test process's environment without the variables that
-// change Claude Code's model or effort, which the user's shell may set.
+// change Claude Code's model or effort or name the user's Claude Code
+// folder, which the user's shell may set.
 func testEnviron() []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if name == core.EnvModel || name == core.EnvEffort || strings.HasPrefix(name, envSubagentPrefix) {
+		if name == core.EnvModel || name == core.EnvEffort || strings.HasPrefix(name, envSubagentPrefix) || slices.Contains([]string{"HOME", envConfigDir, envSecureStorageDir}, name) {
 			continue
 		}
 		env = append(env, kv)
@@ -721,7 +730,7 @@ func TestFirstTurnStartsSessionAndLaterTurnsResumeIt(t *testing.T) {
 			t.Errorf("first call does not allow %s without approval: %v", tool, allowed)
 		}
 	}
-	for _, flag := range []string{"--setting-sources project", "--strict-mcp-config", "--permission-prompt-tool mcp__handful__approve", "--system-prompt-snapshot on", "--autocompact 200000", `--settings {"attribution":{"commit":"","pr":""},"autoMemoryEnabled":false,"permissions":`, "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
+	for _, flag := range []string{"--setting-sources user,project", "--strict-mcp-config", "--permission-prompt-tool mcp__handful__approve", "--system-prompt-snapshot on", "--autocompact 200000", `--settings {"attribution":{"commit":"","pr":""},"autoMemoryEnabled":false,"permissions":`, "Never start a message with your name", "Your working directory is " + h.svc.Workspace(bot.ID)} {
 		if !strings.Contains(calls[0], flag) {
 			t.Errorf("first call lacks %q", flag)
 		}

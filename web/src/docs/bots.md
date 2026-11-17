@@ -135,7 +135,7 @@ Open the bot panel, then **Settings**:
 - The model and effort (see [Model and effort](/docs/configuration/#model-and-effort)). A change applies from the next turn.
 - How much context the bot carries and how its last turn went, for example "Context: 142k of 200k · last turn: 3 calls, from cache". "rebuilt the cache" means that the turn wrote the bot's context to the cache again, which costs more. That happens after a long pause, and always on the first turn of a fresh context.
 - **Always allowed tools**, each with a × to take it back.
-- **Claude Code folder**, the full path of the bot's own Claude Code folder, with **Copy path**. Its `skills` folder holds the skills that only this bot uses (see [Skills](#skills)).
+- **Claude Code folder**, the full path of the bot's own Claude Code folder, with **Copy path**. Its `skills` folder holds the skills that only this bot uses (see [Skills](#skills)). The bot uses the login of your own Claude Code. If a bot says that it is not logged in, run `claude` in a terminal and log in with `/login`. With an API key, set `ANTHROPIC_API_KEY` in the environment that starts Handful.
 - "Delete bot", which deletes the bot's chat, its own memory, its routines and its folder. Shared memory and skills stay.
 
 ## Rooms

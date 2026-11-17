@@ -111,7 +111,7 @@ func TestATurnWithoutALoginSaysHowToLogIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == "turn-failed" })
-	want := "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then try again. Claude Code said: Not logged in · Please run /login"
+	want := "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then try again. With an API key, set ANTHROPIC_API_KEY in the environment that starts Handful. Claude Code said: Not logged in · Please run /login"
 	if got := bodyField(failure, "text"); got != want {
 		t.Fatalf("failure = %q; want %q", got, want)
 	}

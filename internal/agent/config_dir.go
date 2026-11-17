@@ -73,5 +73,5 @@ func notLoggedInHint(authFailed bool) string {
 	if !authFailed {
 		return ""
 	}
-	return "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then try again. Claude Code said: "
+	return "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then try again. With an API key, set ANTHROPIC_API_KEY in the environment that starts Handful. Claude Code said: "
 }

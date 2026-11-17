@@ -111,7 +111,7 @@ func TestATurnWithoutALoginSaysHowToLogIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure := h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindEvent && bodyField(e, "type") == "turn-failed" })
-	want := "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then send the message again. Claude Code said: Not logged in · Please run /login"
+	want := "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then try again. Claude Code said: Not logged in · Please run /login"
 	if got := bodyField(failure, "text"); got != want {
 		t.Fatalf("failure = %q; want %q", got, want)
 	}

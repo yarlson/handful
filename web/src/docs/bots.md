@@ -112,7 +112,7 @@ Skills are `SKILL.md` files in `~/.handful/skills`. The **Skills** tab of the bo
 
 Handful sends your text to Claude Code as you wrote it, and Claude Code loads the skill. A plain room does not run skills: there `/<skill>` is text.
 
-A skill for one bot only goes in the `skills` folder of that bot's Claude Code folder, for example `~/.handful/bots/<bot id>/claude/skills/<skill>/SKILL.md`. The bot's settings show the full path of the folder. A bot's own skill wins over a shared skill with the same name. A new or changed skill applies from the bot's next turn. Skills in `~/.claude/skills` and settings in `~/.claude/settings.json` do not reach bots.
+A skill for one bot only goes in the `skills` folder of that bot's Claude Code folder, for example `~/.handful/bots/<bot id>/claude/skills/<skill>/SKILL.md`. The bot's settings show the full path of the folder. A bot's own skill wins over a shared skill with the same name. A new or changed skill applies from the bot's next turn. Skills in `~/.claude/skills` and settings in `~/.claude/settings.json` do not reach bots. Skills that Claude Code syncs from your Claude account, such as docx, pdf, pptx and xlsx, load in every bot.
 
 ## Artifacts
 

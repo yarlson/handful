@@ -73,5 +73,5 @@ func notLoggedInHint(authFailed bool) string {
 	if !authFailed {
 		return ""
 	}
-	return "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then send the message again. Claude Code said: "
+	return "This bot is not logged in to Claude Code. Run claude in a terminal, log in with /login, then try again. Claude Code said: "
 }

@@ -19,16 +19,23 @@ func TestAGrantedFileCallThroughAnotherMacOSPathToTheFileShowsACard(t *testing.T
 		t.Fatal(err)
 	}
 	stat := info.Sys().(*syscall.Stat_t)
-	for name, path := range map[string]string{
-		"the Data volume's firmlink": filepath.Join("/System/Volumes/Data", skills, "x", "SKILL.md"),
-		"volfs":                      fmt.Sprintf("/.vol/%d/%d/x/SKILL.md", stat.Dev, stat.Ino),
+	volfs := fmt.Sprintf("/.vol/%d/%d", stat.Dev, stat.Ino)
+	firmlink := "/System/Volumes/Data" + skills
+	firmlinkUp := "/System/Volumes/Data/private/../System/Volumes/Data" + skills
+	// Each path is a folder that the OS resolves to the skills folder, and a file name.
+	for _, tc := range []struct{ name, folder, file string }{
+		{"the Data volume's firmlink", firmlink, "x/SKILL.md"},
+		{"volfs", volfs, "x/SKILL.md"},
+		{"a .. in the firmlink", firmlinkUp, "x/SKILL.md"},
+		{"a .. in volfs", volfs, "../AGENTS.md"},
 	} {
-		if _, err := os.Stat(filepath.Dir(filepath.Dir(path))); err != nil {
-			t.Logf("skip %s: %v", name, err)
+		path := tc.folder + "/" + tc.file
+		if _, err := os.Stat(tc.folder); err != nil {
+			t.Logf("skip %s: %v", tc.name, err)
 			continue
 		}
 		if !showsCard(t, svc, fileCall(bot, "", "Write", filePathInput(path))) {
-			t.Errorf("granted Write through %s (%s) ran with no card; want a card", name, path)
+			t.Errorf("granted Write through %s (%s) ran with no card; want a card", tc.name, path)
 		}
 	}
 }

@@ -102,6 +102,7 @@ func TestAGrantedWriteOrEditElsewhereNeedsNoCard(t *testing.T) {
 		filepath.Join(svc.Workspace(bot.ID), "notes.md"),
 		filepath.Join(svc.Workspace(bot.ID), "claude", "CLAUDE.md"),
 		filepath.Join(svc.Workspace(bot.ID), "AGENTS.md"),
+		svc.Workspace(bot.ID) + "/../workspace/notes.md",
 		filepath.Join(svc.DataDir(), "bots", bot.ID, "claude.md"),
 		filepath.Join(svc.DataDir(), "bots", "CLAUDE.md"),
 		filepath.Join(svc.DataDir(), "notes", "skills", "x.md"),
@@ -167,6 +168,22 @@ func TestAGrantedFileCallResolvesItsPathAsTheOSDoes(t *testing.T) {
 	} {
 		if !showsCard(t, svc, fileCall(bot, "", "Write", filePathInput(path))) {
 			t.Errorf("granted Write through %s (%s) ran with no card; want a card", name, path)
+		}
+	}
+}
+
+func TestAGrantedFileCallReadsItsPathAsTheFileToolsDo(t *testing.T) {
+	svc, bot := grantedFileBot(t)
+	agents := filepath.Join(svc.DataDir(), "AGENTS.md")
+	for name, path := range map[string]string{
+		"a leading space":    " " + agents,
+		"a trailing newline": agents + "\n",
+		"a leading U+FEFF":   "\ufeff" + agents,
+	} {
+		for _, tool := range []string{"Write", "Edit"} {
+			if !showsCard(t, svc, fileCall(bot, "", tool, filePathInput(path))) {
+				t.Errorf("granted %s of %s with %s (%q) ran with no card; want a card", tool, agents, name, path)
+			}
 		}
 	}
 }

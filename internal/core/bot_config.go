@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // BotConfigDir is the bot's Claude Code folder, which holds its own skills,
@@ -41,7 +42,8 @@ func (s *Service) changesBotConfig(ctx context.Context, req ApprovalRequest) (bo
 	return reachesBotConfig(s.dataDir, targets), nil
 }
 
-// filePath returns the file_path of a Write or Edit input; ok is false when it has none.
+// filePath returns the file_path of a Write or Edit input, trimmed as Claude
+// Code's file tools trim it before use; ok is false when it has none.
 func filePath(input json.RawMessage) (path string, ok bool) {
 	var in struct {
 		FilePath string `json:"file_path"`
@@ -49,7 +51,15 @@ func filePath(input json.RawMessage) (path string, ok bool) {
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", false
 	}
-	return in.FilePath, in.FilePath != ""
+	path = strings.TrimFunc(in.FilePath, isTrimmedSpace)
+	return path, path != ""
+}
+
+// isTrimmedSpace reports whether JavaScript's String.prototype.trim removes r:
+// the Zs space separators, the ASCII white space, U+2028, U+2029 and U+FEFF.
+// unicode.IsSpace differs: it adds U+0085 and lacks U+FEFF.
+func isTrimmedSpace(r rune) bool {
+	return unicode.Is(unicode.Zs, r) || strings.ContainsRune("\t\n\v\f\r\u2028\u2029\ufeff", r)
 }
 
 // reachesBotConfig reports whether any of targets, resolved, is a file that sets
@@ -167,8 +177,9 @@ func (s *Service) writeTargets(ctx context.Context, req ApprovalRequest, paths [
 }
 
 // realPath resolves an absolute path as the OS does when it opens the path: it
-// follows each symlink, and ".." goes up from the folder reached so far. A name
-// that does not exist stays as written, since a write creates it.
+// follows each symlink, and ".." goes up from the folder reached so far. A ".."
+// that the OS reads as a folder other than that parent is an error. A name that
+// does not exist stays as written, since a write creates it.
 func realPath(path string) (string, error) {
 	sep := string(filepath.Separator)
 	if !filepath.IsAbs(path) {
@@ -187,6 +198,9 @@ func realPath(path string) (string, error) {
 		case "", ".":
 			continue
 		case "..":
+			if !parentIsLexical(resolved) {
+				return "", fmt.Errorf("resolve %s: .. in %s is not its parent folder", path, resolved)
+			}
 			resolved = filepath.Dir(resolved)
 			continue
 		}
@@ -213,6 +227,18 @@ func realPath(path string) (string, error) {
 		pending = append(strings.Split(link, sep), pending...)
 	}
 	return resolved, nil
+}
+
+// parentIsLexical reports whether ".." in folder dir is filepath.Dir(dir), or
+// dir is not a folder. In a firmlinked folder under /System/Volumes/Data or a
+// /.vol folder on macOS, ".." is another folder.
+func parentIsLexical(dir string) bool {
+	parent, err := os.Stat(dir + string(filepath.Separator) + "..")
+	if err != nil {
+		return true
+	}
+	lexical, err := os.Stat(filepath.Dir(dir))
+	return err == nil && os.SameFile(parent, lexical)
 }
 
 // readLink returns the target of the symlink at path, or "" when path is not a

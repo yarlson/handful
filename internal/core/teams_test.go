@@ -322,8 +322,18 @@ func TestDeleteRemovesTheMemoryAndTheFolderOfABotOrATeam(t *testing.T) {
 	if got, _ := svc.Memories(ctx, bo.ID, team.ID); len(got) != 1 || got[0].Fact != "A shared fact." {
 		t.Fatalf("memory after deleting the team = %+v; want only the shared fact", got)
 	}
+	skill := filepath.Join(svc.BotConfigDir(ana.ID), "skills", "review", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("# Review\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := svc.DeleteBot(ctx, ana.ID); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(svc.BotConfigDir(ana.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Claude Code folder after delete: %v; want it removed", err)
 	}
 	if _, err := os.Stat(filepath.Join(svc.DataDir(), "bots", ana.ID)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("bot folder after delete: %v; want it removed", err)

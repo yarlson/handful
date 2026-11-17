@@ -52,7 +52,7 @@ type claudeRun struct {
 // isolatedSettings is the --settings value for every claude run. It turns
 // off auto memory and the Co-Authored-By and "Generated with Claude Code"
 // lines that Claude Code adds to commits and pull requests, since
-// --setting-sources project keeps the user's own attribution setting out.
+// the bot's own Claude Code folder keeps the user's own attribution setting out.
 const isolatedSettings = `{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}`
 
 // handfulSecrets are the files and folders of the data folder that hold Handful's secrets:
@@ -91,9 +91,10 @@ func turnSettings(dataDir string) (string, error) {
 const AutocompactWindow = 200000
 
 // args builds the claude CLI arguments; the prompt goes to stdin as a
-// userMessage. --setting-sources project keeps the
-// user's personal settings and hooks out of the bot (startSession keeps
-// CLAUDE.md files out with an environment variable), and
+// userMessage. --setting-sources user,project loads the settings of the
+// bot's own Claude Code folder, which startSession sets, so the user's
+// personal settings and hooks stay out (startSession keeps CLAUDE.md files
+// out with an environment variable), and
 // --strict-mcp-config keeps out every MCP server that is not in the
 // MCPConfig file.
 func (r claudeRun) args() ([]string, error) {
@@ -115,7 +116,7 @@ func (r claudeRun) args() ([]string, error) {
 		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--verbose",
-		"--setting-sources", "project",
+		"--setting-sources", "user,project",
 		"--strict-mcp-config",
 		"--mcp-config", r.MCPConfig,
 		"--settings", settings,

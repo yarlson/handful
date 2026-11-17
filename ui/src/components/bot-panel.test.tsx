@@ -57,6 +57,20 @@ test("a bot's settings show the five colours with its stored one picked", () => 
   assert.include(html, "text-violet-700 dark:text-violet-400")
 })
 
+test("a bot's settings show the full path of its Claude Code folder", () => {
+  const html = settings({ ...agent, configDir: "/Users/ana/.handful/bots/bot-ana/claude" })
+  assert.include(html, "Claude Code folder")
+  assert.include(
+    html,
+    '<code class="font-mono text-xs [overflow-wrap:anywhere]">/Users/ana/.handful/bots/bot-ana/claude</code>',
+  )
+  assert.include(html, ">Copy path</button>")
+})
+
+test("settings without a Claude Code folder, as a room's, show none", () => {
+  assert.notInclude(settings(agent), "Claude Code folder")
+})
+
 test("a room's settings have no colour to pick", () => {
   assert.deepEqual(swatches(settings({ ...agent, kind: "room", hue: undefined })), [])
 })

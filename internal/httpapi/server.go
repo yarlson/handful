@@ -322,6 +322,7 @@ type botView struct {
 	Running   bool                  `json:"running"`
 	Tasks     []core.BackgroundTask `json:"tasks"`
 	Effective *core.Effective       `json:"effective,omitempty"` // a bot's values in its direct chat
+	ConfigDir string                `json:"configDir,omitempty"` // a bot's own Claude Code folder
 }
 
 func (s *server) view(b core.Bot) botView {
@@ -329,6 +330,7 @@ func (s *server) view(b core.Bot) botView {
 	if !b.IsRoom() {
 		e := s.effective(b, nil, "")
 		v.Effective = &e
+		v.ConfigDir = s.svc.BotConfigDir(b.ID)
 		return v
 	}
 	// A plain room has no defaults: its members run with their direct-chat values.

@@ -130,3 +130,5 @@ Every change through Handful's API needs Handful's key: any request under `/api/
 - To change the key, delete the file and restart Handful. Every browser then asks for the new key.
 
 The key stops code that does not know about it, such as a plain request that a prompt slipped into a bot's command. It is not a wall between bots and Handful. Claude Code's file tools cannot read the key, the sign-in tokens, `connectors.json` or the database. But bots run as your user, so a command that you allow can read all of them, and can change Handful's database. See [Security and data](/security/).
+
+A bot that you always allow Bash can change its own skills, instructions and settings, and those of other bots, without a card. Only Write and Edit always ask for these files (see [Approve what a bot does](/docs/bots/#approve-what-a-bot-does)).

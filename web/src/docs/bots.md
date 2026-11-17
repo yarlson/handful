@@ -65,6 +65,8 @@ The buttons:
 - "Always allow \<tool>”, for example "Always allow Edit", lets this bot use this tool from now on, without a card. It is for one bot and one tool. For a connector, it is for one tool, not the whole server. A phone does not show this button.
 - **Deny** stops the call.
 
+"Always allow Write" and "Always allow Edit" do not cover the files that set bots up: the shared skills in `~/.handful/skills/`, `~/.handful/AGENTS.md` and `~/.handful/CLAUDE.md`. A Write or Edit there always shows a card, also through a link such as `.claude/skills` in a bot's folder. A bot saves skills with `update_skill` and changes its instructions with `update_profile`, with no card.
+
 An answered card folds to one line. A card that you do not answer expires after 4½ minutes, when the turn stops, or when the server restarts, and then says why.
 
 To take a tool back, open the bot panel, then **Settings**. Under **Always allowed tools**, click the × next to the tool.

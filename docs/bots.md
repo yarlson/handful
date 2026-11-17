@@ -47,8 +47,6 @@ A bot reads files and searches the web without asking. Before it runs a command,
 - **Always allow &lt;tool&gt;** lets this bot use the tool without asking. To remove this permission, open the bot panel, then **Settings**, then **Always allowed tools**.
 - **Deny** stops the call.
 
-**Always allow** for Write or Edit does not cover the files that set bots up: the shared skills in `~/.handful/skills/`, `~/.handful/AGENTS.md`, `~/.handful/CLAUDE.md`, and each bot's Claude Code folder, `~/.handful/bots/<id>/claude/`. A Write or Edit there always shows a card, also through a link such as `.claude/skills` in a bot's folder. A bot saves skills with `update_skill` and changes its instructions with `update_profile`, with no card.
-
 A card that you do not answer expires after 4½ minutes, or when the bot stops working. A setup card from Builder has **Create** and **Cancel** instead (see [Builder](#builder)).
 
 In the sidebar, a shield marks a bot that waits for an approval. A question bubble marks a bot that asked you something.

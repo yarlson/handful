@@ -62,8 +62,6 @@ Every change through Handful's API (any request under `/api/` other than GET) ne
 
 The key stops only code that doesn't know about it, such as a plain request that a prompt slipped into a bot's command. Bots run as your user, so a bot can read the key file, and so can any script that an approved command runs, without showing on any card. An approved command can also change Handful's database directly. Bots are not isolated from each other or from Handful's files.
 
-A bot that you always allow Bash can change its own skills, instructions and settings, and those of other bots, without a card. Only Write and Edit always ask for these files (see [Approve what a bot does](bots.md#approve-what-a-bot-does)).
-
 ## Global instructions
 
 Put instructions for every bot in `~/.handful/AGENTS.md`, for example:

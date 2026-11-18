@@ -128,14 +128,14 @@ func TestALeadIsToldItAddsTheUsersTaskFromItsChat(t *testing.T) {
 	now := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	team := core.Bot{ID: "t", Name: "Ship", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}, Team: &core.Team{LeadID: "a"}}
 	lead := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, Rooms: []core.Bot{team}, Now: now})
-	line := `- You lead team "Ship" (id t). When the user asks you here to give work to your team, add it to the team's board yourself with update_board user_task`
+	line := `- You lead team "Ship" (id t). Work for your team goes to its board: when the user asks you here for work that a member of your team fits, add it with update_board user_task`
 	if !strings.Contains(lead, line) {
 		t.Errorf("Ana's own prompt lacks %q", line)
 	}
 	if member := systemPrompt(promptContext{Bot: core.Bot{ID: "b", Name: "Bo"}, Rooms: []core.Bot{team}, Now: now}); strings.Contains(member, "user_task") {
 		t.Error("a member's prompt tells it to add tasks")
 	}
-	if inTeam := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, Team: &team, InRoom: true, Rooms: []core.Bot{team}, Now: now}); strings.Contains(inTeam, "You lead team \"Ship\" (id t). When the user asks you here") {
+	if inTeam := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, Team: &team, InRoom: true, Rooms: []core.Bot{team}, Now: now}); strings.Contains(inTeam, "You lead team \"Ship\" (id t). Work for your team goes to its board") {
 		t.Error("a team turn carries the own-chat line")
 	}
 	plain := core.Bot{ID: "r", Name: "Plan", Kind: core.KindRoom, Members: team.Members}
@@ -166,7 +166,7 @@ func TestALeadsRoomTurnHasNoOwnChatLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := h.waitCalls(t, 2)
-	const line = "When the user asks you here to give work to your team"
+	const line = "Work for your team goes to its board: when the user asks you here"
 	if !strings.Contains(calls[0], line) {
 		t.Errorf("Ana's own chat lacks the own-chat line")
 	}

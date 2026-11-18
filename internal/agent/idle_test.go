@@ -254,11 +254,19 @@ func TestARoomSessionsIdleCompactionNamesTheMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.env = append(h.env, "FAKE_HOLD=1")
 	w := c.turn(t, h, room.ID, "hello")
 	if w == nil {
 		t.Fatal("no idle compaction planned for the room session")
 	}
 	c.fire(w, idleStart.Add(54*time.Minute))
+	waitFor(t, "the compaction turn to start", func() bool { return slices.Equal(h.compactionTurns(t, ana.ID), []string{"running"}) })
+	if !h.runner.Running(room.ID) {
+		t.Fatal("the room does not count as working while its member's session compacts")
+	}
+	if err := os.WriteFile(filepath.Join(h.dir, "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	c.settle(t, h)
 	if texts := compactedEntries(t, h, room.ID); len(texts) != 1 || texts[0] != "Ana: compacted while idle, before the prompt cache expired." {
 		t.Fatalf("room notices = %q; want Ana's idle notice once", texts)

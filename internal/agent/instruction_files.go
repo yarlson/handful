@@ -35,20 +35,23 @@ type instructionStamp struct {
 // bot that works in dir, with the user-level folder configDir, by its rules for Handful's
 // layout: the folders from dataDir down to dir (dir lies in dataDir, and turnSettings excludes
 // every folder above it), then configDir. In the default mode, AGENTS.md files load only when
-// none of the folders has a CLAUDE.md file.
+// none of the folders has a CLAUDE.md or CLAUDE.local.md file.
 func loadedInstructions(dataDir, dir, configDir string) map[string]instructionStamp {
 	dataDir, dir, configDir = absolute(dataDir), absolute(dir), absolute(configDir)
 	mode := agentsMDMode(configDir)
 	if mode == "managed-only" {
 		return map[string]instructionStamp{}
 	}
-	var claudeMD, rules, agentsMD []string
+	var claudeMD, localMD, rules, agentsMD []string
 	for _, folder := range instructionFolders(dataDir, dir) {
-		claudeMD = append(claudeMD, existing(folder, "CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md")...)
+		claudeMD = append(claudeMD, existing(folder, "CLAUDE.md", ".claude/CLAUDE.md")...)
+		localMD = append(localMD, existing(folder, "CLAUDE.local.md")...)
 		rules = append(rules, ruleFiles(filepath.Join(folder, ".claude", "rules"))...)
 		agentsMD = append(agentsMD, existing(folder, "AGENTS.md", ".claude/AGENTS.md")...)
 	}
-	if mode == "claude-md" || (mode != "claude-md-and-agents-md" && len(claudeMD) > 0) {
+	// A CLAUDE.local.md does not load, as bots run without the local settings source, but it
+	// still keeps AGENTS.md files out.
+	if mode == "claude-md" || (mode != "claude-md-and-agents-md" && len(claudeMD)+len(localMD) > 0) {
 		agentsMD = nil
 	}
 	files := slices.Concat(claudeMD, rules, agentsMD, existing(configDir, "CLAUDE.md"))

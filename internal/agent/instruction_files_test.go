@@ -57,7 +57,8 @@ func TestLoadedInstructionsFollowClaudeCodesRules(t *testing.T) {
 	}{
 		{"AGENTS.md files without a CLAUDE.md", map[string]string{"AGENTS.md": "a", team + "AGENTS.md": "t", team + ".claude/AGENTS.md": "u"}, []string{"AGENTS.md", team + ".claude/AGENTS.md", team + "AGENTS.md"}},
 		{"a CLAUDE.md anywhere drops every AGENTS.md", map[string]string{"CLAUDE.md": "c", "AGENTS.md": "a", team + "AGENTS.md": "t"}, []string{"CLAUDE.md"}},
-		{"so does a CLAUDE.local.md", map[string]string{team + "CLAUDE.local.md": "l", "AGENTS.md": "a"}, []string{team + "CLAUDE.local.md"}},
+		{"a CLAUDE.local.md does not load but drops every AGENTS.md", map[string]string{team + "CLAUDE.local.md": "l", "AGENTS.md": "a"}, nil},
+		{"a CLAUDE.local.md beside a CLAUDE.md does not load", map[string]string{"CLAUDE.local.md": "l", "CLAUDE.md": "c"}, []string{"CLAUDE.md"}},
 		{"both by the bot's setting", map[string]string{"CLAUDE.md": "c", "AGENTS.md": "a", settings: `{"pluginConfigs":{"cc-plugin-agents-md@builtin":{"options":{"instructionFiles":"claude-md-and-agents-md"}}}}`}, []string{"AGENTS.md", "CLAUDE.md"}},
 		{"CLAUDE.md only by the bot's setting", map[string]string{"AGENTS.md": "a", settings: `{"pluginConfigs":{"cc-plugin-agents-md@builtin":{"options":{"instructionFiles":"claude-md"}}}}`}, nil},
 		{"none by the bot's setting", map[string]string{"CLAUDE.md": "c", "bots/b1/claude/CLAUDE.md": "u", settings: `{"pluginConfigs":{"cc-plugin-agents-md@builtin":{"options":{"instructionFiles":"managed-only"}}}}`}, nil},

@@ -1044,7 +1044,7 @@ func (r *Runner) loadPromptContext(ctx context.Context, bot, room core.Bot, now 
 	if pc.Rooms, err = r.svc.RoomsOf(ctx, bot.ID); err != nil {
 		return promptContext{}, err
 	}
-	if pc.Shared, err = sharedInstructionFiles(r.svc.DataDir()); err != nil {
+	if pc.Shared, err = sharedInstructionFiles(r.svc.DataDir(), loadedInstructions(r.svc.DataDir(), pc.Workspace, r.svc.BotConfigDir(bot.ID))); err != nil {
 		return promptContext{}, err
 	}
 	if pc.OtherTeams, err = r.otherTeams(ctx, room); err != nil {

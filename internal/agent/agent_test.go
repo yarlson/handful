@@ -3137,16 +3137,46 @@ func TestMCPConfigFileIsRemovedWhenTheProcessExits(t *testing.T) {
 	}
 }
 
-// The prompt names the shared instruction files for Claude Code to load and does not paste them.
+// The prompt names the shared instruction files that Claude Code loads and does not paste them.
 func TestTheSystemPromptNamesTheSharedInstructionFiles(t *testing.T) {
 	t.Parallel()
-	for name, files := range map[string][]string{"AGENTS.md": {"AGENTS.md"}, "CLAUDE.md": {"CLAUDE.md"}, "both": {"CLAUDE.md", "AGENTS.md"}} {
-		t.Run(name, func(t *testing.T) {
+	const both = `{"pluginConfigs":{"cc-plugin-agents-md@builtin":{"options":{"instructionFiles":"claude-md-and-agents-md"}}}}`
+	for _, c := range []struct {
+		name     string
+		files    []string // in the data folder
+		settings string   // the bot's settings.json
+		local    string   // a file in the bot's working folder
+		want     []string // the files named
+	}{
+		{name: "AGENTS.md", files: []string{"AGENTS.md"}, want: []string{"AGENTS.md"}},
+		{name: "CLAUDE.md", files: []string{"CLAUDE.md"}, want: []string{"CLAUDE.md"}},
+		{name: "both, where CLAUDE.md drops AGENTS.md", files: []string{"CLAUDE.md", "AGENTS.md"}, want: []string{"CLAUDE.md"}},
+		{name: "both by the bot's setting", files: []string{"CLAUDE.md", "AGENTS.md"}, settings: both, want: []string{"CLAUDE.md", "AGENTS.md"}},
+		{name: "AGENTS.md dropped by a CLAUDE.md in the working folder", files: []string{"AGENTS.md"}, local: "CLAUDE.md"},
+		{name: "AGENTS.md dropped by a CLAUDE.local.md in the working folder", files: []string{"AGENTS.md"}, local: "CLAUDE.local.md"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t, "reply")
 			bot := h.newBot(t)
-			for _, file := range files {
+			for _, file := range c.files {
 				if err := os.WriteFile(filepath.Join(h.dir, file), []byte("Never add AI attribution to commits.\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.settings != "" {
+				if err := os.MkdirAll(h.svc.BotConfigDir(bot.ID), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(h.svc.BotConfigDir(bot.ID), "settings.json"), []byte(c.settings), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.local != "" {
+				if err := os.MkdirAll(h.svc.Workspace(bot.ID), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(h.svc.Workspace(bot.ID), c.local), []byte("Be brief.\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -3156,8 +3186,14 @@ func TestTheSystemPromptNamesTheSharedInstructionFiles(t *testing.T) {
 			}
 			h.waitEntry(t, bot.ID, func(e core.Entry) bool { return e.Kind == core.KindBot })
 			call := h.argsLog(t)[0]
-			paths := map[string]string{"AGENTS.md": filepath.Join(h.dir, "AGENTS.md"), "CLAUDE.md": filepath.Join(h.dir, "CLAUDE.md"), "both": filepath.Join(h.dir, "CLAUDE.md") + " or " + filepath.Join(h.dir, "AGENTS.md")}
-			want := "Your standing instructions override the global instructions in " + paths[name] + ", which override the defaults below wherever they differ, except these rules, which always apply:"
+			want := "Your standing instructions override the defaults below wherever they differ, except these rules, which always apply:"
+			if len(c.want) > 0 {
+				var paths []string
+				for _, file := range c.want {
+					paths = append(paths, filepath.Join(h.dir, file))
+				}
+				want = "Your standing instructions override the global instructions in " + strings.Join(paths, " or ") + ", which override the defaults below wherever they differ, except these rules, which always apply:"
+			}
 			if !strings.Contains(call, want) {
 				t.Fatalf("claude call lacks %q: %s", want, call)
 			}

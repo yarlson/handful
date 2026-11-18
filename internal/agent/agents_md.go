@@ -12,9 +12,9 @@ import (
 )
 
 // sharedInstructionFiles returns the paths of <data>/CLAUDE.md and <data>/AGENTS.md that hold
-// text: the user's instructions for every bot, which Claude Code loads by itself because every
-// working folder lies in the data folder.
-func sharedInstructionFiles(dataDir string) ([]string, error) {
+// text and are among the loaded files: the user's instructions for every bot, which Claude Code
+// loads by itself because every working folder lies in the data folder.
+func sharedInstructionFiles(dataDir string, loaded map[string]instructionStamp) ([]string, error) {
 	dataDir, err := filepath.Abs(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("find the absolute path of the data folder: %w", err)
@@ -22,6 +22,9 @@ func sharedInstructionFiles(dataDir string) ([]string, error) {
 	var files []string
 	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
 		path := filepath.Join(dataDir, name)
+		if _, ok := loaded[path]; !ok {
+			continue
+		}
 		ok, err := holdsText(path)
 		if err != nil {
 			return nil, fmt.Errorf("read the shared instructions %s: %w", path, err)

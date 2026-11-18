@@ -285,6 +285,15 @@ func TestATeamsReviewerIsAMemberOtherThanTheLeadUntilItLeadsOrLeaves(t *testing.
 	if got := reviewer(); got != "" {
 		t.Fatalf("reviewer after Ana came back = %q; want none", got)
 	}
+	if _, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{ReviewerID: &cy.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetRoomMembers(ctx, team.ID, []string{bo.ID, cy.ID, ana.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reviewer(); got != cy.ID {
+		t.Fatalf("reviewer after a member save that kept Cy = %q; want Cy", got)
+	}
 
 	// Members are in bot order: Ana, Bo, Cy. When the lead Ana leaves, the first member, the
 	// reviewer Bo, leads.

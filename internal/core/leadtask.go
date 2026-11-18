@@ -66,12 +66,13 @@ func (s *Service) MemberTeam(ctx context.Context, botID, teamID string) (Bot, er
 			teams = append(teams, r)
 		}
 	}
-	switch {
-	case len(teams) == 1:
+	if len(teams) == 1 {
 		return teams[0], nil
-	case teamID != "":
+	}
+	if teamID != "" {
 		return Bot{}, invalid("you are in no team with id %s", teamID)
-	case len(teams) == 0:
+	}
+	if len(teams) == 0 {
 		return Bot{}, invalid("you are in no team")
 	}
 	return Bot{}, invalid("you are in several teams; name one with team_id: %s", teamList(teams))

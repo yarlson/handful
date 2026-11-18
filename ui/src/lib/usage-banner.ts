@@ -106,7 +106,7 @@ function warningMark(w: PlanWindow): string {
 
 // planWarning is the window that the banner warns about, or null: of the windows with a label
 // whose status is allowed_warning, used from WARNING_FLOOR or with no utilization, not closed in
-// this browser and not reset by now (ms), the most used one.
+// this browser and not reset by now (ms), the most used one; without utilization, its threshold counts.
 export function planWarning(windows: PlanWindow[], closed: Record<string, string>, now: number): PlanWindow | null {
   const warnings = windows.filter(
     (w) =>
@@ -116,7 +116,7 @@ export function planWarning(windows: PlanWindow[], closed: Record<string, string
       !(w.resetsAt && w.resetsAt * 1000 <= now) &&
       closed[w.window] !== warningMark(w),
   )
-  warnings.sort((a, b) => (b.utilization ?? 0) - (a.utilization ?? 0))
+  warnings.sort((a, b) => (b.utilization ?? b.surpassedThreshold ?? 0) - (a.utilization ?? a.surpassedThreshold ?? 0))
   return warnings[0] ?? null
 }
 

@@ -186,6 +186,17 @@ test("of several warnings, the most used window's shows", () => {
   const opus = window({ window: "seven_day_opus", utilization: undefined })
   assert.deepEqual(planWarning([weekly, opus, session], {}, BEFORE_RESET), session)
   assert.deepEqual(planWarning([opus, weekly], {}, BEFORE_RESET), weekly)
+  const over90 = window({ window: "seven_day_opus", utilization: undefined, surpassedThreshold: 0.9 })
+  const weekly72 = window({ utilization: 0.72 })
+  assert.deepEqual(
+    planWarning([weekly72, over90], {}, BEFORE_RESET),
+    over90,
+    "a window without utilization counts its threshold",
+  )
+  assert.deepEqual(planWarning([over90, weekly72], {}, BEFORE_RESET), over90, "in either order")
+  const opus80 = window({ window: "seven_day_opus", utilization: 0.8, surpassedThreshold: 0.9 })
+  assert.deepEqual(planWarning([session, opus80], {}, BEFORE_RESET), session, "utilization counts before the threshold")
+  assert.deepEqual(planWarning([opus80, session], {}, BEFORE_RESET), session, "utilization counts before the threshold")
 })
 
 test("a closed warning comes back when its window's threshold or reset changes, after a reload too", () => {

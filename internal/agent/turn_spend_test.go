@@ -106,6 +106,29 @@ func TestATurnWithTwoResultsCountsEachCostOnce(t *testing.T) {
 	}
 }
 
+// A turn whose result has no model_usage_since_last_result, as from a Claude Code older than
+// the field, stores no spend.
+func TestATurnWithoutSpendFieldsStoresNoSpend(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "replay")
+	stream := filepath.Join(t.TempDir(), "no-spend.jsonl")
+	lines := []string{
+		`{"type":"command_lifecycle","command_uuid":"COMMAND_UUID","state":"started"}`,
+		`{"type":"result","subtype":"success","result":"done","total_cost_usd":0.1,"usage":{"input_tokens":3}}`,
+		`{"type":"command_lifecycle","command_uuid":"COMMAND_UUID","state":"completed"}`,
+	}
+	if err := os.WriteFile(stream, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.env = append(h.env, "FAKE_STREAM="+stream)
+	bot := h.newBot(t)
+	h.start(t)
+	h.say(t, bot.ID, "go")
+	if bots, models := storedSpend(t, h, bot.ID); len(bots) != 0 || len(models) != 0 {
+		t.Errorf("spend of a turn without spend fields = %+v, %+v; want none", bots, models)
+	}
+}
+
 // Each result spends what model_usage_since_last_result holds, and the helpers that
 // subagent_stats.spawned added since the process's previous result. The numbers are Claude Code
 // 2.1.327's in one process of four results, then a resumed process whose first total_cost_usd

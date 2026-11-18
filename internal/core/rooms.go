@@ -97,8 +97,11 @@ func insertRoom(ctx context.Context, q *db.Queries, id, name, instructions strin
 		}
 	}
 	if team != nil {
-		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, ReviewerBotID: team.ReviewerID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, InboxMax: team.InboxMax, InboxPerSender: team.InboxPerSender, DecisionMinutes: team.DecisionMinutes, DailyBudget: team.DailyBudget, BudgetSince: now}); err != nil {
+		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, InboxMax: team.InboxMax, InboxPerSender: team.InboxPerSender, DecisionMinutes: team.DecisionMinutes, DailyBudget: team.DailyBudget, BudgetSince: now}); err != nil {
 			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
+		}
+		if err := setTeamReviewer(ctx, q, id, team.ReviewerID); err != nil {
+			return Bot{}, err
 		}
 	}
 	room := toBot(row)
@@ -166,10 +169,7 @@ func (s *Service) keepReviewerNone(ctx context.Context, room Bot) error {
 	if !room.IsTeam() || room.Team.ReviewerID != "" {
 		return nil
 	}
-	if err := s.q.ClearTeamReviewer(ctx, room.ID); err != nil {
-		return fmt.Errorf("clear the reviewer of team %s: %w", room.ID, err)
-	}
-	return nil
+	return setTeamReviewer(ctx, s.q, room.ID, "")
 }
 
 func (s *Service) validMembers(ctx context.Context, ids []string) ([]Member, error) {

@@ -378,6 +378,14 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	for _, t := range teams {
 		teamRows[t.TeamID] = t
 	}
+	reviewers, err := s.q.ListTeamReviewers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list team reviewers: %w", err)
+	}
+	reviewerOf := map[string]string{}
+	for _, r := range reviewers {
+		reviewerOf[r.TeamID] = r.BotID
+	}
 	byRoom := map[string][]Member{}
 	for _, m := range members {
 		byRoom[m.RoomID] = append(byRoom[m.RoomID], Member{ID: m.BotID, Name: m.Name, Model: m.Model, Effort: m.Effort})
@@ -403,7 +411,7 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 		b := toBot(r)
 		b.Members = byRoom[b.ID]
 		if row, ok := teamRows[b.ID]; ok {
-			b.Team = toTeam(row, b.Members)
+			b.Team = toTeam(row, reviewerOf[b.ID], b.Members)
 		}
 		b.Attention, b.OpenQuestions, b.IncomingHandoffs = attention[b.ID], open[b.ID], incoming[b.ID]
 		b.Hue = hueOf[b.ID]

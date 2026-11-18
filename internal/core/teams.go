@@ -134,12 +134,18 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	if err != nil {
 		return Bot{}, err
 	}
-	if err := s.q.UpdateTeam(ctx, db.UpdateTeamParams{
-		LeadBotID: updated.LeadID, ReviewerBotID: updated.ReviewerID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
-		DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort,
-		InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, DailyBudget: updated.DailyBudget, TeamID: id,
-	}); err != nil {
-		return Bot{}, fmt.Errorf("update team %s: %w", id, err)
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		if err := q.UpdateTeam(ctx, db.UpdateTeamParams{
+			LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
+			DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort,
+			InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, DailyBudget: updated.DailyBudget, TeamID: id,
+		}); err != nil {
+			return fmt.Errorf("update team %s: %w", id, err)
+		}
+		return setTeamReviewer(ctx, q, id, updated.ReviewerID)
+	})
+	if err != nil {
+		return Bot{}, err
 	}
 	s.signalTurns()
 	newLead := updated.LeadID != team.Team.LeadID
@@ -273,13 +279,43 @@ func (s *Service) teamOf(ctx context.Context, roomID string, members []Member) (
 	if err != nil {
 		return nil, fmt.Errorf("get team %s: %w", roomID, err)
 	}
-	return toTeam(row, members), nil
+	reviewer, err := teamReviewer(ctx, s.q, roomID)
+	if err != nil {
+		return nil, err
+	}
+	return toTeam(row, reviewer, members), nil
+}
+
+// teamReviewer returns the stored reviewer of team teamID, or "" when it has none.
+func teamReviewer(ctx context.Context, q *db.Queries, teamID string) (string, error) {
+	reviewer, err := q.GetTeamReviewer(ctx, teamID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get the reviewer of team %s: %w", teamID, err)
+	}
+	return reviewer, nil
+}
+
+// setTeamReviewer stores reviewer as the reviewer of team teamID; "" stores none.
+func setTeamReviewer(ctx context.Context, q *db.Queries, teamID, reviewer string) error {
+	var err error
+	if reviewer == "" {
+		err = q.DeleteTeamReviewer(ctx, teamID)
+	} else {
+		err = q.SetTeamReviewer(ctx, db.SetTeamReviewerParams{TeamID: teamID, BotID: reviewer})
+	}
+	if err != nil {
+		return fmt.Errorf("store the reviewer of team %s: %w", teamID, err)
+	}
+	return nil
 }
 
 // toTeam reads a team's settings for its members: the stored lead while it
 // is a member, else the first member; the stored reviewer while it is a
 // member other than the lead, else none.
-func toTeam(row db.Team, members []Member) *Team {
+func toTeam(row db.Team, reviewer string, members []Member) *Team {
 	isMember := func(id string) bool { return slices.ContainsFunc(members, func(m Member) bool { return m.ID == id }) }
 	lead := row.LeadBotID
 	if !isMember(lead) {
@@ -288,7 +324,6 @@ func toTeam(row db.Team, members []Member) *Team {
 			lead = members[0].ID
 		}
 	}
-	reviewer := row.ReviewerBotID
 	if reviewer == lead || !isMember(reviewer) {
 		reviewer = ""
 	}

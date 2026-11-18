@@ -419,15 +419,6 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 	return err
 }
 
-const clearTeamReviewer = `-- name: ClearTeamReviewer :exec
-UPDATE teams SET reviewer_bot_id = '' WHERE team_id = ?
-`
-
-func (q *Queries) ClearTeamReviewer(ctx context.Context, teamID string) error {
-	_, err := q.db.ExecContext(ctx, clearTeamReviewer, teamID)
-	return err
-}
-
 const countChatMessagesSince = `-- name: CountChatMessagesSince :one
 SELECT count(*) FROM entries WHERE kind IN ('user', 'bot', 'agent') AND created_at > ?
 `
@@ -803,13 +794,12 @@ func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (R
 }
 
 const createTeam = `-- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, reviewer_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTeamParams struct {
 	TeamID          string `json:"team_id"`
 	LeadBotID       string `json:"lead_bot_id"`
-	ReviewerBotID   string `json:"reviewer_bot_id"`
 	Agreement       string `json:"agreement"`
 	GoalBudget      int64  `json:"goal_budget"`
 	DefaultModel    string `json:"default_model"`
@@ -825,7 +815,6 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
 	_, err := q.db.ExecContext(ctx, createTeam,
 		arg.TeamID,
 		arg.LeadBotID,
-		arg.ReviewerBotID,
 		arg.Agreement,
 		arg.GoalBudget,
 		arg.DefaultModel,
@@ -944,6 +933,15 @@ func (q *Queries) DeleteRoutine(ctx context.Context, id string) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const deleteTeamReviewer = `-- name: DeleteTeamReviewer :exec
+DELETE FROM team_reviewers WHERE team_id = ?
+`
+
+func (q *Queries) DeleteTeamReviewer(ctx context.Context, teamID string) error {
+	_, err := q.db.ExecContext(ctx, deleteTeamReviewer, teamID)
+	return err
 }
 
 const deleteTeamStepSessions = `-- name: DeleteTeamStepSessions :exec
@@ -1387,7 +1385,7 @@ func (q *Queries) GetStepSession(ctx context.Context, arg GetStepSessionParams) 
 }
 
 const getTeam = `-- name: GetTeam :one
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on, reviewer_bot_id FROM teams WHERE team_id = ?
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams WHERE team_id = ?
 `
 
 func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
@@ -1409,9 +1407,19 @@ func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
 		&i.BudgetSince,
 		&i.BudgetNotedOn,
 		&i.BudgetWaitedOn,
-		&i.ReviewerBotID,
 	)
 	return i, err
+}
+
+const getTeamReviewer = `-- name: GetTeamReviewer :one
+SELECT bot_id FROM team_reviewers WHERE team_id = ?
+`
+
+func (q *Queries) GetTeamReviewer(ctx context.Context, teamID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTeamReviewer, teamID)
+	var bot_id string
+	err := row.Scan(&bot_id)
+	return bot_id, err
 }
 
 const getTurnByNonce = `-- name: GetTurnByNonce :one
@@ -4117,8 +4125,35 @@ func (q *Queries) ListTagsForArtifacts(ctx context.Context, ids []string) ([]Art
 	return items, nil
 }
 
+const listTeamReviewers = `-- name: ListTeamReviewers :many
+SELECT team_id, bot_id FROM team_reviewers
+`
+
+func (q *Queries) ListTeamReviewers(ctx context.Context) ([]TeamReviewer, error) {
+	rows, err := q.db.QueryContext(ctx, listTeamReviewers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TeamReviewer
+	for rows.Next() {
+		var i TeamReviewer
+		if err := rows.Scan(&i.TeamID, &i.BotID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeams = `-- name: ListTeams :many
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on, reviewer_bot_id FROM teams
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams
 `
 
 func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
@@ -4146,7 +4181,6 @@ func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
 			&i.BudgetSince,
 			&i.BudgetNotedOn,
 			&i.BudgetWaitedOn,
-			&i.ReviewerBotID,
 		); err != nil {
 			return nil, err
 		}
@@ -5052,6 +5086,21 @@ func (q *Queries) SetStepSessionSeen(ctx context.Context, arg SetStepSessionSeen
 	return err
 }
 
+const setTeamReviewer = `-- name: SetTeamReviewer :exec
+INSERT INTO team_reviewers (team_id, bot_id) VALUES (?, ?)
+ON CONFLICT (team_id) DO UPDATE SET bot_id = excluded.bot_id
+`
+
+type SetTeamReviewerParams struct {
+	TeamID string `json:"team_id"`
+	BotID  string `json:"bot_id"`
+}
+
+func (q *Queries) SetTeamReviewer(ctx context.Context, arg SetTeamReviewerParams) error {
+	_, err := q.db.ExecContext(ctx, setTeamReviewer, arg.TeamID, arg.BotID)
+	return err
+}
+
 const setTurnSpend = `-- name: SetTurnSpend :exec
 INSERT INTO turn_spend (turn_id, bot_id, cost_usd, helpers, recorded_at) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (turn_id) DO UPDATE SET cost_usd = excluded.cost_usd, helpers = excluded.helpers, recorded_at = excluded.recorded_at
@@ -5397,18 +5446,17 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 }
 
 const updateTeam = `-- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?1, reviewer_bot_id = ?2, agreement = ?3, goal_budget = ?4,
-  default_model = ?5, default_effort = ?6,
-  inbox_max = ?7, inbox_per_sender = ?8, decision_minutes = ?9,
-  budget_noted_on = CASE WHEN daily_budget = ?10 THEN budget_noted_on ELSE '' END,
-  budget_waited_on = CASE WHEN daily_budget = ?10 THEN budget_waited_on ELSE '' END,
-  daily_budget = ?10
-WHERE team_id = ?11
+UPDATE teams SET lead_bot_id = ?1, agreement = ?2, goal_budget = ?3,
+  default_model = ?4, default_effort = ?5,
+  inbox_max = ?6, inbox_per_sender = ?7, decision_minutes = ?8,
+  budget_noted_on = CASE WHEN daily_budget = ?9 THEN budget_noted_on ELSE '' END,
+  budget_waited_on = CASE WHEN daily_budget = ?9 THEN budget_waited_on ELSE '' END,
+  daily_budget = ?9
+WHERE team_id = ?10
 `
 
 type UpdateTeamParams struct {
 	LeadBotID       string `json:"lead_bot_id"`
-	ReviewerBotID   string `json:"reviewer_bot_id"`
 	Agreement       string `json:"agreement"`
 	GoalBudget      int64  `json:"goal_budget"`
 	DefaultModel    string `json:"default_model"`
@@ -5425,7 +5473,6 @@ type UpdateTeamParams struct {
 func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
 	_, err := q.db.ExecContext(ctx, updateTeam,
 		arg.LeadBotID,
-		arg.ReviewerBotID,
 		arg.Agreement,
 		arg.GoalBudget,
 		arg.DefaultModel,

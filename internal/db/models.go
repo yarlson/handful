@@ -247,7 +247,11 @@ type Team struct {
 	BudgetSince     int64  `json:"budget_since"`
 	BudgetNotedOn   string `json:"budget_noted_on"`
 	BudgetWaitedOn  string `json:"budget_waited_on"`
-	ReviewerBotID   string `json:"reviewer_bot_id"`
+}
+
+type TeamReviewer struct {
+	TeamID string `json:"team_id"`
+	BotID  string `json:"bot_id"`
 }
 
 type ToolGrant struct {

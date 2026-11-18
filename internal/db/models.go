@@ -264,6 +264,24 @@ type Turn struct {
 	Decision    int64          `json:"decision"`
 }
 
+type TurnModelSpend struct {
+	TurnID           string  `json:"turn_id"`
+	Model            string  `json:"model"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	CostUsd          float64 `json:"cost_usd"`
+}
+
+type TurnSpend struct {
+	TurnID     string  `json:"turn_id"`
+	BotID      string  `json:"bot_id"`
+	CostUsd    float64 `json:"cost_usd"`
+	Helpers    int64   `json:"helpers"`
+	RecordedAt int64   `json:"recorded_at"`
+}
+
 type TurnUsage struct {
 	TurnID           string `json:"turn_id"`
 	BotID            string `json:"bot_id"`

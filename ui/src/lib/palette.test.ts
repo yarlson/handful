@@ -24,6 +24,7 @@ test("on a computer with a chat open, the palette lists the chats, every place a
       ["chat:r", "Chats", "Planning", "chat", ""],
       ["waiting", "Go to", "Waiting for you", "waiting", ""],
       ["settings:general", "Go to", "Settings: General", "settings", ""],
+      ["settings:usage", "Go to", "Settings: Usage", "settings", ""],
       ["settings:appearance", "Go to", "Settings: Appearance", "settings", ""],
       ["settings:updates", "Go to", "Settings: Updates", "settings", ""],
       ["settings:connectors", "Go to", "Settings: Connectors", "settings", ""],
@@ -42,9 +43,9 @@ test("on a computer with a chat open, the palette lists the chats, every place a
     ],
   )
   assert.deepEqual(commands[1].action, { kind: "chat", chat: chats[1] })
-  assert.deepEqual(commands[5].action, { kind: "settings", section: "appearance" })
-  assert.deepEqual(commands[12].action, { kind: "new", what: "team" })
-  assert.deepEqual(commands[19].action, { kind: "theme", theme: "dark" })
+  assert.deepEqual(commands[6].action, { kind: "settings", section: "appearance" })
+  assert.deepEqual(commands[13].action, { kind: "new", what: "team" })
+  assert.deepEqual(commands[20].action, { kind: "theme", theme: "dark" })
 })
 
 test("a paired phone gets no New commands and only the Appearance section", () => {

@@ -171,6 +171,7 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	mux.HandleFunc("GET /api/bots/{id}/grants", s.listGrants)
 	mux.HandleFunc("GET /api/bots/{id}/usage", s.turnUsage)
 	mux.HandleFunc("GET /api/plan-windows", s.planWindows)
+	mux.HandleFunc("GET /api/spend", s.spend)
 	mux.HandleFunc("DELETE /api/bots/{id}/grants/{tool}", s.revokeGrant)
 	mux.HandleFunc("POST /api/approvals/{id}", s.resolveApproval)
 	mux.HandleFunc("POST /api/entries/{id}/reactions", s.setReaction)
@@ -982,6 +983,22 @@ func (s *server) planWindows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, windows)
+}
+
+// spend returns the cost and the helpers of each bot's turns in the period, the largest cost first.
+func (s *server) spend(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("period")
+	period, ok := map[string]time.Duration{"24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour}[name]
+	if !ok {
+		s.fail(w, r, fmt.Errorf("%w: period %q: use 24h or 7d", core.ErrInvalid, name))
+		return
+	}
+	spend, err := s.svc.SpendSince(r.Context(), period)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, spend)
 }
 
 func (s *server) revokeGrant(w http.ResponseWriter, r *http.Request) {

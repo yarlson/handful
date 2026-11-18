@@ -38,7 +38,7 @@ export type PlanWindow = {
 }
 
 // WARNING_LABELS names the windows that a warning can be about, as Claude Code names them.
-const WARNING_LABELS = new Map([
+export const WARNING_LABELS = new Map([
   ["five_hour", "5-hour limit"],
   ["seven_day", "weekly limit"],
   ["seven_day_opus", "Opus limit"],

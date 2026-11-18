@@ -264,13 +264,17 @@ type streamEvent struct {
 	Message         *streamMessage   `json:"message"`
 	ToolUseResult   json.RawMessage  `json:"tool_use_result"` // user: the result of the event's tool call, in the tool's own shape
 	Usage           *tokenUsage      `json:"usage"`           // result: the turn's tokens
-	Result          string           `json:"result"`
-	IsError         bool             `json:"is_error"`
-	Errors          json.RawMessage  `json:"errors"`
-	Error           string           `json:"error"`            // assistant: kind of a failure, such as model_not_found
-	APIError        string           `json:"api_error"`        // assistant, result: kind of an API error, such as usage_limit_reached
-	APIErrorParams  *apiErrorParams  `json:"api_error_params"` // assistant
-	RateLimitInfo   *rateLimitInfo   `json:"rate_limit_info"`  // rate_limit_event: the plan's usage windows
+	// result: each model's tokens and cost since the process's previous result. Unlike
+	// total_cost_usd and modelUsage, which run on across the session's turns and its resumes.
+	ModelUsageSinceLastResult map[string]modelUsage `json:"model_usage_since_last_result"`
+	SubagentStats             *subagentStats        `json:"subagent_stats"` // result
+	Result                    string                `json:"result"`
+	IsError                   bool                  `json:"is_error"`
+	Errors                    json.RawMessage       `json:"errors"`
+	Error                     string                `json:"error"`            // assistant: kind of a failure, such as model_not_found
+	APIError                  string                `json:"api_error"`        // assistant, result: kind of an API error, such as usage_limit_reached
+	APIErrorParams            *apiErrorParams       `json:"api_error_params"` // assistant
+	RateLimitInfo             *rateLimitInfo        `json:"rate_limit_info"`  // rate_limit_event: the plan's usage windows
 }
 
 type apiErrorParams struct {
@@ -297,6 +301,19 @@ type tokenUsage struct {
 	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 	OutputTokens             int64 `json:"output_tokens"`
+}
+
+// modelUsage is the tokens and the cost of the calls to one model, helpers' calls included.
+type modelUsage struct {
+	InputTokens              int64   `json:"inputTokens"`
+	OutputTokens             int64   `json:"outputTokens"`
+	CacheReadInputTokens     int64   `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int64   `json:"cacheCreationInputTokens"`
+	CostUSD                  float64 `json:"costUSD"`
+}
+
+type subagentStats struct {
+	Spawned int64 `json:"spawned"` // the helpers the process has started, since it started
 }
 
 func (u tokenUsage) context() int64 {

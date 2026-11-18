@@ -64,6 +64,12 @@ lifecycle() {
 result() { echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"$1\"}"; }
 init() { echo "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s\",\"model\":\"${FAKE_INIT_MODEL:-}\"}"; }
 compacted() { echo '{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":17833,"post_tokens":3651}}'; }
+# call reports an event of model call $1 of the main thread, with text $2 and the tokens in
+# FAKE_USAGE, when that is set.
+call() {
+  [ -n "$FAKE_USAGE" ] || return 0
+  echo "{\"type\":\"assistant\",\"message\":{\"id\":\"msg-$$-$1\",\"usage\":$FAKE_USAGE,\"content\":[{\"type\":\"text\",\"text\":\"$2\"}]},\"parent_tool_use_id\":null}"
+}
 case "$FAKE_MODE" in
 reply)
   lifecycle started
@@ -94,6 +100,27 @@ compact)
   lifecycle started
   compacted
   result ""
+  lifecycle completed
+  ;;
+idle)
+  # A turn's model call comes in two events of one message, as Claude Code splits a call's
+  # blocks, and a helper's small call follows it. /compact compacts the session; when FAKE_HOLD
+  # is set, only after the file "release" exists.
+  lifecycle started
+  case "$input" in
+  *'"content":"/compact"'*)
+    while [ -n "$FAKE_HOLD" ] && [ ! -e "$dir/release" ]; do sleep 0.02; done
+    compacted
+    result ""
+    ;;
+  *)
+    init
+    call 1 thinking
+    call 1 answer
+    echo '{"type":"assistant","message":{"id":"msg-helper","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5},"content":[{"type":"text","text":"helping"}]},"parent_tool_use_id":"ag"}'
+    result "answer"
+    ;;
+  esac
   lifecycle completed
   ;;
 replay)
@@ -379,7 +406,8 @@ background)
   # stdin (logged to stdin.log) until one says "finish": then the task ends,
   # and Claude Code reports it and wakes the model on its own. A message that
   # says "auto-compact" is compacted on its way, as when the context is full;
-  # one that says "task-compacts" waits for a task turn that compacts.
+  # one that says "task-compacts" waits for a task turn that compacts. Other
+  # messages make a model call (see call).
   echo $$ > "$dir/pid"
   trap 'echo "{\"type\":\"system\",\"subtype\":\"task_notification\",\"task_id\":\"t1\",\"status\":\"stopped\",\"summary\":\"Build the site\"}"; exit 143' TERM
   echo '{"type":"system","subtype":"task_notification","task_id":"t0","status":"stopped","summary":"A task of the previous process"}'
@@ -401,7 +429,7 @@ background)
     case "$input" in
     *'"content":"/compact"'*) compacted; result "" ;;
     *auto-compact*) init; compacted; result "pong" ;;
-    *) init; result "pong" ;;
+    *) init; n=$((${n:-0} + 1)); call "$n" pong; result "pong" ;;
     esac
     lifecycle completed
     case "$input" in *finish*)

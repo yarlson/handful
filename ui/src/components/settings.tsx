@@ -449,6 +449,8 @@ const HELP: Record<Key, string> = {
   maxParallel:
     "How many bot turns can run at the same time, across all bots. More turns use more of your Claude plan at once.",
   claude: "The claude command Handful runs for every turn. Change it only if Claude Code isn't on your PATH.",
+  idleCompaction:
+    "Compacts a bot's session of 100k tokens or more when it has waited 54 minutes for its next turn, before the prompt cache expires. The next turn then starts from the summary.",
   "updates.autoCheck":
     "Once a day. Each check sends one request to GitHub and nothing else. Applies at the next check, within an hour.",
   "updates.drainMinutes":
@@ -1003,6 +1005,9 @@ export function SettingsPage({
           )}
           {val("maxParallel") && (
             <TextField k="maxParallel" v={val("maxParallel") as Value} save={save} locked={locked} />
+          )}
+          {val("idleCompaction") && (
+            <SwitchField k="idleCompaction" v={val("idleCompaction") as Value} save={save} locked={locked} />
           )}
           <Disclosure
             className="border-t pt-3"

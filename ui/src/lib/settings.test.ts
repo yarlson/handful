@@ -99,6 +99,7 @@ test("values read as words", () => {
   assert.equal(display("effort", "odd"), "odd")
   assert.equal(display("updateCheck", true), "On")
   assert.equal(display("updates.autoCheck", false), "Off")
+  assert.equal(display("idleCompaction", true), "On")
   assert.equal(display("maxParallel", 4), "4")
   assert.equal(display("claude", undefined), "Default")
 })
@@ -260,6 +261,7 @@ test("each section and setting has its name", () => {
     helperModel: "Helper model",
     maxParallel: "Turns at once",
     claude: "Claude Code program",
+    idleCompaction: "Idle compaction",
     "updates.autoCheck": "Check for updates automatically",
     "updates.drainMinutes": "Wait for running bots up to",
     updateCheck: "Notify me about new releases",
@@ -305,6 +307,7 @@ test("each setting's pending dot lands on its own section", () => {
   assert.deepEqual(one("claude"), ["general"])
   assert.deepEqual(one("effort"), ["general"])
   assert.deepEqual(one("helperModel"), ["general"])
+  assert.deepEqual(one("idleCompaction"), ["general"])
   assert.deepEqual(one("updates.autoCheck"), ["updates"])
   assert.deepEqual(one("updates.drainMinutes"), ["updates"])
 })

@@ -7,6 +7,7 @@ export type Key =
   | "helperModel"
   | "maxParallel"
   | "claude"
+  | "idleCompaction"
   | "updates.autoCheck"
   | "updates.drainMinutes"
   | "updateCheck"
@@ -56,6 +57,7 @@ export const LABELS: Record<Key, string> = {
   helperModel: "Helper model",
   maxParallel: "Turns at once",
   claude: "Claude Code program",
+  idleCompaction: "Idle compaction",
   "updates.autoCheck": "Check for updates automatically",
   "updates.drainMinutes": "Wait for running bots up to",
   updateCheck: "Notify me about new releases",
@@ -67,6 +69,7 @@ const SECTION_OF: Record<Key, Section> = {
   helperModel: "general",
   maxParallel: "general",
   claude: "general",
+  idleCompaction: "general",
   "updates.autoCheck": "updates",
   "updates.drainMinutes": "updates",
   updateCheck: "updates",

@@ -95,12 +95,12 @@ func TestStartupCheckRunsTheStartupChecksFromTheFlags(t *testing.T) {
 func TestSettingsOfTheServerNameTheFlagsAndTheirSources(t *testing.T) {
 	o := options{
 		addr: "127.0.0.1:7777", dataDir: "/data", loginEnv: true, logFile: "~/server.log", tray: true,
-		Claude: "claude", Model: "opus", Effort: "high", HelperModel: "inherit", MaxParallel: 5, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: false},
+		Claude: "claude", Model: "opus", Effort: "high", HelperModel: "inherit", MaxParallel: 5, IdleCompaction: true, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: false},
 		Phone: config.PhoneSettings{Enabled: true, Addr: "127.0.0.1:7900", Hosts: []string{"phone.example.com"}, Proxy: "cloudflare", TeamDomain: "you.cloudflareaccess.com", AUD: "abcdef0123456789"},
 		set:   map[string]bool{"effort": true, "helper-model": true, "max-parallel": true, "tray": true, "login-env": true, "log": true},
 	}
 	running := map[string]any{
-		"model": "opus", "effort": "high", "helperModel": "inherit", "maxParallel": 5, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 45, "updateCheck": false,
+		"model": "opus", "effort": "high", "helperModel": "inherit", "maxParallel": 5, "claude": "claude", "idleCompaction": true, "updates.autoCheck": true, "updates.drainMinutes": 45, "updateCheck": false,
 		"phone.enabled": true, "phone.addr": "127.0.0.1:7900", "phone.hosts": []string{"phone.example.com"}, "phone.proxy": "cloudflare",
 		"phone.cloudflare.teamDomain": "you.cloudflareaccess.com", "phone.cloudflare.aud": "abcdef0123456789",
 	}
@@ -409,6 +409,30 @@ func TestTheDrainLimitComesFreshFromTheFile(t *testing.T) {
 		if got := o.drainLimit(); got != want {
 			t.Errorf("limit with %s = %v; want %v", file, got, want)
 		}
+	}
+}
+
+func TestTheIdleCompactionSettingComesFreshFromTheFile(t *testing.T) {
+	dir := t.TempDir()
+	o := options{dataDir: dir, IdleCompaction: true}
+	if !o.idleCompaction() {
+		t.Fatal("setting with no file = off; want the running on")
+	}
+	for file, want := range map[string]bool{
+		`{"idleCompaction": false}`: false,
+		`{"idleCompaction": true}`:  true,
+		`{"maxParallel": 4}`:        true,
+		`{"maxParallel": 4,}`:       true,
+	} {
+		writeConfig(t, dir, file)
+		if got := o.idleCompaction(); got != want {
+			t.Errorf("setting with %s = %v; want %v", file, got, want)
+		}
+	}
+	o.IdleCompaction = false
+	writeConfig(t, dir, `{"maxParallel": 4}`)
+	if o.idleCompaction() {
+		t.Error("setting with a file that lacks it = on; want the running off")
 	}
 }
 

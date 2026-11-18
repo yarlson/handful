@@ -28,6 +28,9 @@ type Config struct {
 	// OAuthCallbackURL is the redirect URI of connector sign-ins. It must
 	// match the address the server listens on.
 	OAuthCallbackURL string
+	// IdleCompaction reports whether the Idle compaction setting is on, when an idle compaction
+	// is due; nil stands for on.
+	IdleCompaction func() bool
 }
 
 const (
@@ -77,6 +80,16 @@ type Runner struct {
 	runDone       <-chan struct{} // guarded by mu; Run's context's Done, closed when the server stops
 	resume        *time.Timer     // Run receives from it and ends the pause
 	maxLimitPause time.Duration
+
+	idle map[sessionKey]*idlePlan // guarded by mu: the planned or running idle compaction of each session
+	// now and after are the clock of idle compactions; tests replace them.
+	now   func() time.Time
+	after func(time.Duration) <-chan time.Time
+	// An idle compaction is due idleDelay after the last request of a session whose context was
+	// at least idleMinContext tokens, and lapses idleGrace after that.
+	idleMinContext int64
+	idleDelay      time.Duration
+	idleGrace      time.Duration
 }
 
 type runningTurn struct {
@@ -115,11 +128,16 @@ func NewRunner(svc *core.Service, cfg Config, log *slog.Logger) *Runner {
 	if cfg.MaxParallel <= 0 {
 		cfg.MaxParallel = 3
 	}
+	if cfg.IdleCompaction == nil {
+		cfg.IdleCompaction = func() bool { return true }
+	}
 	resume := time.NewTimer(0)
 	resume.Stop()
 	return &Runner{
 		svc: svc, cfg: cfg, tokens: newTokenRegistry(log), oauth: newSignIns(), log: log, outputTimeout: turnOutputTimeout, stopWait: 15 * time.Second, running: make(map[string]runningTurn), deleting: make(map[string]bool), sessions: make(map[sessionKey]*session), models: make(map[sessionKey]modelReport), done: make(chan struct{}, 1),
 		resume: resume, maxLimitPause: limitPauseMax, publish: svc.PublishState, environ: os.Environ,
+		// The prompt cache lives 1 hour after its last read; the compaction goes at 90% of that.
+		idle: make(map[sessionKey]*idlePlan), now: time.Now, after: time.After, idleMinContext: 100_000, idleDelay: 54 * time.Minute, idleGrace: time.Minute,
 	}
 }
 
@@ -222,7 +240,7 @@ func (r *Runner) botBusyLocked(botID string) bool {
 			return true
 		}
 	}
-	return false
+	return r.compactingLocked(func(k sessionKey) bool { return k.botID == botID })
 }
 
 // chatBusyLocked reports whether a conversation turn runs in the room: a
@@ -252,7 +270,7 @@ func (r *Runner) roomBusyLocked(roomID string) bool {
 			return true
 		}
 	}
-	return false
+	return r.compactingLocked(func(k sessionKey) bool { return k.roomID == roomID })
 }
 
 // Active reports whether a turn or a claude process of the bot or room still runs.
@@ -1235,7 +1253,14 @@ func (r *Runner) saveSession(ctx context.Context, key sessionKey, sessionID stri
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
 	key := turnKey(bot.ID, t)
-	return r.sendCommand(ctx, key, bot, t, r.withInstructionsUpdate(key, run.Prompt), run.Command, run.Flags, func(token string) (processStart, error) {
+	return r.sendCommand(ctx, key, bot, t, r.withInstructionsUpdate(key, run.Prompt), run.Command, run.Flags, r.turnStart(ctx, bot, t, run, &idleOrigin{turn: t, run: run}))
+}
+
+// turnStart returns how a process for turn t starts: with run's arguments, a new MCP config file
+// for its token and a file with run's system prompt. origin, when not nil, is what an idle
+// compaction of the process's session resumes it with.
+func (r *Runner) turnStart(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun, origin *idleOrigin) func(token string) (processStart, error) {
+	return func(token string) (processStart, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
 			return processStart{}, err
@@ -1255,8 +1280,8 @@ func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run cla
 			r.removeRunFiles(files)
 			return processStart{}, err
 		}
-		return processStart{args: args, files: files, claudeID: run.SessionID, prompt: run.SystemPrompt}, nil
-	})
+		return processStart{args: args, files: files, claudeID: run.SessionID, prompt: run.SystemPrompt, origin: origin}, nil
+	}
 }
 
 // noteSignIn tells the user in the turn's chat that the connectors in names

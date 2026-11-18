@@ -157,7 +157,16 @@ export type Artifact = {
   updatedAt: number
 }
 
-export type Skill = { id: string; name: string; description: string; body?: string }
+// A skill is shared by all bots, or in one bot's own layer ("bot"). replaced marks a shared skill
+// that the bot's own skill with the same id hides from that bot.
+export type Skill = {
+  id: string
+  name: string
+  description: string
+  body?: string
+  layer: "shared" | "bot"
+  replaced?: boolean
+}
 
 export type Goal = {
   id: string
@@ -482,6 +491,9 @@ export const api = {
   skills: () => request<Skill[]>("GET", "/api/skills"),
   skill: (id: string) => request<Skill>("GET", `/api/skills/${id}`),
   deleteSkill: (id: string) => request<void>("DELETE", `/api/skills/${id}`),
+  botSkills: (id: string) => request<Skill[]>("GET", `/api/bots/${id}/skills`),
+  botSkill: (id: string, skill: string) => request<Skill>("GET", `/api/bots/${id}/skills/${skill}`),
+  deleteBotSkill: (id: string, skill: string) => request<void>("DELETE", `/api/bots/${id}/skills/${skill}`),
   artifacts: (filter: ArtifactFilter) => request<Artifact[]>("GET", artifactsPath(filter)),
   artifact: (id: string) => request<Artifact>("GET", `/api/artifacts/${encodeURIComponent(id)}`),
   deleteArtifact: (id: string) => request<void>("DELETE", `/api/artifacts/${encodeURIComponent(id)}`),

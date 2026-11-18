@@ -1,12 +1,13 @@
 // A chat's address: /chat/<bot id>, with what else is open in the query: the panel's tab
-// (?tab=), an artifact or a skill in the reader (?artifact= or ?skill=), and a post to show
-// (?post=). Bot and entry ids are UUIDs; a skill id is made from its name.
+// (?tab=), an artifact, a shared skill or the bot's own skill in the reader (?artifact=, ?skill=
+// or ?bot-skill=), and a post to show (?post=). Bot and entry ids are UUIDs; a skill id is made
+// from its name.
 
 export const PANEL_TABS = ["board", "members", "memory", "routines", "skills", "artifacts", "settings"] as const
 export type PanelTab = (typeof PANEL_TABS)[number]
 
-// Reading is what the reader shows: an artifact or a skill, by id.
-export type Reading = { kind: "artifact" | "skill"; id: string }
+// Reading is what the reader shows: an artifact, a shared skill or the chat's own skill, by id.
+export type Reading = { kind: "artifact" | "skill" | "bot-skill"; id: string }
 
 export type ChatPlace = { chat: string; tab: PanelTab | null; reading: Reading | null; post: string | null }
 
@@ -21,11 +22,14 @@ export function chatPlace(pathname: string, search: string): ChatPlace | null {
   const tab = PANEL_TABS.find((t) => t === q.get("tab")) ?? null
   const artifact = q.get("artifact")
   const skill = q.get("skill")
+  const botSkill = q.get("bot-skill")
   const reading: Reading | null = artifact
     ? { kind: "artifact", id: artifact }
     : skill
       ? { kind: "skill", id: skill }
-      : null
+      : botSkill
+        ? { kind: "bot-skill", id: botSkill }
+        : null
   return { chat, tab, reading, post: q.get("post") || null }
 }
 

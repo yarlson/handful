@@ -912,12 +912,12 @@ func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (pro
 			return "", "", core.RoomUpdate{}, err
 		}
 		prompt = roomPrompt(bot, update, t.Prompt, r.svc.MediaDir()) + boardPrompt(bot, update.Room, board, t, changes, time.Now().In(r.svc.Location())) + onTask
-		command, _ = r.teamCommand(update, t)
+		command, _ = r.teamCommand(ctx, update, t)
 		return prompt, command, update, nil
 	}
 	prompt = t.Prompt
 	if t.Source == core.SourceUser {
-		if c, ok := r.skillCommand(t.Prompt, nil); ok {
+		if c, ok := r.skillCommand(ctx, t.Prompt, []string{bot.ID, core.SharedSkills}, nil); ok {
 			prompt, command = "", c
 		}
 		media, err := r.svc.TurnMedia(ctx, bot.ID, t.ID)

@@ -1278,7 +1278,7 @@ function Composer({
   // offers only the commands.
   const loadSkills = () => {
     if (isRoom && !bot.team) return
-    api.skills().then(setSkills, (e: Error) => setError(`Could not load skills: ${e.message}`))
+    api.botSkills(bot.id).then(setSkills, (e: Error) => setError(`Could not load skills: ${e.message}`))
   }
   useEffect(loadSkills, [bot.id])
 
@@ -1964,11 +1964,11 @@ export function Chat({
   // loaded per chat; a failed load shows no labels.
   const [skillList, setSkillList] = useState<{
     chat: string
-    skills: { id: string }[]
+    skills: { id: string; replaced?: boolean }[]
   }>({ chat: "", skills: [] })
   useEffect(() => {
     const chat = bot.id
-    api.skills().then(
+    api.botSkills(chat).then(
       (list) => setSkillList({ chat, skills: list }),
       () => setSkillList({ chat, skills: [] }),
     )

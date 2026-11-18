@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestATeamPostsSkillGoesAfterTheRoomContextAsItsOwnBlock(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	team, _, _, _ := h.newTeam(t)
-	if _, err := h.svc.WriteSkill("make-proof", "Use when asked for a proof file.", "1. Write the word to proof.txt."); err != nil {
+	if _, err := h.svc.WriteSkill(context.Background(), core.SharedSkills, "make-proof", "Use when asked for a proof file.", "1. Write the word to proof.txt."); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -54,7 +55,7 @@ func TestASlashSkillInAPlainRoomStaysText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.svc.WriteSkill("make-proof", "Use when asked for a proof file.", "1. Write the word to proof.txt."); err != nil {
+	if _, err := h.svc.WriteSkill(context.Background(), core.SharedSkills, "make-proof", "Use when asked for a proof file.", "1. Write the word to proof.txt."); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t)
@@ -75,15 +76,18 @@ func roomEntry(kind, text string) core.Entry {
 func TestTeamCommandIsOnlyASkillThatTheUsersPostInATeamStartsWith(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
-	team, _, _, _ := h.newTeam(t)
+	team, ana, _, _ := h.newTeam(t)
 	for _, name := range []string{"make-proof", "clear", "compact", "goal", "task"} {
-		if _, err := h.svc.WriteSkill(name, "A skill.", "Do "+name+"."); err != nil {
+		if _, err := h.svc.WriteSkill(context.Background(), core.SharedSkills, name, "A skill.", "Do "+name+"."); err != nil {
 			t.Fatal(err)
 		}
 	}
+	if _, err := h.svc.WriteSkill(context.Background(), ana.ID, "leads-own", "A skill.", "Do it."); err != nil {
+		t.Fatal(err)
+	}
 	plain := team
 	plain.Team = nil
-	userTurn := core.Turn{Source: core.SourceRoom, RoomID: team.ID}
+	userTurn := core.Turn{Source: core.SourceRoom, RoomID: team.ID, BotID: ana.ID}
 	cases := []struct {
 		name     string
 		room     core.Bot
@@ -102,6 +106,7 @@ func TestTeamCommandIsOnlyASkillThatTheUsersPostInATeamStartsWith(t *testing.T) 
 		{"a turn a bot woke", team, core.Turn{Source: core.SourceRoom, RoomID: team.ID, Hops: 1}, []core.Entry{roomEntry(core.KindUser, "/make-proof x")}, ""},
 		{"a board turn", team, core.Turn{Source: core.SourceRoom, RoomID: team.ID, BoardRole: core.RoleWork}, []core.Entry{roomEntry(core.KindUser, "/make-proof x")}, ""},
 		{"an unknown skill", team, userTurn, []core.Entry{roomEntry(core.KindUser, "/nope x")}, ""},
+		{"the lead's own skill", team, userTurn, []core.Entry{roomEntry(core.KindUser, "/leads-own x")}, ""},
 		{"text before the skill", team, userTurn, []core.Entry{roomEntry(core.KindUser, "run /make-proof x")}, ""},
 		{"/clear", team, userTurn, []core.Entry{roomEntry(core.KindUser, "/clear x")}, ""},
 		{"/compact", team, userTurn, []core.Entry{roomEntry(core.KindUser, "/compact")}, ""},
@@ -112,7 +117,7 @@ func TestTeamCommandIsOnlyASkillThatTheUsersPostInATeamStartsWith(t *testing.T) 
 		{"a path", team, userTurn, []core.Entry{roomEntry(core.KindUser, "/make-proof/x y")}, ""},
 	}
 	for _, c := range cases {
-		command, ok := h.runner.teamCommand(core.RoomUpdate{Room: c.room, Messages: c.messages}, c.turn)
+		command, ok := h.runner.teamCommand(context.Background(), core.RoomUpdate{Room: c.room, Messages: c.messages}, c.turn)
 		if ok != (c.command != "") || command != c.command {
 			t.Errorf("%s: teamCommand = %q, %v; want %q", c.name, command, ok, c.command)
 		}
@@ -142,34 +147,40 @@ func TestWithoutMentionsDropsTheLeadingMentionsOfMembers(t *testing.T) {
 	}
 }
 
-// A bot chat's message that starts with a skill goes to Claude Code unchanged, as the message's
-// last block, after Handful's own text; any other message, a "/word" that is no skill included,
-// stays one text.
+// A bot chat's message that starts with a skill, shared or the bot's own, goes to Claude Code
+// unchanged, as the message's last block, after Handful's own text; any other message, a "/word"
+// that is no skill or another bot's own skill included, stays one text.
 func TestABotChatsSkillMessageGoesUnchangedAsTheLastBlock(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
 	ctx := context.Background()
-	bot := h.newBot(t)
-	if _, err := h.svc.WriteSkill("make-proof", "Use when asked for a proof file.", "1. Write the word to proof.txt."); err != nil {
-		t.Fatal(err)
+	bot, other := h.newBot(t), h.newBot(t)
+	skills := []struct{ owner, name string }{{core.SharedSkills, "make-proof"}, {bot.ID, "my-proof"}, {other.ID, "their-proof"}}
+	for _, sk := range skills {
+		if _, err := h.svc.WriteSkill(ctx, sk.owner, sk.name, "Use when asked for a proof file.", "1. Write the word to proof.txt."); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h.start(t)
-	sends := []string{"/make-proof for October\nand November", "Summarise, then use /make-proof.", "/model opus", "/no-such-skill hi"}
-	for i, text := range sends {
+	commands := []string{"/make-proof for October\nand November", "/my-proof now"}
+	texts := []string{"Summarise, then use /make-proof.", "/model opus", "/no-such-skill hi", "/their-proof hi"}
+	for i, text := range append(slices.Clone(commands), texts...) {
 		if _, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, text, fmt.Sprintf("n%d", i)); err != nil {
 			t.Fatal(err)
 		}
 		h.waitCalls(t, i+1)
 		waitFor(t, "the turn ends", func() bool { return !h.runner.Running(bot.ID) })
 	}
-	calls := h.waitCalls(t, len(sends))
-	_, msg, _ := strings.Cut(calls[0], "--session-id")
-	first, command, blocks := strings.Cut(msg, "\n<<BLOCK>>\n")
-	if !blocks || command != sends[0] || !strings.Contains(first, "<timestamp>") || strings.Contains(first, "make-proof") {
-		t.Fatalf("the skill message = %q then %q (blocks %v); want Handful's text, then the message unchanged", first, command, blocks)
+	calls := h.waitCalls(t, len(commands)+len(texts))
+	for i, text := range commands {
+		_, msg, timestamp := strings.Cut(calls[i], "<timestamp>")
+		first, command, blocks := strings.Cut(msg, "\n<<BLOCK>>\n")
+		if !timestamp || !blocks || command != text || strings.Contains(first, "-proof") {
+			t.Fatalf("the skill message %q = %q then %q (blocks %v); want Handful's text, then the message unchanged", text, first, command, blocks)
+		}
 	}
-	for i, text := range sends[1:] {
-		if call := calls[i+1]; strings.Contains(call, "<<BLOCK>>") || !strings.Contains(call, "</timestamp>\n"+text) {
+	for i, text := range texts {
+		if call := calls[len(commands)+i]; strings.Contains(call, "<<BLOCK>>") || !strings.Contains(call, "</timestamp>\n"+text) {
 			t.Errorf("message %q went as %q; want one text that ends with it", text, call)
 		}
 	}

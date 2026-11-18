@@ -1076,9 +1076,13 @@ func TestMCPSkillProfileAndForgetToolsAnswerWithTheirResult(t *testing.T) {
 		want string
 	}{
 		{"update_skill", map[string]any{"action": "list"}, "No skills yet."},
-		{"update_skill", map[string]any{"action": "write", "name": "Weekly report", "description": "Use when the user asks for the weekly report.", "body": "1. Collect the numbers."}, `Saved skill "weekly-report" (id weekly-report). It is available through the Skill tool from the next turn.`},
-		{"update_skill", map[string]any{"action": "list"}, "- weekly-report: Use when the user asks for the weekly report.\n"},
-		{"update_skill", map[string]any{"action": "delete", "id": "weekly-report"}, "Deleted skill weekly-report."},
+		{"update_skill", map[string]any{"action": "write", "name": "Weekly report", "description": "Use when the user asks for the weekly report.", "body": "1. Collect the numbers."}, `Saved shared skill "weekly-report" (id weekly-report). It is available through the Skill tool from the next turn.`},
+		{"update_skill", map[string]any{"action": "write", "scope": "agent", "name": "Weekly report", "description": "Use when I write the weekly report.", "body": "1. Ask Ana."}, `Saved your own skill "weekly-report" (id weekly-report). It is available through the Skill tool from the next turn.`},
+		{"update_skill", map[string]any{"action": "list"}, "- weekly-report (this bot only): Use when I write the weekly report.\n- weekly-report (shared; your own skill with this id replaces it for you): Use when the user asks for the weekly report.\n"},
+		{"update_skill", map[string]any{"action": "delete", "scope": "agent", "id": "weekly-report"}, "Deleted your own skill weekly-report."},
+		{"update_skill", map[string]any{"action": "list"}, "- weekly-report (shared): Use when the user asks for the weekly report.\n"},
+		{"update_skill", map[string]any{"action": "delete", "scope": "user", "id": "weekly-report"}, "Deleted shared skill weekly-report."},
+		{"update_skill", map[string]any{"action": "list"}, "No skills yet."},
 		{"update_profile", map[string]any{"name": "Scout"}, `Profile updated: name "Scout".`},
 		{"update_memory", map[string]any{"action": "write", "fact": "The user lives in Riga."}, "Saved."},
 		{"update_memory", map[string]any{"action": "forget", "fact": "The user lives in Riga."}, "Forgotten."},
@@ -1096,6 +1100,7 @@ func TestMCPSkillProfileAndForgetToolsAnswerWithTheirResult(t *testing.T) {
 	}{
 		{"update_skill", map[string]any{"action": "write", "name": "", "description": "x", "body": "x"}, "name"},
 		{"update_skill", map[string]any{"action": "delete", "id": "missing"}, "missing"},
+		{"update_skill", map[string]any{"action": "list", "scope": "team"}, `scope "team" must be user (all bots) or agent (only you)`},
 		{"update_profile", map[string]any{"name": " "}, "name is required"},
 		{"update_memory", map[string]any{"action": "forget", "fact": " "}, "fact is empty"},
 	}

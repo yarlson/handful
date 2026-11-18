@@ -655,33 +655,144 @@ func TestFireDueRoutinesQueuesTurnAndAdvancesNextRun(t *testing.T) {
 }
 
 func TestSkillsWriteListGetDelete(t *testing.T) {
+	ctx := context.Background()
 	svc := newTestService(t)
-	sk, err := svc.WriteSkill("Daily Standup!", `Use when the user asks for a "standup".`, "# Steps\n1. Collect updates.")
+	sk, err := svc.WriteSkill(ctx, SharedSkills, "Daily Standup!", `Use when the user asks for a "standup".`, "# Steps\n1. Collect updates.")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sk.ID != "daily-standup" {
 		t.Fatalf("id = %q; want daily-standup", sk.ID)
 	}
-	got, err := svc.GetSkill("daily-standup")
+	got, err := svc.GetSkill(ctx, SharedSkills, "daily-standup")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Description != `Use when the user asks for a "standup".` || got.Body != "# Steps\n1. Collect updates.\n" {
+	if got.Description != `Use when the user asks for a "standup".` || got.Body != "# Steps\n1. Collect updates.\n" || got.Layer != LayerShared {
 		t.Fatalf("skill = %+v", got)
 	}
-	list, err := svc.ListSkills()
+	list, err := svc.ListSkills(ctx, SharedSkills)
 	if err != nil || len(list) != 1 || list[0].Body != "" {
 		t.Fatalf("list = %+v, %v; want one skill without body", list, err)
 	}
-	if _, err := svc.GetSkill("../escape"); !errors.Is(err, ErrInvalid) {
+	if _, err := svc.GetSkill(ctx, SharedSkills, "../escape"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("path traversal id: err = %v; want ErrInvalid", err)
 	}
-	if err := svc.DeleteSkill("daily-standup"); err != nil {
+	if err := svc.DeleteSkill(ctx, SharedSkills, "daily-standup"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.GetSkill("daily-standup"); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.GetSkill(ctx, SharedSkills, "daily-standup"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("after delete: err = %v; want ErrNotFound", err)
+	}
+}
+
+// AC4.1, AC4.3, AC9.2: a bot's own skill is in its Claude Code folder, lists for that bot only,
+// and hides the shared skill with the same id from it; deleting it leaves the shared one.
+func TestABotsOwnSkillListsForItOnlyAndReplacesTheSharedOne(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	ana, bo := newTestBot(t, svc), newTestBot(t, svc)
+	room, err := svc.CreateRoom(ctx, "Plan", "", []string{ana.ID, bo.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes := []struct{ owner, name, description string }{
+		{SharedSkills, "review", "Shared review."},
+		{SharedSkills, "deploy", "Shared deploy."},
+		{ana.ID, "review", "Ana's review."},
+		{ana.ID, "notes", "Ana's notes."},
+	}
+	for _, w := range writes {
+		if _, err := svc.WriteSkill(ctx, w.owner, w.name, w.description, "Do it."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(svc.BotConfigDir(ana.ID), "skills", "notes", skillFile)); err != nil {
+		t.Fatalf("Ana's own skill is not in Ana's Claude Code folder: %v", err)
+	}
+	shared := []Skill{
+		{ID: "deploy", Name: "deploy", Description: "Shared deploy.", Layer: LayerShared},
+		{ID: "review", Name: "review", Description: "Shared review.", Layer: LayerShared},
+	}
+	lists := []struct {
+		chat string
+		want []Skill
+	}{
+		{ana.ID, []Skill{
+			{ID: "notes", Name: "notes", Description: "Ana's notes.", Layer: LayerBot},
+			{ID: "review", Name: "review", Description: "Ana's review.", Layer: LayerBot},
+			{ID: "deploy", Name: "deploy", Description: "Shared deploy.", Layer: LayerShared},
+			{ID: "review", Name: "review", Description: "Shared review.", Layer: LayerShared, Replaced: true},
+		}},
+		{bo.ID, shared},
+		{room.ID, shared},
+		{SharedSkills, shared},
+	}
+	for _, l := range lists {
+		if got, err := svc.ListSkills(ctx, l.chat); err != nil || !slices.Equal(got, l.want) {
+			t.Errorf("ListSkills(%s) = %+v, %v; want %+v", l.chat, got, err, l.want)
+		}
+	}
+	if _, err := svc.GetSkill(ctx, bo.ID, "notes"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Bo gets Ana's skill: err = %v; want ErrNotFound", err)
+	}
+	if err := svc.DeleteSkill(ctx, ana.ID, "review"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GetSkill(ctx, ana.ID, "review"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("after deleting Ana's review: err = %v; want ErrNotFound", err)
+	}
+	if got, err := svc.GetSkill(ctx, SharedSkills, "review"); err != nil || got.Description != "Shared review." {
+		t.Fatalf("shared review after deleting Ana's = %+v, %v; want it kept", got, err)
+	}
+}
+
+func TestOnlyABotHasSkillsOfItsOwn(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	room, err := svc.CreateRoom(ctx, "Plan", "", []string{bot.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.WriteSkill(ctx, room.ID, "notes", "Notes.", "Do it."); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a room's own skill: err = %v; want ErrInvalid", err)
+	}
+	if _, err := svc.WriteSkill(ctx, "missing", "notes", "Notes.", "Do it."); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("an unknown bot's skill: err = %v; want ErrNotFound", err)
+	}
+	if _, err := svc.ListSkills(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("an unknown bot's skills: err = %v; want ErrNotFound", err)
+	}
+	if got, err := svc.ListSkills(ctx, bot.ID); err != nil || len(got) != 0 {
+		t.Fatalf("a new bot's skills = %+v, %v; want none", got, err)
+	}
+}
+
+// Claude Code keeps the skills it syncs from the user's account in skills/synced of the bot's
+// folder, so no own skill may take that name; a shared skill may.
+func TestABotsOwnSkillCannotBeNamedSynced(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	bot := newTestBot(t, svc)
+	synced := filepath.Join(svc.BotConfigDir(bot.ID), "skills", "synced", "bucket", "pdf", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(synced), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(synced, []byte("---\nname: pdf\ndescription: PDF.\n---\nRead it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.WriteSkill(ctx, bot.ID, "synced", "Notes.", "Do it."); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("own skill synced: err = %v; want ErrInvalid", err)
+	}
+	if err := svc.DeleteSkill(ctx, bot.ID, "synced"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("delete own skill synced: err = %v; want ErrInvalid", err)
+	}
+	if _, err := os.Stat(synced); err != nil {
+		t.Fatalf("Claude Code's synced skill after the calls: %v; want it kept", err)
+	}
+	if _, err := svc.WriteSkill(ctx, SharedSkills, "synced", "Notes.", "Do it."); err != nil {
+		t.Fatalf("shared skill synced: %v; want it saved", err)
 	}
 }
 

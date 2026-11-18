@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -21,13 +23,31 @@ const (
 	maxSkillDescLength = 1000
 )
 
-// Skill is a SKILL.md file in the shared skills directory. Claude Code loads
-// these files itself through each workspace's .claude/skills link.
+// syncedSkills is the folder in a bot's skills folder where Claude Code keeps the skills it syncs
+// from the user's account.
+const syncedSkills = "synced"
+
+// SharedSkills is the owner of the skills that every bot loads. The skill functions take an
+// owner: SharedSkills, or a bot's ID for the skills that only that bot loads.
+const SharedSkills = ""
+
+// The layers a skill is in: the shared skills folder, or one bot's own.
+const (
+	LayerShared = "shared"
+	LayerBot    = "bot"
+)
+
+// Skill is a SKILL.md file in the shared skills folder or in a bot's Claude Code folder. Claude
+// Code loads both: the shared ones through each workspace's .claude/skills link, and a bot's own
+// as personal skills, which win over a shared skill with the same name.
 type Skill struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Body        string `json:"body,omitempty"`
+	Layer       string `json:"layer"`
+	// Replaced marks a shared skill that a bot's own skill with the same id hides from that bot.
+	Replaced bool `json:"replaced,omitempty"`
 }
 
 var (
@@ -44,15 +64,34 @@ func skillID(name string) (string, error) {
 	return id, nil
 }
 
-func (s *Service) skillPath(id string) (string, error) {
+// skillsDir returns the folder of an owner's skills and their layer. A bot owner must be an
+// agent: a room has no Claude Code folder.
+func (s *Service) skillsDir(ctx context.Context, owner string) (dir, layer string, err error) {
+	if owner == SharedSkills {
+		return s.SkillsDir(), LayerShared, nil
+	}
+	bot, err := s.GetBot(ctx, owner)
+	if err != nil {
+		return "", "", err
+	}
+	if bot.IsRoom() {
+		return "", "", invalid("room %s has no skills of its own; only a bot has", owner)
+	}
+	return filepath.Join(s.BotConfigDir(owner), "skills"), LayerBot, nil
+}
+
+func skillPath(dir, layer, id string) (string, error) {
 	if !validSlug.MatchString(id) {
 		return "", invalid("skill id %q is not a valid folder name", id)
 	}
-	return filepath.Join(s.SkillsDir(), id, skillFile), nil
+	if layer == LayerBot && id == syncedSkills {
+		return "", invalid("a bot's own skill cannot be named %q: Claude Code keeps the skills synced from the user's account in that folder; choose another name", id)
+	}
+	return filepath.Join(dir, id, skillFile), nil
 }
 
-// WriteSkill creates or replaces a skill and returns it.
-func (s *Service) WriteSkill(name, description, body string) (Skill, error) {
+// WriteSkill creates or replaces an owner's skill and returns it.
+func (s *Service) WriteSkill(ctx context.Context, owner, name, description, body string) (Skill, error) {
 	name = strings.TrimSpace(name)
 	description = strings.Join(strings.Fields(description), " ")
 	body = strings.TrimSpace(body)
@@ -66,7 +105,11 @@ func (s *Service) WriteSkill(name, description, body string) (Skill, error) {
 	if body == "" || len(body) > maxSkillBody {
 		return Skill{}, invalid("skill body must be 1 to %d bytes", maxSkillBody)
 	}
-	path, err := s.skillPath(id)
+	dir, layer, err := s.skillsDir(ctx, owner)
+	if err != nil {
+		return Skill{}, err
+	}
+	path, err := skillPath(dir, layer, id)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -84,11 +127,16 @@ func (s *Service) WriteSkill(name, description, body string) (Skill, error) {
 	if err := os.Rename(tmp, path); err != nil {
 		return Skill{}, fmt.Errorf("save skill %s: %w", id, err)
 	}
-	return Skill{ID: id, Name: id, Description: description, Body: body}, nil
+	return Skill{ID: id, Name: id, Description: description, Body: body, Layer: layer}, nil
 }
 
-func (s *Service) DeleteSkill(id string) error {
-	path, err := s.skillPath(id)
+// DeleteSkill deletes an owner's skill; a skill with the same id in the other layer stays.
+func (s *Service) DeleteSkill(ctx context.Context, owner, id string) error {
+	dir, layer, err := s.skillsDir(ctx, owner)
+	if err != nil {
+		return err
+	}
+	path, err := skillPath(dir, layer, id)
 	if err != nil {
 		return err
 	}
@@ -117,8 +165,17 @@ func isFolder(dir string, d fs.DirEntry) (bool, error) {
 	return info.IsDir(), nil
 }
 
-func (s *Service) GetSkill(id string) (Skill, error) {
-	path, err := s.skillPath(id)
+// GetSkill returns an owner's skill.
+func (s *Service) GetSkill(ctx context.Context, owner, id string) (Skill, error) {
+	dir, layer, err := s.skillsDir(ctx, owner)
+	if err != nil {
+		return Skill{}, err
+	}
+	return readSkill(dir, layer, id)
+}
+
+func readSkill(dir, layer, id string) (Skill, error) {
+	path, err := skillPath(dir, layer, id)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -129,26 +186,59 @@ func (s *Service) GetSkill(id string) (Skill, error) {
 	if err != nil {
 		return Skill{}, fmt.Errorf("read skill %s: %w", id, err)
 	}
-	return parseSkill(id, string(raw)), nil
+	sk := parseSkill(id, string(raw))
+	sk.Layer = layer
+	return sk, nil
 }
 
-// ListSkills returns every skill without its body, sorted by id. A skill's folder may be a link
-// to a folder elsewhere, as Claude Code allows.
-func (s *Service) ListSkills() ([]Skill, error) {
-	dirs, err := os.ReadDir(s.SkillsDir())
+// ListSkills returns the skills that a chat loads, without their bodies: for a bot, its own
+// skills and then the shared ones, with each shared skill that an own skill hides marked
+// Replaced; for a room or SharedSkills, the shared skills only. Each layer is sorted by id.
+func (s *Service) ListSkills(ctx context.Context, chat string) ([]Skill, error) {
+	shared, err := listSkills(s.SkillsDir(), LayerShared)
 	if err != nil {
-		return nil, fmt.Errorf("read skills dir: %w", err)
+		return nil, err
+	}
+	if chat == SharedSkills {
+		return shared, nil
+	}
+	dir, _, err := s.skillsDir(ctx, chat)
+	if errors.Is(err, ErrInvalid) {
+		return shared, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	own, err := listSkills(dir, LayerBot)
+	if err != nil {
+		return nil, err
+	}
+	for i, sk := range shared {
+		shared[i].Replaced = slices.ContainsFunc(own, func(o Skill) bool { return o.ID == sk.ID })
+	}
+	return append(own, shared...), nil
+}
+
+// listSkills reads the skills of one folder; a missing folder has none. A skill's folder may be a
+// link to a folder elsewhere, as Claude Code allows.
+func listSkills(dir, layer string) ([]Skill, error) {
+	dirs, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read skills folder %s: %w", dir, err)
 	}
 	var out []Skill
 	for _, d := range dirs {
-		folder, err := isFolder(s.SkillsDir(), d)
+		folder, err := isFolder(dir, d)
 		if err != nil {
 			return nil, err
 		}
 		if !folder {
 			continue
 		}
-		sk, err := s.GetSkill(d.Name())
+		sk, err := readSkill(dir, layer, d.Name())
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
 			continue
 		}

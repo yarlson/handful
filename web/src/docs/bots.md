@@ -102,11 +102,11 @@ The **Routines** tab shows each routine and its next run. A switch turns a routi
 
 ## Skills
 
-A skill is a saved procedure that every bot can use. When you finish a process that you will repeat, a bot can save it as a skill.
+A skill is a saved procedure. When you finish a process that you will repeat, a bot can save it as a skill. A skill is shared by all bots, or it is for one bot only. A bot saves a shared skill unless you ask it to keep the skill for itself.
 
-Skills are `SKILL.md` files in `~/.handful/skills`. The **Skills** tab of the bot panel lists them and opens one in the reader. Skills work as in Claude Code's terminal, in a bot's chat and in a team's chat:
+Shared skills are `SKILL.md` files in `~/.handful/skills`. The **Skills** tab of the bot panel lists the bot's own skills, then the shared ones, and opens one in the reader. Each skill shows "This bot only" or "Shared". A shared skill shows "Replaced for this bot" when the bot has its own skill with the same name. Skills work as in Claude Code's terminal, in a bot's chat and in a team's chat:
 
-- A message that starts with `/<skill> <request>` runs the skill now, with the rest of the message as its request. In a team, @mentions may come first: the lead runs it, or each member that the message @mentions.
+- A message that starts with `/<skill> <request>` runs the skill now, with the rest of the message as its request. A bot's chat runs the bot's own skills and the shared ones. A team's chat runs shared skills only. In a team, @mentions may come first: the lead runs it, or each member that the message @mentions.
 - A `/<skill>` later in a message asks the bot to use that skill too.
 - A sent message shows a label for each skill that it names.
 

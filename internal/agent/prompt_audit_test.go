@@ -223,3 +223,28 @@ func TestTheExecutorIsToldNotToMessageTheUser(t *testing.T) {
 		[]string{"Do not message the user or other bots, and do not ask questions: send_to_user and send_to_agent are the parent's to use.", claudeMDLine},
 		[]string{"You cannot talk to the user"})
 }
+
+// AC4.4: every prompt variant says that skills have two layers and that shared is the default,
+// and Builder's guide says which skills a chat runs.
+func TestEveryPromptVariantNamesBothSkillLayers(t *testing.T) {
+	t.Parallel()
+	const line = `A skill is shared by all of the user's bots (scope "user", the default); scope "agent" saves it for you only, and your own skill wins over a shared one with the same name.`
+	now := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	ana := core.Bot{ID: "a", Name: "Ana", Instructions: "Write code."}
+	team := core.Bot{ID: "t", Name: "Ship", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}, Team: &core.Team{LeadID: "a"}}
+	builder := core.Bot{ID: "bl", Name: "Builder", Role: core.RoleBuilder}
+	for what, pc := range map[string]promptContext{
+		"a bot":           {Bot: ana, Now: now},
+		"Builder":         {Bot: builder, Now: now},
+		"a team's lead":   {Bot: ana, Team: &team, Now: now},
+		"a team's member": {Bot: core.Bot{ID: "b", Name: "Bo"}, Team: &team, Now: now},
+		"a bot in a room": {Bot: ana, Rooms: []core.Bot{{ID: "r", Name: "Plan", Kind: core.KindRoom}}, Now: now},
+	} {
+		got := systemPrompt(pc)
+		if strings.Count(got, line) != 1 || strings.Contains(got, "Skills are shared by all of the user's bots.") {
+			t.Errorf("%s's prompt has the skill layers line %d times, or the old line; want it once", what, strings.Count(got, line))
+		}
+	}
+	wantText(t, "Builder's prompt", systemPrompt(promptContext{Bot: builder, Now: now}),
+		[]string{`a bot can also keep a skill for itself only. The user runs a skill with /<skill> <request> in a bot's chat, where the bot's own skills run too, or a shared skill in a team's chat`}, nil)
+}

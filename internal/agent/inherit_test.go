@@ -10,12 +10,13 @@ import (
 
 // AC13, end to end: a step's owner starts a background task in its work
 // turn; when the task reports, the turn that Claude Code starts works on the
-// same task and step.
+// same task and step. The fake reports the task when the next message comes
+// to the same session, so the next work turn on the step brings it.
 func TestATaskReportTurnWorksOnTheStepThatStartedTheTask(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "task-report")
 	ctx := context.Background()
-	team, _, bo, _ := h.newTeam(t)
+	team, ana, bo, _ := h.newTeam(t)
 	items := h.newGoal(t, team, boardItem("Build", "Build the site.", bo.ID, ""))
 	board, err := h.svc.Board(ctx, team.ID)
 	if err != nil {
@@ -23,7 +24,10 @@ func TestATaskReportTurnWorksOnTheStepThatStartedTheTask(t *testing.T) {
 	}
 	h.start(t)
 	waitFor(t, "Bo's work turn starts the task", func() bool { return len(h.runner.Tasks(team.ID)) == 1 })
-	if _, _, err := h.svc.SubmitUserMessage(ctx, team.ID, "@Bo is the build done?", "n1"); err != nil {
+	if _, err := h.svc.BlockItem(ctx, core.Actor{BotID: bo.ID, TeamID: team.ID, Role: core.RoleWork}, items[0].ID, "Which host?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.UnblockItem(ctx, core.Actor{BotID: ana.ID, TeamID: team.ID, Role: core.RoleLead}, items[0].ID, "The usual one."); err != nil {
 		t.Fatal(err)
 	}
 	var goalID, itemID string
@@ -97,7 +101,7 @@ func TestAMentionSentToTheTeamWithSendToAgentCarriesTheTask(t *testing.T) {
 func TestTheTurnThatStartsABackgroundTaskIsRecorded(t *testing.T) {
 	t.Parallel()
 	r := newHarness(t, "reply").runner
-	s := &session{key: sessionKey{"b", "room"}, bot: core.Bot{ID: "b", Name: "Bo"}, open: true, pending: map[string]*command{}}
+	s := &session{key: sessionKey{botID: "b", roomID: "room"}, bot: core.Bot{ID: "b", Name: "Bo"}, open: true, pending: map[string]*command{}}
 	report := func(turnID string, ids ...string) {
 		t.Helper()
 		token, err := r.tokens.issue(runContext{BotID: "b", TurnID: turnID})

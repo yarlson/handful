@@ -125,7 +125,7 @@ func TestATurnStoppedFromOutsideNamesTheSignal(t *testing.T) {
 func TestExitReasonKeepsHandfulsOwnStopsAndPlainExits(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
-	s := &session{key: sessionKey{"b", ""}}
+	s := &session{key: sessionKey{botID: "b", roomID: ""}}
 	term := exec.CommandContext(context.Background(), "/bin/sh", "-c", "kill -TERM $$").Run()
 	for _, c := range []struct {
 		err            error

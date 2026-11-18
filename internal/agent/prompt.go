@@ -828,11 +828,7 @@ func roomPrompt(bot core.Bot, u core.RoomUpdate, reason string, mediaDir string)
 	if reason != "" {
 		b.WriteString(reason + "\n")
 	}
-	if u.FirstVisit {
-		b.WriteString("This is your first turn in this room. Recent messages:\n")
-	} else {
-		b.WriteString("New messages since your last turn here:\n")
-	}
+	b.WriteString(updateHeader(u))
 	if len(u.Messages) == 0 {
 		b.WriteString("(none)\n")
 	}
@@ -842,6 +838,21 @@ func roomPrompt(bot core.Bot, u core.RoomUpdate, reason string, mediaDir string)
 	b.WriteString(`
 In this turn, send_to_user posts your message into the room for everyone. Answer when the conversation is addressed to you or you can add something the others have not said; otherwise end without posting. Keep posts short, do not start them with your name (it is shown with every post), and do the work yourself in this turn. To ask one member to do or answer something, write @Name in your post; that wakes them. @here wakes every member: use it only when all of them must act. Do not @mention a member only to answer or thank them: they see your post on their next turn.`)
 	return b.String()
+}
+
+// updateHeader introduces the messages of u: the recent ones when the session starts now, else
+// the new ones since the session's last turn.
+func updateHeader(u core.RoomUpdate) string {
+	if u.Step == (core.Step{}) {
+		if u.FirstVisit {
+			return "This is your first turn in this room. Recent messages:\n"
+		}
+		return "New messages since your last turn here:\n"
+	}
+	if u.Seat.ClaudeSessionID == "" {
+		return "This turn starts a new session for this step. Recent messages:\n"
+	}
+	return "New messages since your last turn on this step:\n"
 }
 
 // roomLine renders one room entry as "Speaker: text", plus its media. A bot

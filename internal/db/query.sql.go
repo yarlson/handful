@@ -909,6 +909,15 @@ func (q *Queries) DeleteRoutine(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const deleteTeamStepSessions = `-- name: DeleteTeamStepSessions :exec
+DELETE FROM step_sessions WHERE item_id IN (SELECT id FROM items WHERE team_id = ?)
+`
+
+func (q *Queries) DeleteTeamStepSessions(ctx context.Context, teamID string) error {
+	_, err := q.db.ExecContext(ctx, deleteTeamStepSessions, teamID)
+	return err
+}
+
 const deleteToolGrant = `-- name: DeleteToolGrant :execrows
 DELETE FROM tool_grants WHERE bot_id = ? AND tool_name = ?
 `
@@ -1308,6 +1317,35 @@ func (q *Queries) GetSessionPrompt(ctx context.Context, arg GetSessionPromptPara
 	row := q.db.QueryRowContext(ctx, getSessionPrompt, arg.BotID, arg.ChatID)
 	var i GetSessionPromptRow
 	err := row.Scan(&i.SessionID, &i.Prompt)
+	return i, err
+}
+
+const getStepSession = `-- name: GetStepSession :one
+SELECT claude_session_id, last_seen_seq, prompt_session_id, prompt FROM step_sessions WHERE item_id = ? AND bot_id = ? AND role = ?
+`
+
+type GetStepSessionParams struct {
+	ItemID string `json:"item_id"`
+	BotID  string `json:"bot_id"`
+	Role   string `json:"role"`
+}
+
+type GetStepSessionRow struct {
+	ClaudeSessionID string `json:"claude_session_id"`
+	LastSeenSeq     int64  `json:"last_seen_seq"`
+	PromptSessionID string `json:"prompt_session_id"`
+	Prompt          string `json:"prompt"`
+}
+
+func (q *Queries) GetStepSession(ctx context.Context, arg GetStepSessionParams) (GetStepSessionRow, error) {
+	row := q.db.QueryRowContext(ctx, getStepSession, arg.ItemID, arg.BotID, arg.Role)
+	var i GetStepSessionRow
+	err := row.Scan(
+		&i.ClaudeSessionID,
+		&i.LastSeenSeq,
+		&i.PromptSessionID,
+		&i.Prompt,
+	)
 	return i, err
 }
 
@@ -4433,6 +4471,38 @@ func (q *Queries) ReplaceSessionPrompt(ctx context.Context, arg ReplaceSessionPr
 	return result.RowsAffected()
 }
 
+const replaceStepSessionPrompt = `-- name: ReplaceStepSessionPrompt :execrows
+UPDATE step_sessions SET prompt_session_id = ?1, prompt = ?2
+WHERE item_id = ?3 AND bot_id = ?4 AND role = ?5
+  AND prompt_session_id = ?6 AND prompt = ?7
+`
+
+type ReplaceStepSessionPromptParams struct {
+	SessionID    string `json:"session_id"`
+	Prompt       string `json:"prompt"`
+	ItemID       string `json:"item_id"`
+	BotID        string `json:"bot_id"`
+	Role         string `json:"role"`
+	WasSessionID string `json:"was_session_id"`
+	WasPrompt    string `json:"was_prompt"`
+}
+
+func (q *Queries) ReplaceStepSessionPrompt(ctx context.Context, arg ReplaceStepSessionPromptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, replaceStepSessionPrompt,
+		arg.SessionID,
+		arg.Prompt,
+		arg.ItemID,
+		arg.BotID,
+		arg.Role,
+		arg.WasSessionID,
+		arg.WasPrompt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const requeueTurn = `-- name: RequeueTurn :execrows
 UPDATE turns SET status = 'queued', error = '', started_at = NULL, finished_at = NULL
 WHERE id = ? AND status = 'running'
@@ -4873,6 +4943,72 @@ func (q *Queries) SetSessionPrompt(ctx context.Context, arg SetSessionPromptPara
 		arg.ChatID,
 		arg.SessionID,
 		arg.Prompt,
+	)
+	return err
+}
+
+const setStepSession = `-- name: SetStepSession :exec
+INSERT INTO step_sessions (item_id, bot_id, role, claude_session_id) VALUES (?, ?, ?, ?)
+ON CONFLICT (item_id, bot_id, role) DO UPDATE SET claude_session_id = excluded.claude_session_id
+`
+
+type SetStepSessionParams struct {
+	ItemID          string `json:"item_id"`
+	BotID           string `json:"bot_id"`
+	Role            string `json:"role"`
+	ClaudeSessionID string `json:"claude_session_id"`
+}
+
+func (q *Queries) SetStepSession(ctx context.Context, arg SetStepSessionParams) error {
+	_, err := q.db.ExecContext(ctx, setStepSession,
+		arg.ItemID,
+		arg.BotID,
+		arg.Role,
+		arg.ClaudeSessionID,
+	)
+	return err
+}
+
+const setStepSessionPrompt = `-- name: SetStepSessionPrompt :exec
+UPDATE step_sessions SET prompt_session_id = ?, prompt = ? WHERE item_id = ? AND bot_id = ? AND role = ?
+`
+
+type SetStepSessionPromptParams struct {
+	PromptSessionID string `json:"prompt_session_id"`
+	Prompt          string `json:"prompt"`
+	ItemID          string `json:"item_id"`
+	BotID           string `json:"bot_id"`
+	Role            string `json:"role"`
+}
+
+func (q *Queries) SetStepSessionPrompt(ctx context.Context, arg SetStepSessionPromptParams) error {
+	_, err := q.db.ExecContext(ctx, setStepSessionPrompt,
+		arg.PromptSessionID,
+		arg.Prompt,
+		arg.ItemID,
+		arg.BotID,
+		arg.Role,
+	)
+	return err
+}
+
+const setStepSessionSeen = `-- name: SetStepSessionSeen :exec
+UPDATE step_sessions SET last_seen_seq = ? WHERE item_id = ? AND bot_id = ? AND role = ?
+`
+
+type SetStepSessionSeenParams struct {
+	LastSeenSeq int64  `json:"last_seen_seq"`
+	ItemID      string `json:"item_id"`
+	BotID       string `json:"bot_id"`
+	Role        string `json:"role"`
+}
+
+func (q *Queries) SetStepSessionSeen(ctx context.Context, arg SetStepSessionSeenParams) error {
+	_, err := q.db.ExecContext(ctx, setStepSessionSeen,
+		arg.LastSeenSeq,
+		arg.ItemID,
+		arg.BotID,
+		arg.Role,
 	)
 	return err
 }

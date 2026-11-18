@@ -161,27 +161,27 @@ func TestPendingRoomUpdateReturnsOnlyUnseenMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	u, err := svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID)
+	u, err := svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID, Step{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !u.FirstVisit || len(u.Messages) != 2 {
 		t.Fatalf("first update: first=%v messages=%d; want a first visit with 2 messages (events left out)", u.FirstVisit, len(u.Messages))
 	}
-	if u, _ := svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID); !u.FirstVisit || len(u.Messages) != 2 {
+	if u, _ := svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID, Step{}); !u.FirstVisit || len(u.Messages) != 2 {
 		t.Fatalf("update before marking seen: first=%v messages=%d; want the same 2 messages again", u.FirstVisit, len(u.Messages))
 	}
-	if err := svc.MarkRoomSeen(ctx, room.ID, bots["Bo"].ID, u.LastSeq); err != nil {
+	if err := svc.MarkRoomSeen(ctx, room.ID, bots["Bo"].ID, Step{}, u.LastSeq); err != nil {
 		t.Fatal(err)
 	}
-	u, _ = svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID)
+	u, _ = svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID, Step{})
 	if u.FirstVisit || len(u.Messages) != 0 {
 		t.Fatalf("second update: first=%v messages=%d; want nothing new", u.FirstVisit, len(u.Messages))
 	}
 	if _, _, err := svc.SubmitUserMessage(ctx, room.ID, "second", "n2"); err != nil {
 		t.Fatal(err)
 	}
-	u, _ = svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID)
+	u, _ = svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID, Step{})
 	if len(u.Messages) != 1 || u.Messages[0].Kind != KindUser {
 		t.Fatalf("third update = %+v; want the one new user message", u.Messages)
 	}
@@ -349,7 +349,7 @@ func TestRoomHistoryReturnsTheLatestMessagesToMembersOnly(t *testing.T) {
 	if strings.Join(texts, ",") != "two,three" {
 		t.Fatalf("history with limit 2 = %v; want the latest two, oldest first: [two three]", texts)
 	}
-	if u, _ := svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID); len(u.Messages) != 3 {
+	if u, _ := svc.PendingRoomUpdate(ctx, room.ID, bots["Bo"].ID, Step{}); len(u.Messages) != 3 {
 		t.Fatalf("pending messages after reading history = %d; want 3 (reading does not mark them seen)", len(u.Messages))
 	}
 	if _, err := svc.RoomHistory(ctx, room.ID, bots["Outsider"].ID, 2, 0); !errors.Is(err, ErrInvalid) {

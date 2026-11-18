@@ -24,8 +24,22 @@ import (
 // the real one (the task's notification) itself.
 const taskTurnPrompt = "[task] A background task reported."
 
-// sessionKey names a Claude session: a bot's main chat, or its seat in a room.
-type sessionKey struct{ botID, roomID string }
+// sessionKey names a Claude session: a bot's main chat, its seat in a room, or its turns in one
+// role on a step of a team's board (step), which run beside the seat's.
+type sessionKey struct {
+	botID, roomID string
+	step          core.Step
+}
+
+// turnKey names the Claude session that the bot's turn t runs in.
+func turnKey(botID string, t core.Turn) sessionKey {
+	return sessionKey{botID: botID, roomID: t.RoomID, step: core.StepOf(t)}
+}
+
+// seat names the session of the bot's chat or room seat that k belongs to.
+func (k sessionKey) seat() sessionKey {
+	return sessionKey{botID: k.botID, roomID: k.roomID}
+}
 
 // transcript is the chat that shows the session's activity.
 func (k sessionKey) transcript() string {

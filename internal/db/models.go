@@ -221,6 +221,16 @@ type SessionPrompt struct {
 	Prompt    string `json:"prompt"`
 }
 
+type StepSession struct {
+	ItemID          string `json:"item_id"`
+	BotID           string `json:"bot_id"`
+	Role            string `json:"role"`
+	ClaudeSessionID string `json:"claude_session_id"`
+	LastSeenSeq     int64  `json:"last_seen_seq"`
+	PromptSessionID string `json:"prompt_session_id"`
+	Prompt          string `json:"prompt"`
+}
+
 type Team struct {
 	TeamID          string `json:"team_id"`
 	LeadBotID       string `json:"lead_bot_id"`

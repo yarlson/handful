@@ -22,7 +22,7 @@ To change the lead or the agreement later, open the team panel, then **Settings*
 - A shared folder, `~/.handful/teams/<team id>/workspace`.
 - Team memory: members save there what the whole team needs. To read it or add to it, open the team panel, then **Memory**. Members see team memory only in the team's turns.
 
-A bot can be a member of several teams. It keeps a separate Claude Code session for each one.
+A bot can be a member of several teams. It keeps a separate Claude Code session for each one. It also starts a new session for each step that it works on or reviews, and keeps that session for the later rounds of the step.
 
 In a team turn, a member talks only to its team. It does not message other bots, and it does not see the direct messages that other bots sent it. Those wait for its next turn outside the team.
 

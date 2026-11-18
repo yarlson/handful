@@ -6,7 +6,8 @@ import (
 )
 
 // ClearContext makes the next turn start a fresh Claude session: the bot's
-// main session, or every member's session in a room. The transcript stays,
+// main session, or every member's session in a room, its sessions on the
+// steps of a team's board included. The transcript stays,
 // with an event that marks where the fresh context begins.
 func (s *Service) ClearContext(ctx context.Context, id string) error {
 	bot, err := s.GetBot(ctx, id)
@@ -19,6 +20,9 @@ func (s *Service) ClearContext(ctx context.Context, id string) error {
 			if err := s.SetRoomSession(ctx, id, m.ID, ""); err != nil {
 				return err
 			}
+		}
+		if err := s.q.DeleteTeamStepSessions(ctx, id); err != nil {
+			return fmt.Errorf("clear the step sessions of %s: %w", id, err)
 		}
 		text = "Context cleared. Members start fresh in this room from here; earlier messages stay visible."
 	} else if err := s.SetSession(ctx, id, ""); err != nil {

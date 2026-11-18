@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"handful/internal/agent"
 	"handful/internal/core"
+	"handful/internal/db/dbtest"
 )
 
 // The usage route gives the window that --autocompact uses and the bot's last recorded turn, or
@@ -66,5 +69,55 @@ func TestThePlanWindowsRouteGivesEachWindowsLatestState(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), `"window":"five_hour","status":"allowed","utilization"`) {
 		t.Errorf("plan windows %s; want no utilization for a window without one", rec.Body)
+	}
+}
+
+// The spend route gives each bot's cost and helpers in the last 24h or 7d, the largest cost
+// first; another period is a bad request.
+func TestTheSpendRouteGivesEachBotsSpendInThePeriod(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	if rec := do(h, "GET", "/api/spend?period=24h", "", nil); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+		t.Fatalf("spend before a turn = %d %s; want []", rec.Code, rec.Body)
+	}
+	ana, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := func(cost float64, helpers int64) string {
+		t.Helper()
+		turn, err := svc.StartTaskTurn(ctx, ana.ID, "", "[task]", 0, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sp := core.TurnSpend{Models: map[string]core.ModelSpend{"claude-haiku-5-5": {CostUSD: cost}}, Helpers: helpers}
+		if err := svc.RecordTurnSpend(ctx, ana.ID, turn.ID, sp); err != nil {
+			t.Fatal(err)
+		}
+		return turn.ID
+	}
+	record(0.25, 1)
+	older := record(2, 3)
+	conn, err := dbtest.Open(ctx, filepath.Join(svc.DataDir(), "yargpt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	twoDaysAgo := time.Now().Add(-48 * time.Hour).UnixMilli()
+	if _, err := conn.ExecContext(ctx, `UPDATE turn_spend SET recorded_at = ? WHERE turn_id = ?`, twoDaysAgo, older); err != nil {
+		t.Fatal(err)
+	}
+	for period, want := range map[string]string{
+		"24h": `[{"botId":"` + ana.ID + `","costUsd":0.25,"helpers":1}]` + "\n",
+		"7d":  `[{"botId":"` + ana.ID + `","costUsd":2.25,"helpers":4}]` + "\n",
+	} {
+		if rec := do(h, "GET", "/api/spend?period="+period, "", nil); rec.Code != http.StatusOK || rec.Body.String() != want {
+			t.Errorf("spend of %s = %d %s; want %s", period, rec.Code, rec.Body, want)
+		}
+	}
+	for _, query := range []string{"", "?period=30d", "?period=24H"} {
+		if rec := do(h, "GET", "/api/spend"+query, "", nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "use 24h or 7d") {
+			t.Errorf("spend%s = %d %s; want 400 that names 24h and 7d", query, rec.Code, rec.Body)
+		}
 	}
 }

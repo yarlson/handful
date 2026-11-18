@@ -13,6 +13,7 @@ Handful has three places for settings:
 | Section | What it holds |
 |---|---|
 | **General** | **Default model**, **Default effort**, **Helper model**, **Turns at once**, and under **Advanced**, **Claude Code program**. |
+| **Usage** | A bar for each usage window of your Claude plan, with how much is used and when it resets, as Claude Code reported it in the last bot turn. Below, under "What's contributing to your usage?", each bot's share of what the Handful bots on this computer spent in the **Last 24h** or **Last 7d**, from Claude Code's cost estimate at list price, with its model and effort and its helper runs. Click a bot to open its **Settings**. |
 | **Appearance** | Theme, chat width and text size, for this browser only. See [The window](/docs/window/#appearance). |
 | **Updates** | How the Mac app updates itself. See [The Mac app](/docs/mac-app/#updates). |
 | **Connectors** | **Manage connectors…**. See [Connectors](/docs/connectors/). |

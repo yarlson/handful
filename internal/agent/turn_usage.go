@@ -46,13 +46,42 @@ func turnUsage(ev streamEvent, c callTokens) (u core.TurnUsage, ok bool) {
 	}, true
 }
 
-// recordUsage stores the usage that the result event ev reports for the active turn cur of s.
+// spendMeter finds the spend of each result event of one claude process.
+type spendMeter struct {
+	spawned int64 // the helpers the process had started at its previous result
+}
+
+// spendOf is what the process spent since its previous result, as the result event ev reports
+// it. A result without model_usage_since_last_result spends nothing.
+func (m *spendMeter) spendOf(ev streamEvent) core.TurnSpend {
+	sp := core.TurnSpend{Models: map[string]core.ModelSpend{}}
+	for model, u := range ev.ModelUsageSinceLastResult {
+		sp.Models[model] = core.ModelSpend{
+			InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadTokens: u.CacheReadInputTokens,
+			CacheWriteTokens: u.CacheCreationInputTokens, CostUSD: u.CostUSD,
+		}
+	}
+	if ev.SubagentStats != nil {
+		sp.Helpers = ev.SubagentStats.Spawned - m.spawned
+		m.spawned = ev.SubagentStats.Spawned
+	}
+	return sp
+}
+
+// recordUsage stores the usage that the result event ev reports for the active turn cur of s,
+// and the spend of all of cur's results.
 func (r *Runner) recordUsage(s *session, cur *activeTurn, ev streamEvent) {
+	ctx := context.Background()
+	if len(cur.out.spend.Models) > 0 {
+		if err := r.svc.RecordTurnSpend(ctx, s.key.botID, cur.turn.ID, cur.out.spend); err != nil {
+			r.log.Error("record turn spend", "turn", cur.turn.ID, "err", err)
+		}
+	}
 	u, ok := turnUsage(ev, cur.out.calls)
 	if !ok {
 		return
 	}
-	if err := r.svc.RecordTurnUsage(context.Background(), s.key.botID, cur.turn.ID, u); err != nil {
+	if err := r.svc.RecordTurnUsage(ctx, s.key.botID, cur.turn.ID, u); err != nil {
 		r.log.Error("record turn usage", "turn", cur.turn.ID, "err", err)
 	}
 }

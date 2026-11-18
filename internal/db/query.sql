@@ -793,6 +793,23 @@ ON CONFLICT (turn_id) DO UPDATE SET input_tokens = excluded.input_tokens, cache_
 -- name: LastTurnUsage :one
 SELECT * FROM turn_usage WHERE bot_id = ? ORDER BY recorded_at DESC, rowid DESC LIMIT 1;
 
+-- name: SetTurnSpend :exec
+INSERT INTO turn_spend (turn_id, bot_id, cost_usd, helpers, recorded_at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (turn_id) DO UPDATE SET cost_usd = excluded.cost_usd, helpers = excluded.helpers, recorded_at = excluded.recorded_at;
+
+-- name: DeleteTurnModelSpend :exec
+DELETE FROM turn_model_spend WHERE turn_id = ?;
+
+-- name: AddTurnModelSpend :exec
+INSERT INTO turn_model_spend (turn_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: SpendByBot :many
+-- Each bot's cost and helpers in the turns recorded from since (ms), the largest cost first.
+SELECT bot_id, CAST(SUM(cost_usd) AS REAL) AS cost_usd, CAST(SUM(helpers) AS INTEGER) AS helpers
+FROM turn_spend WHERE recorded_at >= sqlc.arg(since)
+GROUP BY bot_id ORDER BY 2 DESC, bot_id;
+
 -- name: SetPlanWindow :exec
 INSERT INTO plan_windows (name, status, utilization, resets_at, surpassed_threshold, received_at)
 VALUES (?, ?, ?, ?, ?, ?)

@@ -156,6 +156,34 @@ func (q *Queries) AddToolGrant(ctx context.Context, arg AddToolGrantParams) erro
 	return err
 }
 
+const addTurnModelSpend = `-- name: AddTurnModelSpend :exec
+INSERT INTO turn_model_spend (turn_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddTurnModelSpendParams struct {
+	TurnID           string  `json:"turn_id"`
+	Model            string  `json:"model"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	CostUsd          float64 `json:"cost_usd"`
+}
+
+func (q *Queries) AddTurnModelSpend(ctx context.Context, arg AddTurnModelSpendParams) error {
+	_, err := q.db.ExecContext(ctx, addTurnModelSpend,
+		arg.TurnID,
+		arg.Model,
+		arg.InputTokens,
+		arg.OutputTokens,
+		arg.CacheReadTokens,
+		arg.CacheWriteTokens,
+		arg.CostUsd,
+	)
+	return err
+}
+
 const answerHandoffGoal = `-- name: AnswerHandoffGoal :execrows
 UPDATE goals SET brief = ?1, asked_at = 0
 WHERE id = ?2 AND state = 'incoming' AND brief = ?3
@@ -896,6 +924,15 @@ func (q *Queries) DeleteToolGrant(ctx context.Context, arg DeleteToolGrantParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const deleteTurnModelSpend = `-- name: DeleteTurnModelSpend :exec
+DELETE FROM turn_model_spend WHERE turn_id = ?
+`
+
+func (q *Queries) DeleteTurnModelSpend(ctx context.Context, turnID string) error {
+	_, err := q.db.ExecContext(ctx, deleteTurnModelSpend, turnID)
+	return err
 }
 
 const dismissGoal = `-- name: DismissGoal :execrows
@@ -4840,6 +4877,30 @@ func (q *Queries) SetSessionPrompt(ctx context.Context, arg SetSessionPromptPara
 	return err
 }
 
+const setTurnSpend = `-- name: SetTurnSpend :exec
+INSERT INTO turn_spend (turn_id, bot_id, cost_usd, helpers, recorded_at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (turn_id) DO UPDATE SET cost_usd = excluded.cost_usd, helpers = excluded.helpers, recorded_at = excluded.recorded_at
+`
+
+type SetTurnSpendParams struct {
+	TurnID     string  `json:"turn_id"`
+	BotID      string  `json:"bot_id"`
+	CostUsd    float64 `json:"cost_usd"`
+	Helpers    int64   `json:"helpers"`
+	RecordedAt int64   `json:"recorded_at"`
+}
+
+func (q *Queries) SetTurnSpend(ctx context.Context, arg SetTurnSpendParams) error {
+	_, err := q.db.ExecContext(ctx, setTurnSpend,
+		arg.TurnID,
+		arg.BotID,
+		arg.CostUsd,
+		arg.Helpers,
+		arg.RecordedAt,
+	)
+	return err
+}
+
 const setTurnUsage = `-- name: SetTurnUsage :exec
 INSERT INTO turn_usage (turn_id, bot_id, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, calls, context_tokens, cold, recorded_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -4875,6 +4936,42 @@ func (q *Queries) SetTurnUsage(ctx context.Context, arg SetTurnUsageParams) erro
 		arg.RecordedAt,
 	)
 	return err
+}
+
+const spendByBot = `-- name: SpendByBot :many
+SELECT bot_id, CAST(SUM(cost_usd) AS REAL) AS cost_usd, CAST(SUM(helpers) AS INTEGER) AS helpers
+FROM turn_spend WHERE recorded_at >= ?1
+GROUP BY bot_id ORDER BY 2 DESC, bot_id
+`
+
+type SpendByBotRow struct {
+	BotID   string  `json:"bot_id"`
+	CostUsd float64 `json:"cost_usd"`
+	Helpers int64   `json:"helpers"`
+}
+
+// Each bot's cost and helpers in the turns recorded from since (ms), the largest cost first.
+func (q *Queries) SpendByBot(ctx context.Context, since int64) ([]SpendByBotRow, error) {
+	rows, err := q.db.QueryContext(ctx, spendByBot, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SpendByBotRow
+	for rows.Next() {
+		var i SpendByBotRow
+		if err := rows.Scan(&i.BotID, &i.CostUsd, &i.Helpers); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const startItem = `-- name: StartItem :execrows

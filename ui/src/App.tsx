@@ -1266,7 +1266,7 @@ export function App() {
                 ? () =>
                     leave(() => {
                       setDrawer(false)
-                      openSettingsPage("general")
+                      openSettingsPage("usage")
                     })
                 : undefined
             }
@@ -1282,6 +1282,9 @@ export function App() {
                 computer={rights.computer}
                 menu={menu}
                 pairRev={pairRev}
+                planWindows={planWindows}
+                bots={agents}
+                aliases={aliases}
                 section={sectionOfPath(where.path)}
                 onSection={(s) => go(`/settings/${s}`, "replace")}
                 onClose={closeSettings}

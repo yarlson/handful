@@ -8,6 +8,7 @@ import type { Defaults, Effective } from "./model"
 import type { Proxy, Scope } from "./phones"
 import type { Usage } from "./usage"
 import type { PlanWindow } from "./usage-banner"
+import type { Period } from "./usage-view"
 
 export type Member = { id: string; name: string; effective?: Effective }
 
@@ -279,6 +280,10 @@ export type ServerEvent =
   | { type: "pair" }
   | { type: "planWindows"; planWindows: PlanWindow[] }
 
+// BotSpend is what a bot's turns cost in a period, in US dollars at list price, and the helpers
+// they started.
+export type BotSpend = { botId: string; costUsd: number; helpers: number }
+
 // ApiError is a request that failed, with its HTTP status.
 export class ApiError extends Error {
   readonly status: number
@@ -502,6 +507,7 @@ export const api = {
   grants: (id: string) => request<string[]>("GET", `/api/bots/${id}/grants`),
   usage: (id: string) => request<Usage>("GET", `/api/bots/${id}/usage`),
   planWindows: () => request<PlanWindow[]>("GET", "/api/plan-windows"),
+  spend: (period: Period) => request<BotSpend[]>("GET", `/api/spend?period=${period}`),
   revokeGrant: (id: string, tool: string) =>
     request<void>("DELETE", `/api/bots/${id}/grants/${encodeURIComponent(tool)}`),
   connectors: () => request<Connector[]>("GET", "/api/connectors"),

@@ -389,6 +389,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 	quit := make(chan struct{})
 	var watcher sync.WaitGroup
 	watcher.Go(func() { r.stopIfSilent(s, quit) })
+	var meter spendMeter
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64<<10), maxStreamLine)
 	for sc.Scan() {
@@ -490,6 +491,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 				out, turnID = &cur.out, cur.turn.ID
 			}
 			out.noteAPIError(ev)
+			out.spend = out.spend.Plus(meter.spendOf(ev))
 			out.resultText, out.resultError = text, isErr
 			// The pause starts before the turn ends, so no queued turn starts in between.
 			if out.hitUsageLimit() {

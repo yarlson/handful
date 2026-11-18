@@ -74,7 +74,7 @@ Enter runs the selected line. Escape closes the palette. A phone's palette has f
 - When a turn fails, its error shows **Retry**, which sends the same message again, until you write again.
 - **Jump to latest** shows when you scroll up, and takes you back to the newest message.
 - When Claude usage reaches its limit, a banner says "Claude usage limit reached. New turns wait until …", with the time. Close it, and it stays closed until that time changes.
-- When Claude warns that a plan limit is near, at 70% or more, a banner says how much is used and when it resets, for example "You've used 78% of your weekly limit · resets Nov 20 at 3am". **See usage** opens **Settings**. Close it, and it stays closed until Claude warns at a higher level or the limit resets.
+- When Claude warns that a plan limit is near, at 70% or more, a banner says how much is used and when it resets, for example "You've used 78% of your weekly limit · resets Nov 20 at 3am". **See usage** opens **Settings** → **Usage**. Close it, and it stays closed until Claude warns at a higher level or the limit resets.
 
 The chat header shows the chat's name, a team's **Now** chip, and the model of a bot or a team. Click a bot's model to open its **Settings**, or a team's to open **Members**.
 
@@ -98,7 +98,7 @@ An artifact or a skill opens in the reader, in place of the chat. **Back to chat
 
 ## Settings
 
-Click **Settings** at the bottom of the sidebar, or use ⌘, in the Mac app. Its sections are **General**, **Appearance**, **Updates**, **Connectors**, **Phones**, **Runtime** and **Settings file**. [Configuration](/docs/configuration/) has the details.
+Click **Settings** at the bottom of the sidebar, or use ⌘, in the Mac app. Its sections are **General**, **Usage**, **Appearance**, **Updates**, **Connectors**, **Phones**, **Runtime** and **Settings file**. [Configuration](/docs/configuration/) has the details.
 
 ### Appearance
 

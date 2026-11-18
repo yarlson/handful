@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
-import { api } from "@/lib/api"
+import { api, type Bot } from "@/lib/api"
 import {
   CHAT_WIDTHS,
   choose,
@@ -57,6 +57,8 @@ import { OptionSelect } from "@/components/option-select"
 import { Disclosure } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 import { PhonesSection } from "@/components/phones"
+import { UsageSection } from "@/components/usage-section"
+import type { PlanWindow } from "@/lib/usage-banner"
 import { copyLabel, useCopy } from "@/components/copy"
 
 // The desktop app's preload exposes these; a browser has none.
@@ -692,7 +694,14 @@ export function SettingsPage({
   pairRev = 0,
   menu = null,
   computer = true,
+  planWindows = [],
+  bots = [],
+  aliases = [],
 }: {
+  // planWindows, bots and aliases are for Usage: the plan's windows, the bots and the model aliases.
+  planWindows?: PlanWindow[]
+  bots?: Bot[]
+  aliases?: string[]
   // computer is false on a paired phone, which has only Appearance.
   computer?: boolean
   // restartRev changes with each restart event from the server; the page reloads on it.
@@ -959,6 +968,13 @@ export function SettingsPage({
   )
   // Appearance belongs to this browser, so it shows before, or without, the server's settings.
   if (shown === "appearance") return page(view ? pendingSections(view) : new Set(), notices, <AppearanceSection />)
+  // Usage reads its own routes, so it shows without the server's settings too.
+  if (shown === "usage")
+    return page(
+      view ? pendingSections(view) : new Set(),
+      notices,
+      <UsageSection windows={planWindows} bots={bots} aliases={aliases} />,
+    )
   if (!view) {
     return frame(
       <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">

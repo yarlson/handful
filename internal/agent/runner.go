@@ -857,7 +857,7 @@ func contextUpdate(stored core.KnownPrompt, sessionID, prompt string) string {
 // onCompacted handles Claude Code's compaction of session s: the active turn cur, if any, reports
 // it with meta, and the session knows the system prompt its process started with, which Claude
 // Code records again. An update that an earlier message brought may now be only in the summary,
-// so the next turn brings it again.
+// so the next turn brings it again; so does an instructions update.
 func (r *Runner) onCompacted(s *session, cur *activeTurn, meta *compactMetadata) {
 	if cur != nil {
 		cur.out.recorded = true
@@ -865,6 +865,9 @@ func (r *Runner) onCompacted(s *session, cur *activeTurn, meta *compactMetadata)
 			cur.out.compacted = meta
 		}
 	}
+	r.mu.Lock()
+	s.instructions = s.startInstructions
+	r.mu.Unlock()
 	if err := r.svc.SetKnownPrompt(context.Background(), s.key.botID, s.key.transcript(), s.claudeID, s.prompt); err != nil {
 		r.log.Error("record the known prompt after compaction", "bot", s.key.botID, "err", err)
 	}
@@ -1041,7 +1044,7 @@ func (r *Runner) loadPromptContext(ctx context.Context, bot, room core.Bot, now 
 	if pc.Rooms, err = r.svc.RoomsOf(ctx, bot.ID); err != nil {
 		return promptContext{}, err
 	}
-	if pc.Global, err = r.globalInstructions(); err != nil {
+	if pc.Shared, err = sharedInstructionFiles(r.svc.DataDir(), loadedInstructions(r.svc.DataDir(), pc.Workspace, r.svc.BotConfigDir(bot.ID))); err != nil {
 		return promptContext{}, err
 	}
 	if pc.OtherTeams, err = r.otherTeams(ctx, room); err != nil {
@@ -1180,7 +1183,8 @@ func (r *Runner) runCompact(ctx context.Context, bot core.Bot, t core.Turn, sess
 		return outcome{}, err
 	}
 	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", "", flags, func(string) (processStart, error) {
-		return processStart{args: compactArgs(sessionID, flags.model, flags.effort), claudeID: sessionID}, nil
+		args, err := compactArgs(sessionID, flags.model, flags.effort, r.svc.DataDir())
+		return processStart{args: args, claudeID: sessionID}, err
 	})
 }
 
@@ -1216,7 +1220,8 @@ func (r *Runner) saveSession(ctx context.Context, botID, roomID, sessionID strin
 // session, which starts with run's arguments and a new MCP config file when
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, run.Prompt, run.Command, run.Flags, func(token string) (processStart, error) {
+	key := sessionKey{bot.ID, t.RoomID}
+	return r.sendCommand(ctx, key, bot, t, r.withInstructionsUpdate(key, run.Prompt), run.Command, run.Flags, func(token string) (processStart, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
 			return processStart{}, err

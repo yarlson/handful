@@ -29,6 +29,12 @@ func promptSections(prompt string) (map[string]string, []string) {
 	return sections, order
 }
 
+// movedSections maps the heading of a section that left the system prompt for another place to
+// the note that replaces "(removed)", so the bot does not drop what the section said.
+var movedSections = map[string]string{
+	"## Global instructions (AGENTS.md)": "Claude Code now loads the global instructions from a file. When the first section above names that file, follow the copy that Claude Code loaded; it replaces the text that was here. When it names none, the user removed the global instructions.",
+}
+
 // promptChanges returns the turn-message block that brings a session that knows the system
 // prompt known up to date with current: every section of current that is new or differs, in
 // full, and the heading of every section that is gone. It returns "" when nothing differs. The
@@ -44,9 +50,14 @@ func promptChanges(known, current string) string {
 		}
 	}
 	for _, h := range beforeOrder {
-		if _, kept := after[h]; !kept {
-			b.WriteString(strings.ReplaceAll(h, "</", `<\/`) + "\n(removed)\n\n")
+		if _, kept := after[h]; kept {
+			continue
 		}
+		note, moved := movedSections[h]
+		if !moved {
+			note = "(removed)"
+		}
+		b.WriteString(strings.ReplaceAll(h, "</", `<\/`) + "\n" + note + "\n\n")
 	}
 	if b.Len() == 0 {
 		return ""

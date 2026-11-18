@@ -1,41 +1,66 @@
 package agent
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+	"unicode"
 )
 
-// maxGlobalInstructions bounds <data>/AGENTS.md. The system prompt is one
-// argv string, and Linux caps one argument at 128 KiB.
-const maxGlobalInstructions = 32 << 10
-
-func (r *Runner) globalInstructionsPath() string {
-	return filepath.Join(r.svc.DataDir(), "AGENTS.md")
+// sharedInstructionFiles returns the paths of <data>/CLAUDE.md and <data>/AGENTS.md that hold
+// text and are among the loaded files: the user's instructions for every bot, which Claude Code
+// loads by itself because every working folder lies in the data folder.
+func sharedInstructionFiles(dataDir string, loaded map[string]instructionStamp) ([]string, error) {
+	dataDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("find the absolute path of the data folder: %w", err)
+	}
+	var files []string
+	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
+		path := filepath.Join(dataDir, name)
+		if _, ok := loaded[path]; !ok {
+			continue
+		}
+		ok, err := holdsText(path)
+		if err != nil {
+			return nil, fmt.Errorf("read the shared instructions %s: %w", path, err)
+		}
+		if ok {
+			files = append(files, path)
+		}
+	}
+	return files, nil
 }
 
-// globalInstructions reads <data>/AGENTS.md, the user's instructions for
-// every bot. A missing or blank file gives "".
-func (r *Runner) globalInstructions() (string, error) {
-	path := r.globalInstructionsPath()
-	f, err := os.Open(path)
+// holdsText tells whether path is a regular file with a character other than white space.
+func holdsText(path string) (bool, error) {
+	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
+		return false, nil
 	}
+	if err != nil || !info.Mode().IsRegular() {
+		return false, err
+	}
+	f, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("open %s: %w", path, err)
+		return false, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxGlobalInstructions+1))
-	if err != nil {
-		return "", fmt.Errorf("read %s: %w", path, err)
+	text := bufio.NewReader(f)
+	for {
+		c, _, err := text.ReadRune()
+		if errors.Is(err, io.EOF) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !unicode.IsSpace(c) {
+			return true, nil
+		}
 	}
-	if len(data) > maxGlobalInstructions {
-		return "", fmt.Errorf("%s is larger than %d KiB; shorten it", path, maxGlobalInstructions>>10)
-	}
-	return strings.TrimSpace(string(data)), nil
 }

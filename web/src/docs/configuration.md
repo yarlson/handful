@@ -55,7 +55,7 @@ The models are the aliases `fable`, `opus`, `sonnet` and `haiku`, or a full mode
 
 ## Global instructions
 
-Put instructions for every bot in `~/.handful/AGENTS.md`, for example:
+Put instructions for every bot in `~/.handful/AGENTS.md` or `~/.handful/CLAUDE.md`, for example:
 
 ```markdown
 - Never add AI attribution to commits or pull requests.
@@ -63,9 +63,18 @@ Put instructions for every bot in `~/.handful/AGENTS.md`, for example:
 ```
 
 - A bot's own instructions win over this file.
-- A change reaches each bot from its next turn, as a note on what changed.
 - Every bot can read the file, so keep tokens out of it.
-- A file over 32 KiB stops every bot's turns until you shorten it.
+
+Claude Code loads the file itself, because every bot works in a folder inside `~/.handful`. Claude Code loads these instruction files for a bot:
+
+1. `CLAUDE.md`, `AGENTS.md` and the rules in `.claude/rules/` of each folder from `~/.handful` down to the bot's working folder. In a bot's own chat and in a room, that folder is `~/.handful/bots/<bot id>/workspace`. In a team's chat, it is `~/.handful/teams/<team id>/workspace`, so a team's `AGENTS.md` there applies only in that team.
+2. `CLAUDE.md` and the rules in `rules/` of the bot's own Claude Code folder, `~/.handful/bots/<bot id>/claude/`. They apply only to that bot.
+
+- An `AGENTS.md` file loads only when no `CLAUDE.md` file is on the way from `~/.handful` to the working folder. With `~/.handful/CLAUDE.md`, a team's `AGENTS.md` does not load. To load both kinds, put `{"pluginConfigs": {"cc-plugin-agents-md@builtin": {"options": {"instructionFiles": "claude-md-and-agents-md"}}}}` in `settings.json` of the bot's Claude Code folder.
+- A `CLAUDE.local.md` file does not load for bots. In the default mode, a `CLAUDE.local.md` on that way still keeps every `AGENTS.md` out.
+- To give one bot a file from elsewhere, import it in the bot's own `CLAUDE.md` with a line of `@` and the file's full path, for example `@/Users/me/.handful/rules/review.md`. An import in a file in `~/.handful` of a file outside the bot's working folder does not load.
+- A change applies from each bot's next turn.
+- The `CLAUDE.md` and `AGENTS.md` files and rules in your home folder, in `~/.claude` and in the folders above `~/.handful` do not reach bots.
 
 ## config.json
 
@@ -115,7 +124,7 @@ Phone access lets you read and answer your bots from your phone. It is off by de
 | `teams/<team id>/workspace/` | Each team's shared folder. |
 | `skills/` | The skills that all bots share. |
 | `media/` | The images and videos of messages. |
-| `AGENTS.md`, `connectors.json`, `config.json` | Your settings. Each one is optional. |
+| `AGENTS.md` or `CLAUDE.md`, `connectors.json`, `config.json` | Your settings. Each one is optional. |
 | `ui-key` | Handful's key (below). |
 | `oauth/` | Connector sign-in tokens. |
 | `run/` | The MCP configs of running bots, with their tokens for one run. |

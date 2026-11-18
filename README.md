@@ -90,7 +90,7 @@ Teams can also send tasks to each other. [More about teams](docs/teams.md).
 
 ## Make it yours
 
-- **Rules for every bot.** Put them in `~/.handful/AGENTS.md`. A bot's own instructions win over this file.
+- **Rules for every bot.** Put them in `~/.handful/AGENTS.md` or `~/.handful/CLAUDE.md`. A bot's own instructions win over this file.
 - **Connectors.** A connector gives bots the tools of an external MCP server, such as Slack or a wiki. See [Connectors](docs/connectors.md).
 - **Model and effort.** Set them for one bot, for a team's members, or for every bot.
 - **Settings.** Click the gear at the bottom of the sidebar.
@@ -100,7 +100,7 @@ Teams can also send tasks to each other. [More about teams](docs/teams.md).
 ## Good to know
 
 - You install Claude Code and sign in to it yourself. Handful starts it on your machine for each turn.
-- Your own Claude Code settings, hooks, `CLAUDE.md` files and MCP servers do not reach the bots. Use `AGENTS.md` and connectors instead.
+- Your own Claude Code settings, hooks and MCP servers, and the `CLAUDE.md` files in your home folder and `~/.claude`, do not reach the bots. Use `~/.handful/AGENTS.md` and connectors instead.
 - When a turn reaches your Claude usage limit, Handful starts no new turns until the limit resets. A banner shows when work resumes. Turns that already run go on, and the turn that hit the limit runs again after the reset.
 - After a restart, turns that were running are marked interrupted, open approval cards expire, and background tasks are gone.
 - Handful keeps all its data in `~/.handful`.

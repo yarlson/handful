@@ -138,10 +138,7 @@ func (s *Service) SetRoomMembers(ctx context.Context, roomID string, memberIDs [
 			}
 		}
 	}
-	if room, err = s.GetBot(ctx, roomID); err != nil {
-		return Bot{}, err
-	}
-	if err := s.keepReviewerNone(ctx, room); err != nil {
+	if room, err = s.roomWithNewMembers(ctx, roomID); err != nil {
 		return Bot{}, err
 	}
 	if _, err := s.AppendEntry(ctx, roomID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
@@ -163,13 +160,21 @@ func (s *Service) removeMember(ctx context.Context, room Bot, m Member) error {
 	return s.releaseMember(ctx, room.ID, m.ID, m.Name)
 }
 
-// keepReviewerNone stores "no reviewer" for a team whose reviewer left it or
-// became its lead, so the reviewer does not come back when the member rejoins.
-func (s *Service) keepReviewerNone(ctx context.Context, room Bot) error {
-	if !room.IsTeam() || room.Team.ReviewerID != "" {
-		return nil
+// roomWithNewMembers reads room roomID after its members changed. A team whose
+// reviewer left it or became its lead then stores "no reviewer", so the
+// reviewer does not come back when the member rejoins.
+func (s *Service) roomWithNewMembers(ctx context.Context, roomID string) (Bot, error) {
+	room, err := s.GetBot(ctx, roomID)
+	if err != nil {
+		return Bot{}, err
 	}
-	return setTeamReviewer(ctx, s.q, room.ID, "")
+	if !room.IsTeam() || room.Team.ReviewerID != "" {
+		return room, nil
+	}
+	if err := setTeamReviewer(ctx, s.q, room.ID, ""); err != nil {
+		return Bot{}, err
+	}
+	return room, nil
 }
 
 func (s *Service) validMembers(ctx context.Context, ids []string) ([]Member, error) {

@@ -93,7 +93,7 @@ Its tabs depend on the chat:
 
 ### The reader
 
-An artifact or a skill opens in the reader, in place of the chat. **Back to chat** closes it. For an artifact, the reader has **Copy link**, **Send to a team…** and **Delete**. A link from **Copy link** opens the same artifact in the app. For a skill, the reader shows "This bot only" or "Shared", and **Delete** asks you to confirm with **Delete for this bot** or **Delete for all bots**. Each deletes only that copy of the skill.
+An artifact or a skill opens in the reader, in place of the chat. **Back to chat** closes it. For an artifact, the reader has **Copy link**, **Send to a team…** and **Delete**. A link from **Copy link** opens the same artifact in the app. For a skill, the reader shows "This bot only", "Shared" or "Replaced for this bot", as the **Skills** tab does, and **Delete** asks you to confirm with **Delete for this bot** or **Delete for all bots**. Each deletes only that copy of the skill.
 
 ## Settings
 

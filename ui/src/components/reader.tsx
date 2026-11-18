@@ -49,15 +49,19 @@ export function Reader({
   const now = useNow(60_000)
   const title = useRef<HTMLHeadingElement>(null)
   const gone = useEffectEvent(onGone)
+  const botChat = agents.some((a) => a.id === chat)
   useEffect(() => {
     let live = true
     const load: Promise<Loaded> =
       reading.kind === "artifact"
         ? api.artifact(reading.id).then((item) => ({ kind: "artifact", item }))
-        : (reading.kind === "bot-skill" ? api.botSkill(chat, reading.id) : api.skill(reading.id)).then((item) => ({
-            kind: "skill",
-            item,
-          }))
+        : reading.kind === "bot-skill"
+          ? api.botSkill(chat, reading.id).then((item) => ({ kind: "skill", item }))
+          : // In a bot's chat, the bot's list says whether its own skill replaces the shared one.
+            Promise.all([api.skill(reading.id), botChat ? api.botSkills(chat) : []]).then(([item, listed]) => ({
+              kind: "skill",
+              item: { ...item, replaced: listed.some((s) => s.layer === "shared" && s.id === item.id && s.replaced) },
+            }))
     load.then(
       (l) => live && setLoaded(l),
       (e: Error) => {
@@ -69,7 +73,7 @@ export function Reader({
     return () => {
       live = false
     }
-  }, [reading.kind, reading.id, chat])
+  }, [reading.kind, reading.id, chat, botChat])
   // The keyboard goes to the title when the item shows, so Tab reaches its links and controls.
   useEffect(() => {
     if (loaded) title.current?.focus({ preventScroll: true })

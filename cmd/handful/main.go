@@ -135,7 +135,7 @@ func parseFlags(args []string) (options, error) {
 	if err != nil {
 		return options{}, fmt.Errorf("find home directory: %w", err)
 	}
-	o := options{set: map[string]bool{}, Updates: updateSettings{AutoCheck: config.DefaultAutoCheck, DrainMinutes: config.DefaultDrainMinutes, UpdateCheck: config.DefaultUpdateCheck}}
+	o := options{set: map[string]bool{}, IdleCompaction: config.DefaultIdleCompaction, Updates: updateSettings{AutoCheck: config.DefaultAutoCheck, DrainMinutes: config.DefaultDrainMinutes, UpdateCheck: config.DefaultUpdateCheck}}
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "loopback address to listen on")
 	fs.StringVar(&o.dataDir, "data", filepath.Join(home, ".handful"), "directory for the database, bot workspaces and skills; without it, a start moves YarGPT's ~/.yargpt here")
@@ -280,7 +280,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	work, endWork := svc.ServerContext(ctx)
 	defer endWork()
 	base := "http://" + ln.Addr().String()
-	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", MaxParallel: o.MaxParallel, HelperModel: o.HelperModel}, log)
+	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", MaxParallel: o.MaxParallel, HelperModel: o.HelperModel, IdleCompaction: o.idleCompaction}, log)
 	assets, err := ui.Assets()
 	if err != nil {
 		log.Warn("web UI not available", "err", err)

@@ -551,6 +551,32 @@ func (q *Queries) CountOpenQuestions(ctx context.Context) ([]CountOpenQuestionsR
 	return items, nil
 }
 
+const countOpenSessionTurns = `-- name: CountOpenSessionTurns :one
+SELECT COUNT(*) FROM turns
+WHERE bot_id = ?1 AND room_id = ?2 AND status IN ('queued', 'running')
+  AND (CASE WHEN board_role IN ('work', 'review') THEN board_role ELSE '' END) = ?3
+  AND (CASE WHEN board_role IN ('work', 'review') THEN item_id ELSE '' END) = ?4
+`
+
+type CountOpenSessionTurnsParams struct {
+	BotID  string `json:"bot_id"`
+	RoomID string `json:"room_id"`
+	Role   string `json:"role"`
+	ItemID string `json:"item_id"`
+}
+
+func (q *Queries) CountOpenSessionTurns(ctx context.Context, arg CountOpenSessionTurnsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOpenSessionTurns,
+		arg.BotID,
+		arg.RoomID,
+		arg.Role,
+		arg.ItemID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countOpenTurnsOfBotInRoom = `-- name: CountOpenTurnsOfBotInRoom :one
 SELECT COUNT(*) FROM turns WHERE bot_id = ? AND room_id = ? AND status IN ('queued', 'running')
 `

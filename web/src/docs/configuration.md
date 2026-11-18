@@ -12,7 +12,7 @@ Handful has three places for settings:
 
 | Section | What it holds |
 |---|---|
-| **General** | **Default model**, **Default effort**, **Helper model**, **Turns at once**, and under **Advanced**, **Claude Code program**. |
+| **General** | **Default model**, **Default effort**, **Helper model**, **Turns at once**, **Idle compaction**, and under **Advanced**, **Claude Code program**. |
 | **Usage** | A bar for each usage window of your Claude plan, with how much is used and when it resets, as Claude Code reported it in the last bot turn. Below, under "What's contributing to your usage?", each bot's share of what the Handful bots on this computer spent in the **Last 24h** or **Last 7d**, from Claude Code's cost estimate at list price, with its model and effort and its helper runs. Click a bot to open its **Settings**. |
 | **Appearance** | Theme, chat width and text size, for this browser only. See [The window](/docs/window/#appearance). |
 | **Updates** | How the Mac app updates itself. See [The Mac app](/docs/mac-app/#updates). |
@@ -90,6 +90,7 @@ Claude Code loads the file itself, because every bot works in a folder inside `~
 | `effort` | the model's own | **Default effort** |
 | `helperModel` | `sonnet` | **Helper model**: an alias, a full model ID, or `inherit` for **Same as the bot** |
 | `maxParallel` | `3` | **Turns at once** |
+| `idleCompaction` | `true` | **Idle compaction**: when a bot's session of 100k tokens or more has waited 54 minutes for its next turn, Handful compacts it before the prompt cache expires, and the chat shows "Compacted while idle, before the prompt cache expired." The next turn starts from the summary. |
 | `claude` | `claude` | **Claude Code program**: the `claude` command that Handful runs for every turn. Change it only if Claude Code is not on your `PATH`. |
 | `updates.autoCheck` | `true` | The Mac app checks for updates once a day. |
 | `updates.drainMinutes` | `30` | How long an update or a restart waits for running turns, 5 to 240. |

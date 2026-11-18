@@ -625,6 +625,7 @@ func (s *server) clearContext(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.runner.CancelIdleCompaction(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

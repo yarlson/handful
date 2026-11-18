@@ -54,7 +54,7 @@ func TestLoadAcceptsAFileAtItsSizeLimit(t *testing.T) {
 func TestSetStoresCheckedValuesAndNullRemovesThem(t *testing.T) {
 	var f File
 	for key, raw := range map[string]string{
-		"model": `" OPUS "`, "effort": `"High"`, "helperModel": `" Inherit "`, "maxParallel": `1`, "claude": `"/opt/claude code/claude"`,
+		"model": `" OPUS "`, "effort": `"High"`, "helperModel": `" Inherit "`, "maxParallel": `1`, "claude": `"/opt/claude code/claude"`, "idleCompaction": `false`,
 		"updates.autoCheck": `false`, "updates.drainMinutes": `240`, "updateCheck": `false`,
 		"phone.enabled": `true`, "phone.addr": `"127.0.0.1:7900"`, "phone.hosts": `[" Phone.Example.com "]`, "phone.proxy": `"tailscale"`,
 		"phone.cloudflare.teamDomain": `"https://You.cloudflareaccess.com/"`, "phone.cloudflare.aud": `"ABCDEF0123456789abcdef"`,
@@ -64,7 +64,7 @@ func TestSetStoresCheckedValuesAndNullRemovesThem(t *testing.T) {
 		}
 	}
 	want := map[string]any{
-		"model": "opus", "effort": "high", "helperModel": "inherit", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 240, "updateCheck": false,
+		"model": "opus", "effort": "high", "helperModel": "inherit", "maxParallel": 1, "claude": "/opt/claude code/claude", "idleCompaction": false, "updates.autoCheck": false, "updates.drainMinutes": 240, "updateCheck": false,
 		"phone.enabled": true, "phone.addr": "127.0.0.1:7900", "phone.hosts": []string{"phone.example.com"}, "phone.proxy": "tailscale",
 		"phone.cloudflare.teamDomain": "you.cloudflareaccess.com", "phone.cloudflare.aud": "abcdef0123456789abcdef",
 	}
@@ -205,7 +205,7 @@ func TestWriteFailsWithoutAFolderAndLeavesNothing(t *testing.T) {
 
 func TestKeysHaveDefaultsFlagsAndRestartRules(t *testing.T) {
 	defaults := map[string]any{
-		"model": "", "effort": "", "helperModel": "sonnet", "maxParallel": 3, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true,
+		"model": "", "effort": "", "helperModel": "sonnet", "maxParallel": 3, "claude": "claude", "idleCompaction": true, "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true,
 		"phone.enabled": false, "phone.addr": "127.0.0.1:7778", "phone.hosts": []string{}, "phone.proxy": "cloudflare", "phone.cloudflare.teamDomain": "", "phone.cloudflare.aud": "",
 	}
 	restarts := map[string]bool{

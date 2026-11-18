@@ -69,6 +69,8 @@ type session struct {
 	kill     context.CancelFunc
 	exited   chan struct{} // closed after the process exits and its turns are finished
 	dir      string        // the working folder of the process
+	origin   *idleOrigin   // what an idle compaction resumes the session with; nil for none
+	last     lastRequest   // the main thread's latest model call; only serve uses it
 
 	// startInstructions are the instruction files the process loaded at its start, and
 	// instructions are the files as Handful last brought them to it. Guarded by Runner.mu.
@@ -139,6 +141,7 @@ type processStart struct {
 	files    []string
 	claudeID string
 	prompt   string
+	origin   *idleOrigin
 }
 
 // sendCommand writes prompt to the claude process of key as the message of
@@ -268,6 +271,7 @@ func (r *Runner) stopTaskTurn(s *session) {
 func (r *Runner) claimSession(ctx context.Context, key sessionKey, bot core.Bot, c *command, startArgs func(string) (processStart, error)) (*session, error) {
 	for {
 		r.mu.Lock()
+		r.cancelIdleLocked(func(k sessionKey) bool { return k == key })
 		s := r.sessions[key]
 		if s == nil {
 			r.mu.Unlock()
@@ -351,7 +355,7 @@ func (r *Runner) startSession(key sessionKey, bot core.Bot, c *command, startArg
 	// The record lets the next server end this process group if this one
 	// crashes, since only a clean stop signals it.
 	r.recordProcess(cmd.Process.Pid)
-	s := &session{key: key, bot: bot, token: token, claudeID: start.claudeID, prompt: start.prompt, files: files, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), dir: dir, startInstructions: instructions, instructions: instructions, open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
+	s := &session{key: key, bot: bot, token: token, claudeID: start.claudeID, prompt: start.prompt, files: files, origin: start.origin, flags: c.flags, stdin: stdin, kill: kill, exited: make(chan struct{}), dir: dir, startInstructions: instructions, instructions: instructions, open: true, lastOutput: time.Now(), pending: map[string]*command{c.turn.ID: c}}
 	r.mu.Lock()
 	r.sessions[key] = s
 	r.mu.Unlock()
@@ -416,6 +420,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 			continue
 		}
 		r.recordPlanWindows(s.key.botID, ev.RateLimitInfo)
+		r.noteRequest(s, ev)
 		switch ev.Type {
 		case "command_lifecycle":
 			r.mu.Lock()
@@ -567,6 +572,7 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 	if hadTasks {
 		r.svc.PublishTasks(s.key.transcript(), r.Tasks(s.key.transcript()))
 	}
+	r.planIdleCompaction(s, exitErr)
 	close(s.exited)
 	r.signalDone()
 }

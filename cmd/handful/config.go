@@ -18,8 +18,10 @@ type settings struct {
 	Effort      string
 	HelperModel string
 	MaxParallel int
-	Updates     updateSettings
-	Phone       config.PhoneSettings
+	// IdleCompaction is the Idle compaction setting at the start; idleCompaction reads it again.
+	IdleCompaction bool
+	Updates        updateSettings
+	Phone          config.PhoneSettings
 }
 
 // updateSettings are the update settings of config.json.
@@ -42,6 +44,7 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 	fromFile(&s.Effort, file.Effort, set["effort"])
 	fromFile(&s.HelperModel, file.HelperModel, set["helper-model"])
 	fromFile(&s.MaxParallel, file.MaxParallel, set["max-parallel"])
+	fromFile(&s.IdleCompaction, file.IdleCompaction, false)
 	fromFile(&s.Updates.UpdateCheck, file.UpdateCheck, false)
 	s.Phone = file.PhoneSettings()
 	if u := file.Updates; u != nil {

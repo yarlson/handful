@@ -675,6 +675,12 @@ WHERE bot_id = sqlc.arg(team_id) AND turn_id = sqlc.arg(turn_id) AND kind = 'eve
 -- name: CountOpenTurnsOfBotInRoom :one
 SELECT COUNT(*) FROM turns WHERE bot_id = ? AND room_id = ? AND status IN ('queued', 'running');
 
+-- name: CountOpenSessionTurns :one
+SELECT COUNT(*) FROM turns
+WHERE bot_id = sqlc.arg(bot_id) AND room_id = sqlc.arg(room_id) AND status IN ('queued', 'running')
+  AND (CASE WHEN board_role IN ('work', 'review') THEN board_role ELSE '' END) = sqlc.arg(role)
+  AND (CASE WHEN board_role IN ('work', 'review') THEN item_id ELSE '' END) = sqlc.arg(item_id);
+
 -- name: CancelTurn :exec
 UPDATE turns SET status = 'interrupted', error = ?, finished_at = ? WHERE id = ? AND status = 'queued';
 

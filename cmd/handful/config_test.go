@@ -31,6 +31,8 @@ func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
 		{name: "file sets the helper model", file: `{"helperModel": "Inherit"}`, want: settings{Claude: "claude", HelperModel: "Inherit", MaxParallel: 3}},
 		{name: "helper model flag wins over file", file: `{"helperModel": "opus"}`, set: map[string]bool{"helper-model": true}, want: defaults},
 		{name: "effort flag wins over file", file: `{"effort": "max", "model": "opus"}`, set: map[string]bool{"effort": true}, want: settings{Claude: "claude", Model: "opus", MaxParallel: 3}},
+		{name: "file turns idle compaction off", file: `{"idleCompaction": false}`, want: defaults},
+		{name: "file turns idle compaction on", file: `{"idleCompaction": true}`, want: settings{Claude: "claude", MaxParallel: 3, IdleCompaction: true}},
 		{name: "bad maxParallel", file: `{"maxParallel": 0}`, wantErr: "maxParallel"},
 		{name: "update settings", file: `{"updates": {"autoCheck": true, "drainMinutes": 45}, "updateCheck": true}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: true}}},
 		{name: "drain limit at its least", file: `{"updates": {"drainMinutes": 5}}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{DrainMinutes: 5}}},

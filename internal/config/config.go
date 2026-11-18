@@ -20,11 +20,12 @@ import (
 
 // The settings' defaults: the values that apply when the file lacks a key.
 const (
-	DefaultClaude       = "claude"
-	DefaultMaxParallel  = 3
-	DefaultAutoCheck    = true
-	DefaultDrainMinutes = 30
-	DefaultUpdateCheck  = true
+	DefaultClaude         = "claude"
+	DefaultIdleCompaction = true
+	DefaultMaxParallel    = 3
+	DefaultAutoCheck      = true
+	DefaultDrainMinutes   = 30
+	DefaultUpdateCheck    = true
 )
 
 // Limits of updates.drainMinutes. The server clamps a file value outside
@@ -41,7 +42,7 @@ const (
 
 // Keys are the settings, in the order of the Settings page and the file.
 var Keys = []string{
-	"model", "effort", "helperModel", "maxParallel", "claude", "updates.autoCheck", "updates.drainMinutes", "updateCheck",
+	"model", "effort", "helperModel", "maxParallel", "claude", "idleCompaction", "updates.autoCheck", "updates.drainMinutes", "updateCheck",
 	"phone.enabled", "phone.addr", "phone.hosts", "phone.proxy", "phone.cloudflare.teamDomain", "phone.cloudflare.aud",
 }
 
@@ -57,14 +58,15 @@ var restart = map[string]bool{
 // File is config.json. A nil field is a key the file does not set. The
 // fields are in the order of Keys, which is the order Write keeps.
 type File struct {
-	Model       *string  `json:"model,omitempty"`
-	Effort      *string  `json:"effort,omitempty"`
-	HelperModel *string  `json:"helperModel,omitempty"`
-	MaxParallel *int     `json:"maxParallel,omitempty"`
-	Claude      *string  `json:"claude,omitempty"`
-	Updates     *Updates `json:"updates,omitempty"`
-	UpdateCheck *bool    `json:"updateCheck,omitempty"`
-	Phone       *Phone   `json:"phone,omitempty"`
+	Model          *string  `json:"model,omitempty"`
+	Effort         *string  `json:"effort,omitempty"`
+	HelperModel    *string  `json:"helperModel,omitempty"`
+	MaxParallel    *int     `json:"maxParallel,omitempty"`
+	Claude         *string  `json:"claude,omitempty"`
+	IdleCompaction *bool    `json:"idleCompaction,omitempty"`
+	Updates        *Updates `json:"updates,omitempty"`
+	UpdateCheck    *bool    `json:"updateCheck,omitempty"`
+	Phone          *Phone   `json:"phone,omitempty"`
 }
 
 // Updates is the "updates" object of the file, which the desktop app reads.
@@ -92,7 +94,7 @@ func NeedsRestart(key string) bool { return restart[key] }
 func Default(key string) any {
 	values := map[string]any{
 		"model": "", "effort": "", "helperModel": core.DefaultHelperModel, "maxParallel": DefaultMaxParallel, "claude": DefaultClaude,
-		"updates.autoCheck": DefaultAutoCheck, "updates.drainMinutes": DefaultDrainMinutes, "updateCheck": DefaultUpdateCheck,
+		"idleCompaction": DefaultIdleCompaction, "updates.autoCheck": DefaultAutoCheck, "updates.drainMinutes": DefaultDrainMinutes, "updateCheck": DefaultUpdateCheck,
 		"phone.enabled": false, "phone.addr": DefaultPhoneAddr, "phone.hosts": []string{}, "phone.proxy": ProxyCloudflare,
 		"phone.cloudflare.teamDomain": "", "phone.cloudflare.aud": "",
 	}
@@ -153,6 +155,7 @@ func (f File) Get(key string) (any, bool) {
 		"helperModel":          f.helperModel,
 		"maxParallel":          func() (any, bool) { return deref(f.MaxParallel) },
 		"claude":               func() (any, bool) { return deref(f.Claude) },
+		"idleCompaction":       func() (any, bool) { return deref(f.IdleCompaction) },
 		"updates.autoCheck":    func() (any, bool) { return deref(u.AutoCheck) },
 		"updates.drainMinutes": func() (any, bool) { return deref(u.DrainMinutes) },
 		"updateCheck":          func() (any, bool) { return deref(f.UpdateCheck) },
@@ -181,6 +184,7 @@ func (f *File) Set(key string, raw json.RawMessage) error {
 		"helperModel":          f.setHelperModel,
 		"maxParallel":          func(r json.RawMessage) error { return setInt(&f.MaxParallel, key, r, checkMaxParallel) },
 		"claude":               func(r json.RawMessage) error { return setString(&f.Claude, key, r, textRules[key]) },
+		"idleCompaction":       func(r json.RawMessage) error { return setBool(&f.IdleCompaction, key, r) },
 		"updates.autoCheck":    func(r json.RawMessage) error { return setBool(&f.updates().AutoCheck, key, r) },
 		"updates.drainMinutes": func(r json.RawMessage) error { return setInt(&f.updates().DrainMinutes, key, r, checkDrainMinutes) },
 		"updateCheck":          func(r json.RawMessage) error { return setBool(&f.UpdateCheck, key, r) },

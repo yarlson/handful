@@ -143,6 +143,26 @@ test("Helper model inherit shows Same as the bot, and a custom ID its own field"
   assert.include(custom, 'value="claude-sonnet-5-5"')
 })
 
+test("Idle compaction is a switch, on by default, with its help text", () => {
+  const html = renderToStaticMarkup(
+    <SwitchField
+      k="idleCompaction"
+      v={v({ value: true, default: true, running: true, restart: false })}
+      save={save}
+      locked={false}
+    />,
+  )
+  assert.include(html, '<label for="setting-idleCompaction"')
+  assert.include(html, ">Idle compaction<")
+  assert.include(html, 'role="switch"')
+  assert.include(html, 'aria-checked="true"')
+  assert.include(
+    html,
+    "Compacts a bot&#x27;s session of 100k tokens or more when it has waited 54 minutes for its next turn, before the prompt cache expires. The next turn then starts from the summary.",
+  )
+  assert.notInclude(html, "Restart required")
+})
+
 test("a broken file locks every field", () => {
   const html = renderToStaticMarkup(
     <SwitchField k="updates.autoCheck" v={v({ value: true, default: true, restart: false })} save={save} locked />,

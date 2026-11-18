@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -104,7 +105,19 @@ func (c *idleClock) turn(t *testing.T, h *harness, chatID, text string) *idleWai
 	}
 	h.runner.dispatch(context.Background())
 	w := c.settle(t, h)
-	waitFor(t, "the turn to end", func() bool { return !h.runner.Running(chatID) })
+	waitFor(t, "the turn to end", func() bool {
+		h.runner.mu.Lock()
+		defer h.runner.mu.Unlock()
+		for bot, rt := range h.runner.running {
+			if bot == chatID || rt.roomID == chatID {
+				return false
+			}
+		}
+		return true
+	})
+	if h.runner.Running(chatID) {
+		t.Fatal("the chat counts as working while its idle compaction only waits")
+	}
 	return w
 }
 
@@ -216,6 +229,9 @@ func TestALargeIdleSessionIsCompactedWithItsTurnsArguments(t *testing.T) {
 	}
 	if turns := h.compactionTurns(t, bot.ID); len(turns) != 1 || turns[0] != "done" {
 		t.Fatalf("compact turns = %q; want one, done", turns)
+	}
+	if h.plan(sessionKey{botID: bot.ID}) != nil {
+		t.Fatal("the done compaction is still the session's plan")
 	}
 }
 
@@ -408,7 +424,10 @@ func TestABotWorksWhileItsSessionCompactsAndThenResumesIt(t *testing.T) {
 		t.Fatal("no idle compaction planned")
 	}
 	c.fire(w, idleStart.Add(54*time.Minute))
-	waitFor(t, "the bot to work on the compaction", func() bool { return h.runner.Running(bot.ID) })
+	waitFor(t, "the compaction turn to start", func() bool { return slices.Equal(h.compactionTurns(t, bot.ID), []string{"running"}) })
+	if !h.runner.Running(bot.ID) {
+		t.Fatal("the bot does not count as working while its session compacts")
+	}
 	next, _, err := h.svc.SubmitUserMessage(ctx, bot.ID, "two", "n-two")
 	if err != nil {
 		t.Fatal(err)

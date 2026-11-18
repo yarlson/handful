@@ -829,7 +829,7 @@ func roomPrompt(bot core.Bot, u core.RoomUpdate, reason string, mediaDir string)
 		b.WriteString(reason + "\n")
 	}
 	switch {
-	case u.Step != core.Step{} && u.FirstVisit:
+	case u.Step != core.Step{} && u.Seat.ClaudeSessionID == "":
 		b.WriteString("This turn starts a new session for this step. Recent messages:\n")
 	case u.Step != core.Step{}:
 		b.WriteString("New messages since your last turn on this step:\n")

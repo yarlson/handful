@@ -793,6 +793,15 @@ ON CONFLICT (turn_id) DO UPDATE SET input_tokens = excluded.input_tokens, cache_
 -- name: LastTurnUsage :one
 SELECT * FROM turn_usage WHERE bot_id = ? ORDER BY recorded_at DESC, rowid DESC LIMIT 1;
 
+-- name: SetPlanWindow :exec
+INSERT INTO plan_windows (name, status, utilization, resets_at, surpassed_threshold, received_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (name) DO UPDATE SET status = excluded.status, utilization = excluded.utilization,
+  resets_at = excluded.resets_at, surpassed_threshold = excluded.surpassed_threshold, received_at = excluded.received_at;
+
+-- name: ListPlanWindows :many
+SELECT * FROM plan_windows ORDER BY name;
+
 -- name: AssignLeastUsedHue :one
 -- Gives a bot the hue that the fewest bots have; a tie goes to the first hue in palette order.
 INSERT INTO bot_hues (bot_id, hue)

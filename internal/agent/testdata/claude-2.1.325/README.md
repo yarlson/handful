@@ -14,3 +14,7 @@ Stream-json output of Claude Code 2.1.325, recorded on 2026-11-14 with
 The message's uuid is COMMAND_UUID, which the fake claude replaces with the turn's. Session ids,
 uuids, request ids and paths were replaced; the lists of the init event are emptied; the
 rate_limit_event keeps only its type.
+
+- haiku-helper.jsonl: a turn whose bot starts an executor helper that runs two shell commands,
+  recorded on 2026-11-16 with a parent at haiku. Its rate_limit_event is whole: the weekly window
+  at 0.78 with a warning at 0.75. Only the message's uuid was replaced.

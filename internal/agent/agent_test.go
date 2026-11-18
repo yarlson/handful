@@ -541,7 +541,7 @@ func newHarnessWith(t *testing.T, mode, model, effort string) *harness {
 	// Bookkeeping after a turn logs only real failures: a check that logs
 	// without an error shows here.
 	t.Cleanup(func() {
-		for _, msg := range []string{"record turn failure", "record interrupt", "acknowledge inbox", "mark room seen", "record compaction", "drop missing session", "record the known prompt", "record the known prompt after compaction", "record turn usage"} {
+		for _, msg := range []string{"record turn failure", "record interrupt", "acknowledge inbox", "mark room seen", "record compaction", "drop missing session", "record the known prompt", "record the known prompt after compaction", "record turn usage", "record plan windows"} {
 			if logs := h.logs.String(); strings.Contains(logs, `msg="`+msg+`"`) {
 				t.Errorf("the runner logged %q:\n%s", msg, logs)
 			}

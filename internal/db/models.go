@@ -179,6 +179,15 @@ type PhoneSession struct {
 	RevokedAt  int64  `json:"revoked_at"`
 }
 
+type PlanWindow struct {
+	Name               string          `json:"name"`
+	Status             string          `json:"status"`
+	Utilization        sql.NullFloat64 `json:"utilization"`
+	ResetsAt           int64           `json:"resets_at"`
+	SurpassedThreshold sql.NullFloat64 `json:"surpassed_threshold"`
+	ReceivedAt         int64           `json:"received_at"`
+}
+
 type RoomMember struct {
 	RoomID          string `json:"room_id"`
 	BotID           string `json:"bot_id"`

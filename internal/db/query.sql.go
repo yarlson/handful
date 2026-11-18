@@ -3520,6 +3520,40 @@ func (q *Queries) ListPhoneSessions(ctx context.Context) ([]PhoneSession, error)
 	return items, nil
 }
 
+const listPlanWindows = `-- name: ListPlanWindows :many
+SELECT name, status, utilization, resets_at, surpassed_threshold, received_at FROM plan_windows ORDER BY name
+`
+
+func (q *Queries) ListPlanWindows(ctx context.Context) ([]PlanWindow, error) {
+	rows, err := q.db.QueryContext(ctx, listPlanWindows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlanWindow
+	for rows.Next() {
+		var i PlanWindow
+		if err := rows.Scan(
+			&i.Name,
+			&i.Status,
+			&i.Utilization,
+			&i.ResetsAt,
+			&i.SurpassedThreshold,
+			&i.ReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedGoals = `-- name: ListQueuedGoals :many
 SELECT id, team_id, text, state, budget, queue_pos, created_at, origin, from_team_id, from_bot_id, from_goal_id, brief, artifact_ids, intake_note, asked_at, ask_rounds, depth, pinned, later_until, passes, passed_by, waits_on_item_id, decision_ms, decision_tick, missed_at FROM goals WHERE team_id = ? AND state = 'queued' ORDER BY queue_pos, rowid
 `
@@ -4681,6 +4715,34 @@ func (q *Queries) SetGoalState(ctx context.Context, arg SetGoalStateParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setPlanWindow = `-- name: SetPlanWindow :exec
+INSERT INTO plan_windows (name, status, utilization, resets_at, surpassed_threshold, received_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (name) DO UPDATE SET status = excluded.status, utilization = excluded.utilization,
+  resets_at = excluded.resets_at, surpassed_threshold = excluded.surpassed_threshold, received_at = excluded.received_at
+`
+
+type SetPlanWindowParams struct {
+	Name               string          `json:"name"`
+	Status             string          `json:"status"`
+	Utilization        sql.NullFloat64 `json:"utilization"`
+	ResetsAt           int64           `json:"resets_at"`
+	SurpassedThreshold sql.NullFloat64 `json:"surpassed_threshold"`
+	ReceivedAt         int64           `json:"received_at"`
+}
+
+func (q *Queries) SetPlanWindow(ctx context.Context, arg SetPlanWindowParams) error {
+	_, err := q.db.ExecContext(ctx, setPlanWindow,
+		arg.Name,
+		arg.Status,
+		arg.Utilization,
+		arg.ResetsAt,
+		arg.SurpassedThreshold,
+		arg.ReceivedAt,
+	)
+	return err
 }
 
 const setQueuePos = `-- name: SetQueuePos :exec

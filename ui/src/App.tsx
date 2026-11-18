@@ -684,6 +684,7 @@ export function App() {
     error,
     setError,
     pausedUntil,
+    planWindows,
     draining,
     restartRev,
     pairRev,
@@ -1257,7 +1258,19 @@ export function App() {
               </Button>
             </div>
           )}
-          <UsageBanner pausedUntil={pausedUntil} />
+          <UsageBanner
+            pausedUntil={pausedUntil}
+            windows={planWindows}
+            onSeeUsage={
+              rights.computer
+                ? () =>
+                    leave(() => {
+                      setDrawer(false)
+                      openSettingsPage("general")
+                    })
+                : undefined
+            }
+          />
           {view === "settings" ? (
             <AreaBoundary
               area="settings"

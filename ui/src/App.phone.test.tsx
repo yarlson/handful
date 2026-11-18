@@ -25,6 +25,7 @@ vi.mock("@/lib/store", () => ({
     error: null,
     setError: () => {},
     pausedUntil: null,
+    planWindows: [],
     draining: false,
     restartRev: 0,
     pairRev: 0,

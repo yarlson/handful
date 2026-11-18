@@ -269,11 +269,10 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if err := svc.RecoverAfterRestart(ctx); err != nil {
-		return err
-	}
-	if err := svc.SeedBuilder(ctx); err != nil {
-		return err
+	for _, prepare := range []func(context.Context) error{svc.RecoverAfterRestart, svc.MoveInstructionsToFiles, svc.SeedBuilder} {
+		if err := prepare(ctx); err != nil {
+			return err
+		}
 	}
 
 	// Turns and requests end with work, after ctx, once the waiting approvals have expired as a restart.

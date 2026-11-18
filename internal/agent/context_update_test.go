@@ -63,8 +63,9 @@ func contextBlock(msg string) string {
 	return msg[start : start+end+len("</context-update>\n")]
 }
 
-// A change to memory or to the bot's instructions reaches the resumed session once, as the
-// sections that changed, right after the timestamp line; the system prompt of the run stays.
+// A change to memory reaches the resumed session once, as the sections that changed, right after
+// the timestamp line; the system prompt of the run stays. The bot's instructions are a file that
+// Claude Code loads, so a change to them changes no section.
 func TestATurnBringsItsSessionUpToDateWithWhatChanged(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
@@ -92,9 +93,8 @@ func TestATurnBringsItsSessionUpToDateWithWhatChanged(t *testing.T) {
 	if _, err := h.svc.UpdateBot(ctx, bot.ID, nil, &instructions); err != nil {
 		t.Fatal(err)
 	}
-	block = contextBlock(h.say(t, bot.ID, "three"))
-	if !strings.HasPrefix(block, updateIntro+"# You are Tester\n") || !strings.Contains(block, "Your standing instructions (your profile description): Answer in French.") || strings.Contains(block, "## Memory") {
-		t.Fatalf("update after an instructions change =\n%s\nwant only the section with the instructions", block)
+	if block := contextBlock(h.say(t, bot.ID, "three")); block != "" {
+		t.Fatalf("message after an instructions change carries %q; want no update", block)
 	}
 
 	if block := contextBlock(h.say(t, bot.ID, "four")); block != "" {

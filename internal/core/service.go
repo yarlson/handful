@@ -38,10 +38,13 @@ func notFound(what, id string) error {
 }
 
 const (
-	maxNameLen         = 80
-	maxInstructionsLen = 8000
-	maxMessageLen      = 32000
-	maxNonceLen        = 100
+	maxNameLen    = 80
+	maxPurposeLen = 8000 // a room's purpose; the prompt of each member holds it
+	// maxInstructionsSize bounds one save of a bot's instructions, in bytes.
+	// Claude Code sets no limit on the file.
+	maxInstructionsSize = 256 << 10
+	maxMessageLen       = 32000
+	maxNonceLen         = 100
 )
 
 // Bot is an agent or a room. A room ("group chat") has no Claude session of
@@ -246,15 +249,23 @@ func (s *Service) signalTurns() {
 
 func (s *Service) nowMs() int64 { return s.now().UnixMilli() }
 
+// toBot returns the bot of a row. A room's purpose is in the row; a bot's
+// instructions are in its instructions file, so Instructions is "" for a bot.
 func toBot(b db.Bot) Bot {
-	return Bot{ID: b.ID, Kind: b.Kind, Name: b.Name, Instructions: b.Instructions, Role: b.Role, Model: b.Model, Effort: b.Effort, ClaudeSessionID: b.ClaudeSessionID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
+	bot := Bot{ID: b.ID, Kind: b.Kind, Name: b.Name, Role: b.Role, Model: b.Model, Effort: b.Effort, ClaudeSessionID: b.ClaudeSessionID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt}
+	if bot.IsRoom() {
+		bot.Instructions = b.Instructions
+	}
+	return bot
 }
 
 func toEntry(e db.Entry) Entry {
 	return Entry{ID: e.ID, BotID: e.BotID, Seq: e.Seq, Rev: e.Rev, Kind: e.Kind, TurnID: e.TurnID, Body: json.RawMessage(e.Body), CreatedAt: e.CreatedAt}
 }
 
-func validateProfile(name, instructions string) (string, string, error) {
+// validateProfile checks and trims the name and the instructions of a bot or
+// a room of kind kind; a room's instructions are its purpose.
+func validateProfile(name, instructions, kind string) (string, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", "", invalid("name is required")
@@ -262,8 +273,11 @@ func validateProfile(name, instructions string) (string, string, error) {
 	if utf8.RuneCountInString(name) > maxNameLen {
 		return "", "", invalid("name is longer than %d characters", maxNameLen)
 	}
-	if utf8.RuneCountInString(instructions) > maxInstructionsLen {
-		return "", "", invalid("instructions are longer than %d characters", maxInstructionsLen)
+	if kind == KindRoom && utf8.RuneCountInString(instructions) > maxPurposeLen {
+		return "", "", invalid("instructions are longer than %d characters", maxPurposeLen)
+	}
+	if kind != KindRoom && len(instructions) > maxInstructionsSize {
+		return "", "", invalid("instructions are larger than %d KiB", maxInstructionsSize>>10)
 	}
 	return name, strings.TrimSpace(instructions), nil
 }
@@ -276,7 +290,7 @@ func (s *Service) CreateBot(ctx context.Context, name, instructions string) (Bot
 // CreateBotWithModel creates a bot as CreateBot does, with its own model and
 // effort; "" inherits.
 func (s *Service) CreateBotWithModel(ctx context.Context, name, instructions, model, effort string) (Bot, error) {
-	name, instructions, err := validateProfile(name, instructions)
+	name, instructions, err := validateProfile(name, instructions, kindAgentBot)
 	if err != nil {
 		return Bot{}, err
 	}
@@ -285,6 +299,9 @@ func (s *Service) CreateBotWithModel(ctx context.Context, name, instructions, mo
 	}
 	id := uuid.NewString()
 	if err := s.prepareWorkspace(s.Workspace(id)); err != nil {
+		return Bot{}, err
+	}
+	if err := s.writeInstructions(id, instructions); err != nil {
 		return Bot{}, err
 	}
 	now := s.nowMs()
@@ -303,14 +320,18 @@ func (s *Service) CreateBotWithModel(ctx context.Context, name, instructions, mo
 	return bot, nil
 }
 
-// insertAgentBot stores a bot, not a room, and gives it the hue that the fewest bots have.
+// insertAgentBot stores a bot, not a room, and gives it the hue that the
+// fewest bots have. The caller writes p.Instructions to the bot's
+// instructions file; the database gets none.
 func insertAgentBot(ctx context.Context, q *db.Queries, p db.CreateBotParams) (Bot, error) {
-	p.Kind = kindAgentBot
+	instructions := p.Instructions
+	p.Kind, p.Instructions = kindAgentBot, ""
 	row, err := q.CreateBot(ctx, p)
 	if err != nil {
 		return Bot{}, fmt.Errorf("create bot %q: %w", p.Name, err)
 	}
 	bot := toBot(row)
+	bot.Instructions = instructions
 	if bot.Hue, err = q.AssignLeastUsedHue(ctx, p.ID); err != nil {
 		return Bot{}, fmt.Errorf("give bot %q a colour: %w", p.Name, err)
 	}
@@ -386,6 +407,9 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 		}
 		b.Attention, b.OpenQuestions, b.IncomingHandoffs = attention[b.ID], open[b.ID], incoming[b.ID]
 		b.Hue = hueOf[b.ID]
+		if b.Instructions, err = s.instructionsOf(b); err != nil {
+			return nil, err
+		}
 		bots = append(bots, b)
 	}
 	return bots, nil
@@ -433,6 +457,9 @@ func (s *Service) GetBot(ctx context.Context, id string) (Bot, error) {
 	}
 	b := toBot(row)
 	if !b.IsRoom() {
+		if b.Instructions, err = s.instructionsOf(b); err != nil {
+			return Bot{}, err
+		}
 		b.Hue, err = s.hueOf(ctx, id)
 		return b, err
 	}
@@ -491,7 +518,7 @@ func (s *Service) UpdateBotSettings(ctx context.Context, id string, p BotPatch) 
 		if row, err = q.UpdateBotProfile(ctx, db.UpdateBotProfileParams{Name: next.Name, Instructions: next.Instructions, Model: next.Model, Effort: next.Effort, UpdatedAt: s.nowMs(), ID: id}); err != nil {
 			return fmt.Errorf("update bot %s: %w", id, err)
 		}
-		return storeHue(ctx, q, id, bot.Hue, next.Hue)
+		return s.storeHueAndInstructions(ctx, q, bot, next)
 	})
 	if err != nil {
 		return Bot{}, err
@@ -507,8 +534,21 @@ func (s *Service) UpdateBotSettings(ctx context.Context, id string, p BotPatch) 
 	}
 	s.hub.Publish(Event{Type: "bots"})
 	saved := toBot(row)
-	saved.Hue = next.Hue
+	saved.Instructions, saved.Hue = next.Instructions, next.Hue
 	return saved, nil
+}
+
+// storeHueAndInstructions saves the colour and the instructions of a bot when
+// they changed. It writes the instructions file last, so that a failed write
+// rolls the transaction of q back.
+func (s *Service) storeHueAndInstructions(ctx context.Context, q *db.Queries, bot, next Bot) error {
+	if err := storeHue(ctx, q, bot.ID, bot.Hue, next.Hue); err != nil {
+		return err
+	}
+	if bot.IsRoom() || next.Instructions == bot.Instructions {
+		return nil
+	}
+	return s.writeInstructions(bot.ID, next.Instructions)
 }
 
 // storeHue saves a bot's colour when it changed, after it checks the name against the palette.
@@ -529,16 +569,21 @@ func storeHue(ctx context.Context, q *db.Queries, id, old, hue string) error {
 	return nil
 }
 
-// apply returns bot with the patch's fields, checked and normalized.
+// apply returns bot with the patch's fields, checked and normalized. Only
+// new instructions are checked: a bot's file may hold any text written by hand.
 func (p BotPatch) apply(bot Bot) (Bot, error) {
 	setIf(&bot.Name, p.Name)
-	setIf(&bot.Instructions, p.Instructions)
 	setIf(&bot.Model, p.Model)
 	setIf(&bot.Effort, p.Effort)
 	setIf(&bot.Hue, p.Hue)
+	var instructions string
+	setIf(&instructions, p.Instructions)
 	var err error
-	if bot.Name, bot.Instructions, err = validateProfile(bot.Name, bot.Instructions); err != nil {
+	if bot.Name, instructions, err = validateProfile(bot.Name, instructions, bot.Kind); err != nil {
 		return Bot{}, err
+	}
+	if p.Instructions != nil {
+		bot.Instructions = instructions
 	}
 	if bot.Model, bot.Effort, err = validModelEffort(bot.Model, bot.Effort); err != nil {
 		return Bot{}, err

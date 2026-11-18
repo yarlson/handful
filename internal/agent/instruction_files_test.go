@@ -219,3 +219,27 @@ func TestAnEditedInstructionFileReachesARunningProcess(t *testing.T) {
 		t.Fatalf("claude started %d times; want one process for every message", len(calls))
 	}
 }
+
+// A save of a bot's instructions reaches its running process in the next turn, as the new text
+// of the bot's instructions file. The system prompt names the file and does not change.
+func TestSavedInstructionsReachARunningProcessAsTheirFile(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, "background")
+	ctx := context.Background()
+	bot := h.newBot(t)
+	h.start(t)
+	h.startBackgroundTask(t, bot)
+	h.sendLive(t, bot.ID, "ping", 1)
+	text := "Answer in French."
+	if _, err := h.svc.UpdateBot(ctx, bot.ID, nil, &text); err != nil {
+		t.Fatal(err)
+	}
+	got := h.sendLive(t, bot.ID, "ping again", 2)
+	file := h.svc.InstructionsFile(bot.ID)
+	if !strings.Contains(got, "<instructions-update>") || !strings.Contains(got, "Contents of "+file+":\n\n"+text) || strings.Contains(got, "<context-update>") {
+		t.Fatalf("the turn after the save got\n%s\nwant the new text of %s in an instructions update and no context update", got, file)
+	}
+	if prompt := h.argsLog(t)[0]; !strings.Contains(prompt, "are the file "+file+", which Claude Code loads") {
+		t.Fatalf("system prompt =\n%s\nwant it to name %s", prompt, file)
+	}
+}

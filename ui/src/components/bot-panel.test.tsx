@@ -71,6 +71,18 @@ test("settings without a Claude Code folder, as a room's, show none", () => {
   assert.notInclude(settings(agent), "Claude Code folder")
 })
 
+test("a bot's Instructions field says that they are the CLAUDE.md in its Claude Code folder", () => {
+  const html = settings({ ...agent, configDir: "/Users/ana/.handful/bots/bot-ana/claude" })
+  assert.match(html, /<textarea[^>]*aria-describedby="bot-instructions-file"/)
+  assert.include(
+    html,
+    '<p id="bot-instructions-file" class="text-muted-foreground text-xs">Kept in <code>CLAUDE.md</code> in the bot&#x27;s Claude Code folder, where you can also edit it by hand.</p>',
+  )
+  const room = settings({ ...agent, kind: "room", hue: undefined })
+  assert.notInclude(room, "CLAUDE.md")
+  assert.notInclude(room, "aria-describedby")
+})
+
 test("a room's settings have no colour to pick", () => {
   assert.deepEqual(swatches(settings({ ...agent, kind: "room", hue: undefined })), [])
 })

@@ -248,3 +248,29 @@ func TestEveryPromptVariantNamesBothSkillLayers(t *testing.T) {
 	wantText(t, "Builder's prompt", systemPrompt(promptContext{Bot: builder, Now: now}),
 		[]string{`a bot can also keep a skill for itself only. The user runs a skill with /<skill> <request> in a bot's chat, where the bot's own skills run too, or a shared skill in a team's chat`}, nil)
 }
+
+// Every prompt variant names the bot's instructions file once and does not paste the
+// instructions, which Claude Code loads from that file in every turn.
+func TestEveryPromptVariantNamesTheInstructionsFileAndNotItsText(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
+	ana := core.Bot{ID: "a", Name: "Ana", Instructions: "Write code in Go."}
+	team := core.Bot{ID: "t", Name: "Ship", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}, Team: &core.Team{LeadID: "a"}}
+	member := core.Bot{ID: "b", Name: "Bo", Instructions: "Review code in Go."}
+	room := core.Bot{ID: "r", Name: "Plan", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}}
+	const file = "/data/bots/x/claude/CLAUDE.md"
+	line := "Your standing instructions (your profile description) are the file " + file + ", which Claude Code loads as user instructions. When it is empty or missing, learn what the user wants and save them with update_profile.\n"
+	for what, pc := range map[string]promptContext{
+		"a bot's own chat":   {Bot: ana, InstructionsFile: file, Now: now},
+		"a bot in a room":    {Bot: ana, InRoom: true, Rooms: []core.Bot{room}, InstructionsFile: file, Now: now},
+		"a team's lead":      {Bot: ana, Team: &team, InRoom: true, InstructionsFile: file, Now: now},
+		"a team's member":    {Bot: member, Team: &team, InRoom: true, InstructionsFile: file, Now: now},
+		"Builder":            {Bot: core.Bot{ID: "bl", Name: "Builder", Role: core.RoleBuilder, Instructions: "Help set up bots in Go."}, InstructionsFile: file, Now: now},
+		"a bot with no text": {Bot: core.Bot{ID: "c", Name: "Cy"}, InstructionsFile: file, Now: now},
+	} {
+		got := systemPrompt(pc)
+		if strings.Count(got, line) != 1 || strings.Contains(got, " in Go.") {
+			t.Errorf("%s's prompt has the instructions line %d times, and its text: %v; want the line once and no text\n%s", what, strings.Count(got, line), strings.Contains(got, " in Go."), got)
+		}
+	}
+}

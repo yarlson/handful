@@ -13,9 +13,22 @@ SELECT * FROM bots ORDER BY position, created_at, rowid;
 UPDATE bots SET role = ? WHERE id = ?;
 
 -- name: UpdateBotProfile :one
-UPDATE bots SET name = ?, instructions = ?, model = ?, effort = ?, updated_at = ?
-WHERE id = ?
+-- A room's purpose is this column; a bot's instructions are a file, and its
+-- column keeps the text it had before they moved.
+UPDATE bots SET name = sqlc.arg(name),
+  instructions = CASE WHEN kind = 'room' THEN sqlc.arg(instructions) ELSE instructions END,
+  model = sqlc.arg(model), effort = sqlc.arg(effort), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
 RETURNING *;
+
+-- name: ListInstructionsToMove :many
+SELECT id, instructions FROM bots
+WHERE kind = 'agent' AND instructions <> ''
+  AND id NOT IN (SELECT bot_id FROM instructions_moved)
+ORDER BY id;
+
+-- name: MarkInstructionsMoved :exec
+INSERT OR IGNORE INTO instructions_moved (bot_id) VALUES (?);
 
 -- name: SetBotSession :exec
 UPDATE bots SET claude_session_id = ?, updated_at = ? WHERE id = ?;

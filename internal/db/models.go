@@ -111,6 +111,10 @@ type Hue struct {
 	Position int64  `json:"position"`
 }
 
+type InstructionsMoved struct {
+	BotID string `json:"bot_id"`
+}
+
 type Item struct {
 	ID           string `json:"id"`
 	TeamID       string `json:"team_id"`

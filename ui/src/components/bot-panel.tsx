@@ -866,7 +866,13 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
           rows={6}
           value={draft.instructions}
           onChange={(e) => edit({ instructions: e.target.value })}
+          aria-describedby={bot.configDir ? "bot-instructions-file" : undefined}
         />
+        {bot.configDir && (
+          <p id="bot-instructions-file" className="text-muted-foreground text-xs">
+            Kept in <code>CLAUDE.md</code> in the bot's Claude Code folder, where you can also edit it by hand.
+          </p>
+        )}
       </div>
       {!isRoom && (
         <fieldset className="flex flex-col gap-3">

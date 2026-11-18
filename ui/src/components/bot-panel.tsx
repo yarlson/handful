@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { draftOf, rebase, savePlan, unsaved, type BotDraft, type TeamDraft } from "@/lib/bot-settings"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { panelTabs, shownTab, type PanelTab, type Reading } from "@/lib/place"
+import { skillLayerLabel } from "@/lib/skills"
 import { contextLine, usageKey, type Usage } from "@/lib/usage"
 import { cn } from "@/lib/utils"
 import { botColor, hues } from "@/lib/bot-color"
@@ -401,8 +402,10 @@ function RoutinesTab({ bot, version }: { bot: Bot; version: number }) {
   )
 }
 
-function SkillsTab({ version, onRead }: { version: number; onRead: (r: Reading) => void }) {
-  const { data, error } = useLoad(() => api.skills(), String(version))
+// SkillsTab lists the skills that a bot loads: its own, then the shared ones, each with the bots
+// it is for.
+function SkillsTab({ bot, version, onRead }: { bot: Bot; version: number; onRead: (r: Reading) => void }) {
+  const { data, error } = useLoad(() => api.botSkills(bot.id), `${bot.id}:${version}`)
   return (
     <div className="flex flex-col gap-2">
       {error && <p className="text-destructive text-xs">{error}</p>}
@@ -413,12 +416,17 @@ function SkillsTab({ version, onRead }: { version: number; onRead: (r: Reading) 
       )}
       {data?.map((s) => (
         <button
-          key={s.id}
+          key={`${s.layer}:${s.id}`}
           type="button"
           className="hover:bg-muted transition-colors duration-(--duration-fast) rounded-md border p-2 text-left text-sm"
-          onClick={() => onRead({ kind: "skill", id: s.id })}
+          onClick={() => onRead({ kind: s.layer === "bot" ? "bot-skill" : "skill", id: s.id })}
         >
-          <span className="font-medium">{s.name}</span>
+          <span className="flex items-center justify-between gap-2">
+            <span className="font-medium">{s.name}</span>
+            <Badge variant={s.layer === "bot" ? "secondary" : "outline"} className="shrink-0">
+              {skillLayerLabel(s)}
+            </Badge>
+          </span>
           <p className="text-muted-foreground text-xs">{s.description}</p>
         </button>
       ))}
@@ -983,7 +991,7 @@ export function BotPanel({
       case "routines":
         return <RoutinesTab bot={bot} version={version} />
       case "skills":
-        return <SkillsTab version={version} onRead={onRead} />
+        return <SkillsTab bot={bot} version={version} onRead={onRead} />
       case "artifacts":
         return <ArtifactsTab agents={agents} version={version} onRead={onRead} />
       case "settings":

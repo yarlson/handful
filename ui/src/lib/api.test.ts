@@ -276,6 +276,18 @@ test("a bot's usage comes from its usage route", async () => {
   assert.deepEqual(calls, [{ method: "GET", url: "/api/bots/b1/usage", body: undefined }])
 })
 
+test("a bot's own skills are listed, read and deleted on the bot's skills route", async () => {
+  const calls = stubFetch(204)
+  await api.botSkills("b1")
+  await api.botSkill("b1", "deploy")
+  await api.deleteBotSkill("b1", "deploy")
+  assert.deepEqual(calls, [
+    { method: "GET", url: "/api/bots/b1/skills", body: undefined },
+    { method: "GET", url: "/api/bots/b1/skills/deploy", body: undefined },
+    { method: "DELETE", url: "/api/bots/b1/skills/deploy", body: undefined },
+  ])
+})
+
 test("a bot's settings, its hue among them, patch the bot's route", async () => {
   const calls = stubFetch(200)
   await api.updateBot("b1", { name: "Ana", hue: "lime" })

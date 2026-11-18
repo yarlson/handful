@@ -3,6 +3,7 @@ import { ArrowLeft, Link as LinkIcon, Send, Trash2 } from "lucide-react"
 import { api, isNotFound, type Artifact, type Bot, type Skill } from "@/lib/api"
 import { artifactAuthor } from "@/lib/artifacts"
 import { artifactUrl, type Reading } from "@/lib/place"
+import { skillLayerLabel } from "@/lib/skills"
 import { dateTime } from "@/lib/dates"
 import { useRights } from "@/lib/session"
 import { MarkdownText } from "@/components/chat"
@@ -29,7 +30,8 @@ export function Reader({
   onDeleted,
 }: {
   reading: Reading
-  // chat is the chat the reader opened in; an artifact's link opens it there again.
+  // chat is the chat the reader opened in; an artifact's link opens it there again, and a
+  // bot-skill reading is that chat's own skill.
   chat: string
   agents: Bot[]
   teams: Bot[]
@@ -52,7 +54,10 @@ export function Reader({
     const load: Promise<Loaded> =
       reading.kind === "artifact"
         ? api.artifact(reading.id).then((item) => ({ kind: "artifact", item }))
-        : api.skill(reading.id).then((item) => ({ kind: "skill", item }))
+        : (reading.kind === "bot-skill" ? api.botSkill(chat, reading.id) : api.skill(reading.id)).then((item) => ({
+            kind: "skill",
+            item,
+          }))
     load.then(
       (l) => live && setLoaded(l),
       (e: Error) => {
@@ -64,7 +69,7 @@ export function Reader({
     return () => {
       live = false
     }
-  }, [reading.kind, reading.id])
+  }, [reading.kind, reading.id, chat])
   // The keyboard goes to the title when the item shows, so Tab reaches its links and controls.
   useEffect(() => {
     if (loaded) title.current?.focus({ preventScroll: true })
@@ -87,6 +92,7 @@ export function Reader({
     if (!loaded) return
     try {
       if (loaded.kind === "artifact") await api.deleteArtifact(loaded.item.id)
+      else if (loaded.item.layer === "bot") await api.deleteBotSkill(chat, loaded.item.id)
       else await api.deleteSkill(loaded.item.id)
       onDeleted()
     } catch (e) {
@@ -152,7 +158,7 @@ export function Reader({
               Cancel
             </Button>
             <Button variant="destructive" size="sm" className="max-md:h-11" onClick={() => void remove()}>
-              Delete for all bots
+              {loaded?.kind === "skill" && loaded.item.layer === "bot" ? "Delete for this bot" : "Delete for all bots"}
             </Button>
           </>
         )}
@@ -206,7 +212,12 @@ export function Reader({
               <h1 ref={title} tabIndex={-1} className="text-xl font-semibold outline-none">
                 {loaded.item.name}
               </h1>
-              <p className="text-foreground/70 mt-2 text-sm">{loaded.item.description}</p>
+              <p className="text-foreground/70 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <Badge variant={loaded.item.layer === "bot" ? "secondary" : "outline"}>
+                  {skillLayerLabel(loaded.item)}
+                </Badge>
+                <span>{loaded.item.description}</span>
+              </p>
               <div className="mt-6 border-t pt-6">
                 <MarkdownText text={loaded.item.body ?? ""} />
               </div>

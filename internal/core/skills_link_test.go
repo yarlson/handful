@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,13 +38,13 @@ func TestListSkillsFollowsLinksToSkillFolders(t *testing.T) {
 	link(filepath.Join(elsewhere, "notes.md"), "file-link")
 	link("loop-link", "loop-link")
 
-	got, err := svc.ListSkills()
+	got, err := svc.ListSkills(context.Background(), SharedSkills)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []Skill{
-		{ID: "alpha-linked", Name: "alpha-linked", Description: "A linked folder."},
-		{ID: "zeta-plain", Name: "zeta-plain", Description: "A plain folder."},
+		{ID: "alpha-linked", Name: "alpha-linked", Description: "A linked folder.", Layer: LayerShared},
+		{ID: "zeta-plain", Name: "zeta-plain", Description: "A plain folder.", Layer: LayerShared},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("ListSkills = %+v; want %+v", got, want)
@@ -73,7 +74,7 @@ func TestListSkillsReportsALinkItCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-	if got, err := svc.ListSkills(); err == nil || !strings.Contains(err.Error(), "read skill link locked-link") || got != nil {
+	if got, err := svc.ListSkills(context.Background(), SharedSkills); err == nil || !strings.Contains(err.Error(), "read skill link locked-link") || got != nil {
 		t.Fatalf("ListSkills = %+v, %v; want an error that names locked-link", got, err)
 	}
 }

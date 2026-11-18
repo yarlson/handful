@@ -239,6 +239,7 @@ type skillInput struct {
 	ID          string `json:"id,omitempty" jsonschema:"skill id; required for delete"`
 	Description string `json:"description,omitempty" jsonschema:"one line that says when to use the skill; required for write"`
 	Body        string `json:"body,omitempty" jsonschema:"the generic recipe in markdown; required for write"`
+	Scope       string `json:"scope,omitempty" jsonschema:"write and delete: user (default, shared by all the user's bots) or agent (only you, in every chat you work in)"`
 }
 
 type boardInput struct {
@@ -302,7 +303,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "recall_memory", Description: "Search your durable memory and the shared user memory for facts that are not in your prompt."}, h.recallMemory)
 	addRunTool(s, current, &mcp.Tool{Name: "update_memory", Description: fmt.Sprintf("Save a durable fact (write), replace one (write with replaces) or drop one by its exact text (forget). A fact is one sentence of at most %d characters; keep long lists in a file in your working directory. Save without asking and mention it only in passing.", core.MaxFactLen)}, h.updateMemory)
 	addRunTool(s, current, &mcp.Tool{Name: "update_routine", Description: "Create, change, pause, resume, delete, run or list your routines: saved prompts that run on a schedule, even while the user is away."}, h.updateRoutine)
-	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes) shared by all of the user's bots. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
+	addRunTool(s, current, &mcp.Tool{Name: "update_skill", Description: "Save, rewrite, delete or list reusable skills (SKILL.md recipes). A skill is shared by all of the user's bots (scope user, the default), or only yours (scope agent); your own skill wins over a shared one with the same id. A skill has no trigger; use a routine for scheduled work."}, h.updateSkill)
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
 	if inTeam(svc, current) || inAnyTeam(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: updateBoardDescription}, h.updateBoard)
@@ -496,20 +497,24 @@ func (t tools) updateRoutine(ctx context.Context, rc runContext, in routineInput
 }
 
 func (t tools) updateSkill(ctx context.Context, rc runContext, in skillInput) (*mcp.CallToolResult, any, error) {
+	owner, kind, err := skillOwner(rc, in.Scope)
+	if err != nil {
+		return nil, nil, err
+	}
 	switch in.Action {
 	case "write":
-		sk, err := t.svc.WriteSkill(in.Name, in.Description, in.Body)
+		sk, err := t.svc.WriteSkill(ctx, owner, in.Name, in.Description, in.Body)
 		if err != nil {
 			return nil, nil, err
 		}
-		return textResult("Saved skill %q (id %s). It is available through the Skill tool from the next turn.", sk.Name, sk.ID), nil, nil
+		return textResult("Saved %s skill %q (id %s). It is available through the Skill tool from the next turn.", kind, sk.Name, sk.ID), nil, nil
 	case "delete":
-		if err := t.svc.DeleteSkill(in.ID); err != nil {
+		if err := t.svc.DeleteSkill(ctx, owner, in.ID); err != nil {
 			return nil, nil, err
 		}
-		return textResult("Deleted skill %s.", in.ID), nil, nil
+		return textResult("Deleted %s skill %s.", kind, in.ID), nil, nil
 	case "list":
-		skills, err := t.svc.ListSkills()
+		skills, err := t.svc.ListSkills(ctx, rc.BotID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -518,11 +523,32 @@ func (t tools) updateSkill(ctx context.Context, rc runContext, in skillInput) (*
 		}
 		var b strings.Builder
 		for _, sk := range skills {
-			fmt.Fprintf(&b, "- %s: %s\n", sk.ID, sk.Description)
+			fmt.Fprintf(&b, "- %s (%s): %s\n", sk.ID, skillLayerLabel(sk), sk.Description)
 		}
 		return textResult("%s", b.String()), nil, nil
 	}
 	return nil, nil, fmt.Errorf("action must be write, delete or list")
+}
+
+// skillOwner returns the owner of the skills that scope names, and the word for them.
+func skillOwner(rc runContext, scope string) (owner, kind string, err error) {
+	if scope == "" || scope == "user" {
+		return core.SharedSkills, "shared", nil
+	}
+	if scope == "agent" {
+		return rc.BotID, "your own", nil
+	}
+	return "", "", fmt.Errorf("scope %q must be user (all bots) or agent (only you)", scope)
+}
+
+func skillLayerLabel(sk core.Skill) string {
+	if sk.Layer == core.LayerBot {
+		return "this bot only"
+	}
+	if sk.Replaced {
+		return "shared; your own skill with this id replaces it for you"
+	}
+	return "shared"
 }
 
 func (t tools) updateProfile(ctx context.Context, rc runContext, in profileInput) (*mcp.CallToolResult, any, error) {

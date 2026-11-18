@@ -73,7 +73,7 @@ Close the app and come back later. Each bot still has:
 - Its chat. The whole conversation stays, with the tools that the bot used.
 - Its memory. A bot saves facts on its own, and you add yours in the **Memory** tab of the bot panel. A fact with **Always in mind** is in front of the bot on every turn. The other facts go to the bot's log. The 20 newest of them are also in front of the bot on every turn, and it searches the rest when it needs to.
 - Its routines. Ask for anything that repeats, for example "every weekday at 8:10, brief me on my calendar". The bot saves the prompt and the schedule. Make, change and run routines in the **Routines** tab.
-- Skills. A skill is a saved procedure that every bot can use. Run one with `/<skill> <request>`.
+- Skills. A skill is a saved procedure that all bots share, or that one bot keeps for itself. Run one with `/<skill> <request>`.
 - Artifacts. Bots save documents for each other: plans, tasks, issues, reviews, reports and notes. All of your bots can read them.
 - Its folder, `~/.handful/bots/<bot id>/workspace`.
 

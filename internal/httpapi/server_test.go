@@ -344,6 +344,49 @@ func TestCreateRoutineEndpoint(t *testing.T) {
 	}
 }
 
+// AC4.3, AC9.2, AC9.3: a bot's skills route lists its own skills and the shared ones, and its
+// skill routes read and delete only the bot's own layer.
+func TestBotSkillRoutesWorkOnTheBotsOwnLayer(t *testing.T) {
+	h, svc := newTestHandler(t)
+	ctx := context.Background()
+	bot, err := svc.CreateBot(ctx, "Ana", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	room, err := svc.CreateRoom(ctx, "Plan", "", []string{bot.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for owner, description := range map[string]string{core.SharedSkills: "Shared review.", bot.ID: "Ana's review."} {
+		if _, err := svc.WriteSkill(ctx, owner, "review", description, "Do it."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := do(h, "GET", "/api/bots/"+bot.ID+"/skills", "", nil)
+	want := `[{"id":"review","name":"review","description":"Ana's review.","layer":"bot"},{"id":"review","name":"review","description":"Shared review.","layer":"shared","replaced":true}]`
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("list: %d %s; want 200 %s", rec.Code, rec.Body, want)
+	}
+	if rec := do(h, "GET", "/api/bots/"+bot.ID+"/skills/review", "", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"description":"Ana's review."`) {
+		t.Fatalf("get: %d %s; want the bot's own skill", rec.Code, rec.Body)
+	}
+	if rec := do(h, "DELETE", "/api/bots/"+bot.ID+"/skills/review", "", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s; want 204", rec.Code, rec.Body)
+	}
+	if rec := do(h, "GET", "/api/bots/"+bot.ID+"/skills/review", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("get after delete: %d %s; want 404", rec.Code, rec.Body)
+	}
+	if rec := do(h, "GET", "/api/skills/review", "", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"description":"Shared review."`) {
+		t.Fatalf("shared skill after the bot's delete: %d %s; want it kept", rec.Code, rec.Body)
+	}
+	if rec := do(h, "GET", "/api/bots/missing/skills", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown bot: %d %s; want 404", rec.Code, rec.Body)
+	}
+	if rec := do(h, "GET", "/api/bots/"+room.ID+"/skills/review", "", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a room's own skill: %d %s; want 400", rec.Code, rec.Body)
+	}
+}
+
 func TestReorderEndpoint(t *testing.T) {
 	h, svc := newTestHandler(t)
 	ctx := context.Background()

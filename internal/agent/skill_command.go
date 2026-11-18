@@ -2,6 +2,7 @@ package agent
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -16,12 +17,12 @@ import (
 var teamCommands = map[string]bool{"clear": true, "compact": true, "goal": true, "task": true}
 
 // skillCommand returns words, the user's own, trimmed, when they start with "/<skill-id>" for an
-// existing skill that reserved doesn't hold. Claude Code runs a skill itself when the last text
+// existing skill of one of owners (see core.SharedSkills) that reserved doesn't hold. Claude Code runs a skill itself when the last text
 // block of a message starts with it, and takes the rest of that block as the skill's arguments,
 // as when the words are typed in its terminal. So such words go to it as the message's last
 // block, after Handful's own text. Only a skill is matched: any other "/word" (Claude Code's own
 // commands, such as /model) stays inside the message's text, where it is plain text.
-func (r *Runner) skillCommand(words string, reserved map[string]bool) (string, bool) {
+func (r *Runner) skillCommand(ctx context.Context, words string, owners []string, reserved map[string]bool) (string, bool) {
 	words = strings.TrimSpace(words)
 	rest, ok := strings.CutPrefix(words, "/")
 	if !ok {
@@ -31,21 +32,23 @@ func (r *Runner) skillCommand(words string, reserved map[string]bool) (string, b
 	if id == "" || reserved[id] {
 		return "", false
 	}
-	if _, err := r.svc.GetSkill(id); err != nil {
-		return "", false
+	for _, owner := range owners {
+		if _, err := r.svc.GetSkill(ctx, owner, id); err == nil {
+			return words, true
+		}
 	}
-	return words, true
+	return "", false
 }
 
 // teamCommand returns the skill command of the user's post that woke turn t in a team: after
-// any @mentions, the post starts with "/<skill-id>" for a skill that no team command hides.
-// Posts of bots, and posts in plain rooms, have none.
-func (r *Runner) teamCommand(u core.RoomUpdate, t core.Turn) (string, bool) {
+// any @mentions, the post starts with "/<skill-id>" for a shared skill that no team command
+// hides. Posts of bots, and posts in plain rooms, have none.
+func (r *Runner) teamCommand(ctx context.Context, u core.RoomUpdate, t core.Turn) (string, bool) {
 	post, ok := lastUserPost(u.Messages)
 	if !u.Room.IsTeam() || !t.FromUserPost() || !ok {
 		return "", false
 	}
-	return r.skillCommand(withoutMentions(post, u.Room.Members), teamCommands)
+	return r.skillCommand(ctx, withoutMentions(post, u.Room.Members), []string{core.SharedSkills}, teamCommands)
 }
 
 // lastUserPost returns the text of the last post of the user in entries.

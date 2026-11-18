@@ -22,6 +22,12 @@ test("a chat's address holds its panel tab, its reader and its post", () => {
     reading: { kind: "skill", id: "release-notes" },
     post: null,
   })
+  assert.deepEqual(chatPlace(`/chat/${chat}`, "?tab=skills&bot-skill=notes"), {
+    chat,
+    tab: "skills",
+    reading: { kind: "bot-skill", id: "notes" },
+    post: null,
+  })
   assert.deepEqual(chatPlace(`/chat/${chat}`, "?post=e9"), { chat, tab: null, reading: null, post: "e9" })
 })
 
@@ -47,6 +53,7 @@ test("a chat's place reads back from its address", () => {
     { chat, tab: null, reading: null, post: null },
     { chat, tab: "settings" as const, reading: null, post: null },
     { chat, tab: "skills" as const, reading: { kind: "skill" as const, id: "a b&c" }, post: null },
+    { chat, tab: "skills" as const, reading: { kind: "bot-skill" as const, id: "notes" }, post: null },
     { chat, tab: null, reading: { kind: "artifact" as const, id: "x" }, post: "e/1?" },
   ]
   for (const p of places) {

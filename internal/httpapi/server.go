@@ -176,6 +176,9 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	mux.HandleFunc("GET /api/skills", s.listSkills)
 	mux.HandleFunc("GET /api/skills/{id}", s.getSkill)
 	mux.HandleFunc("DELETE /api/skills/{id}", s.deleteSkill)
+	mux.HandleFunc("GET /api/bots/{id}/skills", s.listSkills)
+	mux.HandleFunc("GET /api/bots/{id}/skills/{skill}", s.getSkill)
+	mux.HandleFunc("DELETE /api/bots/{id}/skills/{skill}", s.deleteSkill)
 	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	mux.HandleFunc("POST /api/artifacts", s.createArtifact)
 	mux.HandleFunc("GET /api/artifacts/{id}", s.getArtifact)
@@ -1017,8 +1020,10 @@ func (s *server) setReaction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, e)
 }
 
+// listSkills returns the shared skills, or on /api/bots/{id}/skills the skills that the chat loads
+// (core.Service.ListSkills).
 func (s *server) listSkills(w http.ResponseWriter, r *http.Request) {
-	skills, err := s.svc.ListSkills()
+	skills, err := s.svc.ListSkills(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -1029,8 +1034,18 @@ func (s *server) listSkills(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, skills)
 }
 
+// skillRef returns the owner and the id of the skill that a skills route names: a shared skill on
+// /api/skills/{id}, or a bot's own on /api/bots/{id}/skills/{skill}.
+func skillRef(r *http.Request) (owner, id string) {
+	if skill := r.PathValue("skill"); skill != "" {
+		return r.PathValue("id"), skill
+	}
+	return core.SharedSkills, r.PathValue("id")
+}
+
 func (s *server) getSkill(w http.ResponseWriter, r *http.Request) {
-	skill, err := s.svc.GetSkill(r.PathValue("id"))
+	owner, id := skillRef(r)
+	skill, err := s.svc.GetSkill(r.Context(), owner, id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -1039,7 +1054,8 @@ func (s *server) getSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) deleteSkill(w http.ResponseWriter, r *http.Request) {
-	if err := s.svc.DeleteSkill(r.PathValue("id")); err != nil {
+	owner, id := skillRef(r)
+	if err := s.svc.DeleteSkill(r.Context(), owner, id); err != nil {
 		s.fail(w, r, err)
 		return
 	}

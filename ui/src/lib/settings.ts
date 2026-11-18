@@ -4,6 +4,7 @@
 export type Key =
   | "model"
   | "effort"
+  | "helperModel"
   | "maxParallel"
   | "claude"
   | "updates.autoCheck"
@@ -51,6 +52,7 @@ export const SECTIONS: { id: Section; label: string }[] = [
 export const LABELS: Record<Key, string> = {
   model: "Default model",
   effort: "Default effort",
+  helperModel: "Helper model",
   maxParallel: "Turns at once",
   claude: "Claude Code program",
   "updates.autoCheck": "Check for updates automatically",
@@ -61,6 +63,7 @@ export const LABELS: Record<Key, string> = {
 const SECTION_OF: Record<Key, Section> = {
   model: "general",
   effort: "general",
+  helperModel: "general",
   maxParallel: "general",
   claude: "general",
   "updates.autoCheck": "updates",
@@ -128,10 +131,12 @@ export function display(key: Key, value: Plain | undefined): string {
   if (value === undefined || value === "") {
     if (key === "model") return "Claude Code default"
     if (key === "effort") return "Default (model's own)"
+    if (key === "helperModel") return "Sonnet"
     return "Default"
   }
   const s = String(value)
-  if (key === "model") return MODEL_NAMES[s] ?? s
+  if (key === "helperModel" && s === "inherit") return "Same as the bot"
+  if (key === "model" || key === "helperModel") return MODEL_NAMES[s] ?? s
   if (key === "effort") return EFFORT_NAMES[s] ?? s
   return s
 }
@@ -154,9 +159,10 @@ const MODEL_ID = /^[A-Za-z0-9._:/@[\]-]{1,200}$/
 // to show, or null when it's fine. The server checks again before it writes.
 export function check(key: Key, raw: string): string | null {
   const text = raw.trim()
-  if (key === "model") {
+  if (key === "model" || key === "helperModel") {
     if (text === "") return null
-    if (text.toLowerCase() === "inherit") return "Choose Default instead."
+    // For Helper model, inherit is the value of Same as the bot.
+    if (key === "model" && text.toLowerCase() === "inherit") return "Choose Default instead."
     if (/\s/.test(text) || text.startsWith("-")) return "A model ID can't contain spaces or start with '-'."
     if (!MODEL_ID.test(text))
       return "A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters."

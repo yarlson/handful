@@ -54,7 +54,7 @@ func TestLoadAcceptsAFileAtItsSizeLimit(t *testing.T) {
 func TestSetStoresCheckedValuesAndNullRemovesThem(t *testing.T) {
 	var f File
 	for key, raw := range map[string]string{
-		"model": `" OPUS "`, "effort": `"High"`, "maxParallel": `1`, "claude": `"/opt/claude code/claude"`,
+		"model": `" OPUS "`, "effort": `"High"`, "helperModel": `" Inherit "`, "maxParallel": `1`, "claude": `"/opt/claude code/claude"`,
 		"updates.autoCheck": `false`, "updates.drainMinutes": `240`, "updateCheck": `false`,
 		"phone.enabled": `true`, "phone.addr": `"127.0.0.1:7900"`, "phone.hosts": `[" Phone.Example.com "]`, "phone.proxy": `"tailscale"`,
 		"phone.cloudflare.teamDomain": `"https://You.cloudflareaccess.com/"`, "phone.cloudflare.aud": `"ABCDEF0123456789abcdef"`,
@@ -64,7 +64,7 @@ func TestSetStoresCheckedValuesAndNullRemovesThem(t *testing.T) {
 		}
 	}
 	want := map[string]any{
-		"model": "opus", "effort": "high", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 240, "updateCheck": false,
+		"model": "opus", "effort": "high", "helperModel": "inherit", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 240, "updateCheck": false,
 		"phone.enabled": true, "phone.addr": "127.0.0.1:7900", "phone.hosts": []string{"phone.example.com"}, "phone.proxy": "tailscale",
 		"phone.cloudflare.teamDomain": "you.cloudflareaccess.com", "phone.cloudflare.aud": "abcdef0123456789abcdef",
 	}
@@ -114,6 +114,9 @@ func TestSetRejectsWhatTheServerWouldNotStartWith(t *testing.T) {
 		{"model", `"inherit"`, "Choose Default instead."},
 		{"model", `3`, "model must be text."},
 		{"effort", `"huge"`, "Effort must be one of low, medium, high, xhigh, max."},
+		{"helperModel", `"-x"`, "A model ID can't contain spaces or start with '-'."},
+		{"helperModel", `"a*b"`, "A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters."},
+		{"helperModel", `3`, "helperModel must be text."},
 		{"updates.drainMinutes", `4`, "Wait for running bots must be from 5 to 240 minutes."},
 		{"updates.drainMinutes", `241`, "Wait for running bots must be from 5 to 240 minutes."},
 		{"claude", `""`, "The Claude Code program must be 1 to 1024 characters, with no NUL character."},
@@ -202,14 +205,14 @@ func TestWriteFailsWithoutAFolderAndLeavesNothing(t *testing.T) {
 
 func TestKeysHaveDefaultsFlagsAndRestartRules(t *testing.T) {
 	defaults := map[string]any{
-		"model": "", "effort": "", "maxParallel": 3, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true,
+		"model": "", "effort": "", "helperModel": "sonnet", "maxParallel": 3, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true,
 		"phone.enabled": false, "phone.addr": "127.0.0.1:7778", "phone.hosts": []string{}, "phone.proxy": "cloudflare", "phone.cloudflare.teamDomain": "", "phone.cloudflare.aud": "",
 	}
 	restarts := map[string]bool{
-		"model": true, "effort": true, "maxParallel": true, "claude": true, "updateCheck": true,
+		"model": true, "effort": true, "helperModel": true, "maxParallel": true, "claude": true, "updateCheck": true,
 		"phone.enabled": true, "phone.addr": true, "phone.hosts": true, "phone.proxy": true, "phone.cloudflare.teamDomain": true, "phone.cloudflare.aud": true,
 	}
-	flagNames := map[string]string{"model": "model", "effort": "effort", "maxParallel": "max-parallel", "claude": "claude"}
+	flagNames := map[string]string{"model": "model", "effort": "effort", "helperModel": "helper-model", "maxParallel": "max-parallel", "claude": "claude"}
 	for _, key := range Keys {
 		if !reflect.DeepEqual(Default(key), defaults[key]) || NeedsRestart(key) != restarts[key] || Flag(key) != flagNames[key] {
 			t.Errorf("%s: default %v, restart %v, flag %q; want %v, %v, %q", key, Default(key), NeedsRestart(key), Flag(key), defaults[key], restarts[key], flagNames[key])
@@ -226,6 +229,8 @@ func TestCheckTextUsesTheRulesOfSet(t *testing.T) {
 		{"model", "bad model", "A model ID can't contain spaces or start with '-'."},
 		{"effort", "max", ""},
 		{"effort", "ultra", "Effort must be one of low, medium, high, xhigh, max."},
+		{"helperModel", "Inherit", ""},
+		{"helperModel", "-x", "A model ID can't contain spaces or start with '-'."},
 		{"claude", "", "The Claude Code program must be 1 to 1024 characters, with no NUL character."},
 		{"maxParallel", "3", "maxParallel isn't a text setting."},
 	} {
@@ -234,5 +239,27 @@ func TestCheckTextUsesTheRulesOfSet(t *testing.T) {
 		if c.message == "" && err != nil || c.message != "" && (ke == nil || ke.Key != c.key || ke.Message != c.message) {
 			t.Errorf("CheckText(%q, %q) = %v; want %q", c.key, c.value, err, c.message)
 		}
+	}
+}
+
+func TestABlankHelperModelIsNotSet(t *testing.T) {
+	var f File
+	for _, raw := range []string{`"SONNET"`, `""`, `"   "`} {
+		if err := f.Set("helperModel", json.RawMessage(raw)); err != nil {
+			t.Fatalf("Set(helperModel, %s) = %v", raw, err)
+		}
+	}
+	if f.HelperModel != nil {
+		t.Fatalf("helperModel after a blank value = %q; want no key", *f.HelperModel)
+	}
+	if err := f.Set("helperModel", json.RawMessage(`"SONNET"`)); err != nil || f.HelperModel == nil || *f.HelperModel != "sonnet" {
+		t.Fatalf("Set(helperModel, SONNET) = %v, %v; want sonnet", err, f.HelperModel)
+	}
+	loaded, err := Load(writeFile(t, `{"helperModel": "  "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := loaded.Get("helperModel"); ok {
+		t.Fatalf("Get(helperModel) of a file with a blank value = %v; want not set", got)
 	}
 }

@@ -142,6 +142,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.Claude, "claude", config.DefaultClaude, "path to the Claude Code CLI")
 	fs.StringVar(&o.Model, "model", "", "model alias for every bot (default: Claude Code's default)")
 	fs.StringVar(&o.Effort, "effort", "", "reasoning effort for every bot: low, medium, high, xhigh or max (default: the model's own)")
+	fs.StringVar(&o.HelperModel, "helper-model", "", "model of the bots' executor helper: an alias, a model ID, or inherit for the bot's model and effort (default: sonnet)")
 	fs.IntVar(&o.MaxParallel, "max-parallel", config.DefaultMaxParallel, "turns that may run at once across all bots")
 	fs.BoolVar(&o.loginEnv, "login-env", false, "take the environment, such as PATH, from the user's login shell (launchd starts the server with a minimal PATH)")
 	fs.BoolVar(&o.tray, "tray", false, "show a menu-bar icon with Check for updates…, which opens the app, and Exit server, which stops the server (macOS)")
@@ -279,7 +280,7 @@ func serve(ctx context.Context, o options, log *slog.Logger) error {
 	work, endWork := svc.ServerContext(ctx)
 	defer endWork()
 	base := "http://" + ln.Addr().String()
-	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", MaxParallel: o.MaxParallel}, log)
+	runner := agent.NewRunner(svc, agent.Config{ClaudePath: o.claudePath, MCPURL: base + "/mcp", OAuthCallbackURL: base + "/oauth/callback", MaxParallel: o.MaxParallel, HelperModel: o.HelperModel}, log)
 	assets, err := ui.Assets()
 	if err != nil {
 		log.Warn("web UI not available", "err", err)

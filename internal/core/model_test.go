@@ -52,6 +52,33 @@ func TestNormalizeModelChecksAndLowercasesAliases(t *testing.T) {
 	}
 }
 
+func TestNormalizeHelperModelAcceptsInheritAndModels(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                  "",
+		"   ":               "",
+		"inherit":           "inherit",
+		" INHERIT ":         "inherit",
+		"Inherit":           "inherit",
+		"SONNET":            "sonnet",
+		" claude-opus-5-5 ": "claude-opus-5-5",
+	} {
+		got, err := NormalizeHelperModel(in)
+		if err != nil || got != want {
+			t.Errorf("NormalizeHelperModel(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for in, msg := range map[string]string{
+		"-x":       "A model ID can't contain spaces or start with '-'.",
+		"my model": "A model ID can't contain spaces or start with '-'.",
+		"a*b":      "A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters.",
+	} {
+		_, err := NormalizeHelperModel(in)
+		if !errors.Is(err, ErrInvalid) || !strings.HasSuffix(err.Error(), ": "+msg) {
+			t.Errorf("NormalizeHelperModel(%q) err = %v; want ErrInvalid %q", in, err, msg)
+		}
+	}
+}
+
 func TestNormalizeEffortAcceptsOnlyTheLevels(t *testing.T) {
 	for in, want := range map[string]string{"": "", " ": "", "low": "low", "Medium": "medium", " HIGH ": "high", "xhigh": "xhigh", "max": "max"} {
 		got, err := NormalizeEffort(in)

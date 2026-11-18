@@ -312,6 +312,13 @@ const MODELS: [string, string][] = [
   ["sonnet", "Sonnet"],
   ["haiku", "Haiku"],
 ]
+const HELPER_MODELS: [string, string][] = [
+  ["inherit", "Same as the bot"],
+  ["fable", "Fable"],
+  ["opus", "Opus"],
+  ["sonnet", "Sonnet"],
+  ["haiku", "Haiku"],
+]
 const EFFORTS: [string, string][] = [
   ["", "Default (model's own)"],
   ["low", "Low"],
@@ -322,10 +329,22 @@ const EFFORTS: [string, string][] = [
 ]
 const CUSTOM = "\u0000custom"
 
-// SelectField saves on change. The model select can switch to a custom model ID.
-export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: Value; save: Save; locked: boolean }) {
+const SELECT_OPTIONS = { model: MODELS, effort: EFFORTS, helperModel: HELPER_MODELS }
+
+// SelectField saves on change. A model select can switch to a custom model ID.
+export function SelectField({
+  k,
+  v,
+  save,
+  locked,
+}: {
+  k: keyof typeof SELECT_OPTIONS
+  v: Value
+  save: Save
+  locked: boolean
+}) {
   const id = `setting-${k}`
-  const options = k === "model" ? MODELS : EFFORTS
+  const options = SELECT_OPTIONS[k]
   const known = options.some(([o]) => o === v.value)
   const [custom, setCustom] = useState(!known)
   const [text, setText] = useState(known ? "" : String(v.value))
@@ -356,7 +375,7 @@ export function SelectField({ k, v, save, locked }: { k: "model" | "effort"; v: 
         value={custom ? CUSTOM : String(v.value)}
         options={[
           ...options.map(([value, label]) => ({ value, label })),
-          ...(k === "model" ? [{ value: CUSTOM, label: "Custom model ID…" }] : []),
+          ...(k === "effort" ? [] : [{ value: CUSTOM, label: "Custom model ID…" }]),
         ]}
         describedBy={lock["aria-describedby"]}
         disabled={locked}
@@ -423,6 +442,8 @@ export function SwitchField({ k, v, save, locked }: { k: Key; v: Value; save: Sa
 const HELP: Record<Key, string> = {
   model: "Used by bots and teams that don't pick their own. Aliases always mean the latest model of that family.",
   effort: "How hard bots think. The default is each model's own level.",
+  helperModel:
+    "Model of the executor helper that bots start for research and long reads. Same as the bot: the helper uses the bot's model and effort.",
   maxParallel:
     "How many bot turns can run at the same time, across all bots. More turns use more of your Claude plan at once.",
   claude: "The claude command Handful runs for every turn. Change it only if Claude Code isn't on your PATH.",
@@ -961,6 +982,9 @@ export function SettingsPage({
           </p>
           {val("model") && <SelectField k="model" v={val("model") as Value} save={save} locked={locked} />}
           {val("effort") && <SelectField k="effort" v={val("effort") as Value} save={save} locked={locked} />}
+          {val("helperModel") && (
+            <SelectField k="helperModel" v={val("helperModel") as Value} save={save} locked={locked} />
+          )}
           {val("maxParallel") && (
             <TextField k="maxParallel" v={val("maxParallel") as Value} save={save} locked={locked} />
           )}

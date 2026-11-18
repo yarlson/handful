@@ -95,19 +95,19 @@ func TestStartupCheckRunsTheStartupChecksFromTheFlags(t *testing.T) {
 func TestSettingsOfTheServerNameTheFlagsAndTheirSources(t *testing.T) {
 	o := options{
 		addr: "127.0.0.1:7777", dataDir: "/data", loginEnv: true, logFile: "~/server.log", tray: true,
-		Claude: "claude", Model: "opus", Effort: "high", MaxParallel: 5, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: false},
+		Claude: "claude", Model: "opus", Effort: "high", HelperModel: "inherit", MaxParallel: 5, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: false},
 		Phone: config.PhoneSettings{Enabled: true, Addr: "127.0.0.1:7900", Hosts: []string{"phone.example.com"}, Proxy: "cloudflare", TeamDomain: "you.cloudflareaccess.com", AUD: "abcdef0123456789"},
-		set:   map[string]bool{"effort": true, "max-parallel": true, "tray": true, "login-env": true, "log": true},
+		set:   map[string]bool{"effort": true, "helper-model": true, "max-parallel": true, "tray": true, "login-env": true, "log": true},
 	}
 	running := map[string]any{
-		"model": "opus", "effort": "high", "maxParallel": 5, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 45, "updateCheck": false,
+		"model": "opus", "effort": "high", "helperModel": "inherit", "maxParallel": 5, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 45, "updateCheck": false,
 		"phone.enabled": true, "phone.addr": "127.0.0.1:7900", "phone.hosts": []string{"phone.example.com"}, "phone.proxy": "cloudflare",
 		"phone.cloudflare.teamDomain": "you.cloudflareaccess.com", "phone.cloudflare.aud": "abcdef0123456789",
 	}
 	if got := runningSettings(o); !reflect.DeepEqual(got, running) {
 		t.Fatalf("running = %v; want %v", got, running)
 	}
-	if got, want := settingFlags(o), map[string]string{"effort": "-effort high", "maxParallel": "-max-parallel 5"}; !reflect.DeepEqual(got, want) {
+	if got, want := settingFlags(o), map[string]string{"effort": "-effort high", "helperModel": "-helper-model inherit", "maxParallel": "-max-parallel 5"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("flags = %v; want %v", got, want)
 	}
 	app := []httpapi.RuntimeValue{

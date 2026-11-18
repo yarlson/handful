@@ -100,6 +100,49 @@ test("a custom model shows its own field", () => {
   assert.include(html, 'value="claude-opus-5-5"')
 })
 
+test("Helper model shows Sonnet by default, with its help text", () => {
+  const html = renderToStaticMarkup(
+    <SelectField
+      k="helperModel"
+      v={v({ value: "sonnet", default: "sonnet", running: "sonnet" })}
+      save={save}
+      locked={false}
+    />,
+  )
+  assert.include(html, '<label for="setting-helperModel"')
+  assert.include(html, ">Helper model<")
+  assert.include(html, ">Sonnet</span>")
+  assert.include(
+    html,
+    "Model of the executor helper that bots start for research and long reads. Same as the bot: the helper uses the bot&#x27;s model and effort.",
+  )
+  assert.notInclude(html, 'aria-label="Custom model ID"')
+  assert.notInclude(html, "changed from default")
+})
+
+test("Helper model inherit shows Same as the bot, and a custom ID its own field", () => {
+  const same = renderToStaticMarkup(
+    <SelectField
+      k="helperModel"
+      v={v({ value: "inherit", default: "sonnet", running: "sonnet", source: "file" })}
+      save={save}
+      locked={false}
+    />,
+  )
+  assert.include(same, ">Same as the bot</span>")
+  assert.include(same, "Restart required")
+  const custom = renderToStaticMarkup(
+    <SelectField
+      k="helperModel"
+      v={v({ value: "claude-sonnet-5-5", default: "sonnet", running: "sonnet", source: "file" })}
+      save={save}
+      locked={false}
+    />,
+  )
+  assert.include(custom, 'aria-label="Custom model ID"')
+  assert.include(custom, 'value="claude-sonnet-5-5"')
+})
+
 test("a broken file locks every field", () => {
   const html = renderToStaticMarkup(
     <SwitchField k="updates.autoCheck" v={v({ value: true, default: true, restart: false })} save={save} locked />,

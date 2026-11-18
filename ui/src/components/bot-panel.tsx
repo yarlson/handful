@@ -36,7 +36,7 @@ import { BotDot } from "@/components/bot-dot"
 import { useRights } from "@/lib/session"
 import { BoardTab } from "@/components/board"
 import { FALLBACK_ALIASES, ModelChip, ModelEffortFields, useDefaults } from "@/components/model"
-import { ignoredOverrides, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
+import { ignoredNote, inheritedFromGlobal, overrides, sourceLine } from "@/lib/model"
 import { forgetHistory, withStorage } from "@/lib/history"
 import { dateTime } from "@/lib/dates"
 import { fieldOfError, scheduleInWords, type RoutineField } from "@/lib/routines"
@@ -904,10 +904,8 @@ export function SettingsTab({ bot, version, onDeleted }: { bot: Bot; version: nu
           <p className="text-muted-foreground text-xs">
             Applies from the bot's next turn. Switching models makes that turn slower and costlier.
           </p>
-          {defaults && ignoredOverrides(defaults).length > 0 && (
-            <p className="text-muted-foreground text-xs">
-              {ignoredOverrides(defaults).join(", ")} ignored: Handful bots' helper subagents use the bot's model.
-            </p>
+          {defaults && ignoredNote(defaults) && (
+            <p className="text-muted-foreground text-xs">{ignoredNote(defaults)}</p>
           )}
           <ContextNote usage={usage.data} />
         </fieldset>

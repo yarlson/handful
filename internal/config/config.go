@@ -41,16 +41,16 @@ const (
 
 // Keys are the settings, in the order of the Settings page and the file.
 var Keys = []string{
-	"model", "effort", "maxParallel", "claude", "updates.autoCheck", "updates.drainMinutes", "updateCheck",
+	"model", "effort", "helperModel", "maxParallel", "claude", "updates.autoCheck", "updates.drainMinutes", "updateCheck",
 	"phone.enabled", "phone.addr", "phone.hosts", "phone.proxy", "phone.cloudflare.teamDomain", "phone.cloudflare.aud",
 }
 
 // flags names the command-line flag that overrides a key.
-var flags = map[string]string{"model": "model", "effort": "effort", "maxParallel": "max-parallel", "claude": "claude"}
+var flags = map[string]string{"model": "model", "effort": "effort", "helperModel": "helper-model", "maxParallel": "max-parallel", "claude": "claude"}
 
 // restart holds the keys that apply only when the server starts again.
 var restart = map[string]bool{
-	"model": true, "effort": true, "maxParallel": true, "claude": true, "updateCheck": true,
+	"model": true, "effort": true, "helperModel": true, "maxParallel": true, "claude": true, "updateCheck": true,
 	"phone.enabled": true, "phone.addr": true, "phone.hosts": true, "phone.proxy": true, "phone.cloudflare.teamDomain": true, "phone.cloudflare.aud": true,
 }
 
@@ -59,6 +59,7 @@ var restart = map[string]bool{
 type File struct {
 	Model       *string  `json:"model,omitempty"`
 	Effort      *string  `json:"effort,omitempty"`
+	HelperModel *string  `json:"helperModel,omitempty"`
 	MaxParallel *int     `json:"maxParallel,omitempty"`
 	Claude      *string  `json:"claude,omitempty"`
 	Updates     *Updates `json:"updates,omitempty"`
@@ -90,7 +91,7 @@ func NeedsRestart(key string) bool { return restart[key] }
 // Default returns the value of key when the file does not set it.
 func Default(key string) any {
 	values := map[string]any{
-		"model": "", "effort": "", "maxParallel": DefaultMaxParallel, "claude": DefaultClaude,
+		"model": "", "effort": "", "helperModel": core.DefaultHelperModel, "maxParallel": DefaultMaxParallel, "claude": DefaultClaude,
 		"updates.autoCheck": DefaultAutoCheck, "updates.drainMinutes": DefaultDrainMinutes, "updateCheck": DefaultUpdateCheck,
 		"phone.enabled": false, "phone.addr": DefaultPhoneAddr, "phone.hosts": []string{}, "phone.proxy": ProxyCloudflare,
 		"phone.cloudflare.teamDomain": "", "phone.cloudflare.aud": "",
@@ -149,6 +150,7 @@ func (f File) Get(key string) (any, bool) {
 	values := map[string]func() (any, bool){
 		"model":                func() (any, bool) { return deref(f.Model) },
 		"effort":               func() (any, bool) { return deref(f.Effort) },
+		"helperModel":          f.helperModel,
 		"maxParallel":          func() (any, bool) { return deref(f.MaxParallel) },
 		"claude":               func() (any, bool) { return deref(f.Claude) },
 		"updates.autoCheck":    func() (any, bool) { return deref(u.AutoCheck) },
@@ -176,6 +178,7 @@ func (f *File) Set(key string, raw json.RawMessage) error {
 	setters := map[string]func(json.RawMessage) error{
 		"model":                func(r json.RawMessage) error { return setString(&f.Model, key, r, textRules[key]) },
 		"effort":               func(r json.RawMessage) error { return setString(&f.Effort, key, r, textRules[key]) },
+		"helperModel":          f.setHelperModel,
 		"maxParallel":          func(r json.RawMessage) error { return setInt(&f.MaxParallel, key, r, checkMaxParallel) },
 		"claude":               func(r json.RawMessage) error { return setString(&f.Claude, key, r, textRules[key]) },
 		"updates.autoCheck":    func(r json.RawMessage) error { return setBool(&f.updates().AutoCheck, key, r) },
@@ -197,7 +200,9 @@ func (f *File) Set(key string, raw json.RawMessage) error {
 }
 
 // textRules check and normalize the text keys.
-var textRules = map[string]func(string) (string, error){"model": core.NormalizeModel, "effort": core.NormalizeEffort, "claude": checkClaude}
+var textRules = map[string]func(string) (string, error){
+	"model": core.NormalizeModel, "effort": core.NormalizeEffort, "helperModel": core.NormalizeHelperModel, "claude": checkClaude,
+}
 
 // CheckText reports, as a *KeyError, whether the text key accepts value by
 // the rules of Set. A key that is not a text key accepts nothing.
@@ -208,6 +213,26 @@ func CheckText(key, value string) error {
 	}
 	_, err := normalizeText(key, value, normalize)
 	return err
+}
+
+// helperModel is the file's Helper model. A blank one is not set, so the
+// default applies.
+func (f File) helperModel() (any, bool) {
+	if f.HelperModel == nil || strings.TrimSpace(*f.HelperModel) == "" {
+		return nil, false
+	}
+	return *f.HelperModel, true
+}
+
+// setHelperModel stores the Helper model. A blank value removes the key.
+func (f *File) setHelperModel(raw json.RawMessage) error {
+	if err := setString(&f.HelperModel, "helperModel", raw, textRules["helperModel"]); err != nil {
+		return err
+	}
+	if f.HelperModel != nil && *f.HelperModel == "" {
+		f.HelperModel = nil
+	}
+	return nil
 }
 
 func (f *File) updates() *Updates {

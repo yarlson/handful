@@ -6,7 +6,7 @@ import {
   defaultEffortOption,
   defaultModelOption,
   effortName,
-  ignoredOverrides,
+  ignoredNote,
   inheritedFromGlobal,
   isAlias,
   modelName,
@@ -199,9 +199,14 @@ test("a team's values come from its defaults, else from the global ones", () => 
   })
 })
 
-test("only the subagent variables are listed as ignored", () => {
-  assert.deepEqual(
-    ignoredOverrides(defaults({ envOverrides: ["CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_MODEL"] })),
-    ["CLAUDE_CODE_SUBAGENT_MODEL"],
+test("the note names only the subagent variables, and where the executor's model is set", () => {
+  assert.equal(
+    ignoredNote(
+      defaults({
+        envOverrides: ["CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_EFFORT"],
+      }),
+    ),
+    "CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_SUBAGENT_EFFORT ignored: Handful bots' executor helpers use the Helper model in Settings → General; other helpers use the bot's model.",
   )
+  assert.isNull(ignoredNote(defaults({ envOverrides: ["CLAUDE_CODE_EFFORT_LEVEL"] })))
 })

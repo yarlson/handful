@@ -20,8 +20,7 @@ type promptContext struct {
 	// OwnWorkspace is the bot's own workspace in a turn in a team.
 	OwnWorkspace string
 	OtherTeams   []core.Bot // in a turn in a team, the user's other teams
-	// Defaults are the global model and effort, which a member line shows when nothing else sets them.
-	Defaults core.Defaults
+	Defaults     core.Defaults // the global model and effort, which a member line shows when nothing else sets them
 	Profile      []core.Memory
 	Recent       []core.Memory
 	Routines     []core.Routine

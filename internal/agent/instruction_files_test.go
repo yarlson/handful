@@ -86,6 +86,28 @@ func TestLoadedInstructionsOfAFolderOutsideTheDataFolderAreItsOwn(t *testing.T) 
 	}
 }
 
+// A data folder given by a relative path, as with -data ./data, still gives absolute file paths,
+// which the bot can open from its own working folder.
+func TestLoadedInstructionsOfARelativeDataFolderAreAbsolute(t *testing.T) {
+	t.Parallel()
+	data, dir, config := instructionLayout(t, map[string]string{"AGENTS.md": "a"})
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative := func(path string) string {
+		rel, err := filepath.Rel(wd, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rel
+	}
+	got := loadedInstructions(relative(data), relative(dir), relative(config))
+	if _, ok := got[filepath.Join(data, "AGENTS.md")]; !ok || len(got) != 1 {
+		t.Fatalf("loaded %v; want only %s", got, filepath.Join(data, "AGENTS.md"))
+	}
+}
+
 func TestLoadedInstructionsStopAtTheRuleFileLimit(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{}

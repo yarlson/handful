@@ -805,7 +805,11 @@ func TestClaudeMdExcludesMatchFolderNamesLiterally(t *testing.T) {
 // patterns of its real path too.
 func TestClaudeMdExcludesUseTheDataFoldersAbsoluteAndRealPaths(t *testing.T) {
 	t.Parallel()
-	real := t.TempDir()
+	// The real folder's parent is no parent of the link, so only its own excludes name it.
+	real := filepath.Join(t.TempDir(), "elsewhere", "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(t.TempDir(), "data")
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)

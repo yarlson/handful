@@ -479,6 +479,8 @@ func (r *Runner) serve(s *session, cmd *exec.Cmd, stdout io.Reader, stderr *limi
 			if act := recorderOf(ev); act != nil {
 				act.toolResults(ctx, ev)
 			}
+		case "rate_limit_event":
+			r.recordPlanWindows(s.key.botID, ev.RateLimitInfo)
 		case "result":
 			text, isErr := ev.Result, ev.IsError
 			if isErr && text == "" {

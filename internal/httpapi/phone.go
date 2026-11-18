@@ -46,6 +46,7 @@ var phoneRoutes = []struct{ pattern, scope string }{
 	{"GET /api/events", core.ScopeView},
 	{"GET /api/version", core.ScopeView},
 	{"GET /api/defaults", core.ScopeView},
+	{"GET /api/plan-windows", core.ScopeView},
 	{"GET /api/teams/{id}/off-task", core.ScopeView},
 	{"POST /api/bots/{id}/messages", core.ScopeChat},
 	{"POST /api/bots/{id}/interrupt", core.ScopeChat},

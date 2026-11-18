@@ -13,6 +13,7 @@ import {
 import { ChatWindows } from "./chat-windows"
 import { phoneSession } from "./session"
 import { transcriptStep, type TranscriptEvent, type TranscriptStatus } from "./transcript"
+import { mergeWindows, type PlanWindow } from "./usage-banner"
 import type { EntryWindow } from "./window"
 
 // useHandful keeps the bot list and the open chats' windows (chat-windows.ts) in sync with
@@ -25,6 +26,9 @@ export function useHandful() {
   const [link, setLink] = useState<Link>("connecting")
   const [error, setError] = useState<string | null>(null)
   const [pausedUntil, setPausedUntil] = useState<string | null>(null)
+  // planWindows is the latest state of each usage window of the Claude plan.
+  // Stryker disable next-line all: the event stream runs only in a browser; no unit test renders this hook
+  const [planWindows, setPlanWindows] = useState<PlanWindow[]>([])
   // draining: the server starts no new turns until it restarts for an update. The stream's
   // drain events and GET /api/version both set it; drain.rev drops answers they overtook.
   const [draining, setDraining] = useState(false)
@@ -120,6 +124,12 @@ export function useHandful() {
         () => setDrain(drainAnswered(drain.current, asked.rev, false)),
       )
       void refreshBots()
+      // Stryker disable all: the event stream runs only in a browser; no unit test renders this hook
+      api.planWindows().then(
+        (windows) => setPlanWindows((prev) => mergeWindows(prev, windows)),
+        (e) => setError((e as Error).message),
+      )
+      // Stryker restore all
       chats.reconnected()
       // Stryker disable next-line all: the event stream runs only in a browser; pair-e2e.mjs checks it
       setPairRev((n) => n + 1)
@@ -140,6 +150,12 @@ export function useHandful() {
       ) {
         // Stryker disable next-line all: the event stream runs only in a browser; pair-e2e.mjs checks it
         setPairRev((n) => n + 1)
+      } else if (
+        // Stryker disable next-line all: the event stream runs only in a browser; no unit test renders this hook
+        ev.type === "planWindows"
+      ) {
+        // Stryker disable next-line all: the event stream runs only in a browser; no unit test renders this hook
+        setPlanWindows((prev) => mergeWindows(prev, ev.planWindows))
       } else if (ev.type === "drain") {
         setDrain(drainChanged(drain.current, ev.draining))
       } else if (ev.type === "tasks") {
@@ -189,6 +205,7 @@ export function useHandful() {
     error,
     setError,
     pausedUntil,
+    planWindows,
     draining,
     restartRev,
     pairRev,

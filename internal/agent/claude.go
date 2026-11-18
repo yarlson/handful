@@ -269,6 +269,7 @@ type streamEvent struct {
 	Error           string           `json:"error"`            // assistant: kind of a failure, such as model_not_found
 	APIError        string           `json:"api_error"`        // assistant, result: kind of an API error, such as usage_limit_reached
 	APIErrorParams  *apiErrorParams  `json:"api_error_params"` // assistant
+	RateLimitInfo   *rateLimitInfo   `json:"rate_limit_info"`  // rate_limit_event: the plan's usage windows
 }
 
 type apiErrorParams struct {

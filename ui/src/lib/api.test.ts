@@ -276,6 +276,12 @@ test("a bot's usage comes from its usage route", async () => {
   assert.deepEqual(calls, [{ method: "GET", url: "/api/bots/b1/usage", body: undefined }])
 })
 
+test("the plan's usage windows come from their route", async () => {
+  const calls = stubFetch(200)
+  await api.planWindows()
+  assert.deepEqual(calls, [{ method: "GET", url: "/api/plan-windows", body: undefined }])
+})
+
 test("a bot's own skills are listed, read and deleted on the bot's skills route", async () => {
   const calls = stubFetch(204)
   await api.botSkills("b1")

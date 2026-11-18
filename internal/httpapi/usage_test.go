@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"handful/internal/agent"
@@ -37,5 +39,32 @@ func TestTheUsageRouteGivesTheWindowAndTheLastTurn(t *testing.T) {
 	}
 	if rec := do(h, "GET", "/api/bots/nobody/usage", "", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("usage of an unknown bot = %d %s; want 404", rec.Code, rec.Body)
+	}
+}
+
+// The plan windows route gives an empty list before Claude Code reports a window, then the latest
+// state of each window.
+func TestThePlanWindowsRouteGivesEachWindowsLatestState(t *testing.T) {
+	h, svc := newTestHandler(t)
+	if rec := do(h, "GET", "/api/plan-windows", "", nil); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+		t.Fatalf("plan windows before a report = %d %s; want []", rec.Code, rec.Body)
+	}
+	used, threshold := 0.78, 0.75
+	weekly := core.PlanWindow{Window: "seven_day", Status: "allowed_warning", Utilization: &used, ResetsAt: 1795136400, SurpassedThreshold: &threshold}
+	if err := svc.RecordPlanWindows(context.Background(), []core.PlanWindow{weekly, {Window: "five_hour", Status: "allowed"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(h, "GET", "/api/plan-windows", "", nil)
+	var got []core.PlanWindow
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); rec.Code != http.StatusOK || err != nil || len(got) != 2 {
+		t.Fatalf("plan windows = %d %s; want two", rec.Code, rec.Body)
+	}
+	for _, field := range []string{`"window":"seven_day"`, `"status":"allowed_warning"`, `"utilization":0.78`, `"resetsAt":1795136400`, `"surpassedThreshold":0.75`, `"receivedAt":`} {
+		if !strings.Contains(rec.Body.String(), field) {
+			t.Errorf("plan windows %s; want %s", rec.Body, field)
+		}
+	}
+	if strings.Contains(rec.Body.String(), `"window":"five_hour","status":"allowed","utilization"`) {
+		t.Errorf("plan windows %s; want no utilization for a window without one", rec.Body)
 	}
 }

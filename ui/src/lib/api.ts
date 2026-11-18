@@ -7,6 +7,7 @@ import type { Budget } from "./tasks"
 import type { Defaults, Effective } from "./model"
 import type { Proxy, Scope } from "./phones"
 import type { Usage } from "./usage"
+import type { PlanWindow } from "./usage-banner"
 
 export type Member = { id: string; name: string; effective?: Effective }
 
@@ -276,6 +277,7 @@ export type ServerEvent =
   | { type: "drain"; draining: boolean }
   | { type: "restart"; state: "waiting" | "cancelled" | "expired" | "restarting" }
   | { type: "pair" }
+  | { type: "planWindows"; planWindows: PlanWindow[] }
 
 // ApiError is a request that failed, with its HTTP status.
 export class ApiError extends Error {
@@ -499,6 +501,7 @@ export const api = {
   deleteArtifact: (id: string) => request<void>("DELETE", `/api/artifacts/${encodeURIComponent(id)}`),
   grants: (id: string) => request<string[]>("GET", `/api/bots/${id}/grants`),
   usage: (id: string) => request<Usage>("GET", `/api/bots/${id}/usage`),
+  planWindows: () => request<PlanWindow[]>("GET", "/api/plan-windows"),
   revokeGrant: (id: string, tool: string) =>
     request<void>("DELETE", `/api/bots/${id}/grants/${encodeURIComponent(tool)}`),
   connectors: () => request<Connector[]>("GET", "/api/connectors"),

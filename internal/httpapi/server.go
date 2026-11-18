@@ -170,6 +170,7 @@ func build(svc *core.Service, runner *agent.Runner, ui fs.FS, log *slog.Logger, 
 	mux.HandleFunc("DELETE /api/routines/{id}", s.deleteRoutine)
 	mux.HandleFunc("GET /api/bots/{id}/grants", s.listGrants)
 	mux.HandleFunc("GET /api/bots/{id}/usage", s.turnUsage)
+	mux.HandleFunc("GET /api/plan-windows", s.planWindows)
 	mux.HandleFunc("DELETE /api/bots/{id}/grants/{tool}", s.revokeGrant)
 	mux.HandleFunc("POST /api/approvals/{id}", s.resolveApproval)
 	mux.HandleFunc("POST /api/entries/{id}/reactions", s.setReaction)
@@ -970,6 +971,17 @@ func (s *server) turnUsage(w http.ResponseWriter, r *http.Request) {
 		out.Last = &u
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// planWindows returns the latest state of each usage window of the Claude plan that Claude Code
+// has reported.
+func (s *server) planWindows(w http.ResponseWriter, r *http.Request) {
+	windows, err := s.svc.PlanWindows(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, windows)
 }
 
 func (s *server) revokeGrant(w http.ResponseWriter, r *http.Request) {

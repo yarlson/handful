@@ -66,13 +66,12 @@ func (s *Service) SetKnownPrompt(ctx context.Context, botID, chatID string, step
 func (s *Service) ReplaceKnownPrompt(ctx context.Context, botID, chatID string, step Step, was KnownPrompt, sessionID, prompt string) (bool, error) {
 	var n int64
 	var err error
-	switch {
-	case step != (Step{}):
+	if step != (Step{}) {
 		// A step session's row holds '' for both while nothing is stored.
 		n, err = s.q.ReplaceStepSessionPrompt(ctx, db.ReplaceStepSessionPromptParams{SessionID: sessionID, Prompt: prompt, ItemID: step.ItemID, BotID: botID, Role: step.Role, WasSessionID: was.SessionID, WasPrompt: was.Prompt})
-	case was.Stored:
+	} else if was.Stored {
 		n, err = s.q.ReplaceSessionPrompt(ctx, db.ReplaceSessionPromptParams{SessionID: sessionID, Prompt: prompt, BotID: botID, ChatID: chatID, WasSessionID: was.SessionID, WasPrompt: was.Prompt})
-	default:
+	} else {
 		n, err = s.q.AddSessionPrompt(ctx, db.AddSessionPromptParams{BotID: botID, ChatID: chatID, SessionID: sessionID, Prompt: prompt})
 	}
 	if err != nil {

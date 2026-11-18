@@ -1221,10 +1221,10 @@ func kTokens(n int64) string {
 
 // saveSession stores sessionID as the Claude session of key.
 func (r *Runner) saveSession(ctx context.Context, key sessionKey, sessionID string) error {
-	switch {
-	case key.step != core.Step{}:
+	if key.step != (core.Step{}) {
 		return r.svc.SetStepSession(ctx, key.botID, key.step, sessionID)
-	case key.roomID != "":
+	}
+	if key.roomID != "" {
 		return r.svc.SetRoomSession(ctx, key.roomID, key.botID, sessionID)
 	}
 	return r.svc.SetSession(ctx, key.botID, sessionID)

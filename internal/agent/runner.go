@@ -1235,7 +1235,13 @@ func (r *Runner) saveSession(ctx context.Context, key sessionKey, sessionID stri
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
 	key := turnKey(bot.ID, t)
-	return r.sendCommand(ctx, key, bot, t, r.withInstructionsUpdate(key, run.Prompt), run.Command, run.Flags, func(token string) (processStart, error) {
+	return r.sendCommand(ctx, key, bot, t, r.withInstructionsUpdate(key, run.Prompt), run.Command, run.Flags, r.turnStart(ctx, bot, t, run))
+}
+
+// turnStart returns how a process for turn t starts: with run's arguments, a new MCP config file
+// for its token and a file with run's system prompt.
+func (r *Runner) turnStart(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) func(token string) (processStart, error) {
+	return func(token string) (processStart, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {
 			return processStart{}, err
@@ -1256,7 +1262,7 @@ func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run cla
 			return processStart{}, err
 		}
 		return processStart{args: args, files: files, claudeID: run.SessionID, prompt: run.SystemPrompt}, nil
-	})
+	}
 }
 
 // noteSignIn tells the user in the turn's chat that the connectors in names

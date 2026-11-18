@@ -419,6 +419,15 @@ func (q *Queries) CancelTurn(ctx context.Context, arg CancelTurnParams) error {
 	return err
 }
 
+const clearTeamReviewer = `-- name: ClearTeamReviewer :exec
+UPDATE teams SET reviewer_bot_id = '' WHERE team_id = ?
+`
+
+func (q *Queries) ClearTeamReviewer(ctx context.Context, teamID string) error {
+	_, err := q.db.ExecContext(ctx, clearTeamReviewer, teamID)
+	return err
+}
+
 const countChatMessagesSince = `-- name: CountChatMessagesSince :one
 SELECT count(*) FROM entries WHERE kind IN ('user', 'bot', 'agent') AND created_at > ?
 `
@@ -794,12 +803,13 @@ func (q *Queries) CreateRoutine(ctx context.Context, arg CreateRoutineParams) (R
 }
 
 const createTeam = `-- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO teams (team_id, lead_bot_id, reviewer_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTeamParams struct {
 	TeamID          string `json:"team_id"`
 	LeadBotID       string `json:"lead_bot_id"`
+	ReviewerBotID   string `json:"reviewer_bot_id"`
 	Agreement       string `json:"agreement"`
 	GoalBudget      int64  `json:"goal_budget"`
 	DefaultModel    string `json:"default_model"`
@@ -815,6 +825,7 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
 	_, err := q.db.ExecContext(ctx, createTeam,
 		arg.TeamID,
 		arg.LeadBotID,
+		arg.ReviewerBotID,
 		arg.Agreement,
 		arg.GoalBudget,
 		arg.DefaultModel,
@@ -1376,7 +1387,7 @@ func (q *Queries) GetStepSession(ctx context.Context, arg GetStepSessionParams) 
 }
 
 const getTeam = `-- name: GetTeam :one
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams WHERE team_id = ?
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on, reviewer_bot_id FROM teams WHERE team_id = ?
 `
 
 func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
@@ -1398,6 +1409,7 @@ func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
 		&i.BudgetSince,
 		&i.BudgetNotedOn,
 		&i.BudgetWaitedOn,
+		&i.ReviewerBotID,
 	)
 	return i, err
 }
@@ -4106,7 +4118,7 @@ func (q *Queries) ListTagsForArtifacts(ctx context.Context, ids []string) ([]Art
 }
 
 const listTeams = `-- name: ListTeams :many
-SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams
+SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on, reviewer_bot_id FROM teams
 `
 
 func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
@@ -4134,6 +4146,7 @@ func (q *Queries) ListTeams(ctx context.Context) ([]Team, error) {
 			&i.BudgetSince,
 			&i.BudgetNotedOn,
 			&i.BudgetWaitedOn,
+			&i.ReviewerBotID,
 		); err != nil {
 			return nil, err
 		}
@@ -5384,17 +5397,18 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) (R
 }
 
 const updateTeam = `-- name: UpdateTeam :exec
-UPDATE teams SET lead_bot_id = ?1, agreement = ?2, goal_budget = ?3,
-  default_model = ?4, default_effort = ?5,
-  inbox_max = ?6, inbox_per_sender = ?7, decision_minutes = ?8,
-  budget_noted_on = CASE WHEN daily_budget = ?9 THEN budget_noted_on ELSE '' END,
-  budget_waited_on = CASE WHEN daily_budget = ?9 THEN budget_waited_on ELSE '' END,
-  daily_budget = ?9
-WHERE team_id = ?10
+UPDATE teams SET lead_bot_id = ?1, reviewer_bot_id = ?2, agreement = ?3, goal_budget = ?4,
+  default_model = ?5, default_effort = ?6,
+  inbox_max = ?7, inbox_per_sender = ?8, decision_minutes = ?9,
+  budget_noted_on = CASE WHEN daily_budget = ?10 THEN budget_noted_on ELSE '' END,
+  budget_waited_on = CASE WHEN daily_budget = ?10 THEN budget_waited_on ELSE '' END,
+  daily_budget = ?10
+WHERE team_id = ?11
 `
 
 type UpdateTeamParams struct {
 	LeadBotID       string `json:"lead_bot_id"`
+	ReviewerBotID   string `json:"reviewer_bot_id"`
 	Agreement       string `json:"agreement"`
 	GoalBudget      int64  `json:"goal_budget"`
 	DefaultModel    string `json:"default_model"`
@@ -5411,6 +5425,7 @@ type UpdateTeamParams struct {
 func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) error {
 	_, err := q.db.ExecContext(ctx, updateTeam,
 		arg.LeadBotID,
+		arg.ReviewerBotID,
 		arg.Agreement,
 		arg.GoalBudget,
 		arg.DefaultModel,

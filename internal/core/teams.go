@@ -29,7 +29,10 @@ const (
 type Team struct {
 	// LeadID is the lead the user chose while it is a member, else the first
 	// member, or "" when the team has no members.
-	LeadID     string `json:"leadId"`
+	LeadID string `json:"leadId"`
+	// ReviewerID is the member that reviews each step of the team's tasks,
+	// or "" for none. It is never the lead.
+	ReviewerID string `json:"reviewerId"`
 	Agreement  string `json:"agreement"`
 	GoalBudget int64  `json:"goalBudget"`
 	// DefaultModel and DefaultEffort fill in the model and effort of members
@@ -68,6 +71,7 @@ func (b Bot) Lead() (Member, bool) {
 // first member; a zero GoalBudget means DefaultGoalBudget.
 type TeamSettings struct {
 	LeadID        string
+	ReviewerID    string
 	Agreement     string
 	GoalBudget    int64
 	DefaultModel  string
@@ -84,6 +88,7 @@ type TeamSettings struct {
 // TeamPatch changes the settings of a team. A nil field keeps its value.
 type TeamPatch struct {
 	LeadID          *string
+	ReviewerID      *string
 	Agreement       *string
 	GoalBudget      *int64
 	DefaultModel    *string
@@ -130,7 +135,7 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 		return Bot{}, err
 	}
 	if err := s.q.UpdateTeam(ctx, db.UpdateTeamParams{
-		LeadBotID: updated.LeadID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
+		LeadBotID: updated.LeadID, ReviewerBotID: updated.ReviewerID, Agreement: updated.Agreement, GoalBudget: updated.GoalBudget,
 		DefaultModel: updated.DefaultModel, DefaultEffort: updated.DefaultEffort,
 		InboxMax: updated.InboxMax, InboxPerSender: updated.InboxPerSender, DecisionMinutes: updated.DecisionMinutes, DailyBudget: updated.DailyBudget, TeamID: id,
 	}); err != nil {
@@ -148,10 +153,15 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, p TeamPatch) (Bot, 
 	return team, nil
 }
 
-// apply returns the settings of team t with the patch's fields.
+// apply returns the settings of team t with the patch's fields. A reviewer
+// that the patch makes the lead is no longer the reviewer.
 func (p TeamPatch) apply(t Team) TeamSettings {
 	set := TeamSettings(t)
 	setIf(&set.LeadID, p.LeadID)
+	if p.ReviewerID == nil && set.ReviewerID == set.LeadID {
+		set.ReviewerID = ""
+	}
+	setIf(&set.ReviewerID, p.ReviewerID)
 	setIf(&set.Agreement, p.Agreement)
 	setIf(&set.GoalBudget, p.GoalBudget)
 	setIf(&set.DefaultModel, p.DefaultModel)
@@ -190,6 +200,9 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 	if !slices.ContainsFunc(members, func(m Member) bool { return m.ID == lead }) {
 		return nil, invalid("the lead must be a member of the team")
 	}
+	if set.ReviewerID != "" && (set.ReviewerID == lead || !slices.ContainsFunc(members, func(m Member) bool { return m.ID == set.ReviewerID })) {
+		return nil, invalid("the reviewer must be a member of the team other than the lead")
+	}
 	model, effort, err := validModelEffort(set.DefaultModel, set.DefaultEffort)
 	if err != nil {
 		return nil, err
@@ -203,7 +216,7 @@ func validTeam(set TeamSettings, members []Member) (*Team, error) {
 		return nil, err
 	}
 	return &Team{
-		LeadID: lead, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort,
+		LeadID: lead, ReviewerID: set.ReviewerID, Agreement: agreement, GoalBudget: budget, DefaultModel: model, DefaultEffort: effort,
 		InboxMax: inboxMax, InboxPerSender: perSender, DecisionMinutes: decision, DailyBudget: daily,
 	}, nil
 }
@@ -263,16 +276,24 @@ func (s *Service) teamOf(ctx context.Context, roomID string, members []Member) (
 	return toTeam(row, members), nil
 }
 
+// toTeam reads a team's settings for its members: the stored lead while it
+// is a member, else the first member; the stored reviewer while it is a
+// member other than the lead, else none.
 func toTeam(row db.Team, members []Member) *Team {
+	isMember := func(id string) bool { return slices.ContainsFunc(members, func(m Member) bool { return m.ID == id }) }
 	lead := row.LeadBotID
-	if !slices.ContainsFunc(members, func(m Member) bool { return m.ID == lead }) {
+	if !isMember(lead) {
 		lead = ""
 		if len(members) > 0 {
 			lead = members[0].ID
 		}
 	}
+	reviewer := row.ReviewerBotID
+	if reviewer == lead || !isMember(reviewer) {
+		reviewer = ""
+	}
 	return &Team{
-		LeadID: lead, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
+		LeadID: lead, ReviewerID: reviewer, Agreement: row.Agreement, GoalBudget: row.GoalBudget, DefaultModel: row.DefaultModel, DefaultEffort: row.DefaultEffort,
 		InboxMax: row.InboxMax, InboxPerSender: row.InboxPerSender,
 		DecisionMinutes: row.DecisionMinutes, DailyBudget: row.DailyBudget,
 	}

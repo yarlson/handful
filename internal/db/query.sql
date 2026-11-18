@@ -383,7 +383,7 @@ WHERE artifact_id IN (sqlc.slice(ids))
 ORDER BY artifact_id, tag;
 
 -- name: CreateTeam :exec
-INSERT INTO teams (team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO teams (team_id, lead_bot_id, reviewer_bot_id, agreement, goal_budget, default_model, default_effort, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTeam :one
 SELECT * FROM teams WHERE team_id = ?;
@@ -394,13 +394,16 @@ SELECT * FROM teams;
 -- name: UpdateTeam :exec
 -- A wait and a pause note belong to one limit: a changed daily_budget
 -- clears both, so reaching the new limit the same day notes and asks again.
-UPDATE teams SET lead_bot_id = sqlc.arg(lead_bot_id), agreement = sqlc.arg(agreement), goal_budget = sqlc.arg(goal_budget),
+UPDATE teams SET lead_bot_id = sqlc.arg(lead_bot_id), reviewer_bot_id = sqlc.arg(reviewer_bot_id), agreement = sqlc.arg(agreement), goal_budget = sqlc.arg(goal_budget),
   default_model = sqlc.arg(default_model), default_effort = sqlc.arg(default_effort),
   inbox_max = sqlc.arg(inbox_max), inbox_per_sender = sqlc.arg(inbox_per_sender), decision_minutes = sqlc.arg(decision_minutes),
   budget_noted_on = CASE WHEN daily_budget = sqlc.arg(daily_budget) THEN budget_noted_on ELSE '' END,
   budget_waited_on = CASE WHEN daily_budget = sqlc.arg(daily_budget) THEN budget_waited_on ELSE '' END,
   daily_budget = sqlc.arg(daily_budget)
 WHERE team_id = sqlc.arg(team_id);
+
+-- name: ClearTeamReviewer :exec
+UPDATE teams SET reviewer_bot_id = '' WHERE team_id = ?;
 
 -- name: CountTeamTurnsBetween :one
 -- The turns that count against a team's daily budget and started in

@@ -152,6 +152,7 @@ func TestTheBoardTextsSayTaskAndStep(t *testing.T) {
 	texts := map[string]string{
 		"lead brief": leadBrief, "retro brief": retroBrief, "approve brief": approveBrief, "inbox brief": inboxBrief,
 		"gatekeeper": leadGatekeeper, "member text": memberWork, "update_board": updateBoardDescription,
+		"list_members": listMembersDescription, "list_members field TeamID": reflect.TypeFor[membersInput]().Field(0).Tag.Get("jsonschema"),
 		"Builder's guide": strings.ReplaceAll(setup, "goal_budget", ""),
 	}
 	for f := range reflect.TypeFor[boardInput]().Fields() {

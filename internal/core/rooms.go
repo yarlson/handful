@@ -97,7 +97,7 @@ func insertRoom(ctx context.Context, q *db.Queries, id, name, instructions strin
 		}
 	}
 	if team != nil {
-		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, InboxMax: team.InboxMax, InboxPerSender: team.InboxPerSender, DecisionMinutes: team.DecisionMinutes, DailyBudget: team.DailyBudget, BudgetSince: now}); err != nil {
+		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, ReviewerBotID: team.ReviewerID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, InboxMax: team.InboxMax, InboxPerSender: team.InboxPerSender, DecisionMinutes: team.DecisionMinutes, DailyBudget: team.DailyBudget, BudgetSince: now}); err != nil {
 			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
 		}
 	}
@@ -138,6 +138,9 @@ func (s *Service) SetRoomMembers(ctx context.Context, roomID string, memberIDs [
 	if room, err = s.GetBot(ctx, roomID); err != nil {
 		return Bot{}, err
 	}
+	if err := s.keepReviewerNone(ctx, room); err != nil {
+		return Bot{}, err
+	}
 	if _, err := s.AppendEntry(ctx, roomID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
 		return Bot{}, err
 	}
@@ -155,6 +158,18 @@ func (s *Service) removeMember(ctx context.Context, room Bot, m Member) error {
 		return nil
 	}
 	return s.releaseMember(ctx, room.ID, m.ID, m.Name)
+}
+
+// keepReviewerNone stores "no reviewer" for a team whose reviewer left it or
+// became its lead, so the reviewer does not come back when the member rejoins.
+func (s *Service) keepReviewerNone(ctx context.Context, room Bot) error {
+	if !room.IsTeam() || room.Team.ReviewerID != "" {
+		return nil
+	}
+	if err := s.q.ClearTeamReviewer(ctx, room.ID); err != nil {
+		return fmt.Errorf("clear the reviewer of team %s: %w", room.ID, err)
+	}
+	return nil
 }
 
 func (s *Service) validMembers(ctx context.Context, ids []string) ([]Member, error) {

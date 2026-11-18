@@ -1201,7 +1201,7 @@ func TestTeamTurnRunsInTheTeamFolderAndItsPromptShowsOnlyTheTeam(t *testing.T) {
 		"## Your team\nThis turn is in team \"Ship\" (id " + team.ID + ")",
 		"A turn in the team is marked [team].\nTeam purpose: Ship small changes.\nMembers:\n",
 		"- you (Ana, the lead)",
-		"- Bo (id " + bo.ID + "): no instructions yet",
+		"- Bo (id " + bo.ID + ", default · default): no instructions yet",
 		"Working agreement (the user's rules for how the team works and when work is done):\nTests pass before a change is done.",
 		"Your own folder is " + h.svc.Workspace(ana.ID) + ".",
 		"You are the lead, the team's front door",

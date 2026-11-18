@@ -822,6 +822,14 @@ func TestTeamEndpointsCreateAndUpdateATeamAndShowItsMemory(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &team); rec.Code != http.StatusOK || err != nil || team.Team != want {
 		t.Fatalf("patch team: %d %s; want %+v", rec.Code, rec.Body, want)
 	}
+	rec = do(h, "PATCH", "/api/teams/"+team.ID, `{"reviewerId":"`+bo.ID+`"}`, jsonHeader)
+	want.ReviewerID = bo.ID
+	if err := json.Unmarshal(rec.Body.Bytes(), &team); rec.Code != http.StatusOK || err != nil || team.Team != want {
+		t.Fatalf("patch the reviewer: %d %s; want %+v", rec.Code, rec.Body, want)
+	}
+	if rec := do(h, "PATCH", "/api/teams/"+team.ID, `{"reviewerId":"`+ana.ID+`"}`, jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch the reviewer to the lead: %d; want 400", rec.Code)
+	}
 	if rec := do(h, "PATCH", "/api/teams/"+team.ID, `{"goalBudget":999}`, jsonHeader); rec.Code != http.StatusBadRequest {
 		t.Fatalf("patch team with a budget over the limit: %d; want 400", rec.Code)
 	}

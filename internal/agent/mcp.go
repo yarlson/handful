@@ -307,6 +307,7 @@ func newToolServer(svc *core.Service, current func() (runContext, bool), meta fu
 	addRunTool(s, current, &mcp.Tool{Name: "update_profile", Description: "Change your display name and/or standing instructions. Fields you omit stay the same."}, h.updateProfile)
 	if inTeam(svc, current) || inAnyTeam(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: "update_board", Description: updateBoardDescription}, h.updateBoard)
+		addRunTool(s, current, &mcp.Tool{Name: "list_members", Description: listMembersDescription}, h.listMembers)
 	}
 	if isBuilder(svc, current) {
 		addRunTool(s, current, &mcp.Tool{Name: core.ToolCreateSetup, Description: createSetupDescription}, h.createSetup)

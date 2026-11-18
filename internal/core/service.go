@@ -370,21 +370,9 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list room members: %w", err)
 	}
-	teams, err := s.q.ListTeams(ctx)
+	teamRows, reviewerOf, err := allTeams(ctx, s.q)
 	if err != nil {
-		return nil, fmt.Errorf("list teams: %w", err)
-	}
-	teamRows := map[string]db.Team{}
-	for _, t := range teams {
-		teamRows[t.TeamID] = t
-	}
-	reviewers, err := s.q.ListTeamReviewers(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list team reviewers: %w", err)
-	}
-	reviewerOf := map[string]string{}
-	for _, r := range reviewers {
-		reviewerOf[r.TeamID] = r.BotID
+		return nil, err
 	}
 	byRoom := map[string][]Member{}
 	for _, m := range members {

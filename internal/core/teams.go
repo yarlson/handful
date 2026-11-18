@@ -298,6 +298,27 @@ func teamReviewer(ctx context.Context, q *db.Queries, teamID string) (string, er
 	return reviewer, nil
 }
 
+// allTeams returns every team row and every stored reviewer, both by team id.
+func allTeams(ctx context.Context, q *db.Queries) (map[string]db.Team, map[string]string, error) {
+	teams, err := q.ListTeams(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list teams: %w", err)
+	}
+	rows := map[string]db.Team{}
+	for _, t := range teams {
+		rows[t.TeamID] = t
+	}
+	reviewers, err := q.ListTeamReviewers(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list team reviewers: %w", err)
+	}
+	reviewerOf := map[string]string{}
+	for _, r := range reviewers {
+		reviewerOf[r.TeamID] = r.BotID
+	}
+	return rows, reviewerOf, nil
+}
+
 // setTeamReviewer stores reviewer as the reviewer of team teamID; "" stores none.
 func setTeamReviewer(ctx context.Context, q *db.Queries, teamID, reviewer string) error {
 	var err error

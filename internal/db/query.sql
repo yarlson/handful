@@ -402,6 +402,19 @@ UPDATE teams SET lead_bot_id = sqlc.arg(lead_bot_id), agreement = sqlc.arg(agree
   daily_budget = sqlc.arg(daily_budget)
 WHERE team_id = sqlc.arg(team_id);
 
+-- name: GetTeamReviewer :one
+SELECT bot_id FROM team_reviewers WHERE team_id = ?;
+
+-- name: ListTeamReviewers :many
+SELECT * FROM team_reviewers;
+
+-- name: SetTeamReviewer :exec
+INSERT INTO team_reviewers (team_id, bot_id) VALUES (?, ?)
+ON CONFLICT (team_id) DO UPDATE SET bot_id = excluded.bot_id;
+
+-- name: DeleteTeamReviewer :exec
+DELETE FROM team_reviewers WHERE team_id = ?;
+
 -- name: CountTeamTurnsBetween :one
 -- The turns that count against a team's daily budget and started in
 -- [from_ms, to_ms): every turn in the team's room (chat, inherited and board

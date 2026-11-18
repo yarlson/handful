@@ -1,12 +1,13 @@
 // The Settings tab of a bot, a room or a team: its fields as the user typed them, what
 // changed against the saved values, and what one Save sends.
 
-import type { Bot, TeamSettings } from "./api"
+import type { Bot, Member, TeamSettings } from "./api"
 import { budgetError, decisionError, inboxError } from "./tasks"
 
 // TeamDraft is a team's own fields; the numbers stay text until Save checks them.
 export type TeamDraft = {
   leadId: string
+  reviewerId: string
   agreement: string
   budget: string
   decision: string
@@ -45,6 +46,7 @@ export function draftOf(bot: Bot): BotDraft {
     team: t
       ? {
           leadId: t.leadId,
+          reviewerId: t.reviewerId ?? "",
           agreement: t.agreement,
           budget: String(t.dailyBudget ?? 0),
           decision: String(t.decisionMinutes ?? 30),
@@ -55,6 +57,16 @@ export function draftOf(bot: Bot): BotDraft {
         }
       : null,
   }
+}
+
+// reviewerCandidates are the members that the Reviewer select offers after None: all but the lead.
+export function reviewerCandidates(members: Member[], leadId: string): Member[] {
+  return members.filter((m) => m.id !== leadId)
+}
+
+// leadEdit makes leadId the team's lead; a reviewer that becomes the lead leaves the reviewer None.
+export function leadEdit(team: TeamDraft, leadId: string): Partial<TeamDraft> {
+  return leadId === team.reviewerId ? { leadId, reviewerId: "" } : { leadId }
 }
 
 function botFields({ name, instructions, model, effort, hue }: BotDraft): BotFields {
@@ -95,6 +107,7 @@ export function rebase(draft: BotDraft, old: BotDraft, fresh: BotDraft): BotDraf
 
 const teamPatch: { [K in keyof TeamDraft]: (value: string) => Partial<TeamSettings> } = {
   leadId: (leadId) => ({ leadId }),
+  reviewerId: (reviewerId) => ({ reviewerId }),
   agreement: (agreement) => ({ agreement }),
   budget: (v) => ({ dailyBudget: Number(v) }),
   decision: (v) => ({ decisionMinutes: Number(v) }),

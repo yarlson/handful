@@ -30,6 +30,8 @@ type promptContext struct {
 	// InstructionsFile holds the bot's standing instructions; Claude Code loads it.
 	InstructionsFile string
 	Groups           []core.Bot // for Builder: the user's rooms and teams
+	// Defaults are the global model and effort, which a member line shows when nothing else sets them.
+	Defaults core.Defaults
 }
 
 // formatFact renders a fact with who wrote it. authors maps bot ids to the
@@ -232,14 +234,18 @@ func teamSection(pc promptContext) string {
 	b.WriteString("Members:\n")
 	for _, m := range team.Members {
 		role := ""
-		if m.ID == lead.ID {
+		switch m.ID {
+		case lead.ID:
 			role = ", the lead"
+		case team.Team.ReviewerID:
+			role = ", the reviewer"
 		}
 		if m.ID == pc.Bot.ID {
 			fmt.Fprintf(&b, "- you (%s%s)\n", m.Name, role)
 			continue
 		}
-		fmt.Fprintf(&b, "- %s (id %s%s): %s\n", m.Name, m.ID, role, truncate(firstNonEmpty(instructions[m.ID], "no instructions yet"), 160))
+		model, effort := memberModel(m, team.Team, pc.Defaults)
+		fmt.Fprintf(&b, "- %s (id %s%s, %s · %s): %s\n", m.Name, m.ID, role, model, effort, truncate(firstNonEmpty(instructions[m.ID], "no instructions yet"), 160))
 	}
 	agreement := firstNonEmpty(team.Team.Agreement, "(none yet; the user can set one in the team's settings)")
 	fmt.Fprintf(&b, `Working agreement (the user's rules for how the team works and when work is done):
@@ -260,6 +266,13 @@ func teamSection(pc promptContext) string {
 		b.WriteString("- Your work on the team's board comes in turns of its own, with the step to do. To suggest a step for the Now task, use update_board create without an owner; the lead assigns it.\n")
 	}
 	return b.String()
+}
+
+// memberModel returns the model and the effort of member m's turns in team, or "default"
+// for each that Claude Code's own default sets.
+func memberModel(m core.Member, team *core.Team, d core.Defaults) (string, string) {
+	e := core.Resolve(core.Bot{Model: m.Model, Effort: m.Effort}, team, d)
+	return firstNonEmpty(e.Model, "default"), firstNonEmpty(e.Effort, "default")
 }
 
 // otherTeams lists the teams that a lead can ask for work.

@@ -701,6 +701,7 @@ func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
 func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		LeadID          *string `json:"leadId"`
+		ReviewerID      *string `json:"reviewerId"`
 		Agreement       *string `json:"agreement"`
 		GoalBudget      *int64  `json:"goalBudget"`
 		DefaultModel    *string `json:"defaultModel"`
@@ -715,7 +716,7 @@ func (s *server) updateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	team, err := s.svc.UpdateTeam(r.Context(), r.PathValue("id"), core.TeamPatch{
-		LeadID: in.LeadID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
+		LeadID: in.LeadID, ReviewerID: in.ReviewerID, Agreement: in.Agreement, GoalBudget: in.GoalBudget, DefaultModel: in.DefaultModel, DefaultEffort: in.DefaultEffort,
 		InboxMax: in.InboxMax, InboxPerSender: in.InboxPerSender, DecisionMinutes: in.DecisionMinutes,
 		DailyBudget: in.DailyBudget,
 	})

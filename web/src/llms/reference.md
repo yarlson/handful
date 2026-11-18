@@ -63,6 +63,7 @@ Each `claude` process connects to Handful's MCP endpoint, `/mcp`, with a bearer 
   - `waits_for`: for `send_task`, the id of your own step that waits on the task. `artifact_ids`: artifacts the other team needs.
   - `turn_ids`: for `make_task`, the ids of the team's turns that were on no task.
   - `owner_id`, `reviewer_id`: for `create` and `assign`, by the lead only.
+- `list_members`: list a team's members, each with its role (lead, reviewer or member), the model and effort of its turns in the team, its steps on the Now task that are not done or dropped, and its full instructions. Only bots in a team have it. In a turn in a team it lists that team. In the bot's own chat, `team_id` names the team when the bot is in several. It refuses a turn in a room that is not a team.
 - `approve`: internal. Claude Code calls it through `--permission-prompt-tool` to show an approval card.
 
 ## Local HTTP API
@@ -91,7 +92,7 @@ Bots, rooms and teams are the same resource. `kind` is `agent` for a bot and `ro
 
 Bots:
 
-- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `hue` (a bot's colour; absent for rooms and teams), `model` and `effort` (a bot's own settings), `effective` (the model and effort that a bot's direct chat uses, with where each comes from; for a room, each member has its own `effective`), `members` (rooms), `team` (teams: `leadId`, `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval`, `question`, `goal` for a team with a paused task, or `model` for a model that needs a look), `openQuestions` (how many open questions the chat has), `incomingHandoffs` (how many tasks wait in a team's inbox), `running`, `tasks`, `createdAt` and `updatedAt`.
+- `GET /api/bots`: all bots, rooms and teams. Each has `id`, `kind`, `name`, `instructions`, `role` (`builder` for Builder; absent for other bots), `hue` (a bot's colour; absent for rooms and teams), `model` and `effort` (a bot's own settings), `effective` (the model and effort that a bot's direct chat uses, with where each comes from; for a room, each member has its own `effective`), `members` (rooms), `team` (teams: `leadId`, `reviewerId` (`""` for none), `agreement`, `decisionMinutes`, `dailyBudget` and the other team settings), `attention` (`approval`, `question`, `goal` for a team with a paused task, or `model` for a model that needs a look), `openQuestions` (how many open questions the chat has), `incomingHandoffs` (how many tasks wait in a team's inbox), `running`, `tasks`, `createdAt` and `updatedAt`.
 - `POST /api/bots` with `{"name", "instructions"}`: create a bot. Returns 201 and the bot.
 - `GET /api/bots/{id}`: one bot or room.
 - `PATCH /api/bots/{id}` with `{"name"?, "instructions"?, "model"?, "effort"?, "hue"?}`: change a bot.
@@ -139,7 +140,7 @@ Rooms:
 Teams and tasks:
 
 - `POST /api/teams` with `{"name", "instructions", "memberIds", "leadId"?, "agreement"?, "defaultModel"?, "defaultEffort"?}`: create a team. Returns 201 and the team. `instructions` is its purpose. Without `leadId`, the first member leads.
-- `PATCH /api/teams/{id}` with any of `{"leadId", "agreement", "defaultModel", "defaultEffort", "decisionMinutes", "dailyBudget", "inboxMax", "inboxPerSender"}`: change a team. The lead must be a member. `dailyBudget` is the turns the team may start in a day; 0 is no limit.
+- `PATCH /api/teams/{id}` with any of `{"leadId", "reviewerId", "agreement", "defaultModel", "defaultEffort", "decisionMinutes", "dailyBudget", "inboxMax", "inboxPerSender"}`: change a team. The lead must be a member. `reviewerId` is a member other than the lead, or `""` for none; a reviewer that becomes the lead or leaves the team is none again. `dailyBudget` is the turns the team may start in a day; 0 is no limit.
 - Set the members with `PUT /api/rooms/{team id}/members`, and change the name or the purpose with `PATCH /api/bots/{team id}`.
 - `GET /api/teams/{id}/board`: the team's work: `goal` (the Now task, or the latest one; null when there is none), `items` (its steps), `inbox`, `plan`, `done`, `stopped`, `sent`, `handedOver` (tasks the team sent to other teams), `offTask` (turns on no task in the last hour), `budget` (the team's turns today) and `teams` (names of the teams that appear).
 - `POST /api/teams/{id}/tasks` with `{"text", "brief"?, "artifactIds"?, "startNow"?}`: send the team a task as the user. It lands in the team's inbox, or at the top of the plan with `startNow`.

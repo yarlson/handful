@@ -935,6 +935,15 @@ func (q *Queries) DeleteRoutine(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const deleteTeamReviewer = `-- name: DeleteTeamReviewer :exec
+DELETE FROM team_reviewers WHERE team_id = ?
+`
+
+func (q *Queries) DeleteTeamReviewer(ctx context.Context, teamID string) error {
+	_, err := q.db.ExecContext(ctx, deleteTeamReviewer, teamID)
+	return err
+}
+
 const deleteTeamStepSessions = `-- name: DeleteTeamStepSessions :exec
 DELETE FROM step_sessions WHERE item_id IN (SELECT id FROM items WHERE team_id = ?)
 `
@@ -1400,6 +1409,17 @@ func (q *Queries) GetTeam(ctx context.Context, teamID string) (Team, error) {
 		&i.BudgetWaitedOn,
 	)
 	return i, err
+}
+
+const getTeamReviewer = `-- name: GetTeamReviewer :one
+SELECT bot_id FROM team_reviewers WHERE team_id = ?
+`
+
+func (q *Queries) GetTeamReviewer(ctx context.Context, teamID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTeamReviewer, teamID)
+	var bot_id string
+	err := row.Scan(&bot_id)
+	return bot_id, err
 }
 
 const getTurnByNonce = `-- name: GetTurnByNonce :one
@@ -4105,6 +4125,33 @@ func (q *Queries) ListTagsForArtifacts(ctx context.Context, ids []string) ([]Art
 	return items, nil
 }
 
+const listTeamReviewers = `-- name: ListTeamReviewers :many
+SELECT team_id, bot_id FROM team_reviewers
+`
+
+func (q *Queries) ListTeamReviewers(ctx context.Context) ([]TeamReviewer, error) {
+	rows, err := q.db.QueryContext(ctx, listTeamReviewers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TeamReviewer
+	for rows.Next() {
+		var i TeamReviewer
+		if err := rows.Scan(&i.TeamID, &i.BotID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeams = `-- name: ListTeams :many
 SELECT team_id, lead_bot_id, agreement, goal_budget, default_model, default_effort, request_slots, start_handoffs, inbox_max, inbox_per_sender, decision_minutes, daily_budget, budget_since, budget_noted_on, budget_waited_on FROM teams
 `
@@ -5036,6 +5083,21 @@ func (q *Queries) SetStepSessionSeen(ctx context.Context, arg SetStepSessionSeen
 		arg.BotID,
 		arg.Role,
 	)
+	return err
+}
+
+const setTeamReviewer = `-- name: SetTeamReviewer :exec
+INSERT INTO team_reviewers (team_id, bot_id) VALUES (?, ?)
+ON CONFLICT (team_id) DO UPDATE SET bot_id = excluded.bot_id
+`
+
+type SetTeamReviewerParams struct {
+	TeamID string `json:"team_id"`
+	BotID  string `json:"bot_id"`
+}
+
+func (q *Queries) SetTeamReviewer(ctx context.Context, arg SetTeamReviewerParams) error {
+	_, err := q.db.ExecContext(ctx, setTeamReviewer, arg.TeamID, arg.BotID)
 	return err
 }
 

@@ -111,3 +111,25 @@ func TestLedTeamRefusesATurnTheUserDidNotStart(t *testing.T) {
 		wantRefused(t, "Ana's LedTeam with team_id "+teamID+" in a turn the user didn't start", err, "works only in your own chat, in a turn that the user's own message to you started")
 	}
 }
+
+func TestMemberTeamIsTheBotsOnlyTeamOrTheOneItNames(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	team, ana, _, cy := newTestTeam(t, svc)
+	if _, err := svc.MemberTeam(ctx, cy.ID, ""); err == nil || err.Error() != "invalid input: you are in no team" {
+		t.Fatalf("MemberTeam of a bot in no team = %v; want \"you are in no team\"", err)
+	}
+	if got, err := svc.MemberTeam(ctx, ana.ID, ""); err != nil || got.ID != team.ID {
+		t.Fatalf("MemberTeam of a bot in one team = %s, %v; want %s", got.ID, err, team.ID)
+	}
+	other, err := svc.CreateTeam(ctx, "Docs", "", []string{ana.ID, cy.ID}, TeamSettings{LeadID: cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.MemberTeam(ctx, ana.ID, other.ID); err != nil || got.ID != other.ID {
+		t.Fatalf("MemberTeam with team_id = %s, %v; want %s", got.ID, err, other.ID)
+	}
+	if _, err := svc.MemberTeam(ctx, ana.ID, ""); err == nil || !strings.Contains(err.Error(), "you are in several teams; name one with team_id: ") {
+		t.Fatalf("MemberTeam in several teams = %v; want a refusal that lists them", err)
+	}
+}

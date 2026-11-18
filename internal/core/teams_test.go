@@ -234,6 +234,105 @@ func TestUpdateTeamChangesItsSettings(t *testing.T) {
 	}
 }
 
+// A team starts with no reviewer. The reviewer is a member other than the lead, and is none
+// again after it becomes the lead or leaves the team, also when the member comes back.
+func TestATeamsReviewerIsAMemberOtherThanTheLeadUntilItLeadsOrLeaves(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	team, ana, bo, cy := newTestTeam(t, svc)
+	reviewer := func() string {
+		t.Helper()
+		stored, err := svc.GetBot(ctx, team.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored.Team.ReviewerID
+	}
+	if team.Team.ReviewerID != "" || reviewer() != "" {
+		t.Fatalf("a new team's reviewer = %q; want none", team.Team.ReviewerID)
+	}
+	for _, id := range []string{bo.ID, cy.ID, "missing"} {
+		if _, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{ReviewerID: &id}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "the reviewer must be a member of the team other than the lead") {
+			t.Fatalf("UpdateTeam(reviewer %s; Bo leads, Cy is no member): err = %v; want the reviewer refused", id, err)
+		}
+	}
+	if got, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{ReviewerID: &ana.ID}); err != nil || got.Team.ReviewerID != ana.ID || reviewer() != ana.ID {
+		t.Fatalf("UpdateTeam(reviewer Ana) = %+v, %v; stored %q; want Ana", got.Team, err, reviewer())
+	}
+	if got, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{LeadID: &ana.ID}); err != nil || got.Team.LeadID != ana.ID || got.Team.ReviewerID != "" || reviewer() != "" {
+		t.Fatalf("UpdateTeam(lead Ana, the reviewer) = %+v, %v; stored reviewer %q; want lead Ana and no reviewer", got.Team, err, reviewer())
+	}
+	if got, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{LeadID: &bo.ID, ReviewerID: &ana.ID}); err != nil || got.Team.LeadID != bo.ID || got.Team.ReviewerID != ana.ID {
+		t.Fatalf("UpdateTeam(lead Bo, reviewer Ana) = %+v, %v; want both", got.Team, err)
+	}
+	none := ""
+	if got, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{ReviewerID: &none}); err != nil || got.Team.ReviewerID != "" || reviewer() != "" {
+		t.Fatalf("UpdateTeam(reviewer none) = %+v, %v; want no reviewer", got.Team, err)
+	}
+
+	if _, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{ReviewerID: &ana.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetRoomMembers(ctx, team.ID, []string{bo.ID, cy.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reviewer(); got != "" {
+		t.Fatalf("reviewer after Ana left = %q; want none", got)
+	}
+	if _, err := svc.SetRoomMembers(ctx, team.ID, []string{bo.ID, cy.ID, ana.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reviewer(); got != "" {
+		t.Fatalf("reviewer after Ana came back = %q; want none", got)
+	}
+	if _, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{ReviewerID: &cy.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetRoomMembers(ctx, team.ID, []string{bo.ID, cy.ID, ana.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reviewer(); got != cy.ID {
+		t.Fatalf("reviewer after a member save that kept Cy = %q; want Cy", got)
+	}
+
+	// Members are in bot order: Ana, Bo, Cy. When the lead Ana leaves, the first member, the
+	// reviewer Bo, leads.
+	if _, err := svc.UpdateTeam(ctx, team.ID, TeamPatch{LeadID: &ana.ID, ReviewerID: &bo.ID}); err != nil {
+		t.Fatal(err)
+	}
+	left, err := svc.SetRoomMembers(ctx, team.ID, []string{bo.ID, cy.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lead, _ := left.Lead(); lead.ID != bo.ID || left.Team.ReviewerID != "" {
+		t.Fatalf("after the lead left: lead %s, reviewer %q; want lead Bo and no reviewer", lead.Name, left.Team.ReviewerID)
+	}
+	back, err := svc.SetRoomMembers(ctx, team.ID, []string{bo.ID, cy.ID, ana.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lead, _ := back.Lead(); lead.ID != ana.ID || reviewer() != "" {
+		t.Fatalf("after Ana came back: lead %s, reviewer %q; want lead Ana and no reviewer", lead.Name, reviewer())
+	}
+}
+
+// A new team can get a reviewer, but not its lead.
+func TestCreateTeamTakesAReviewerOtherThanTheLead(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	_, ana, bo, _ := newTestTeam(t, svc)
+	team, err := svc.CreateTeam(ctx, "Docs", "", []string{ana.ID, bo.ID}, TeamSettings{LeadID: ana.ID, ReviewerID: bo.ID})
+	if err != nil || team.Team.ReviewerID != bo.ID {
+		t.Fatalf("CreateTeam(reviewer Bo) = %+v, %v; want reviewer Bo", team.Team, err)
+	}
+	if stored, err := svc.GetBot(ctx, team.ID); err != nil || stored.Team.ReviewerID != bo.ID {
+		t.Fatalf("stored team = %+v, %v; want reviewer Bo", stored.Team, err)
+	}
+	if _, err := svc.CreateTeam(ctx, "Ops", "", []string{ana.ID, bo.ID}, TeamSettings{ReviewerID: ana.ID}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("CreateTeam(reviewer Ana, the first member, who leads) err = %v; want ErrInvalid", err)
+	}
+}
+
 func TestTeamMemoryIsSharedByTheTeamInItsTurnsOnly(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()

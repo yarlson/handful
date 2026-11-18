@@ -53,6 +53,31 @@ func (s *Service) LedTeam(ctx context.Context, c LeadChat, teamID string) (Bot, 
 	return Bot{}, invalid("you lead several teams; name one with team_id: %s", teamList(led))
 }
 
+// MemberTeam returns the team of bot botID that teamID names, or its one team when teamID is "".
+// Any member may read its team, in any turn of its own chat.
+func (s *Service) MemberTeam(ctx context.Context, botID, teamID string) (Bot, error) {
+	rooms, err := s.RoomsOf(ctx, botID)
+	if err != nil {
+		return Bot{}, err
+	}
+	var teams []Bot
+	for _, r := range rooms {
+		if r.IsTeam() && (teamID == "" || r.ID == teamID) {
+			teams = append(teams, r)
+		}
+	}
+	if len(teams) == 1 {
+		return teams[0], nil
+	}
+	if teamID != "" {
+		return Bot{}, invalid("you are in no team with id %s", teamID)
+	}
+	if len(teams) == 0 {
+		return Bot{}, invalid("you are in no team")
+	}
+	return Bot{}, invalid("you are in several teams; name one with team_id: %s", teamList(teams))
+}
+
 // ledOne returns team teamID of teams when botID leads it.
 func ledOne(teams []Bot, teamID, botID string) (Bot, error) {
 	for _, t := range teams {

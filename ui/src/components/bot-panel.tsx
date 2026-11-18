@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui"
 import { Pencil, Play, Plus, Trash2, X } from "lucide-react"
-import { api, type Bot, type Memory, type Routine, type RoutineText } from "@/lib/api"
+import { api, type Bot, type Member, type Memory, type Routine, type RoutineText } from "@/lib/api"
 import { ARTIFACT_KINDS, artifactAuthor } from "@/lib/artifacts"
 import { latestOnly } from "@/lib/latest"
 import { Badge } from "@/components/ui/badge"
@@ -24,7 +24,16 @@ import { RadioGroup } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { draftOf, rebase, savePlan, unsaved, type BotDraft, type TeamDraft } from "@/lib/bot-settings"
+import {
+  draftOf,
+  leadEdit,
+  rebase,
+  reviewerCandidates,
+  savePlan,
+  unsaved,
+  type BotDraft,
+  type TeamDraft,
+} from "@/lib/bot-settings"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { panelTabs, shownTab, type PanelTab, type Reading } from "@/lib/place"
 import { skillLayerLabel } from "@/lib/skills"
@@ -572,7 +581,17 @@ const deleteNote = {
   team: "This deletes the team, its conversation, its team memory and its shared folder. The member bots stay.",
 }
 
-// TeamFields edits what a team adds to its room: the lead, the working agreement, the turns
+function memberOption(m: Member) {
+  const label = (
+    <>
+      <ChatIcon chat={{ id: m.id, kind: "agent" }} />
+      {m.name}
+    </>
+  )
+  return { value: m.id, label }
+}
+
+// TeamFields edits what a team adds to its room: the lead, the reviewer, the working agreement, the turns
 // per day, the decision time, the inbox limits and the member defaults.
 function TeamFields({
   team,
@@ -592,17 +611,22 @@ function TeamFields({
         <OptionSelect
           id="team-settings-lead"
           value={draft.leadId}
-          options={members.map((m) => {
-            const label = (
-              <>
-                <ChatIcon chat={{ id: m.id, kind: "agent" }} />
-                {m.name}
-              </>
-            )
-            return { value: m.id, label }
-          })}
-          onChange={(leadId) => onDraft({ leadId })}
+          options={members.map(memberOption)}
+          onChange={(leadId) => onDraft(leadEdit(draft, leadId))}
         />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="team-settings-reviewer">Reviewer</Label>
+        <OptionSelect
+          id="team-settings-reviewer"
+          value={draft.reviewerId}
+          describedBy="team-settings-reviewer-help"
+          options={[{ value: "", label: "None" }, ...reviewerCandidates(members, draft.leadId).map(memberOption)]}
+          onChange={(reviewerId) => onDraft({ reviewerId })}
+        />
+        <p id="team-settings-reviewer-help" className="text-muted-foreground text-xs">
+          Reviews each step of the team's tasks. With None, the lead reviews. The working agreement can say otherwise.
+        </p>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="team-settings-agreement">Working agreement</Label>

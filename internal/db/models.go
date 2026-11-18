@@ -249,6 +249,11 @@ type Team struct {
 	BudgetWaitedOn  string `json:"budget_waited_on"`
 }
 
+type TeamReviewer struct {
+	TeamID string `json:"team_id"`
+	BotID  string `json:"bot_id"`
+}
+
 type ToolGrant struct {
 	BotID     string `json:"bot_id"`
 	ToolName  string `json:"tool_name"`

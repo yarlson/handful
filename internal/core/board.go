@@ -690,7 +690,11 @@ func teamWith(ctx context.Context, q *db.Queries, id string) (Bot, error) {
 	if err != nil {
 		return Bot{}, fmt.Errorf("get team %s: %w", id, err)
 	}
-	team.Team = toTeam(settings, team.Members)
+	reviewer, err := teamReviewer(ctx, q, id)
+	if err != nil {
+		return Bot{}, err
+	}
+	team.Team = toTeam(settings, reviewer, team.Members)
 	return team, nil
 }
 

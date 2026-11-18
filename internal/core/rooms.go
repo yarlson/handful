@@ -100,6 +100,9 @@ func insertRoom(ctx context.Context, q *db.Queries, id, name, instructions strin
 		if err := q.CreateTeam(ctx, db.CreateTeamParams{TeamID: id, LeadBotID: team.LeadID, Agreement: team.Agreement, GoalBudget: team.GoalBudget, DefaultModel: team.DefaultModel, DefaultEffort: team.DefaultEffort, InboxMax: team.InboxMax, InboxPerSender: team.InboxPerSender, DecisionMinutes: team.DecisionMinutes, DailyBudget: team.DailyBudget, BudgetSince: now}); err != nil {
 			return Bot{}, fmt.Errorf("create team %q: %w", name, err)
 		}
+		if err := setTeamReviewer(ctx, q, id, team.ReviewerID); err != nil {
+			return Bot{}, err
+		}
 	}
 	room := toBot(row)
 	room.Members = members
@@ -135,7 +138,7 @@ func (s *Service) SetRoomMembers(ctx context.Context, roomID string, memberIDs [
 			}
 		}
 	}
-	if room, err = s.GetBot(ctx, roomID); err != nil {
+	if room, err = s.roomWithNewMembers(ctx, roomID); err != nil {
 		return Bot{}, err
 	}
 	if _, err := s.AppendEntry(ctx, roomID, KindEvent, "", map[string]string{"type": "members", "text": membersText(room)}); err != nil {
@@ -155,6 +158,23 @@ func (s *Service) removeMember(ctx context.Context, room Bot, m Member) error {
 		return nil
 	}
 	return s.releaseMember(ctx, room.ID, m.ID, m.Name)
+}
+
+// roomWithNewMembers reads room roomID after its members changed. A team whose
+// reviewer left it or became its lead then stores "no reviewer", so the
+// reviewer does not come back when the member rejoins.
+func (s *Service) roomWithNewMembers(ctx context.Context, roomID string) (Bot, error) {
+	room, err := s.GetBot(ctx, roomID)
+	if err != nil {
+		return Bot{}, err
+	}
+	if !room.IsTeam() || room.Team.ReviewerID != "" {
+		return room, nil
+	}
+	if err := setTeamReviewer(ctx, s.q, room.ID, ""); err != nil {
+		return Bot{}, err
+	}
+	return room, nil
 }
 
 func (s *Service) validMembers(ctx context.Context, ids []string) ([]Member, error) {

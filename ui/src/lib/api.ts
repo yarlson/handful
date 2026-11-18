@@ -12,9 +12,11 @@ import type { Period } from "./usage-view"
 
 export type Member = { id: string; name: string; effective?: Effective }
 
-// TeamSettings is what a team adds to its room. leadId is the current lead.
+// TeamSettings is what a team adds to its room. leadId is the current lead; reviewerId is the
+// member that reviews each step, never the lead, and "" for none.
 export type TeamSettings = {
   leadId: string
+  reviewerId?: string
   agreement: string
   goalBudget: number
   defaultModel?: string

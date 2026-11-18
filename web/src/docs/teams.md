@@ -12,6 +12,8 @@ The working agreement holds your rules for how the team works and when work is d
 
 To change the lead or the agreement later, open the team panel, then **Settings**. When the lead leaves the team, the first member leads.
 
+**Reviewer**, right after **Lead** in **Settings**, names the member that reviews each step of the team's tasks. With **None**, the default, the lead reviews. The working agreement can say otherwise. The reviewer goes back to **None** when it leaves the team or becomes the lead. Each member sees in its turns in the team who leads, who reviews, and each member's model and effort.
+
 ## Talk to a team
 
 - A message that mentions no one goes to the lead. The lead answers it, or @mentions the member who should do the work.

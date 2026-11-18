@@ -370,13 +370,9 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list room members: %w", err)
 	}
-	teams, err := s.q.ListTeams(ctx)
+	teamRows, reviewerOf, err := allTeams(ctx, s.q)
 	if err != nil {
-		return nil, fmt.Errorf("list teams: %w", err)
-	}
-	teamRows := map[string]db.Team{}
-	for _, t := range teams {
-		teamRows[t.TeamID] = t
+		return nil, err
 	}
 	byRoom := map[string][]Member{}
 	for _, m := range members {
@@ -403,7 +399,7 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 		b := toBot(r)
 		b.Members = byRoom[b.ID]
 		if row, ok := teamRows[b.ID]; ok {
-			b.Team = toTeam(row, b.Members)
+			b.Team = toTeam(row, reviewerOf[b.ID], b.Members)
 		}
 		b.Attention, b.OpenQuestions, b.IncomingHandoffs = attention[b.ID], open[b.ID], incoming[b.ID]
 		b.Hue = hueOf[b.ID]

@@ -753,7 +753,7 @@ func TestFirstTurnStartsSessionAndLaterTurnsResumeIt(t *testing.T) {
 		t.Fatalf("calls = %q; want --session-id then --resume of %s", calls, got.ClaudeSessionID)
 	}
 	allowed := regexp.MustCompile(`--allowedTools (\S+)`).FindStringSubmatch(calls[0])
-	for _, tool := range []string{"find_artifacts", "read_artifact", "update_artifact", "update_skill", "update_profile", "create_setup"} {
+	for _, tool := range []string{"find_artifacts", "read_artifact", "update_artifact", "update_skill", "update_profile", "list_members", "create_setup"} {
 		if allowed == nil || !strings.Contains(allowed[1], "mcp__handful__"+tool) {
 			t.Errorf("first call does not allow %s without approval: %v", tool, allowed)
 		}
@@ -1201,7 +1201,7 @@ func TestTeamTurnRunsInTheTeamFolderAndItsPromptShowsOnlyTheTeam(t *testing.T) {
 		"## Your team\nThis turn is in team \"Ship\" (id " + team.ID + ")",
 		"A turn in the team is marked [team].\nTeam purpose: Ship small changes.\nMembers:\n",
 		"- you (Ana, the lead)",
-		"- Bo (id " + bo.ID + "): no instructions yet",
+		"- Bo (id " + bo.ID + ", default · default): no instructions yet",
 		"Working agreement (the user's rules for how the team works and when work is done):\nTests pass before a change is done.",
 		"Your own folder is " + h.svc.Workspace(ana.ID) + ".",
 		"You are the lead, the team's front door",

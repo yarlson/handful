@@ -1,6 +1,6 @@
 import { assert, test } from "vitest"
 import type { Bot } from "./api"
-import { draftOf, rebase, savePlan, unsaved, type BotDraft } from "./bot-settings"
+import { draftOf, leadEdit, rebase, reviewerCandidates, savePlan, unsaved, type BotDraft } from "./bot-settings"
 
 const bot: Bot = {
   id: "bot-ana",
@@ -23,6 +23,7 @@ const team: Bot = {
   instructions: "Build it.",
   team: {
     leadId: "bot-ana",
+    reviewerId: "bot-cy",
     agreement: "Tests pass.",
     goalBudget: 0,
     dailyBudget: 200,
@@ -52,6 +53,7 @@ test("a bot's draft shows its saved values, with absent ones as empty", () => {
 test("a team's draft shows its numbers as text", () => {
   assert.deepEqual(draftOf(team).team, {
     leadId: "bot-ana",
+    reviewerId: "bot-cy",
     agreement: "Tests pass.",
     budget: "200",
     decision: "45",
@@ -65,6 +67,7 @@ test("a team's draft shows its numbers as text", () => {
 test("a team without its own limits shows the server's defaults", () => {
   const t = draftOf({ ...team, team: { leadId: "bot-ana", agreement: "", goalBudget: 0 } }).team
   assert.deepInclude(t, {
+    reviewerId: "",
     budget: "0",
     decision: "30",
     inboxMax: "10",
@@ -123,6 +126,7 @@ test("Save sends only the team fields that changed, as the server names them", (
   const saved = draftOf(team)
   const cases = [
     { edit: { leadId: "bot-bo" }, sent: { leadId: "bot-bo" } },
+    { edit: { reviewerId: "" }, sent: { reviewerId: "" } },
     { edit: { agreement: "Docs too." }, sent: { agreement: "Docs too." } },
     { edit: { budget: "300" }, sent: { dailyBudget: 300 } },
     { edit: { decision: "60" }, sent: { decisionMinutes: 60 } },
@@ -135,6 +139,28 @@ test("Save sends only the team fields that changed, as the server names them", (
     const draft = { ...saved, team: { ...saved.team!, ...edit } }
     assert.deepEqual(savePlan(draft, saved, true), { team: sent }, JSON.stringify(edit))
   }
+})
+
+test("the Reviewer select offers every member but the lead", () => {
+  const members = [
+    { id: "bot-ana", name: "Ana" },
+    { id: "bot-bo", name: "Bo" },
+    { id: "bot-cy", name: "Cy" },
+  ]
+  assert.deepEqual(
+    reviewerCandidates(members, "bot-bo").map((m) => m.id),
+    ["bot-ana", "bot-cy"],
+  )
+})
+
+test("making the reviewer the lead leaves the reviewer None; another lead keeps it", () => {
+  const t = draftOf(team).team!
+  assert.deepEqual(leadEdit(t, "bot-cy"), { leadId: "bot-cy", reviewerId: "" })
+  assert.deepEqual(leadEdit(t, "bot-bo"), { leadId: "bot-bo" })
+  const saved = draftOf(team)
+  assert.deepEqual(savePlan({ ...saved, team: { ...t, ...leadEdit(t, "bot-cy") } }, saved, true), {
+    team: { leadId: "bot-cy", reviewerId: "" },
+  })
 })
 
 test("Save sends both patches when bot and team fields changed", () => {

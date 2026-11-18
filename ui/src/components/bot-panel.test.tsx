@@ -103,6 +103,33 @@ test("a team's settings have one Save for every field, off while nothing changed
   assert.include(saves[0], "disabled")
 })
 
+test("a team's Reviewer comes right after Lead, None by default, with its help", () => {
+  const team: Bot = {
+    ...agent,
+    id: "team-dev",
+    kind: "room",
+    hue: undefined,
+    members: [
+      { id: "bot-ana", name: "Ana" },
+      { id: "bot-bo", name: "Bo" },
+    ],
+    team: { leadId: "bot-ana", agreement: "", goalBudget: 0 },
+  }
+  const html = settings(team)
+  const lead = html.indexOf('for="team-settings-lead"')
+  const reviewer = html.indexOf('for="team-settings-reviewer"')
+  assert.isAbove(reviewer, lead)
+  assert.isBelow(reviewer, html.indexOf('for="team-settings-agreement"'))
+  const field = html.slice(reviewer, html.indexOf('for="team-settings-agreement"'))
+  assert.match(field, /id="team-settings-reviewer"[^>]*aria-describedby="team-settings-reviewer-help"/)
+  assert.include(field, ">None<")
+  assert.include(
+    field,
+    "Reviews each step of the team&#x27;s tasks. With None, the lead reviews. The working agreement can say otherwise.",
+  )
+  assert.include(settings({ ...team, team: { ...team.team!, reviewerId: "bot-bo" } }), ">Bo<")
+})
+
 test("a fact in the log tier shows the tier's own name", () => {
   const fact = {
     id: "m1",

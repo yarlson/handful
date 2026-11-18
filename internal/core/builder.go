@@ -47,7 +47,10 @@ func (s *Service) SeedBuilder(ctx context.Context) error {
 	if err := s.prepareWorkspace(s.Workspace(id)); err != nil {
 		return err
 	}
-	err = s.inTx(ctx, func(q *db.Queries) error { return insertBuilder(ctx, q, id, s.nowMs()) })
+	err = s.writeInstructions(id, builderInstructions)
+	if err == nil {
+		err = s.inTx(ctx, func(q *db.Queries) error { return insertBuilder(ctx, q, id, s.nowMs()) })
+	}
 	if err != nil {
 		return errors.Join(err, os.RemoveAll(filepath.Join(s.dataDir, "bots", id)))
 	}

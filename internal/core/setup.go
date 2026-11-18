@@ -223,7 +223,7 @@ func (n setupNames) newBot(b SetupBot) (Bot, error) {
 	if err := checkVisible(b.Name, b.Instructions); err != nil {
 		return Bot{}, err
 	}
-	name, instructions, err := validateProfile(b.Name, b.Instructions)
+	name, instructions, err := validateProfile(b.Name, b.Instructions, kindAgentBot)
 	if err != nil {
 		return Bot{}, err
 	}
@@ -266,7 +266,7 @@ func (n setupNames) newRoom(name, purpose string, memberNames []string) (planned
 	if err := checkVisible(append([]string{name, purpose}, memberNames...)...); err != nil {
 		return plannedRoom{}, err
 	}
-	name, purpose, err := validateProfile(name, purpose)
+	name, purpose, err := validateProfile(name, purpose, KindRoom)
 	if err != nil {
 		return plannedRoom{}, err
 	}
@@ -340,13 +340,17 @@ func checkVisible(texts ...string) error {
 	return nil
 }
 
-// prepareSetupWorkspaces creates the folders of the new bots and teams. It
-// returns the folders it created, also when it fails.
+// prepareSetupWorkspaces creates the folders of the new bots, with their
+// instructions files, and of the new teams. It returns the folders it
+// created, also when it fails.
 func (s *Service) prepareSetupWorkspaces(plan plannedSetup) ([]string, error) {
 	var dirs []string
 	for _, b := range plan.bots {
 		dirs = append(dirs, filepath.Join(s.dataDir, "bots", b.ID))
 		if err := s.prepareWorkspace(s.Workspace(b.ID)); err != nil {
+			return dirs, err
+		}
+		if err := s.writeInstructions(b.ID, b.Instructions); err != nil {
 			return dirs, err
 		}
 	}

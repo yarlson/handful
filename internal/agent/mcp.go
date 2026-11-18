@@ -265,7 +265,7 @@ type boardInput struct {
 
 type profileInput struct {
 	Name         *string `json:"name,omitempty" jsonschema:"your new display name"`
-	Instructions *string `json:"instructions,omitempty" jsonschema:"your new standing instructions"`
+	Instructions *string `json:"instructions,omitempty" jsonschema:"your new standing instructions, whole: they replace the text of your instructions file"`
 }
 
 // addRunTool adds a tool whose handler acts on the token's current run. A

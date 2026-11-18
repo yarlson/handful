@@ -54,7 +54,7 @@ func (s *Service) CreateRoom(ctx context.Context, name, instructions string, mem
 // createRoom stores a room with its members, and makes it a team when set is
 // not nil, in one transaction.
 func (s *Service) createRoom(ctx context.Context, id, name, instructions string, memberIDs []string, set *TeamSettings) (Bot, error) {
-	name, instructions, err := validateProfile(name, instructions)
+	name, instructions, err := validateProfile(name, instructions, KindRoom)
 	if err != nil {
 		return Bot{}, err
 	}

@@ -3012,6 +3012,41 @@ func (q *Queries) ListIncomingGoals(ctx context.Context, teamID string) ([]Goal,
 	return items, nil
 }
 
+const listInstructionsToMove = `-- name: ListInstructionsToMove :many
+SELECT id, instructions FROM bots
+WHERE kind = 'agent' AND instructions <> ''
+  AND id NOT IN (SELECT bot_id FROM instructions_moved)
+ORDER BY id
+`
+
+type ListInstructionsToMoveRow struct {
+	ID           string `json:"id"`
+	Instructions string `json:"instructions"`
+}
+
+func (q *Queries) ListInstructionsToMove(ctx context.Context) ([]ListInstructionsToMoveRow, error) {
+	rows, err := q.db.QueryContext(ctx, listInstructionsToMove)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListInstructionsToMoveRow
+	for rows.Next() {
+		var i ListInstructionsToMoveRow
+		if err := rows.Scan(&i.ID, &i.Instructions); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listItemEvents = `-- name: ListItemEvents :many
 SELECT id, item_id, kind, actor_id, actor_name, round, text, created_at FROM item_events WHERE item_id = ? ORDER BY created_at, rowid
 `
@@ -4071,6 +4106,15 @@ func (q *Queries) ListUpcomingRoutines(ctx context.Context, nextRunAt sql.NullIn
 	return items, nil
 }
 
+const markInstructionsMoved = `-- name: MarkInstructionsMoved :exec
+INSERT OR IGNORE INTO instructions_moved (bot_id) VALUES (?)
+`
+
+func (q *Queries) MarkInstructionsMoved(ctx context.Context, botID string) error {
+	_, err := q.db.ExecContext(ctx, markInstructionsMoved, botID)
+	return err
+}
+
 const markRoutineFired = `-- name: MarkRoutineFired :exec
 UPDATE routines SET last_run_at = ?, last_run_by = ?, next_run_at = ? WHERE id = ?
 `
@@ -4861,8 +4905,10 @@ func (q *Queries) UpdateArtifact(ctx context.Context, arg UpdateArtifactParams) 
 }
 
 const updateBotProfile = `-- name: UpdateBotProfile :one
-UPDATE bots SET name = ?, instructions = ?, model = ?, effort = ?, updated_at = ?
-WHERE id = ?
+UPDATE bots SET name = ?1,
+  instructions = CASE WHEN kind = 'room' THEN ?2 ELSE instructions END,
+  model = ?3, effort = ?4, updated_at = ?5
+WHERE id = ?6
 RETURNING id, name, instructions, claude_session_id, created_at, updated_at, kind, position, role, model, effort
 `
 
@@ -4875,6 +4921,8 @@ type UpdateBotProfileParams struct {
 	ID           string `json:"id"`
 }
 
+// A room's purpose is this column; a bot's instructions are a file, and its
+// column keeps the text it had before they moved.
 func (q *Queries) UpdateBotProfile(ctx context.Context, arg UpdateBotProfileParams) (Bot, error) {
 	row := q.db.QueryRowContext(ctx, updateBotProfile,
 		arg.Name,

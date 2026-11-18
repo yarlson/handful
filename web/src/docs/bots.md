@@ -131,7 +131,7 @@ Handful stores artifacts in its database, not in files. Only an artifact's autho
 Open the bot panel, then **Settings**:
 
 - The name, and the **Colour** of the bot's dot. A new bot gets the colour that the fewest bots have.
-- The instructions. A bot's own instructions win over the [global instructions](/docs/configuration/#global-instructions).
+- The instructions. They are the file `CLAUDE.md` in the bot's Claude Code folder, `~/.handful/bots/<bot id>/claude/CLAUDE.md`, which Claude Code loads in every turn of the bot. You can also edit the file by hand: the field shows its text when you open the page. A change in the field or in the file applies from the next turn. A bot's own instructions win over the [global instructions](/docs/configuration/#global-instructions).
 - The model and effort (see [Model and effort](/docs/configuration/#model-and-effort)). A change applies from the next turn.
 - How much context the bot carries and how its last turn went, for example "Context: 142k of 200k · last turn: 3 calls, from cache". "rebuilt the cache" means that the turn wrote the bot's context to the cache again, which costs more. That happens after a long pause, and always on the first turn of a fresh context.
 - **Always allowed tools**, each with a × to take it back.

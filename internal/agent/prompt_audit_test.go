@@ -218,10 +218,44 @@ func TestEveryPromptVariantSaysToReadARepositorysClaudeMD(t *testing.T) {
 // among them, so its prompt forbids messaging instead of saying it can't.
 func TestTheExecutorIsToldNotToMessageTheUser(t *testing.T) {
 	t.Parallel()
-	prompt, _ := executorAgents("Ana")["executor"].(map[string]any)["prompt"].(string)
+	prompt, _ := executorAgents("Ana", "sonnet")["executor"].(map[string]any)["prompt"].(string)
 	wantText(t, "the executor's prompt", prompt,
 		[]string{"Do not message the user or other bots, and do not ask questions: send_to_user and send_to_agent are the parent's to use.", claudeMDLine},
 		[]string{"You cannot talk to the user"})
+}
+
+// Every prompt variant has the Delegating section once, and the executor's description says
+// which jobs it takes.
+func TestEveryPromptVariantDelegatesOnlyJobsThatReadMuchMoreThanTheyReturn(t *testing.T) {
+	t.Parallel()
+	const section = `## Delegating
+- When a listed skill covers the job, invoke it first and follow it; delegate only steps inside it.
+- Delegate to the "executor" subagent a job that reads much more than it returns: web research, a search through many files or logs, a command with long output. Give it a self-contained prompt with the goal, the exact values it needs and what to report. Then send the user the outcome.
+- Do the work yourself when it takes a handful of tool calls, or when you need the raw text in your own context: code you will edit, a diff you will review.
+- Outside the steps of a skill you follow, never use a subagent to check or double-check your own work.
+- Use one subagent unless the job splits into large, independent parts.
+
+## `
+	now := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
+	ana := core.Bot{ID: "a", Name: "Ana"}
+	team := core.Bot{ID: "t", Name: "Ship", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}, Team: &core.Team{LeadID: "a"}}
+	room := core.Bot{ID: "r", Name: "Plan", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}}
+	for what, pc := range map[string]promptContext{
+		"a bot's own chat": {Bot: ana, Now: now},
+		"a bot in a room":  {Bot: ana, InRoom: true, Rooms: []core.Bot{room}, Now: now},
+		"a team's lead":    {Bot: ana, Team: &team, InRoom: true, Now: now},
+		"a team's member":  {Bot: core.Bot{ID: "b", Name: "Bo"}, Team: &team, InRoom: true, Now: now},
+		"Builder":          {Bot: core.Bot{ID: "bl", Name: "Builder", Role: core.RoleBuilder}, Now: now},
+	} {
+		got := systemPrompt(pc)
+		if strings.Count(got, section) != 1 || strings.Count(got, "## Delegating") != 1 {
+			t.Errorf("%s's prompt has the Delegating section %d times; want once\n%s", what, strings.Count(got, section), got)
+		}
+	}
+	description := executorAgents("Ana", "sonnet")["executor"].(map[string]any)["description"]
+	if want := "Worker for jobs that read much more than they return: web research, searches through many files or logs, commands with long output. Give it a self-contained prompt; it returns one final report."; description != want {
+		t.Errorf("the executor's description = %q; want %q", description, want)
+	}
 }
 
 // AC4.4: every prompt variant says that skills have two layers and that shared is the default,

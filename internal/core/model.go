@@ -71,6 +71,23 @@ func NormalizeModel(s string) (string, error) {
 	return s, nil
 }
 
+// The Helper model values that are not model names: the default, and the
+// value that gives the executor helper the bot's model and effort.
+const (
+	DefaultHelperModel = "sonnet"
+	HelperModelInherit = "inherit"
+)
+
+// NormalizeHelperModel checks a Helper model setting and returns it as
+// stored: "" when not set, "inherit" in lower case, else as NormalizeModel
+// returns it.
+func NormalizeHelperModel(s string) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(s), HelperModelInherit) {
+		return HelperModelInherit, nil
+	}
+	return NormalizeModel(s)
+}
+
 // NormalizeEffort checks an effort setting and returns it in lower case, or
 // "" for inherit.
 func NormalizeEffort(s string) (string, error) {

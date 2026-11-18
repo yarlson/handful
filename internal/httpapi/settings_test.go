@@ -26,7 +26,7 @@ func settingsHandler(t *testing.T, body string, change func(*Settings)) (http.Ha
 	}
 	s := Settings{
 		Path:    path,
-		Running: map[string]any{"model": "", "effort": "", "maxParallel": 3, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true},
+		Running: map[string]any{"model": "", "effort": "", "helperModel": "sonnet", "maxParallel": 3, "claude": "claude", "updates.autoCheck": true, "updates.drainMinutes": 30, "updateCheck": true},
 		Flags:   map[string]string{},
 		Runtime: []RuntimeValue{{Key: "addr", Value: "127.0.0.1:7777", Source: SourceDefault}, {Key: "tray", Value: true, Source: SourceApp}},
 		Build:   BuildSource,
@@ -90,7 +90,7 @@ func TestSettingsShowEachValueWithItsDefaultSourceAndRunningValue(t *testing.T) 
 		}
 	})
 	rec := do(h, "GET", "/api/settings", "", nil)
-	keys := []string{`"model":`, `"effort":`, `"maxParallel":`, `"claude":`, `"updates.autoCheck":`, `"updates.drainMinutes":`, `"updateCheck":`}
+	keys := []string{`"model":`, `"effort":`, `"helperModel":`, `"maxParallel":`, `"claude":`, `"updates.autoCheck":`, `"updates.drainMinutes":`, `"updateCheck":`}
 	body, last := rec.Body.String(), -1
 	for _, k := range keys {
 		i := strings.Index(body, k)
@@ -110,6 +110,7 @@ func TestSettingsShowEachValueWithItsDefaultSourceAndRunningValue(t *testing.T) 
 		"updates.autoCheck":    {Value: false, Default: true, Source: "file", Running: true},
 		"updates.drainMinutes": {Value: 30.0, Default: 30.0, Source: "default", Running: 30.0},
 		"model":                {Value: "", Default: "", Source: "default", Running: "", Restart: true},
+		"helperModel":          {Value: "sonnet", Default: "sonnet", Source: "default", Running: "sonnet", Restart: true},
 		"updateCheck":          {Value: true, Default: true, Source: "default", Running: true, Restart: true},
 	}
 	for key, w := range want {
@@ -125,11 +126,15 @@ func TestSettingsShowEachValueWithItsDefaultSourceAndRunningValue(t *testing.T) 
 
 func TestAHandEditedValueThatStartupRejectsShowsItsError(t *testing.T) {
 	// The file loads, but startup rejects its model and its effort.
-	h, _, _ := settingsHandler(t, `{"model": "bad model", "effort": "ultra", "maxParallel": 4}`, nil)
+	h, _, _ := settingsHandler(t, `{"model": "bad model", "effort": "ultra", "helperModel": "a*b", "maxParallel": 4}`, nil)
 	got := readSettings(t, h)
 	want := map[string]valueReply{
 		"model":  {Value: "bad model", Default: "", Source: "file", Running: "", Restart: true, Error: "A model ID can't contain spaces or start with '-'. The server won't start with it after a restart."},
 		"effort": {Value: "ultra", Default: "", Source: "file", Running: "", Restart: true, Error: "Effort must be one of low, medium, high, xhigh, max. The server won't start with it after a restart."},
+		"helperModel": {
+			Value: "a*b", Default: "sonnet", Source: "file", Running: "sonnet", Restart: true,
+			Error: "A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters. The server won't start with it after a restart.",
+		},
 		// A value startup accepts has no error, and a default never has one.
 		"maxParallel": {Value: 4.0, Default: 3.0, Source: "file", Running: 3.0, Restart: true},
 		"claude":      {Value: "claude", Default: "claude", Source: "default", Running: "claude", Restart: true},
@@ -179,6 +184,30 @@ func TestSettingsChangeTheFileAndAnswerWithTheNewValues(t *testing.T) {
 	}
 	if v := readSettings(t, h).value(t, "maxParallel"); v.Value != 3.0 || v.Source != "default" {
 		t.Fatalf("maxParallel after reset = %+v; want the default", v)
+	}
+}
+
+func TestTheHelperModelStoresInheritAnAliasOrNoKey(t *testing.T) {
+	h, _, path := settingsHandler(t, "", nil)
+	for _, c := range []struct{ body, file, value string }{
+		{`{"helperModel": " Inherit "}`, "{\n  \"helperModel\": \"inherit\"\n}\n", "inherit"},
+		{`{"helperModel": "SONNET"}`, "{\n  \"helperModel\": \"sonnet\"\n}\n", "sonnet"},
+		{`{"helperModel": "claude-opus-5-5"}`, "{\n  \"helperModel\": \"claude-opus-5-5\"\n}\n", "claude-opus-5-5"},
+		{`{"helperModel": "  "}`, "{}\n", "sonnet"},
+	} {
+		if rec := do(h, "PATCH", "/api/settings", c.body, jsonHeader); rec.Code != http.StatusOK {
+			t.Fatalf("PATCH %s = %d %s", c.body, rec.Code, rec.Body)
+		}
+		if file, _ := os.ReadFile(path); string(file) != c.file {
+			t.Errorf("file after PATCH %s = %q; want %q", c.body, file, c.file)
+		}
+		if v := readSettings(t, h).value(t, "helperModel"); v.Value != c.value || v.Error != "" {
+			t.Errorf("helperModel after PATCH %s = %+v; want value %q", c.body, v, c.value)
+		}
+	}
+	rec := do(h, "PATCH", "/api/settings", `{"helperModel": "-x"}`, jsonHeader)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "A model ID can't contain spaces or start with '-'.") {
+		t.Fatalf("PATCH -x = %d %s; want 400 with the model ID message", rec.Code, rec.Body)
 	}
 }
 

@@ -45,6 +45,7 @@ type claudeRun struct {
 	MCPConfig        string // path of the file that writeMCPConfig wrote
 	BotName          string
 	Flags            runFlags // the model and effort
+	HelperModel      string   // Config.HelperModel
 	// DataDir is Handful's data folder, whose own files the bot's file tools may not read.
 	DataDir string
 }
@@ -138,7 +139,7 @@ const AutocompactWindow = 200000
 // --strict-mcp-config keeps out every MCP server that is not in the
 // MCPConfig file.
 func (r claudeRun) args() ([]string, error) {
-	agents, err := json.Marshal(executorAgents(r.BotName))
+	agents, err := json.Marshal(executorAgents(r.BotName, r.HelperModel))
 	if err != nil {
 		return nil, fmt.Errorf("encode agents: %w", err)
 	}

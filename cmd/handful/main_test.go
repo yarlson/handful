@@ -57,18 +57,18 @@ func freeAddr(t *testing.T) string {
 }
 
 func TestParseFlagsKeepsDefaultsAndRecordsGivenFlags(t *testing.T) {
-	o, err := parseFlags([]string{"-model", "sonnet", "-effort", "max", "-max-parallel", "5"})
+	o, err := parseFlags([]string{"-model", "sonnet", "-effort", "max", "-helper-model", "inherit", "-max-parallel", "5"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.Effort != "max" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, "/.handful") {
+	if o.addr != "127.0.0.1:7777" || o.Claude != "claude" || o.Model != "sonnet" || o.Effort != "max" || o.HelperModel != "inherit" || o.MaxParallel != 5 || !strings.HasSuffix(o.dataDir, "/.handful") {
 		t.Fatalf("options = %+v; want the default address, data folder and claude, model sonnet and 5 parallel turns", o)
 	}
 	if o.Updates != (updateSettings{AutoCheck: true, DrainMinutes: 30, UpdateCheck: true}) {
 		t.Fatalf("update settings = %+v; want the defaults", o.Updates)
 	}
-	if !o.set["model"] || !o.set["effort"] || !o.set["max-parallel"] || o.set["addr"] {
-		t.Fatalf("set = %v; want model and max-parallel only", o.set)
+	if !o.set["model"] || !o.set["effort"] || !o.set["helper-model"] || !o.set["max-parallel"] || o.set["addr"] {
+		t.Fatalf("set = %v; want model, effort, helper-model and max-parallel only", o.set)
 	}
 	if o.mover == nil || o.mover.New != o.dataDir {
 		t.Fatalf("mover = %+v; want one that moves ~/.yargpt to %s", o.mover, o.dataDir)
@@ -224,9 +224,9 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 	// Every setting's edge values, written through the page's API, leave a
 	// file that the server starts with.
 	for _, body := range []string{
-		`{"model": "claude-opus-5-5[1m]", "effort": "max", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 5, "updateCheck": false}`,
-		`{"model": "OPUS", "effort": "Low", "maxParallel": 1000, "updates.drainMinutes": 240}`,
-		`{"model": null, "effort": null, "maxParallel": null, "claude": null, "updates.autoCheck": null, "updates.drainMinutes": null, "updateCheck": null}`,
+		`{"model": "claude-opus-5-5[1m]", "effort": "max", "helperModel": " Inherit ", "maxParallel": 1, "claude": "/opt/claude code/claude", "updates.autoCheck": false, "updates.drainMinutes": 5, "updateCheck": false}`,
+		`{"model": "OPUS", "effort": "Low", "helperModel": "claude-sonnet-5-5[1m]", "maxParallel": 1000, "updates.drainMinutes": 240}`,
+		`{"model": null, "effort": null, "helperModel": null, "maxParallel": null, "claude": null, "updates.autoCheck": null, "updates.drainMinutes": null, "updateCheck": null}`,
 	} {
 		patchSettings(t, o.addr, body)
 		got := settings{}
@@ -246,6 +246,7 @@ func TestServeAnswersUntilTheContextEnds(t *testing.T) {
 		{`{"maxParallel": 4,}`, "invalid character"},
 		{`{"claude": "` + claude + `", "model": "bad model"}`, `config.json: "model": A model ID can't contain spaces`},
 		{`{"claude": "` + claude + `", "effort": "ultra"}`, `config.json: "effort" must be one of`},
+		{`{"claude": "` + claude + `", "helperModel": "-x"}`, `config.json: "helperModel": A model ID can't contain spaces`},
 		{`{"claude": "/missing/claude"}`, `find Claude Code CLI "/missing/claude"`},
 	} {
 		if err := os.WriteFile(filepath.Join(o.dataDir, "config.json"), []byte(c.file), 0o600); err != nil {

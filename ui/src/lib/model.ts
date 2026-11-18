@@ -200,7 +200,10 @@ export function teamEffective(team: { defaultModel?: string; defaultEffort?: str
   }
 }
 
-// ignoredOverrides lists the environment variables that Handful removes from a bot's run.
-export function ignoredOverrides(d: Defaults): string[] {
-  return d.envOverrides.filter((v) => v.startsWith("CLAUDE_CODE_SUBAGENT_"))
+// ignoredNote says which helper variables Handful removes from a bot's run, or is null when
+// none is set.
+export function ignoredNote(d: Defaults): string | null {
+  const ignored = d.envOverrides.filter((v) => v.startsWith("CLAUDE_CODE_SUBAGENT_"))
+  if (ignored.length === 0) return null
+  return `${ignored.join(", ")} ignored: Handful bots' executor helpers use the Helper model in Settings → General; other helpers use the bot's model.`
 }

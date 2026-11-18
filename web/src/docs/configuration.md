@@ -12,7 +12,7 @@ Handful has three places for settings:
 
 | Section | What it holds |
 |---|---|
-| **General** | **Default model**, **Default effort**, **Turns at once**, and under **Advanced**, **Claude Code program**. |
+| **General** | **Default model**, **Default effort**, **Helper model**, **Turns at once**, and under **Advanced**, **Claude Code program**. |
 | **Appearance** | Theme, chat width and text size, for this browser only. See [The window](/docs/window/#appearance). |
 | **Updates** | How the Mac app updates itself. See [The Mac app](/docs/mac-app/#updates). |
 | **Connectors** | **Manage connectors…**. See [Connectors](/docs/connectors/). |
@@ -51,7 +51,8 @@ The models are the aliases `fable`, `opus`, `sonnet` and `haiku`, or a full mode
 - A change applies from the bot's next turn. A change of model makes that turn slower and costlier. The bot's **Settings** says so under the fields.
 - When Claude Code cannot run a model, the chat says so, names where the value comes from and links to Settings. The turn is not retried.
 - A bot cannot change its own model or effort.
-- When Handful sets an effort, it removes `CLAUDE_CODE_EFFORT_LEVEL` from the bot's run, because that variable would win. Handful always removes the `CLAUDE_CODE_SUBAGENT_*` variables, so a bot's helper subagents use the bot's model and effort.
+- When Handful sets an effort, it removes `CLAUDE_CODE_EFFORT_LEVEL` from the bot's run, since that variable would outrank it; with no effort in Handful, the variable applies. `ANTHROPIC_MODEL` stays, because `--model` outranks it. Handful always removes `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_SUBAGENT_EFFORT` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`.
+- A bot's `executor` helper runs on the **Helper model** in Settings → General (`helperModel` in `config.json`, flag `-helper-model`), Sonnet by default, at that model's default effort. Choose **Same as the bot** to give it the bot's model and effort. Other helpers use the bot's model. A model that the bot names when it starts a helper wins.
 
 ## Global instructions
 
@@ -86,6 +87,7 @@ Claude Code loads the file itself, because every bot works in a folder inside `~
 |---|---|---|
 | `model` | Claude Code's default | **Default model** |
 | `effort` | the model's own | **Default effort** |
+| `helperModel` | `sonnet` | **Helper model**: an alias, a full model ID, or `inherit` for **Same as the bot** |
 | `maxParallel` | `3` | **Turns at once** |
 | `claude` | `claude` | **Claude Code program**: the `claude` command that Handful runs for every turn. Change it only if Claude Code is not on your `PATH`. |
 | `updates.autoCheck` | `true` | The Mac app checks for updates once a day. |
@@ -93,7 +95,7 @@ Claude Code loads the file itself, because every bot works in a folder inside `~
 | `updateCheck` | `true` | A server that you built from source checks GitHub once a day and shows a notice of a new release. It never updates itself. `HANDFUL_NO_UPDATE_CHECK=1` turns the check off too. |
 | `phone` | off | See [Phone access](/docs/phone/#the-settings-file). |
 
-- A change by hand to `model`, `effort`, `maxParallel`, `claude`, `updateCheck` or a `phone` key applies after a restart. The Settings page shows the keys that changed on disk. The `updates` keys apply at once.
+- A change by hand to `model`, `effort`, `helperModel`, `maxParallel`, `claude`, `updateCheck` or a `phone` key applies after a restart. The Settings page shows the keys that changed on disk. The `updates` keys apply at once.
 - If the file is invalid, or has a key that Handful does not know, Handful does not start, and the error names the file.
 
 ## Phone access
@@ -109,6 +111,7 @@ Phone access lets you read and answer your bots from your phone. It is off by de
 | `-claude` | `claude` | The Claude Code program to run. |
 | `-model` | Claude Code's default | The model for every bot without its own. |
 | `-effort` | the model's own | The reasoning effort for every bot without its own. |
+| `-helper-model` | `sonnet` | The model of every bot's `executor` helper; `inherit` gives it the bot's model and effort. |
 | `-max-parallel` | `3` | Turns that can run at the same time, across all bots. |
 | `-login-env` | off | Take the environment, such as `PATH`, from your login shell. The Mac app uses it, because macOS starts the server with a minimal `PATH`. |
 | `-tray` | off | Show the menu-bar icon, with **Check for updates…** and **Exit server**. The Mac app uses it. |

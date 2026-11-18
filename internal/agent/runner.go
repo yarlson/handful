@@ -22,6 +22,9 @@ type Config struct {
 	ClaudePath  string // claude executable
 	MCPURL      string // URL of this server's MCP endpoint
 	MaxParallel int    // turns that may run at once across all bots
+	// HelperModel is the model of the executor helper, or core.HelperModelInherit (or "")
+	// for the bot's model and effort.
+	HelperModel string
 	// OAuthCallbackURL is the redirect URI of connector sign-ins. It must
 	// match the address the server listens on.
 	OAuthCallbackURL string
@@ -828,6 +831,7 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 		BotName:      bot.Name,
 		DataDir:      r.svc.DataDir(),
 		Flags:        flags,
+		HelperModel:  r.cfg.HelperModel,
 	}
 	if !run.Resume {
 		run.SessionID = uuid.NewString()

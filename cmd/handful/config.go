@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -15,6 +16,7 @@ type settings struct {
 	Claude      string
 	Model       string
 	Effort      string
+	HelperModel string
 	MaxParallel int
 	Updates     updateSettings
 	Phone       config.PhoneSettings
@@ -38,6 +40,7 @@ func applyConfigFile(path string, set map[string]bool, s *settings) error {
 	fromFile(&s.Claude, file.Claude, set["claude"])
 	fromFile(&s.Model, file.Model, set["model"])
 	fromFile(&s.Effort, file.Effort, set["effort"])
+	fromFile(&s.HelperModel, file.HelperModel, set["helper-model"])
 	fromFile(&s.MaxParallel, file.MaxParallel, set["max-parallel"])
 	fromFile(&s.Updates.UpdateCheck, file.UpdateCheck, false)
 	s.Phone = file.PhoneSettings()
@@ -106,10 +109,11 @@ func startupKey(err error) string {
 	return ""
 }
 
-// globalDefaults checks the global model and effort of s, normalizes them in
-// s, and returns them with their sources and the environment's variables.
-// set holds the flags given on the command line; a value set without its
-// flag comes from the config file.
+// globalDefaults checks the global model, effort and Helper model of s,
+// normalizes them in s (a Helper model that is not set becomes its default),
+// and returns the model and effort with their sources and the environment's
+// variables. set holds the flags given on the command line; a value set
+// without its flag comes from the config file.
 func globalDefaults(s *settings, set map[string]bool, getenv func(string) string) (core.Defaults, error) {
 	model, err := core.NormalizeModel(s.Model)
 	if err != nil {
@@ -119,7 +123,11 @@ func globalDefaults(s *settings, set map[string]bool, getenv func(string) string
 	if err != nil {
 		return core.Defaults{}, settingError("effort", set, err)
 	}
-	s.Model, s.Effort = model, effort
+	helper, err := core.NormalizeHelperModel(s.HelperModel)
+	if err != nil {
+		return core.Defaults{}, settingError("helperModel", set, err)
+	}
+	s.Model, s.Effort, s.HelperModel = model, effort, cmp.Or(helper, core.DefaultHelperModel)
 	return core.NewDefaults(model, settingSource(set, "model"), effort, settingSource(set, "effort"), getenv), nil
 }
 
@@ -132,13 +140,13 @@ func settingSource(set map[string]bool, name string) string {
 
 // settingError names the flag or config key of a bad setting, as in
 // `config.json: "effort" must be one of low, ...`.
-func settingError(name string, set map[string]bool, err error) error {
+func settingError(key string, set map[string]bool, err error) error {
 	msg := strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
-	if set[name] {
-		return &startupError{key: name, err: fmt.Errorf("-%s: %s", name, msg)}
+	if flag := config.Flag(key); set[flag] {
+		return &startupError{key: key, err: fmt.Errorf("-%s: %s", flag, msg)}
 	}
 	if rest, ok := strings.CutPrefix(msg, "Effort must"); ok {
-		return &startupError{key: name, err: fmt.Errorf("config.json: %q must%s", name, strings.TrimSuffix(rest, "."))}
+		return &startupError{key: key, err: fmt.Errorf("config.json: %q must%s", key, strings.TrimSuffix(rest, "."))}
 	}
-	return &startupError{key: name, err: fmt.Errorf("config.json: %q: %s", name, msg)}
+	return &startupError{key: key, err: fmt.Errorf("config.json: %q: %s", key, msg)}
 }

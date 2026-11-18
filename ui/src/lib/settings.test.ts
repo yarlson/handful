@@ -103,6 +103,15 @@ test("values read as words", () => {
   assert.equal(display("claude", undefined), "Default")
 })
 
+test("Helper model values read as the select's words", () => {
+  assert.equal(display("helperModel", ""), "Sonnet")
+  assert.equal(display("helperModel", undefined), "Sonnet")
+  assert.equal(display("helperModel", "inherit"), "Same as the bot")
+  assert.equal(display("helperModel", "haiku"), "Haiku")
+  assert.equal(display("helperModel", "claude-sonnet-5-5"), "claude-sonnet-5-5")
+  assert.equal(display("model", "inherit"), "inherit")
+})
+
 test("a flag-set value names its flag and what config.json says", () => {
   assert.equal(flagName("-effort high"), "-effort")
   assert.equal(flagName(undefined), "")
@@ -128,6 +137,13 @@ test("typed values are checked with the server's rules", () => {
     ["model", "a*b", "A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters."],
     ["model", "a".repeat(201), "A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters."],
     ["model", "a".repeat(200), null],
+    ["helperModel", "", null],
+    ["helperModel", " Inherit ", null],
+    ["helperModel", "SONNET", null],
+    ["helperModel", "claude-sonnet-5-5", null],
+    ["helperModel", "-x", "A model ID can't contain spaces or start with '-'."],
+    ["helperModel", "my model", "A model ID can't contain spaces or start with '-'."],
+    ["helperModel", "a*b", "A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters."],
     ["effort", "", null],
     ["effort", "Max", null],
     ["effort", "ultra", "Effort must be one of low, medium, high, xhigh, max."],
@@ -240,6 +256,7 @@ test("each section and setting has its name", () => {
   assert.deepEqual(LABELS, {
     model: "Default model",
     effort: "Default effort",
+    helperModel: "Helper model",
     maxParallel: "Turns at once",
     claude: "Claude Code program",
     "updates.autoCheck": "Check for updates automatically",
@@ -286,6 +303,7 @@ test("each setting's pending dot lands on its own section", () => {
   ]
   assert.deepEqual(one("claude"), ["general"])
   assert.deepEqual(one("effort"), ["general"])
+  assert.deepEqual(one("helperModel"), ["general"])
   assert.deepEqual(one("updates.autoCheck"), ["updates"])
   assert.deepEqual(one("updates.drainMinutes"), ["updates"])
 })

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -150,16 +151,23 @@ func TestPassedValueIsOnlyAValueThatHandfulSets(t *testing.T) {
 	}
 }
 
-// The executor subagent has no model or effort of its own, so it runs on
-// the bot's.
-func TestExecutorInheritsTheBotsModelAndEffort(t *testing.T) {
+// The executor runs on the Helper model at that model's default effort, or on the bot's model
+// and effort when the Helper model is inherit.
+func TestTheExecutorRunsOnTheHelperModelWithoutAnEffort(t *testing.T) {
 	t.Parallel()
-	for name, def := range executorAgents("B") {
-		d, _ := def.(map[string]any)
-		for _, k := range []string{"model", "effort"} {
-			if _, ok := d[k]; ok {
-				t.Errorf("subagent %s sets %s", name, k)
-			}
+	for helper, want := range map[string]string{"sonnet": `"model":"sonnet"`, "claude-haiku-5-5": `"model":"claude-haiku-5-5"`, "inherit": "", "": ""} {
+		args, err := claudeRun{MCPConfig: "m.json", BotName: "B", SessionID: "s", Flags: runFlags{model: "opus", effort: "high"}, HelperModel: helper}.args()
+		if err != nil {
+			t.Fatal(err)
+		}
+		agents := args[slices.Index(args, "--agents")+1]
+		var defs map[string]map[string]any
+		if err := json.Unmarshal([]byte(agents), &defs); err != nil {
+			t.Fatalf("--agents %s: %v", agents, err)
+		}
+		_, hasModel := defs["executor"]["model"]
+		if _, hasEffort := defs["executor"]["effort"]; hasEffort || len(defs) != 1 || hasModel != (want != "") || !strings.Contains(agents, want) {
+			t.Errorf("Helper model %q: --agents %s; want one executor with %s and no effort", helper, agents, cmp.Or(want, "no model"))
 		}
 	}
 }

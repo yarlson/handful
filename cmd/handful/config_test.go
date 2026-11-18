@@ -28,6 +28,8 @@ func TestConfigFileSetsDefaultsThatFlagsOverride(t *testing.T) {
 		{name: "unknown field", file: `{"modle": "sonnet"}`, wantErr: `unknown field "modle"`}, //nolint:misspell // the misspelled field name is the input under test
 		{name: "trailing data", file: `{"model": "sonnet"} {}`, wantErr: "after the JSON object"},
 		{name: "file sets effort", file: `{"effort": "max"}`, want: settings{Claude: "claude", Effort: "max", MaxParallel: 3}},
+		{name: "file sets the helper model", file: `{"helperModel": "Inherit"}`, want: settings{Claude: "claude", HelperModel: "Inherit", MaxParallel: 3}},
+		{name: "helper model flag wins over file", file: `{"helperModel": "opus"}`, set: map[string]bool{"helper-model": true}, want: defaults},
 		{name: "effort flag wins over file", file: `{"effort": "max", "model": "opus"}`, set: map[string]bool{"effort": true}, want: settings{Claude: "claude", Model: "opus", MaxParallel: 3}},
 		{name: "bad maxParallel", file: `{"maxParallel": 0}`, wantErr: "maxParallel"},
 		{name: "update settings", file: `{"updates": {"autoCheck": true, "drainMinutes": 45}, "updateCheck": true}`, want: settings{Claude: "claude", MaxParallel: 3, Updates: updateSettings{AutoCheck: true, DrainMinutes: 45, UpdateCheck: true}}},
@@ -91,9 +93,21 @@ func TestGlobalDefaultsCheckTheModelAndEffortAndNameTheirSource(t *testing.T) {
 		{settings{Effort: "huge"}, map[string]bool{"effort": true}, `-effort: Effort must be one of low, medium, high, xhigh, max.`},
 		{settings{Model: "a b"}, nil, `config.json: "model": A model ID can't contain spaces or start with '-'.`},
 		{settings{Model: "inherit"}, map[string]bool{"model": true}, `-model: Choose Default instead.`},
+		{settings{HelperModel: "a*b"}, nil, `config.json: "helperModel": A model ID can use only letters, digits and . _ : / @ [ ] -, up to 200 characters.`},
+		{settings{HelperModel: "-x"}, map[string]bool{"helper-model": true}, `-helper-model: A model ID can't contain spaces or start with '-'.`},
 	} {
 		if _, err := globalDefaults(&c.s, c.set, noEnv); err == nil || err.Error() != c.want {
 			t.Errorf("globalDefaults(%+v) err = %v; want %q", c.s, err, c.want)
+		}
+	}
+}
+
+func TestTheHelperModelIsSonnetUnlessSet(t *testing.T) {
+	noEnv := func(string) string { return "" }
+	for in, want := range map[string]string{"": "sonnet", "  ": "sonnet", " INHERIT ": "inherit", "Haiku": "haiku", "claude-opus-5-5": "claude-opus-5-5"} {
+		s := settings{HelperModel: in}
+		if _, err := globalDefaults(&s, nil, noEnv); err != nil || s.HelperModel != want {
+			t.Errorf("globalDefaults with helper model %q = %q, %v; want %q", in, s.HelperModel, err, want)
 		}
 	}
 }

@@ -218,11 +218,12 @@ func (s *server) valueOf(f config.File, loaded bool, key string) valueView {
 
 // startupProblem says why the server would not start with value as key,
 // by the checks of startup that the file's load does not make: the model,
-// the effort, and a Claude Code program that LookPath must find.
+// the effort, the Helper model, and a Claude Code program that LookPath must
+// find.
 func (s *server) startupProblem(key string, value any) string {
 	const after = " The server won't start with it after a restart."
 	text, _ := value.(string) // the values of these keys are text
-	if key == "model" || key == "effort" {
+	if key == "model" || key == "effort" || key == "helperModel" {
 		if ke, ok := errors.AsType[*config.KeyError](config.CheckText(key, text)); ok {
 			return ke.Message + after
 		}

@@ -86,7 +86,7 @@ type Runner struct {
 	now   func() time.Time
 	after func(time.Duration) <-chan time.Time
 	// An idle compaction is due idleDelay after the last request of a session whose context was
-	// at least idleMinContext tokens, and lapses idleGrace after that. Tests lower them.
+	// at least idleMinContext tokens, and lapses idleGrace after that.
 	idleMinContext int64
 	idleDelay      time.Duration
 	idleGrace      time.Duration

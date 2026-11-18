@@ -127,19 +127,19 @@ func TestBusyNamesEachBotOnceAndSortsByNameThenID(t *testing.T) {
 	// id, so their names come from the service; a deleted bot shows its id.
 	t0 := time.UnixMilli(1_000_000)
 	r.running[zed.ID] = runningTurn{since: t0.Add(5 * time.Second)}
-	r.sessions[sessionKey{zed.ID, "room"}] = &session{key: sessionKey{zed.ID, "room"}, bot: zed, tasks: []core.BackgroundTask{{ID: "t1"}}, busySince: t0}
+	r.sessions[sessionKey{botID: zed.ID, roomID: "room"}] = &session{key: sessionKey{botID: zed.ID, roomID: "room"}, bot: zed, tasks: []core.BackgroundTask{{ID: "t1"}}, busySince: t0}
 	r.running[amy2.ID] = runningTurn{}
 	// Amy (1) is busy in two chats; she is listed since the earlier one.
-	r.sessions[sessionKey{amy1.ID, ""}] = &session{key: sessionKey{amy1.ID, ""}, waking: true, busySince: t0.Add(3 * time.Second)}
-	r.sessions[sessionKey{amy1.ID, "room"}] = &session{key: sessionKey{amy1.ID, "room"}, tasks: []core.BackgroundTask{{ID: "t3"}}, busySince: t0.Add(2 * time.Second)}
-	r.sessions[sessionKey{amy1.ID, "later"}] = &session{key: sessionKey{amy1.ID, "later"}, tasks: []core.BackgroundTask{{ID: "t4"}}, busySince: t0.Add(4 * time.Second)}
-	r.sessions[sessionKey{"gone", ""}] = &session{key: sessionKey{"gone", ""}, tasks: []core.BackgroundTask{{ID: "t2"}}}
-	r.sessions[sessionKey{zed.ID, ""}] = &session{key: sessionKey{zed.ID, ""}, bot: zed}
+	r.sessions[sessionKey{botID: amy1.ID, roomID: ""}] = &session{key: sessionKey{botID: amy1.ID, roomID: ""}, waking: true, busySince: t0.Add(3 * time.Second)}
+	r.sessions[sessionKey{botID: amy1.ID, roomID: "room"}] = &session{key: sessionKey{botID: amy1.ID, roomID: "room"}, tasks: []core.BackgroundTask{{ID: "t3"}}, busySince: t0.Add(2 * time.Second)}
+	r.sessions[sessionKey{botID: amy1.ID, roomID: "later"}] = &session{key: sessionKey{botID: amy1.ID, roomID: "later"}, tasks: []core.BackgroundTask{{ID: "t4"}}, busySince: t0.Add(4 * time.Second)}
+	r.sessions[sessionKey{botID: "gone", roomID: ""}] = &session{key: sessionKey{botID: "gone", roomID: ""}, tasks: []core.BackgroundTask{{ID: "t2"}}}
+	r.sessions[sessionKey{botID: zed.ID, roomID: ""}] = &session{key: sessionKey{botID: zed.ID, roomID: ""}, bot: zed}
 	// Aaron's id sorts after every other id, but his name sorts first.
 	r.running["~aaron"] = runningTurn{}
-	r.sessions[sessionKey{"~aaron", ""}] = &session{key: sessionKey{"~aaron", ""}, bot: core.Bot{ID: "~aaron", Name: "Aaron"}}
+	r.sessions[sessionKey{botID: "~aaron", roomID: ""}] = &session{key: sessionKey{botID: "~aaron", roomID: ""}, bot: core.Bot{ID: "~aaron", Name: "Aaron"}}
 	// An idle process, with no turn and no task, keeps nothing waiting.
-	r.sessions[sessionKey{"idle", ""}] = &session{key: sessionKey{"idle", ""}, tasks: []core.BackgroundTask{}}
+	r.sessions[sessionKey{botID: "idle", roomID: ""}] = &session{key: sessionKey{botID: "idle", roomID: ""}, tasks: []core.BackgroundTask{}}
 	r.mu.Unlock()
 
 	want := []core.Busy{
@@ -170,8 +170,8 @@ func TestTheLeadStateSaysWhetherTheRunnerIsPausedAndWhichBotsRun(t *testing.T) {
 	}
 	// A bot whose process wakes for a task turn runs one too.
 	r.mu.Lock()
-	r.sessions[sessionKey{"cy", ""}] = &session{key: sessionKey{"cy", ""}, waking: true}
-	r.sessions[sessionKey{"dee", ""}] = &session{key: sessionKey{"dee", ""}}
+	r.sessions[sessionKey{botID: "cy", roomID: ""}] = &session{key: sessionKey{botID: "cy", roomID: ""}, waking: true}
+	r.sessions[sessionKey{botID: "dee", roomID: ""}] = &session{key: sessionKey{botID: "dee", roomID: ""}}
 	r.mu.Unlock()
 	if s := r.leadState(); !s.Busy["cy"] || s.Busy["dee"] {
 		t.Fatalf("lead state = Cy busy %v, Dee busy %v; want Cy's task turn busy and Dee's idle process not", s.Busy["cy"], s.Busy["dee"])

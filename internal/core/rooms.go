@@ -463,8 +463,11 @@ func (s *Service) RoomHistory(ctx context.Context, roomID, botID string, limit i
 
 // RoomUpdate is what a member needs at the start of its turn in a room.
 type RoomUpdate struct {
-	Room       Bot
+	Room Bot
+	// Seat holds the Claude session and the cursor of the session that the turn runs in: the
+	// seat's own, or the member's session on Step.
 	Seat       RoomSeat
+	Step       Step
 	Messages   []Entry // room messages the member has not seen yet
 	FirstVisit bool
 	// LastSeq is the seq of the last message in Messages, or the member's
@@ -472,10 +475,10 @@ type RoomUpdate struct {
 	LastSeq int64
 }
 
-// PendingRoomUpdate returns the room messages the member has not seen. On the
-// member's first turn it returns the latest messages. It does not mark them
-// seen: MarkRoomSeen does that after the turn has handled them.
-func (s *Service) PendingRoomUpdate(ctx context.Context, roomID, botID string) (RoomUpdate, error) {
+// PendingRoomUpdate returns the room messages that the member's session for step (the seat's
+// own for the zero Step) has not seen. On the session's first turn it returns the latest
+// messages. It does not mark them seen: MarkRoomSeen does that after the turn has handled them.
+func (s *Service) PendingRoomUpdate(ctx context.Context, roomID, botID string, step Step) (RoomUpdate, error) {
 	room, err := s.GetBot(ctx, roomID)
 	if err != nil {
 		return RoomUpdate{}, err
@@ -493,6 +496,13 @@ func (s *Service) PendingRoomUpdate(ctx context.Context, roomID, botID string) (
 	if seat == nil {
 		return RoomUpdate{}, invalid("the bot is no longer a member of %s", room.Name)
 	}
+	if step != (Step{}) {
+		row, err := s.stepSession(ctx, botID, step)
+		if err != nil {
+			return RoomUpdate{}, err
+		}
+		seat.ClaudeSessionID, seat.LastSeenSeq = row.ClaudeSessionID, row.LastSeenSeq
+	}
 	rows, err := s.q.ListConversationAfterSeq(ctx, db.ListConversationAfterSeqParams{BotID: roomID, Seq: seat.LastSeenSeq, Limit: 1000})
 	if err != nil {
 		return RoomUpdate{}, fmt.Errorf("read room %s: %w", roomID, err)
@@ -501,7 +511,7 @@ func (s *Service) PendingRoomUpdate(ctx context.Context, roomID, botID string) (
 	if first && len(rows) > firstRoomContext {
 		rows = rows[len(rows)-firstRoomContext:]
 	}
-	u := RoomUpdate{Room: room, Seat: *seat, FirstVisit: first, LastSeq: seat.LastSeenSeq}
+	u := RoomUpdate{Room: room, Seat: *seat, Step: step, FirstVisit: first, LastSeq: seat.LastSeenSeq}
 	for _, r := range rows {
 		u.Messages = append(u.Messages, toEntry(r))
 		u.LastSeq = r.Seq
@@ -509,8 +519,15 @@ func (s *Service) PendingRoomUpdate(ctx context.Context, roomID, botID string) (
 	return u, nil
 }
 
-// MarkRoomSeen records that the member has seen the room messages up to seq.
-func (s *Service) MarkRoomSeen(ctx context.Context, roomID, botID string, seq int64) error {
+// MarkRoomSeen records that the member's session for step (the seat's own for the zero Step)
+// has seen the room messages up to seq.
+func (s *Service) MarkRoomSeen(ctx context.Context, roomID, botID string, step Step, seq int64) error {
+	if step != (Step{}) {
+		if err := s.q.SetStepSessionSeen(ctx, db.SetStepSessionSeenParams{LastSeenSeq: seq, ItemID: step.ItemID, BotID: botID, Role: step.Role}); err != nil {
+			return fmt.Errorf("mark room %s seen by the %s session of %s on step %s: %w", roomID, step.Role, botID, step.ItemID, err)
+		}
+		return nil
+	}
 	if err := s.q.SetRoomMemberSeen(ctx, db.SetRoomMemberSeenParams{LastSeenSeq: seq, RoomID: roomID, BotID: botID}); err != nil {
 		return fmt.Errorf("mark room %s seen by %s: %w", roomID, botID, err)
 	}

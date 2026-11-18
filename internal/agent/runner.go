@@ -183,12 +183,17 @@ func (r *Runner) leadState() core.LeadState {
 	return core.LeadState{Paused: paused, Busy: busy}
 }
 
-// hasSession reports whether a claude process runs for the bot's seat in a room.
+// hasSession reports whether a claude process runs for the bot in a room: for its seat, or for
+// one of its steps there.
 func (r *Runner) hasSession(botID, roomID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.sessions[sessionKey{botID, roomID}]
-	return ok
+	for key := range r.sessions {
+		if key.botID == botID && key.roomID == roomID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) fireRoutines(ctx context.Context) {
@@ -720,7 +725,7 @@ func (r *Runner) runTurnOnce(ctx context.Context, bot core.Bot, t core.Turn, run
 		return out, err
 	}
 	run.Resume, run.SessionID = false, uuid.NewString()
-	if err := r.saveSession(ctx, bot.ID, t.RoomID, run.SessionID); err != nil {
+	if err := r.saveSession(ctx, turnKey(bot.ID, t), run.SessionID); err != nil {
 		return out, err
 	}
 	if _, err := r.svc.AppendEntry(ctx, t.Transcript(), core.KindEvent, t.ID, map[string]string{"type": "fresh-session", "text": "Started a fresh session after the move."}); err != nil {
@@ -738,14 +743,14 @@ func (r *Runner) finishDelivery(ctx context.Context, bot core.Bot, t core.Turn, 
 	if err := r.svc.AckInbox(ctx, delivered.inbox); err != nil {
 		r.log.Error("acknowledge inbox", "turn", t.ID, "err", err)
 	}
+	key := turnKey(bot.ID, t)
 	if !out.recorded {
-		key := sessionKey{bot.ID, t.RoomID}
-		if _, err := r.svc.ReplaceKnownPrompt(ctx, bot.ID, key.transcript(), delivered.known, run.SessionID, run.SystemPrompt); err != nil {
+		if _, err := r.svc.ReplaceKnownPrompt(ctx, bot.ID, key.transcript(), key.step, delivered.known, run.SessionID, run.SystemPrompt); err != nil {
 			r.log.Error("record the known prompt", "turn", t.ID, "err", err)
 		}
 	}
 	if t.RoomID != "" {
-		if err := r.svc.MarkRoomSeen(ctx, t.RoomID, bot.ID, delivered.roomSeq); err != nil {
+		if err := r.svc.MarkRoomSeen(ctx, t.RoomID, bot.ID, key.step, delivered.roomSeq); err != nil {
 			r.log.Error("mark room seen", "turn", t.ID, "err", err)
 		}
 	}
@@ -811,8 +816,8 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 	if err != nil {
 		return claudeRun{}, delivery{}, err
 	}
-	key := sessionKey{bot.ID, t.RoomID}
-	known, err := r.svc.KnownPrompt(ctx, bot.ID, key.transcript())
+	key := turnKey(bot.ID, t)
+	known, err := r.svc.KnownPrompt(ctx, bot.ID, key.transcript(), key.step)
 	if err != nil {
 		return claudeRun{}, delivery{}, err
 	}
@@ -836,7 +841,7 @@ func (r *Runner) prepare(ctx context.Context, bot core.Bot, t core.Turn) (claude
 	}
 	if !run.Resume {
 		run.SessionID = uuid.NewString()
-		if err := r.saveSession(ctx, bot.ID, t.RoomID, run.SessionID); err != nil {
+		if err := r.saveSession(ctx, key, run.SessionID); err != nil {
 			return claudeRun{}, delivery{}, err
 		}
 	}
@@ -873,7 +878,7 @@ func (r *Runner) onCompacted(s *session, cur *activeTurn, meta *compactMetadata)
 	r.mu.Lock()
 	s.instructions = s.startInstructions
 	r.mu.Unlock()
-	if err := r.svc.SetKnownPrompt(context.Background(), s.key.botID, s.key.transcript(), s.claudeID, s.prompt); err != nil {
+	if err := r.svc.SetKnownPrompt(context.Background(), s.key.botID, s.key.transcript(), s.key.step, s.claudeID, s.prompt); err != nil {
 		r.log.Error("record the known prompt after compaction", "bot", s.key.botID, "err", err)
 	}
 }
@@ -900,7 +905,7 @@ func (r *Runner) runSettings(ctx context.Context, bot core.Bot, t core.Turn) (ru
 // skillCommand); a bot chat's message then holds only what Handful adds.
 func (r *Runner) turnPrompt(ctx context.Context, bot core.Bot, t core.Turn) (prompt, command string, update core.RoomUpdate, err error) {
 	if t.RoomID != "" {
-		update, err = r.svc.PendingRoomUpdate(ctx, t.RoomID, bot.ID)
+		update, err = r.svc.PendingRoomUpdate(ctx, t.RoomID, bot.ID, core.StepOf(t))
 		if err != nil {
 			return "", "", core.RoomUpdate{}, err
 		}
@@ -1157,7 +1162,7 @@ func (r *Runner) compactResult(ctx context.Context, bot core.Bot, t core.Turn, w
 		return "failed", err.Error()
 	}
 	if out.failed() && out.sessionMissing() {
-		if err := r.saveSession(ctx, bot.ID, t.RoomID, ""); err != nil {
+		if err := r.saveSession(ctx, turnKey(bot.ID, t), ""); err != nil {
 			r.log.Error("drop missing session", "turn", t.ID, "err", err)
 		}
 		note(who + "nothing to compact; the stored session no longer exists, so the next turn starts fresh.")
@@ -1188,7 +1193,7 @@ func (r *Runner) runCompact(ctx context.Context, bot core.Bot, t core.Turn, sess
 	if err != nil {
 		return outcome{}, err
 	}
-	return r.sendCommand(ctx, sessionKey{bot.ID, t.RoomID}, bot, t, "/compact", "", flags, func(string) (processStart, error) {
+	return r.sendCommand(ctx, turnKey(bot.ID, t), bot, t, "/compact", "", flags, func(string) (processStart, error) {
 		args, err := compactArgs(sessionID, flags.model, flags.effort, r.svc.DataDir())
 		return processStart{args: args, claudeID: sessionID}, err
 	})
@@ -1200,7 +1205,7 @@ func (r *Runner) runCompact(ctx context.Context, bot core.Bot, t core.Turn, sess
 // to fail.
 func (r *Runner) turnFailed(ctx context.Context, bot core.Bot, t core.Turn, flags runFlags, out outcome, fail func(error)) (string, string) {
 	if out.modelRejected() {
-		r.noteModelFailure(ctx, sessionKey{bot.ID, t.RoomID}, bot.Name, t.ID, flags, out)
+		r.noteModelFailure(ctx, turnKey(bot.ID, t), bot.Name, t.ID, flags, out)
 	} else {
 		fail(errors.New(out.errorText()))
 	}
@@ -1214,19 +1219,22 @@ func kTokens(n int64) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
-// saveSession stores the Claude session of the bot's main chat, or of its seat in a room.
-func (r *Runner) saveSession(ctx context.Context, botID, roomID, sessionID string) error {
-	if roomID != "" {
-		return r.svc.SetRoomSession(ctx, roomID, botID, sessionID)
+// saveSession stores sessionID as the Claude session of key.
+func (r *Runner) saveSession(ctx context.Context, key sessionKey, sessionID string) error {
+	switch {
+	case key.step != core.Step{}:
+		return r.svc.SetStepSession(ctx, key.botID, key.step, sessionID)
+	case key.roomID != "":
+		return r.svc.SetRoomSession(ctx, key.roomID, key.botID, sessionID)
 	}
-	return r.svc.SetSession(ctx, botID, sessionID)
+	return r.svc.SetSession(ctx, key.botID, sessionID)
 }
 
 // runTurn sends the turn's prompt to the claude process of its Claude
 // session, which starts with run's arguments and a new MCP config file when
 // none runs.
 func (r *Runner) runTurn(ctx context.Context, bot core.Bot, t core.Turn, run claudeRun) (outcome, error) {
-	key := sessionKey{bot.ID, t.RoomID}
+	key := turnKey(bot.ID, t)
 	return r.sendCommand(ctx, key, bot, t, r.withInstructionsUpdate(key, run.Prompt), run.Command, run.Flags, func(token string) (processStart, error) {
 		path, signIn, err := r.writeMCPConfig(ctx, bot.ID, token)
 		if err != nil {

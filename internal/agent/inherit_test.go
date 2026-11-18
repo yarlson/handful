@@ -97,7 +97,7 @@ func TestAMentionSentToTheTeamWithSendToAgentCarriesTheTask(t *testing.T) {
 func TestTheTurnThatStartsABackgroundTaskIsRecorded(t *testing.T) {
 	t.Parallel()
 	r := newHarness(t, "reply").runner
-	s := &session{key: sessionKey{"b", "room"}, bot: core.Bot{ID: "b", Name: "Bo"}, open: true, pending: map[string]*command{}}
+	s := &session{key: sessionKey{botID: "b", roomID: "room"}, bot: core.Bot{ID: "b", Name: "Bo"}, open: true, pending: map[string]*command{}}
 	report := func(turnID string, ids ...string) {
 		t.Helper()
 		token, err := r.tokens.issue(runContext{BotID: "b", TurnID: turnID})

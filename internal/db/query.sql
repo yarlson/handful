@@ -260,6 +260,27 @@ UPDATE room_members SET claude_session_id = ? WHERE room_id = ? AND bot_id = ?;
 -- name: SetRoomMemberSeen :exec
 UPDATE room_members SET last_seen_seq = ? WHERE room_id = ? AND bot_id = ?;
 
+-- name: GetStepSession :one
+SELECT claude_session_id, last_seen_seq, prompt_session_id, prompt FROM step_sessions WHERE item_id = ? AND bot_id = ? AND role = ?;
+
+-- name: SetStepSession :exec
+INSERT INTO step_sessions (item_id, bot_id, role, claude_session_id) VALUES (?, ?, ?, ?)
+ON CONFLICT (item_id, bot_id, role) DO UPDATE SET claude_session_id = excluded.claude_session_id;
+
+-- name: SetStepSessionSeen :exec
+UPDATE step_sessions SET last_seen_seq = ? WHERE item_id = ? AND bot_id = ? AND role = ?;
+
+-- name: SetStepSessionPrompt :exec
+UPDATE step_sessions SET prompt_session_id = ?, prompt = ? WHERE item_id = ? AND bot_id = ? AND role = ?;
+
+-- name: ReplaceStepSessionPrompt :execrows
+UPDATE step_sessions SET prompt_session_id = sqlc.arg(session_id), prompt = sqlc.arg(prompt)
+WHERE item_id = sqlc.arg(item_id) AND bot_id = sqlc.arg(bot_id) AND role = sqlc.arg(role)
+  AND prompt_session_id = sqlc.arg(was_session_id) AND prompt = sqlc.arg(was_prompt);
+
+-- name: DeleteTeamStepSessions :exec
+DELETE FROM step_sessions WHERE item_id IN (SELECT id FROM items WHERE team_id = ?);
+
 -- name: ListConversationAfterSeq :many
 SELECT * FROM entries
 WHERE bot_id = ? AND seq > ? AND kind IN ('user', 'bot', 'agent')

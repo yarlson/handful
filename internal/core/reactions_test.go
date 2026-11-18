@@ -291,11 +291,11 @@ func TestSetReactionDoesNotWakeBots(t *testing.T) {
 	drainQueue(t, svc)
 	seen := map[string]int64{}
 	for n, b := range bots {
-		u, err := svc.PendingRoomUpdate(ctx, room.ID, b.ID)
+		u, err := svc.PendingRoomUpdate(ctx, room.ID, b.ID, Step{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := svc.MarkRoomSeen(ctx, room.ID, b.ID, u.LastSeq); err != nil {
+		if err := svc.MarkRoomSeen(ctx, room.ID, b.ID, Step{}, u.LastSeq); err != nil {
 			t.Fatal(err)
 		}
 		seen[n] = u.LastSeq
@@ -315,7 +315,7 @@ func TestSetReactionDoesNotWakeBots(t *testing.T) {
 		if inbox, _ := svc.Inbox(ctx, b.ID); len(inbox) != 0 {
 			t.Fatalf("%s inbox = %+v; want empty", n, inbox)
 		}
-		u, err := svc.PendingRoomUpdate(ctx, room.ID, b.ID)
+		u, err := svc.PendingRoomUpdate(ctx, room.ID, b.ID, Step{})
 		if err != nil {
 			t.Fatal(err)
 		}

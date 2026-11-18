@@ -25,7 +25,7 @@ func TestKnownPromptBelongsToOneSessionOfOneChat(t *testing.T) {
 	}
 	get := func(chatID, sessionID string) known {
 		t.Helper()
-		stored, err := svc.KnownPrompt(ctx, ana.ID, chatID)
+		stored, err := svc.KnownPrompt(ctx, ana.ID, chatID, Step{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -35,10 +35,10 @@ func TestKnownPromptBelongsToOneSessionOfOneChat(t *testing.T) {
 	if got := get(ana.ID, "s1"); got != (known{}) {
 		t.Fatalf("known prompt before any = %+v; want none", got)
 	}
-	if err := svc.SetKnownPrompt(ctx, ana.ID, ana.ID, "s1", "# You are Ana\n"); err != nil {
+	if err := svc.SetKnownPrompt(ctx, ana.ID, ana.ID, Step{}, "s1", "# You are Ana\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetKnownPrompt(ctx, ana.ID, room.ID, "r1", ""); err != nil {
+	if err := svc.SetKnownPrompt(ctx, ana.ID, room.ID, Step{}, "r1", ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -54,7 +54,7 @@ func TestKnownPromptBelongsToOneSessionOfOneChat(t *testing.T) {
 			t.Errorf("known prompt of chat %s, session %s = %+v; want %+v", c.chat, c.session, got, c.want)
 		}
 	}
-	if err := svc.SetKnownPrompt(ctx, ana.ID, ana.ID, "s2", "# You are Ana, again\n"); err != nil {
+	if err := svc.SetKnownPrompt(ctx, ana.ID, ana.ID, Step{}, "s2", "# You are Ana, again\n"); err != nil {
 		t.Fatal(err)
 	}
 	if got := get(ana.ID, "s1"); got != (known{}) {
@@ -77,7 +77,7 @@ func TestReplaceKnownPromptKeepsWhatWasStoredInBetween(t *testing.T) {
 	}
 	read := func() KnownPrompt {
 		t.Helper()
-		k, err := svc.KnownPrompt(ctx, ana.ID, ana.ID)
+		k, err := svc.KnownPrompt(ctx, ana.ID, ana.ID, Step{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +85,7 @@ func TestReplaceKnownPromptKeepsWhatWasStoredInBetween(t *testing.T) {
 	}
 	replace := func(was KnownPrompt, sessionID, prompt string) bool {
 		t.Helper()
-		ok, err := svc.ReplaceKnownPrompt(ctx, ana.ID, ana.ID, was, sessionID, prompt)
+		ok, err := svc.ReplaceKnownPrompt(ctx, ana.ID, ana.ID, Step{}, was, sessionID, prompt)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func TestReplaceKnownPromptKeepsWhatWasStoredInBetween(t *testing.T) {
 	if !replace(p0, "s1", "P1") || read() != (KnownPrompt{"s1", "P1", true}) {
 		t.Fatalf("store over P0: stored %+v; want P1", read())
 	}
-	if err := svc.SetKnownPrompt(ctx, ana.ID, ana.ID, "s1", "P0"); err != nil {
+	if err := svc.SetKnownPrompt(ctx, ana.ID, ana.ID, Step{}, "s1", "P0"); err != nil {
 		t.Fatal(err)
 	}
 	if replace(KnownPrompt{"s1", "P1", true}, "s1", "P1") || read() != (KnownPrompt{"s1", "P0", true}) {

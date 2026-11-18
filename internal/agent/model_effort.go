@@ -135,7 +135,7 @@ type modelReport struct {
 func (r *Runner) ModelReport(botID, roomID string) (id string, mismatch bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	rep := r.models[sessionKey{botID, roomID}]
+	rep := r.models[sessionKey{botID: botID, roomID: roomID}]
 	return rep.id, rep.mismatch
 }
 
@@ -158,8 +158,8 @@ func (r *Runner) noteInitModel(ctx context.Context, s *session, turnID, reported
 	}
 	rep := modelReport{requested: s.flags.model, id: reported, mismatch: modelMismatch(s.flags.model, reported)}
 	r.mu.Lock()
-	prev := r.models[s.key]
-	r.models[s.key] = rep
+	prev := r.models[s.key.seat()]
+	r.models[s.key.seat()] = rep
 	r.mu.Unlock()
 	r.svc.SetModelAttention(s.key.botID, rep.mismatch)
 	if !rep.mismatch || prev == rep {

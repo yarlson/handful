@@ -2069,7 +2069,7 @@ func TestOnlyConversationInARoomHoldsUpTheNextConversationTurn(t *testing.T) {
 		if r.running == nil {
 			r.running = map[string]runningTurn{}
 		}
-		r.sessions = map[sessionKey]*session{{"b", "t"}: {key: sessionKey{"b", "t"}, waking: c.waking}}
+		r.sessions = map[sessionKey]*session{{botID: "b", roomID: "t"}: {key: sessionKey{botID: "b", roomID: "t"}, waking: c.waking}}
 		got := r.chatBusyLocked("t")
 		r.mu.Unlock()
 		if got != c.want {

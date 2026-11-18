@@ -513,8 +513,8 @@ func TestModelFailureNamesAnInheritedSourceAndOrganizationLimits(t *testing.T) {
 	ctx := context.Background()
 	bot := h.newBot(t)
 	out := outcome{resultError: true, modelNotFound: true, resultText: "Your organization does not allow this model.\nmore"}
-	h.runner.noteModelFailure(ctx, sessionKey{bot.ID, ""}, bot.Name, "t1", runFlags{model: "opus", modelSource: core.SourceTeam}, out)
-	h.runner.noteModelFailure(ctx, sessionKey{bot.ID, ""}, bot.Name, "t2", runFlags{modelSource: core.SourceEnv}, outcome{exitErr: os.ErrClosed, stderr: "[claude-code:unrecognized_model] {}"})
+	h.runner.noteModelFailure(ctx, sessionKey{botID: bot.ID, roomID: ""}, bot.Name, "t1", runFlags{model: "opus", modelSource: core.SourceTeam}, out)
+	h.runner.noteModelFailure(ctx, sessionKey{botID: bot.ID, roomID: ""}, bot.Name, "t2", runFlags{modelSource: core.SourceEnv}, outcome{exitErr: os.ErrClosed, stderr: "[claude-code:unrecognized_model] {}"})
 	entries, _ := h.svc.Entries(ctx, bot.ID, 0, 0)
 	var texts []string
 	for _, e := range entries {
@@ -608,7 +608,7 @@ func TestRoomPostsThroughMCPRecordTheRunsModel(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	team, ana, _, _ := h.newTeam(t)
-	h.runner.models[sessionKey{ana.ID, team.ID}] = modelReport{id: "claude-opus-5-5"}
+	h.runner.models[sessionKey{botID: ana.ID, roomID: team.ID}] = modelReport{id: "claude-opus-5-5"}
 	srv := httptest.NewServer(h.runner.MCPHandler())
 	t.Cleanup(srv.Close)
 	token, err := h.runner.tokens.issue(runContext{BotID: ana.ID, BotName: "Ana", TurnID: "t1", RoomID: team.ID, Post: core.PostMeta{Model: "opus", Effort: "max"}})
@@ -656,7 +656,7 @@ func TestMismatchAttentionClearsOnAMatchingRun(t *testing.T) {
 	h := newHarness(t, "reply")
 	ctx := context.Background()
 	bot := h.newBot(t)
-	s := &session{key: sessionKey{bot.ID, ""}, bot: bot, flags: runFlags{model: "opus", modelSource: core.SourceBot}}
+	s := &session{key: sessionKey{botID: bot.ID, roomID: ""}, bot: bot, flags: runFlags{model: "opus", modelSource: core.SourceBot}}
 	h.runner.noteInitModel(ctx, s, "t1", "claude-sonnet-5-5")
 	if a := attentionOf(t, h, bot.ID); a != core.AttentionModel {
 		t.Fatalf("attention after a mismatch = %q; want model", a)
@@ -764,11 +764,11 @@ func TestAModelNoticeThatCannotBeSavedIsLogged(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, "reply")
 	bot := h.newBot(t)
-	h.runner.modelEntry(context.Background(), sessionKey{bot.ID, ""}, bot.Name, "t1", "model-mismatch", "ok")
+	h.runner.modelEntry(context.Background(), sessionKey{botID: bot.ID, roomID: ""}, bot.Name, "t1", "model-mismatch", "ok")
 	if logs := h.logs.String(); logs != "" {
 		t.Fatalf("a saved notice logged %q", logs)
 	}
-	h.runner.modelEntry(context.Background(), sessionKey{"no-such-bot", ""}, "X", "t1", "model-mismatch", "lost")
+	h.runner.modelEntry(context.Background(), sessionKey{botID: "no-such-bot", roomID: ""}, "X", "t1", "model-mismatch", "lost")
 	if logs := h.logs.String(); !strings.Contains(logs, "record a model notice") {
 		t.Fatalf("logs = %q; want the failed notice", logs)
 	}

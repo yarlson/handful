@@ -28,8 +28,13 @@ func (k KnownPrompt) For(sessionID string) (prompt string, known bool) {
 	return k.Prompt, true
 }
 
-// KnownPrompt returns what Handful stored for the bot's chat chatID.
-func (s *Service) KnownPrompt(ctx context.Context, botID, chatID string) (KnownPrompt, error) {
+// KnownPrompt returns what Handful stored for the bot's chat chatID, or for its session on step
+// in that room.
+func (s *Service) KnownPrompt(ctx context.Context, botID, chatID string, step Step) (KnownPrompt, error) {
+	if step != (Step{}) {
+		row, err := s.stepSession(ctx, botID, step)
+		return KnownPrompt{SessionID: row.PromptSessionID, Prompt: row.Prompt, Stored: row.PromptSessionID != ""}, err
+	}
 	row, err := s.q.GetSessionPrompt(ctx, db.GetSessionPromptParams{BotID: botID, ChatID: chatID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return KnownPrompt{}, nil
@@ -40,23 +45,34 @@ func (s *Service) KnownPrompt(ctx context.Context, botID, chatID string) (KnownP
 	return KnownPrompt{SessionID: row.SessionID, Prompt: row.Prompt, Stored: true}, nil
 }
 
-// SetKnownPrompt records prompt as what the bot's Claude session sessionID in chat chatID knows.
-func (s *Service) SetKnownPrompt(ctx context.Context, botID, chatID, sessionID, prompt string) error {
+// SetKnownPrompt records prompt as what the bot's Claude session sessionID in chat chatID, or on
+// step there, knows.
+func (s *Service) SetKnownPrompt(ctx context.Context, botID, chatID string, step Step, sessionID, prompt string) error {
+	if step != (Step{}) {
+		if err := s.q.SetStepSessionPrompt(ctx, db.SetStepSessionPromptParams{PromptSessionID: sessionID, Prompt: prompt, ItemID: step.ItemID, BotID: botID, Role: step.Role}); err != nil {
+			return fmt.Errorf("record the known prompt of the %s session of bot %s on step %s: %w", step.Role, botID, step.ItemID, err)
+		}
+		return nil
+	}
 	if err := s.q.SetSessionPrompt(ctx, db.SetSessionPromptParams{BotID: botID, ChatID: chatID, SessionID: sessionID, Prompt: prompt}); err != nil {
 		return fmt.Errorf("record the known prompt of bot %s in chat %s: %w", botID, chatID, err)
 	}
 	return nil
 }
 
-// ReplaceKnownPrompt records prompt as what the bot's Claude session sessionID in chat chatID
-// knows, only when the chat still holds was, what the caller read before. It returns false when
-// something else, such as a compaction, stored a prompt since; that stays.
-func (s *Service) ReplaceKnownPrompt(ctx context.Context, botID, chatID string, was KnownPrompt, sessionID, prompt string) (bool, error) {
+// ReplaceKnownPrompt records prompt as what the bot's Claude session sessionID in chat chatID, or
+// on step there, knows, only when Handful still holds was, what the caller read before. It
+// returns false when something else, such as a compaction, stored a prompt since; that stays.
+func (s *Service) ReplaceKnownPrompt(ctx context.Context, botID, chatID string, step Step, was KnownPrompt, sessionID, prompt string) (bool, error) {
 	var n int64
 	var err error
-	if was.Stored {
+	switch {
+	case step != (Step{}):
+		// A step session's row holds '' for both while nothing is stored.
+		n, err = s.q.ReplaceStepSessionPrompt(ctx, db.ReplaceStepSessionPromptParams{SessionID: sessionID, Prompt: prompt, ItemID: step.ItemID, BotID: botID, Role: step.Role, WasSessionID: was.SessionID, WasPrompt: was.Prompt})
+	case was.Stored:
 		n, err = s.q.ReplaceSessionPrompt(ctx, db.ReplaceSessionPromptParams{SessionID: sessionID, Prompt: prompt, BotID: botID, ChatID: chatID, WasSessionID: was.SessionID, WasPrompt: was.Prompt})
-	} else {
+	default:
 		n, err = s.q.AddSessionPrompt(ctx, db.AddSessionPromptParams{BotID: botID, ChatID: chatID, SessionID: sessionID, Prompt: prompt})
 	}
 	if err != nil {

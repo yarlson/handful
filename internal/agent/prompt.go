@@ -20,7 +20,6 @@ type promptContext struct {
 	// OwnWorkspace is the bot's own workspace in a turn in a team.
 	OwnWorkspace string
 	OtherTeams   []core.Bot // in a turn in a team, the user's other teams
-	Defaults     core.Defaults // the global model and effort, which a member line shows when nothing else sets them
 	Profile      []core.Memory
 	Recent       []core.Memory
 	Routines     []core.Routine
@@ -31,6 +30,8 @@ type promptContext struct {
 	// InstructionsFile holds the bot's standing instructions; Claude Code loads it.
 	InstructionsFile string
 	Groups           []core.Bot // for Builder: the user's rooms and teams
+	// Defaults are the global model and effort, which a member line shows when nothing else sets them.
+	Defaults core.Defaults
 }
 
 // formatFact renders a fact with who wrote it. authors maps bot ids to the

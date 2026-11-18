@@ -22,6 +22,9 @@ type idleClock struct {
 	mu    sync.Mutex
 	at    time.Time
 	waits chan idleWait
+	// ended closes when the runner's goroutines end; nil when no wait for them is going.
+	// Only the test's goroutine uses it.
+	ended chan struct{}
 }
 
 type idleWait struct {
@@ -83,10 +86,16 @@ func newIdleHarness(t *testing.T, mode, call string) (*harness, *idleClock) {
 // waits and returns its wait.
 func (c *idleClock) settle(t *testing.T, h *harness) *idleWait {
 	t.Helper()
-	ended := make(chan struct{})
-	go func() { h.runner.wg.Wait(); close(ended) }()
+	// A wait that an idle wait cut short goes on. The next settle waits for it again instead of
+	// starting another: the next dispatch's wg.Add from 0 must come after that Wait returns.
+	if c.ended == nil {
+		ended := make(chan struct{})
+		go func() { h.runner.wg.Wait(); close(ended) }()
+		c.ended = ended
+	}
 	select {
-	case <-ended:
+	case <-c.ended:
+		c.ended = nil
 		return nil
 	case w := <-c.waits:
 		return &w

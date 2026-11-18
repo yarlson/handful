@@ -174,6 +174,30 @@ func TestARoomTurnAfterAStepTurnGetsEachMessageOnce(t *testing.T) {
 	}
 }
 
+// A live process on a member's step counts as the member's session in that step's room, so the
+// step is not settled as stopped while it runs; a process in another room does not count.
+func TestAStepProcessCountsAsASessionInItsRoomOnly(t *testing.T) {
+	t.Parallel()
+	r := newHarness(t, "reply").runner
+	onStep := sessionKey{botID: "bo", roomID: "team", step: core.Step{ItemID: "i1", Role: core.RoleWork}}
+	elsewhere := sessionKey{botID: "cy", roomID: "other"}
+	r.sessions[onStep] = &session{key: onStep}
+	r.sessions[elsewhere] = &session{key: elsewhere}
+	for _, c := range []struct {
+		botID, roomID string
+		want          bool
+	}{
+		{"bo", "team", true},
+		{"bo", "other", false},
+		{"cy", "team", false},
+		{"cy", "other", true},
+	} {
+		if got := r.hasSession(c.botID, c.roomID); got != c.want {
+			t.Errorf("hasSession(%s, %s) = %v; want %v", c.botID, c.roomID, got, c.want)
+		}
+	}
+}
+
 // After the team's context is cleared, the owner's next turn on the step starts a new session.
 func TestClearContextStartsANewStepSession(t *testing.T) {
 	t.Parallel()

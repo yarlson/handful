@@ -24,7 +24,16 @@ import { RadioGroup } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { draftOf, leadEdit, rebase, reviewerCandidates, savePlan, unsaved, type BotDraft, type TeamDraft } from "@/lib/bot-settings"
+import {
+  draftOf,
+  leadEdit,
+  rebase,
+  reviewerCandidates,
+  savePlan,
+  unsaved,
+  type BotDraft,
+  type TeamDraft,
+} from "@/lib/bot-settings"
 import { failed, modelError, saved, type SaveResult } from "@/lib/save"
 import { panelTabs, shownTab, type PanelTab, type Reading } from "@/lib/place"
 import { skillLayerLabel } from "@/lib/skills"
@@ -612,10 +621,7 @@ function TeamFields({
           id="team-settings-reviewer"
           value={draft.reviewerId}
           describedBy="team-settings-reviewer-help"
-          options={[
-            { value: "", label: "None" },
-            ...reviewerCandidates(members, draft.leadId).map(memberOption),
-          ]}
+          options={[{ value: "", label: "None" }, ...reviewerCandidates(members, draft.leadId).map(memberOption)]}
           onChange={(reviewerId) => onDraft({ reviewerId })}
         />
         <p id="team-settings-reviewer-help" className="text-muted-foreground text-xs">

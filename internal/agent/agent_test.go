@@ -753,7 +753,7 @@ func TestFirstTurnStartsSessionAndLaterTurnsResumeIt(t *testing.T) {
 		t.Fatalf("calls = %q; want --session-id then --resume of %s", calls, got.ClaudeSessionID)
 	}
 	allowed := regexp.MustCompile(`--allowedTools (\S+)`).FindStringSubmatch(calls[0])
-	for _, tool := range []string{"find_artifacts", "read_artifact", "update_artifact", "update_skill", "update_profile", "create_setup"} {
+	for _, tool := range []string{"find_artifacts", "read_artifact", "update_artifact", "update_skill", "update_profile", "list_members", "create_setup"} {
 		if allowed == nil || !strings.Contains(allowed[1], "mcp__handful__"+tool) {
 			t.Errorf("first call does not allow %s without approval: %v", tool, allowed)
 		}

@@ -307,6 +307,7 @@ test("each setting's pending dot lands on its own section", () => {
   assert.deepEqual(one("claude"), ["general"])
   assert.deepEqual(one("effort"), ["general"])
   assert.deepEqual(one("helperModel"), ["general"])
+  assert.deepEqual(one("idleCompaction"), ["general"])
   assert.deepEqual(one("updates.autoCheck"), ["updates"])
   assert.deepEqual(one("updates.drainMinutes"), ["updates"])
 })

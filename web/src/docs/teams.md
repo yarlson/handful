@@ -40,7 +40,7 @@ For work with several steps, send the team a task. Type `/task` and what the tea
 
 `/goal` still works too. **New task…** in **Across teams** does the same for any team.
 
-You can also ask a team's lead in its own chat, for example "add CSV export to the team's tasks". The lead adds it to the team's board as your task, the same as `/task`, and starts it at once only when you ask for that. When you ask the lead in its own chat for work that a member fits, it also adds the work to the board and tells you so. It does the work itself only when you ask it to or no member fits. Only the lead does this, in its own chat, in a turn that your message started: a member, a routine or a turn that another bot's message started cannot add a task this way. Messages that other bots left for the lead arrive in that turn too, so check that the task is one you asked for.
+You can also ask a team's lead in its own chat, for example "add CSV export to the team's tasks". The lead adds it to the team's board as your task, the same as `/task`, and starts it at once only when you ask for that. When you ask the lead in its own chat for work that is more than a quick question, it also adds the work to the board before it starts on it, and tells you so. It does the work in its own chat only when you ask it to. Only the lead does this, in its own chat, in a turn that your message started: a member, a routine or a turn that another bot's message started cannot add a task this way. Messages that other bots left for the lead arrive in that turn too, so check that the task is one you asked for.
 
 ### 1. The lead decides
 

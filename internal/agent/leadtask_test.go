@@ -128,7 +128,7 @@ func TestALeadIsToldItAddsTheUsersTaskFromItsChat(t *testing.T) {
 	now := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	team := core.Bot{ID: "t", Name: "Ship", Kind: core.KindRoom, Members: []core.Member{{ID: "a", Name: "Ana"}, {ID: "b", Name: "Bo"}}, Team: &core.Team{LeadID: "a"}}
 	lead := systemPrompt(promptContext{Bot: core.Bot{ID: "a", Name: "Ana"}, Rooms: []core.Bot{team}, Now: now})
-	line := `- You lead team "Ship" (id t). Work for your team goes to its board: when the user asks you here for work that a member of your team fits, add it with update_board user_task`
+	line := `- You lead team "Ship" (id t). Work for your team goes to its board: when the user asks you here for work that is more than a quick question, add it with update_board user_task`
 	if !strings.Contains(lead, line) {
 		t.Errorf("Ana's own prompt lacks %q", line)
 	}

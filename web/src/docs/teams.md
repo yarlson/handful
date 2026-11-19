@@ -8,7 +8,7 @@ A team is a group of bots that work together for you. It has a lead, a working a
 
 Ask Builder, or click **New team**, the plus sign next to **Teams**. Give the team a name and a purpose, choose its members and its lead, and write the working agreement.
 
-The working agreement holds your rules for how the team works and when work is done, for example "Tests pass, and another member reviews each change." Inside the team, it overrides each member's own instructions on how work is done and checked. A step gets a reviewer when the agreement asks for a check.
+The working agreement holds your rules for how the team works and when work is done, for example "Tests pass, and another member reviews each change." Inside the team, it overrides each member's own instructions on how work is done and checked.
 
 To change the lead or the agreement later, open the team panel, then **Settings**. When the lead leaves the team, the first member leads.
 
@@ -16,7 +16,7 @@ To change the lead or the agreement later, open the team panel, then **Settings*
 
 ## Talk to a team
 
-- A message that mentions no one goes to the lead. The lead answers it, or @mentions the member who should do the work.
+- A message that mentions no one goes to the lead. The lead answers a quick question itself and gives other work to the member who fits it.
 - `@Name` wakes one member. `@here` wakes every member.
 
 ## What the members share
@@ -40,7 +40,7 @@ For work with several steps, send the team a task. Type `/task` and what the tea
 
 `/goal` still works too. **New task…** in **Across teams** does the same for any team.
 
-You can also ask a team's lead in its own chat, for example "add CSV export to the team's tasks". The lead adds it to the team's board as your task, the same as `/task`, and starts it at once only when you ask for that. Only the lead does this, in its own chat, in a turn that your message started: a member, a routine or a turn that another bot's message started cannot add a task this way. Messages that other bots left for the lead arrive in that turn too, so check that the task is one you asked for.
+You can also ask a team's lead in its own chat, for example "add CSV export to the team's tasks". The lead adds it to the team's board as your task, the same as `/task`, and starts it at once only when you ask for that. When you ask the lead in its own chat for work that is more than a quick question, it also adds the work to the board before it starts on it, and tells you so. It does the work in its own chat only when you ask it to. Only the lead does this, in its own chat, in a turn that your message started: a member, a routine or a turn that another bot's message started cannot add a task this way. Messages that other bots left for the lead arrive in that turn too, so check that the task is one you asked for.
 
 ### 1. The lead decides
 
@@ -60,7 +60,7 @@ The task comes to you when the time runs out. It also comes to you when a lead t
 
 ### 2. The members do the steps
 
-The task that the team works on is the **Now** task. The lead splits it into steps. Each step has a brief, acceptance criteria and one owner. When the working agreement asks for a check, the step also has a reviewer, who is another member.
+The task that the team works on is the **Now** task. The lead splits it into steps. Each step has a brief, acceptance criteria and one owner. It also has a reviewer: the team's **Reviewer**, or the lead when the team has none or the reviewer owns the step. The working agreement can name other reviewers or no review.
 
 - A step starts when it is ready. A step that depends on others waits for them. Steps that do not depend on each other can run at the same time when different members own them, because a bot runs one turn at a time.
 - The owner submits the result. The reviewer passes it or asks for changes. Every third request for changes blocks the step, and the lead decides what to do.

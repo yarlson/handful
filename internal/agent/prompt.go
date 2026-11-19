@@ -257,7 +257,7 @@ func teamSection(pc promptContext) string {
 `, agreement, pc.OwnWorkspace)
 	b.WriteString(reportRooms(pc))
 	if lead.ID == pc.Bot.ID {
-		b.WriteString("- You are the lead, the team's front door: a post from the user without @mentions comes to you. Answer it yourself when you can, or @mention the member who should do the work. Use the fewest members that fit the task, and give each one a self-contained request: the goal, the inputs and what to report.\n")
+		b.WriteString("- You are the lead, the team's front door: a post from the user without @mentions comes to you. You plan and assign; the members do the work. Answer a quick question yourself. Give other work to the member who fits it, with a self-contained request: the goal, the inputs and what to report. Use the fewest members that fit the task. The Delegating section covers only work you keep.\n")
 		b.WriteString("- " + leadGatekeeper + "\n")
 		b.WriteString("- When the user asks for work with several steps, or work for several members, make it a task in that turn: propose it with update_board propose, then take it. Answer small requests without a task.\n")
 		b.WriteString(otherTeams(pc))
@@ -311,7 +311,7 @@ func boardPrompt(bot, team core.Bot, board core.Board, t core.Turn, changes []co
 	if !leads {
 		return text
 	}
-	return text + leadBriefs(board)
+	return text + leadBriefs(team, board)
 }
 
 // boardEmpty reports whether a board has no task to show.
@@ -321,10 +321,10 @@ func boardEmpty(board core.Board) bool {
 
 // leadBriefs is what the lead must do about its board: plan the Now task,
 // decide on the inbox and turn work on no task into tasks.
-func leadBriefs(board core.Board) string {
+func leadBriefs(team core.Bot, board core.Board) string {
 	var text string
 	if board.Goal != nil {
-		text += leadBrief
+		text += fmt.Sprintf(leadBrief, stepReviewerLine(team))
 	}
 	if len(board.Inbox) > 0 {
 		text += inboxBrief
@@ -746,15 +746,27 @@ Approve each done task your team proposed (with propose or make_task) once its r
 // leadBrief tells the lead how to run a goal.
 const leadBrief = `
 You lead this task. Keep the board moving with update_board:
-- Split the task into steps with create. Give each step a self-contained brief (what to achieve, the inputs, the constraints and where to put the result) and acceptance criteria that a reviewer can check. Give it one owner (owner_id), and a reviewer (reviewer_id) other than the owner when the working agreement asks for a check.
+- Split the task into steps with create. Give each step a self-contained brief (what to achieve, the inputs, the constraints and where to put the result) and acceptance criteria that a reviewer can check. Give it one owner (owner_id). Put each part of the task, such as a check against the code, in a step's brief, never only in a review. %s The working agreement can name other reviewers or no review; a step that also does other work the task asks for gets the reviewer that the other work needs.
 - Use the fewest steps and members that fit. Give work that changes the same files to one owner, or make one step depend on the other with depends_on. Only independent steps run at the same time.
 - Answer a blocked step with unblock and a note, or ask the user in the channel with needs_reply when only they can decide. Assign a step that a member proposes only when the task needs it; drop the other proposals and the steps that are no longer needed, with a note.
-- You can own small steps yourself.
+- Give each step to the member who fits it; when several fit, to the one on the cheaper model or lower effort. Own a step yourself only when no member fits.
+- When the reviewer passes a step, don't check it again: close the task from the step results.
 - A member who reviews a step that is in review can't use Edit or Write in any turn in this team until that step leaves review. Give it file work only after that, or give the review to another member.
 - When a step of this task waits on work that another team does, send that team a task with send_task and name the step in waits_for; that team pays for the work, and you are woken when that team asks you, pushes back or delivers; your board shows its state under "Sent to other teams" meanwhile.
 - When every step is done or dropped, call close with goal_id and text: the result, what was done and where it is, and one line for each thing found but left out of scope. Your next planned task starts at once. The task then waits for approval: the user approves a task from the user, and the sending team's lead one from another team. A task your team proposed, with propose or make_task, you approve yourself.
 The members' turns start on their own when their steps are ready; never wait or poll for them.
 `
+
+// stepReviewerLine tells the lead who reviews each step: the team's Reviewer setting at this
+// turn, or the lead when the team has none.
+func stepReviewerLine(team core.Bot) string {
+	i := slices.IndexFunc(team.Members, func(m core.Member) bool { return m.ID == team.Team.ReviewerID })
+	if i < 0 {
+		return "The team has no reviewer: make yourself the reviewer (reviewer_id) of each step."
+	}
+	r := team.Members[i]
+	return fmt.Sprintf("The team's reviewer is %s (id %s): make it the reviewer (reviewer_id) of each step, and make yourself the reviewer of a step that %s owns.", r.Name, r.ID, r.Name)
+}
 
 // ledTeamsLine tells a team's lead, in its own chat, that it adds the work the user asks for here
 // to its team's board, instead of only asking the team in its channel.
@@ -771,7 +783,7 @@ func ledTeamsLine(pc promptContext) string {
 	if len(led) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("- You lead team %s. When the user asks you here to give work to your team, add it to the team's board yourself with update_board user_task (team_id when you lead several), so it is tracked as the user's task; start_now only when the user asks for it. update_board list shows the board here; plan and split the task in your turns in the team.\n", strings.Join(led, ", "))
+	return fmt.Sprintf("- You lead team %s. Work for your team goes to its board: when the user asks you here for work that is more than a quick question, add it with update_board user_task (team_id when you lead several) before you read or run anything for it, so it is tracked as the user's task, and tell the user it is on the board; start_now only when the user asks for it. Answer a quick question yourself: one you can answer in a handful of tool calls. Going through many items, such as issues, files or logs, is work, even when one command lists them. Do the work here only when the user asks you to do it yourself. Plan board work in your turns in the team, where you give it to a member, or own it when no member fits. The Delegating section covers only work you keep. list_members shows your team's members with their model, effort and current work; update_board list shows the board.\n", strings.Join(led, ", "))
 }
 
 func teammatesSection(pc promptContext) string {

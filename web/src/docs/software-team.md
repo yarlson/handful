@@ -26,7 +26,7 @@ Builder's starter for this request is a team of three: a lead who plans and spli
 Open the team's chat, then the panel, then **Settings**.
 
 - The purpose names the folder with the code. Every member reads the purpose on each turn in the team. Each bot also has its own folder, and the team has a shared folder, `~/.handful/teams/<team id>/workspace`, for the team's notes and files.
-- The working agreement holds your rules for how the team works and when work is done. Inside the team, it overrides each member's own instructions on how work is done and checked. A step gets a reviewer when the agreement asks for a check.
+- The working agreement holds your rules for how the team works and when work is done. Inside the team, it overrides each member's own instructions on how work is done and checked. Each step gets a reviewer: the bot you pick as **Reviewer** in the team's **Settings**, or the lead when there is none. The working agreement can say otherwise.
 - Say in the agreement who commits, who pushes and who merges, for example "Open a pull request. Only I merge." Handful has no merge step of its own. A bot merges only with a command, and a command asks you first.
 
 The agreement is an instruction to the bots. It is not a lock. The approval cards are the lock.
